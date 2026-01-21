@@ -5,3 +5,4 @@ old
 .env
 .pytest_cache
 data
+tests/debug

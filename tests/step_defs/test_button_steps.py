@@ -17,6 +17,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 # Load feature files
 scenarios('../../tests/features/button_click.feature')
 
+pytestmark = pytest.mark.bdd
+
+@pytest.fixture(scope="session")
+def enable_debug():
+    """Fixture to enable debug mode (screenshots, logging)."""
+    # Read from environment variable or default to False
+    debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
+    print(f"Debug mode: {'ENABLED' if debug_enabled else 'DISABLED'}")
+    return debug_enabled
+
 
 @pytest.fixture(scope="session")
 def streamlit_server():
@@ -82,13 +92,32 @@ def page(browser_context):
 
 
 @pytest.fixture
+def debug_dir(enable_debug):
+    """Create debug directory if debug mode is enabled."""
+    if enable_debug:
+        debug_path = os.path.join("tests", "debug")
+        os.makedirs(debug_path, exist_ok=True)
+        print(f"Debug directory: {os.path.abspath(debug_path)}")
+    return enable_debug
+
+
+@pytest.fixture
 def context():
     """Test context to store state between steps."""
     return {}
 
 
+def take_screenshot(page, filename, debug_enabled, full_page=False):
+    """Take screenshot only if debug mode is enabled."""
+    if debug_enabled:
+        debug_path = os.path.join("tests", "debug")
+        filepath = os.path.join(debug_path, filename)
+        page.screenshot(path=filepath, full_page=full_page)
+        print(f"  Screenshot saved: {filename}")
+
+
 @given("the application is running")
-def app_is_running(context, page: Page):
+def app_is_running(context, page: Page, debug_dir):
     """Verify the application is running and navigate to it."""
     print("\n=== Navigating to application ===")
     page.goto("http://localhost:8502/", wait_until="networkidle")
@@ -96,8 +125,12 @@ def app_is_running(context, page: Page):
     # Wait for Streamlit to fully load
     page.wait_for_selector("h1", timeout=30000)
 
+    # Take initial screenshot if debug mode
+    take_screenshot(page, "01_homepage.png", debug_dir, full_page=True)
+
     # Store the page reference
     context['page'] = page
+    context['debug_enabled'] = debug_dir
 
     print("Application is running and loaded")
     return context
@@ -107,11 +140,12 @@ def app_is_running(context, page: Page):
 def set_language(context, language):
     """Set the current language in the application."""
     page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f"\n=== Setting language to: {language} ===")
 
-    # Take screenshot before language change
-    page.screenshot(path=f"debug_before_{language}.png", full_page=True)
+    # Take screenshot before language change if debug mode
+    take_screenshot(page, f"02_before_{language}.png", debug_enabled, full_page=True)
 
     # Find and click the language selector - using a more robust approach
     # Look for the selectbox container that has language-related text
@@ -131,6 +165,9 @@ def set_language(context, language):
         # Click the selectbox to open dropdown
         language_select.click()
         time.sleep(1)  # Wait for dropdown animation
+
+        # Take screenshot of dropdown if debug mode
+        take_screenshot(page, f"03_dropdown_{language}.png", debug_enabled, full_page=True)
 
         # Look for dropdown options - they appear in a portal
         # Try different selectors for dropdown options
@@ -183,7 +220,9 @@ def set_language(context, language):
 
     # Verify language changed by checking the button text
     time.sleep(2)
-    page.screenshot(path=f"debug_after_{language}.png", full_page=True)
+
+    # Take screenshot after language change if debug mode
+    take_screenshot(page, f"04_after_{language}.png", debug_enabled, full_page=True)
 
     context['current_language'] = language
     return context
@@ -193,14 +232,15 @@ def set_language(context, language):
 def click_button(context, button_text):
     """Actually click the button in the browser."""
     page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
     current_lang = context.get('current_language', 'en')
 
     print(f"\n=== Looking for button to click ===")
     print(f"Button text key: {button_text}")
     print(f"Current language: {current_lang}")
 
-    # Take screenshot before clicking
-    page.screenshot(path=f"debug_before_click_{current_lang}.png", full_page=True)
+    # Take screenshot before clicking if debug mode
+    take_screenshot(page, f"05_before_click_{current_lang}.png", debug_enabled, full_page=True)
 
     # Based on the debug output, we can see button 8 is "Cliquez-moi" (French)
     # and it's the correct button! Let's find it directly
@@ -252,8 +292,8 @@ def click_button(context, button_text):
     # Wait for action to complete
     time.sleep(2)
 
-    # Take screenshot after clicking
-    page.screenshot(path=f"debug_after_click_{current_lang}.png", full_page=True)
+    # Take screenshot after clicking if debug mode
+    take_screenshot(page, f"06_after_click_{current_lang}.png", debug_enabled, full_page=True)
 
     context['button_clicked'] = True
     context['button_text'] = expected_button_text
@@ -264,14 +304,15 @@ def click_button(context, button_text):
 def verify_message(context, expected_message):
     """Verify the expected success message appears."""
     page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
     current_lang = context.get('current_language', 'en')
 
     print(f"\n=== Looking for success message ===")
     print(f"Expected message key: {expected_message}")
     print(f"Current language: {current_lang}")
 
-    # Take screenshot to see what's on the page
-    page.screenshot(path=f"debug_message_check_{current_lang}.png", full_page=True)
+    # Take screenshot to see what's on the page if debug mode
+    take_screenshot(page, f"07_message_check_{current_lang}.png", debug_enabled, full_page=True)
 
     # Based on the app.py, the success message is shown with st.success()
     # In Streamlit, success messages appear as alerts/toasts

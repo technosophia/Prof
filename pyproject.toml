@@ -1,11 +1,22 @@
 [tool.pytest.ini_options]
-testpaths = ["shared", "."]
-python_files = "test_*.py"
+testpaths = ["shared", "tests"]
+python_files = ["test_*.py", "*_steps.py", "*_test.py"]
 python_classes = "Test*"
 python_functions = "test_*"
 asyncio_mode = "auto"
-addopts = "-m 'not ollama'"
+# Use string format with escaped quotes
+#addopts = "-v --tb=short -m 'not ollama and not bdd'"
+addopts = "-v --tb=short"
 markers = [
     "asyncio: mark test as using asyncio",
-    "ollama: mark test as requiring Ollama service"
+    "ollama: mark test as requiring Ollama service",
+    "bdd: BDD tests (slow, requires browser)",
+    "slow: mark test as slow and should be skipped in fast runs",
+    "unit: Unit tests",
+    "integration: Integration tests"
 ]
+
+# BDD-specific configuration needs to be in tool.pytest-bdd section
+[tool.pytest-bdd]
+features_base_dir = "tests/features"
+steps_base_dir = "tests/step_defs"
