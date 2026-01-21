@@ -2,3 +2,7 @@ streamlit
 dotenv
 pytest
 pytest-asyncio
+sqlalchemy
+ollama
+groq
+google.genai

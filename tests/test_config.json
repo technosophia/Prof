@@ -10,6 +10,11 @@
     "version": "1.0.0",
     "test_default_llm": "Mock LLM"
   },
+  "database": {
+    "path": ":memory:",
+    "auto_create_tables": true,
+    "create_default_users": true
+  },
   "llms": {
     "mock": {
       "type": "mock",
