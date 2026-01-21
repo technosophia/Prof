@@ -117,6 +117,7 @@ class TestLLMManager:
         assert len(response) > 0
 
     @pytest.mark.asyncio
+    @pytest.mark.ollama
     async def test_generate_with_ollama(self, patched_llm_manager):
         """Test generating response with mock LLM."""
         manager = patched_llm_manager

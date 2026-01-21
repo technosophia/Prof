@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["shared", "."]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+addopts = "-m 'not ollama'"
+markers = [
+    "asyncio: mark test as using asyncio",
+    "ollama: mark test as requiring Ollama service"
+]
