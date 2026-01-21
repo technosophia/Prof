@@ -4,7 +4,13 @@ loaders:
     search_path: [.]
     modules:
       - app
+      - shared.__init__
+      - shared.logging
+      - shared.config
+      - shared.translate
+      - shared.llm
       - shared.database
+      - shared.users
 
 processors:
   - type: filter

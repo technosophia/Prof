@@ -1,3 +1,12 @@
+""" Translate helper function
+
+[agent]
+Streamlit-safe translation function.
+Works with the translator in session state.
+Must be imported like this : from shared.translate import _streamlit as _
+"""
+
+
 import json
 import os
 from typing import Dict, Optional
@@ -243,10 +252,6 @@ def get_translator_streamlit():
     return st.session_state.translator
 
 def _streamlit(key: str) -> str:
-    """
-    Streamlit-safe translation function.
-    Works with the translator in session state.
-    """
     import streamlit as st
 
     if "translator" not in st.session_state:

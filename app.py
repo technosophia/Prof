@@ -1,6 +1,6 @@
 """
 [agent]
-# Technical Specifications
+## Technical Specifications
 The technical specifications are as follows:
 - Code and comments are exclusively in English.
 - The application is multilingual (French/English), managed via gettext.
