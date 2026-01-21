@@ -486,9 +486,18 @@ def test_init_user_manager():
     """Test the init_user_manager function."""
     from shared.users import user_manager, init_user_manager
 
-    # init_user_manager should return the singleton
-    result = init_user_manager()
-    assert result is user_manager
+    # Mock the database to avoid initialization issues during tests
+    with patch.object(user_manager.db, 'is_initialized', return_value=False):
+        # init_user_manager should return the singleton without trying to create default users
+        result = init_user_manager(create_default_users=False)
+        assert result is user_manager
+
+    # Test with database "initialized" (mocked)
+    with patch.object(user_manager.db, 'is_initialized', return_value=True):
+        with patch.object(user_manager, 'init_default_users') as mock_init:
+            result = init_user_manager(create_default_users=True)
+            assert result is user_manager
+            mock_init.assert_called_once()
 
 
 def test_backward_compatibility_get_all_users():

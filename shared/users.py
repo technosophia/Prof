@@ -41,55 +41,82 @@ class UserManager:
         if not hasattr(self, '_initialized'):
             self.db = db_manager  # Use the global database manager
             self._initialized = True
-
-            # Ensure the users table exists when UserManager is initialized
-            self._ensure_table_exists()
+            # NOTE: We don't call _ensure_table_exists() here anymore
+            # It will be called when needed
 
     def _ensure_table_exists(self):
         """Ensure the users table exists."""
-        if self.db.is_initialized():
-            try:
-                UserTable.__table__.create(bind=self.db._engine, checkfirst=True)
-                log("debug", "Users table ensured to exist")
-            except Exception as e:
-                log("error", f"Failed to ensure users table exists: {e}")
+        if not self.db.is_initialized():
+            log("warning", "Database not initialized, cannot ensure users table exists")
+            return False
+
+        try:
+            UserTable.__table__.create(bind=self.db._engine, checkfirst=True)
+            log("debug", "Users table ensured to exist")
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure users table exists: {e}")
+            return False
+
+    def init_default_users(self):
+        """Initialize default users. Call this after database is initialized."""
+        # First ensure the table exists
+        if not self._ensure_table_exists():
+            log("error", "Cannot create default users: users table does not exist")
+            return False
+
+        # Then create default users if needed
+        return self.create_default_users()
 
     def create_default_users(self):
         """Create default test users if needed."""
+        # Double-check that database is initialized
+        if not self.db.is_initialized():
+            log("error", "Cannot create default users: database not initialized")
+            return False
+
         with self.db.get_session() as session:
-            # Check if we have any users
-            user_count = session.query(UserTable).count()
+            try:
+                # Check if we have any users
+                user_count = session.query(UserTable).count()
 
-            if user_count == 0:
-                # Create test users
-                test_users = [
-                    {
-                        "id": "test1",
-                        "name": "Test User 1",
-                        "email": "test1@example.com",
-                        "profile": {"role": "user", "rights": ["read", "write"]}
-                    },
-                    {
-                        "id": "test2",
-                        "name": "Test User 2",
-                        "email": "test2@example.com",
-                        "profile": {"role": "admin", "rights": ["read", "write", "delete"]}
-                    }
-                ]
+                if user_count == 0:
+                    # Create test users
+                    test_users = [
+                        {
+                            "id": "test1",
+                            "name": "Test User 1",
+                            "email": "test1@example.com",
+                            "profile": {"role": "user", "rights": ["read", "write"]}
+                        },
+                        {
+                            "id": "test2",
+                            "name": "Test User 2",
+                            "email": "test2@example.com",
+                            "profile": {"role": "admin", "rights": ["read", "write", "delete"]}
+                        }
+                    ]
 
-                for user_data in test_users:
-                    user = UserTable(
-                        id=user_data["id"],
-                        name=user_data["name"],
-                        email=user_data["email"],
-                        created_at=datetime.utcnow(),
-                        is_active=True,
-                        profile=user_data.get("profile", {}),
-                        user_metadata={"is_default": True}
-                    )
-                    session.add(user)
+                    for user_data in test_users:
+                        user = UserTable(
+                            id=user_data["id"],
+                            name=user_data["name"],
+                            email=user_data["email"],
+                            created_at=datetime.utcnow(),
+                            is_active=True,
+                            profile=user_data.get("profile", {}),
+                            user_metadata={"is_default": True}
+                        )
+                        session.add(user)
 
-                log("info", f"Created {len(test_users)} default test users")
+                    log("info", f"Created {len(test_users)} default test users")
+                    return True
+                else:
+                    log("debug", "Default users already exist, skipping creation")
+                    return False
+            except Exception as e:
+                log("error", f"Failed to create default users: {e}")
+                return False
 
     def _user_to_dict(self, user: UserTable) -> Dict[str, Any]:
         """Convert SQLAlchemy user object to dictionary."""
@@ -106,6 +133,9 @@ class UserManager:
 
     def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get a user by ID."""
+        # Ensure table exists before querying
+        self._ensure_table_exists()
+
         with self.db.get_session() as session:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if user:
@@ -114,6 +144,9 @@ class UserManager:
 
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Get all users."""
+        # Ensure table exists before querying
+        self._ensure_table_exists()
+
         with self.db.get_session() as session:
             users = session.query(UserTable).order_by(UserTable.created_at).all()
             return [self._user_to_dict(user) for user in users]
@@ -124,6 +157,9 @@ class UserManager:
         # Validate name
         if not name or not name.strip():
             raise ValueError("User name cannot be empty")
+
+        # Ensure table exists before creating
+        self._ensure_table_exists()
 
         user_id = str(uuid.uuid4())
 
@@ -144,6 +180,9 @@ class UserManager:
 
     def update_user(self, user_id: str, **kwargs) -> bool:
         """Update user information."""
+        # Ensure table exists before updating
+        self._ensure_table_exists()
+
         with self.db.get_session() as session:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if not user:
@@ -174,6 +213,9 @@ class UserManager:
 
     def delete_user(self, user_id: str) -> bool:
         """Delete a user."""
+        # Ensure table exists before deleting
+        self._ensure_table_exists()
+
         with self.db.get_session() as session:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if not user:
@@ -219,8 +261,15 @@ class UserManager:
 user_manager = UserManager()
 
 
-def init_user_manager():
-    """Initialize the user manager."""
+def init_user_manager(create_default_users: bool = True):
+    """Initialize the user manager.
+
+    Args:
+        create_default_users: If True, create default test users if none exist.
+    """
+    # Don't create default users during tests or if database not initialized
+    if create_default_users and user_manager.db.is_initialized():
+        user_manager.init_default_users()
     return user_manager
 
 

@@ -131,13 +131,13 @@ class DatabaseManager:
 db_manager = DatabaseManager()
 
 
-def init_database(use_memory: bool = False, db_path: Optional[str] = None, **kwargs):
+def init_database(use_memory: bool = False, db_path: Optional[str] = None):
     """Initialize the database.
 
-    Note: The create_default_users parameter is deprecated and ignored.
-    For backward compatibility only.
+    Args:
+        use_memory: Use in-memory database for testing
+        db_path: Path to database file (for persistent storage)
     """
-    # Only pass database-related parameters
     db_manager.initialize(use_memory=use_memory, db_path=db_path)
     return db_manager
 

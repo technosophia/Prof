@@ -422,7 +422,7 @@ def test_init_database_with_params():
         init_database(use_memory=False, db_path="/test/path.db")
         mock_db.initialize.assert_called_with(use_memory=False, db_path="/test/path.db")
 
-        # Test backward compatibility - create_default_users parameter is ignored
-        init_database(use_memory=True, create_default_users=True)
+        # Test backward compatibility
+        init_database(use_memory=True)
         # Should still call with same parameters
         mock_db.initialize.assert_called_with(use_memory=True, db_path=None)

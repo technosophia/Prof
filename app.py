@@ -22,15 +22,22 @@ from shared.logging import log, configure_logging_from_dict
 from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # Import user management
-from shared.users import user_manager
-from shared.database import init_database
+from shared.users import user_manager, init_user_manager
+from shared.database import init_database, db_manager
 
 # Configure logging from config (one line)
 configure_logging_from_dict(config.get("logging", {}))
 
 # Initialize database
 db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
-init_database(use_memory=False, db_path=db_path, create_default_users=True)
+init_database(use_memory=False, db_path=db_path)
+
+# Create all tables (including users table)
+# This ensures all tables exist before we try to use them
+db_manager.create_all_tables()
+
+# Initialize user manager with default users
+init_user_manager(create_default_users=True)
 
 # Initialize translator with Streamlit session support
 translator = init_translations_streamlit("en", "translations")
