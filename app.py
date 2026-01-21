@@ -106,11 +106,11 @@ def main():
         else:
             st.warning("No user selected")
 
-            # User selector
-            all_users = user_manager.get_all_users()
+            # User selector - USING get_all_users_dict() instead of get_all_users()
+            all_users = user_manager.get_all_users_dict()  # CHANGÉ ICI
             if all_users:
                 user_options = ["Select a user..."] + list(all_users.keys())
-                user_display = ["Select a user..."] + [f"{user['name']} ({user['id']})" for user in all_users.values()]
+                user_display = ["Select a user..."] + [f"{user['name']} ({user_id})" for user_id, user in all_users.items()]  # CHANGÉ ICI
 
                 selected_user = st.selectbox(
                     "Choose user",
@@ -282,20 +282,20 @@ def main():
         st.divider()
         st.subheader("👥 All Users")
 
-        # Get all users
-        all_users = user_manager.get_all_users()
+        # Get all users - USING get_all_users() which returns a list
+        all_users_list = user_manager.get_all_users()  # CHANGÉ ICI
 
-        if all_users:
+        if all_users_list:
             # Create a table of users
             user_data = []
-            for user_id, user in all_users.items():
+            for user in all_users_list:  # CHANGÉ ICI
                 user_data.append({
-                    "ID": user_id,
+                    "ID": user["id"],
                     "Name": user["name"],
                     "Email": user["email"] or "-",
                     "Created": user["created_at"][:10] if user["created_at"] else "-",
                     "Status": "✅ Active" if user.get("is_active", True) else "❌ Inactive",
-                    "Actions": user_id
+                    "Actions": user["id"]
                 })
 
             # Display users in columns
