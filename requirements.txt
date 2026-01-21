@@ -1,3 +1,4 @@
 streamlit
 dotenv
 pytest
+pytest-asyncio

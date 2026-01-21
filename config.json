@@ -7,6 +7,7 @@
   "app": {
     "name": "Multilingual Streamlit App",
     "default_llm": "Groq Llama 3",
+    "test_default_llm": "Mock LLM",
     "version": "1.0.0"
   },
   "llms": {

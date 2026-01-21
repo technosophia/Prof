@@ -1,103 +1,81 @@
 """
-LLM Manager using shared config and logging systems.
+LLM Manager using plugin-based engine system.
 """
 
 import os
-import json
+import sys
+import importlib
+import pkgutil
 from typing import Dict, Any, List, Optional, Callable
 import asyncio
-import re
-import requests
 
 # Import shared systems
 from shared.config import get_config
 from shared.logging import log
 
-# Try to import optional dependencies
-try:
-    import google.genai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-    log("warning", "google-genai not installed, Gemini support disabled")
-
-try:
-    from groq import Groq
-    HAS_GROQ = True
-except ImportError:
-    HAS_GROQ = False
-    log("warning", "groq not installed, Groq support disabled")
+# Import base engine
+from llm_engine import LLMEngine
 
 
 class LLMManager:
     def __init__(self):
-        """Initialize LLM Manager using shared config system."""
+        """Initialize LLM Manager using plugin-based engine system."""
         self.config = get_config()
-        self.clients = {}
+        self.engines = {}
         self.current_llm = None
-        # Validate config first
+
+        # Discover and load all engine modules
+        self.discover_engines()
+
+        # Validate config
         self.validate_config()
 
-        self.setup_clients()
+        # Initialize current LLM
         self.initialize_current_llm()
-        log("debug", "LLMManager initialized")
 
-        # Log environment variable status for debugging
-        self.log_env_status()
+        log("debug", f"LLMManager initialized with {len(self.engines)} engines")
 
-    def log_env_status(self):
-        """Log status of environment variables for debugging."""
-        gemini_key = os.getenv("GEMINI_API_KEY")
-        groq_key = os.getenv("GROQ_API_KEY")
+    def discover_engines(self):
+        """Discover and load all LLM engine modules."""
+        # Look for llm_*.py files in the current directory
+        import llm_engine as engine_module
 
-        if gemini_key:
-            # Show first and last few chars for security
-            masked = f"{gemini_key[:4]}...{gemini_key[-4:]}" if len(gemini_key) > 8 else "***"
-            log("debug", f"GEMINI_API_KEY found: {masked}")
-        else:
-            log("warning", "GEMINI_API_KEY not found in environment")
+        # Get the package path
+        package_path = os.path.dirname(engine_module.__file__)
 
-        if groq_key:
-            masked = f"{groq_key[:4]}...{groq_key[-4:]}" if len(groq_key) > 8 else "***"
-            log("debug", f"GROQ_API_KEY found: {masked}")
-        else:
-            log("warning", "GROQ_API_KEY not found in environment")
-
-    def setup_clients(self):
-        """Setup API clients based on configuration."""
-        # Setup Gemini if available
-        if HAS_GEMINI:
-            gemini_key = os.getenv("GEMINI_API_KEY")
-            if gemini_key and gemini_key.strip():
+        # Find all llm_*.py files
+        for _, module_name, is_pkg in pkgutil.iter_modules([package_path]):
+            if module_name.startswith('llm_') and module_name != 'llm_engine':
                 try:
-                    self.clients["gemini"] = genai.Client(api_key=gemini_key.strip())
-                    log("info", "Gemini client initialized successfully")
-                except Exception as e:
-                    log("error", f"Error setting up Gemini client: {e}")
-                    self.clients["gemini"] = None
-            else:
-                self.clients["gemini"] = None
-                log("warning", "GEMINI_API_KEY not found or empty in environment")
-        else:
-            self.clients["gemini"] = None
+                    # Import the module
+                    module = importlib.import_module(f"{module_name}")
 
-        # Setup Groq if available
-        if HAS_GROQ:
-            groq_key = os.getenv("GROQ_API_KEY")
-            if groq_key and groq_key.strip():
-                try:
-                    self.clients["groq"] = Groq(api_key=groq_key.strip())
-                    log("info", "Groq client initialized successfully")
-                except Exception as e:
-                    log("error", f"Error setting up Groq client: {e}")
-                    self.clients["groq"] = None
-            else:
-                self.clients["groq"] = None
-                log("warning", "GROQ_API_KEY not found or empty in environment")
-        else:
-            self.clients["groq"] = None
+                    # Find engine classes (classes ending with 'Engine')
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if (isinstance(attr, type) and
+                            issubclass(attr, LLMEngine) and
+                            attr != LLMEngine and
+                            attr_name.endswith('Engine')):
 
-        log("debug", f"Clients initialized: {list(self.clients.keys())}")
+                            # Create instance
+                            engine = attr()
+                            engine_type = engine.engine_type
+
+                            # Add to engines
+                            self.engines[engine_type] = engine
+                            log("info", f"Loaded LLM engine: {engine_type}")
+                            break
+
+                except Exception as e:
+                    log("error", f"Failed to load engine module {module_name}: {e}")
+
+        # Log discovered engines
+        log("debug", f"Discovered engines: {list(self.engines.keys())}")
+
+    def get_engine(self, engine_type: str) -> Optional[LLMEngine]:
+        """Get engine by type."""
+        return self.engines.get(engine_type)
 
     def initialize_current_llm(self):
         """Initialize the current LLM from config."""
@@ -106,7 +84,6 @@ class LLMManager:
 
         available_llms = self.get_available_llms()
 
-        # Debug: log what LLMs we found
         if available_llms:
             log("debug", f"Available LLMs found: {len(available_llms)}")
             for llm in available_llms:
@@ -176,28 +153,15 @@ class LLMManager:
             enabled = llm_config.get("enabled", True)
             llm_type = llm_config.get("type", "unknown")
 
-            # Check if LLM is actually available
-            is_available = enabled
-            requires_api_key = llm_config.get("requires_api_key", False)
+            # Check if engine exists
+            engine = self.get_engine(llm_type)
 
-            if enabled:
-                if requires_api_key:
-                    if llm_type == "gemini":
-                        is_available = self.clients.get("gemini") is not None
-                        if not is_available:
-                            log("debug", f"Gemini LLM '{llm_id}' requires API key but client not available")
-                    elif llm_type == "groq":
-                        is_available = self.clients.get("groq") is not None
-                        if not is_available:
-                            log("debug", f"Groq LLM '{llm_id}' requires API key but client not available")
-                    elif llm_type == "ollama":
-                        # Ollama doesn't require API key
-                        is_available = True
-                    else:
-                        log("warning", f"Unknown LLM type '{llm_type}' for '{llm_id}'")
-                        is_available = False
+            # Check availability
+            is_available = False
+            if enabled and engine:
+                if llm_config.get("requires_api_key", False):
+                    is_available = engine.is_available()
                 else:
-                    # Doesn't require API key, so it's available if enabled
                     is_available = True
 
             llms.append({
@@ -208,7 +172,8 @@ class LLMManager:
                 "description": llm_config.get("description", ""),
                 "enabled": enabled,
                 "available": is_available,
-                "requires_api_key": requires_api_key
+                "requires_api_key": llm_config.get("requires_api_key", False),
+                "engine": engine
             })
 
         # Log availability summary
@@ -262,6 +227,12 @@ class LLMManager:
 
             if "model" not in llm_config:
                 log("warning", f"LLM '{llm_id}' missing 'model' field")
+                continue
+
+            # Check if engine exists for this type
+            engine_type = llm_config.get("type")
+            if engine_type not in self.engines:
+                log("warning", f"LLM '{llm_id}' uses unknown engine type: {engine_type}")
                 continue
 
             valid_count += 1
@@ -327,17 +298,19 @@ class LLMManager:
             log("error", error_msg)
             return error_msg
 
-        # Check API key requirements
+        # Get the engine
+        engine = self.get_engine(llm_type)
+        if not engine:
+            error_msg = f"No engine found for type: {llm_type}"
+            log("error", error_msg)
+            return error_msg
+
+        # Check availability
         requires_api_key = llm_config.get("requires_api_key", False)
-        if requires_api_key:
-            if llm_type == "gemini" and not self.clients.get("gemini"):
-                error_msg = f"LLM {llm_id} requires Gemini API key which is not configured"
-                log("error", error_msg)
-                return error_msg
-            elif llm_type == "groq" and not self.clients.get("groq"):
-                error_msg = f"LLM {llm_id} requires Groq API key which is not configured"
-                log("error", error_msg)
-                return error_msg
+        if requires_api_key and not engine.is_available():
+            error_msg = f"LLM {llm_id} requires API key which is not configured"
+            log("error", error_msg)
+            return error_msg
 
         # Filter empty messages
         filtered_messages = [msg for msg in messages if msg.get("content", "").strip()]
@@ -347,326 +320,51 @@ class LLMManager:
             log("warning", error_msg)
             return error_msg
 
+        # Generate response using the engine
         try:
-            if llm_type == "ollama":
-                return await self._generate_ollama(model_name, filtered_messages, stream_callback)
-            elif llm_type == "gemini":
-                return await self._generate_gemini(model_name, filtered_messages, stream_callback)
-            elif llm_type == "groq":
-                return await self._generate_groq(model_name, filtered_messages, stream_callback)
-            else:
-                error_msg = f"Unsupported LLM type: {llm_type}"
-                log("error", error_msg)
-                return error_msg
+            response = await engine.generate(model_name, filtered_messages, stream_callback)
+            return response
         except Exception as e:
             error_msg = f"Error generating response from {llm_id}: {str(e)}"
             log("error", error_msg)
             return error_msg
 
-    def _clean_ollama_response(self, response: str) -> str:
-        """Clean Ollama response by removing <think> tags and content."""
-        if not response:
-            return response
-
-        # Remove <think> tags and everything between them
-        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
-        # Also handle unclosed <think> tags
-        response = re.sub(r'<think>.*', '', response, flags=re.DOTALL)
-        response = re.sub(r'.*</think>', '', response, flags=re.DOTALL)
-
-        # Remove any leftover XML-like tags
-        response = re.sub(r'<\s*/\s*think\s*>', '', response, flags=re.IGNORECASE)
-        response = re.sub(r'<[^>]*think[^>]*>', '', response, flags=re.IGNORECASE)
-
-        # Clean up extra whitespace
-        response = re.sub(r'\n\s*\n', '\n\n', response)
-        response = re.sub(r'^\s+', '', response)
-        response = re.sub(r'\s+$', '', response)
-
-        return response.strip()
-
-    async def _generate_ollama(self, model: str, messages: list,
-                               stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from Ollama."""
-        log("debug", f"Generating Ollama response with model: {model}")
-
-        try:
-            # Format messages for Ollama
-            formatted_messages = []
-            for msg in messages:
-                formatted_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
-
-            # Check last message is from user
-            if formatted_messages and formatted_messages[-1]["role"] != "user":
-                log("warning", "Last message not from user, adjusting...")
-                # Add a user message if needed
-                formatted_messages.append({
-                    "role": "user",
-                    "content": "Please respond to the conversation"
-                })
-
-            # Ollama API endpoint
-            ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434") + "/api/chat"
-
-            # Prepare request
-            payload = {
-                "model": model,
-                "messages": formatted_messages,
-                "stream": stream_callback is not None,
-                "options": {
-                    "temperature": 0.7,
-                    "num_predict": 512
-                }
-            }
-
-            if stream_callback:
-                # Streaming response
-                log("debug", "Using streaming mode for Ollama")
-                response = requests.post(
-                    ollama_url,
-                    json=payload,
-                    stream=True,
-                    timeout=120
-                )
-
-                if response.status_code != 200:
-                    error_msg = f"Ollama API error: {response.status_code}"
-                    log("error", error_msg)
-                    return error_msg
-
-                full_response = ""
-                for line in response.iter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            if "message" in data and "content" in data["message"]:
-                                chunk = data["message"]["content"]
-                                full_response += chunk
-                                if stream_callback:
-                                    stream_callback(chunk)
-                        except json.JSONDecodeError:
-                            continue
-                        except Exception as e:
-                            log("error", f"Error parsing Ollama stream: {e}")
-                            continue
-
-                # Clean the response
-                cleaned_response = self._clean_ollama_response(full_response)
-                log("debug", f"Ollama response length: {len(cleaned_response)}")
-                return cleaned_response if cleaned_response else "No response generated"
-            else:
-                # Non-streaming response
-                log("debug", "Using non-streaming mode for Ollama")
-                response = requests.post(ollama_url, json=payload, timeout=120)
-                if response.status_code == 200:
-                    response_text = response.json()["message"]["content"]
-                    cleaned_response = self._clean_ollama_response(response_text)
-                    log("debug", f"Ollama response length: {len(cleaned_response)}")
-                    return cleaned_response if cleaned_response else "No response generated"
-                else:
-                    error_msg = f"Ollama error: {response.status_code}"
-                    log("error", error_msg)
-                    return error_msg
-
-        except requests.exceptions.ConnectionError:
-            error_msg = "Cannot connect to Ollama. Make sure Ollama is running on localhost:11434"
-            log("error", error_msg)
-            return f"❌ {error_msg}"
-        except requests.exceptions.Timeout:
-            error_msg = "Ollama request timed out. Try again or check if the model is loaded."
-            log("error", error_msg)
-            return f"⏱️ {error_msg}"
-        except Exception as e:
-            error_msg = f"Ollama error: {str(e)}"
-            log("error", error_msg)
-            return error_msg
-
-    async def _generate_gemini(self, model: str, messages: list,
-                               stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from Gemini."""
-        log("debug", f"Generating Gemini response with model: {model}")
-
-        if not HAS_GEMINI:
-            error_msg = "Gemini support not available (google-genai not installed)"
-            log("error", error_msg)
-            return error_msg
-
-        gemini_client = self.clients.get("gemini")
-        if not gemini_client:
-            error_msg = "Gemini API key not configured. Add GEMINI_API_KEY to .env file"
-            log("error", error_msg)
-            return f"🔑 {error_msg}"
-
-        try:
-            # Convert messages to Gemini format
-            history = []
-            for msg in messages:
-                role = "user" if msg["role"] == "user" else "model"
-                history.append({
-                    "role": role,
-                    "parts": [{"text": msg["content"]}]
-                })
-
-            # Create conversation
-            conversation = gemini_client.aio.chats.create(
-                model=model,
-                history=history[:-1] if len(history) > 1 else []
-            )
-
-            # Last message (user message)
-            last_message = history[-1]["parts"][0]["text"] if history else ""
-
-            if stream_callback:
-                # Streaming response
-                log("debug", "Using streaming mode for Gemini")
-                full_response = ""
-                try:
-                    async for chunk in conversation.send_message_stream(last_message):
-                        if chunk.text:
-                            full_response += chunk.text
-                            if stream_callback:
-                                stream_callback(chunk.text)
-                    log("debug", f"Gemini response length: {len(full_response)}")
-                    return full_response if full_response else "No response generated"
-                except Exception as e:
-                    log("error", f"Gemini streaming error: {e}")
-                    # Fallback to non-streaming
-                    response = await conversation.send_message(last_message)
-                    return response.text if response.text else "No response generated"
-            else:
-                # Non-streaming
-                log("debug", "Using non-streaming mode for Gemini")
-                response = await conversation.send_message(last_message)
-                log("debug", f"Gemini response length: {len(response.text) if response.text else 0}")
-                return response.text if response.text else "No response generated"
-
-        except Exception as e:
-            error_msg = f"Gemini error: {str(e)}"
-            log("error", error_msg)
-            return error_msg
-
-    async def _generate_groq(self, model: str, messages: list,
-                             stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from Groq."""
-        log("debug", f"Generating Groq response with model: {model}")
-
-        if not HAS_GROQ:
-            error_msg = "Groq support not available (groq not installed)"
-            log("error", error_msg)
-            return error_msg
-
-        groq_client = self.clients.get("groq")
-        if not groq_client:
-            error_msg = "Groq API key not configured. Add GROQ_API_KEY to .env file"
-            log("error", error_msg)
-            return f"🔑 {error_msg}"
-
-        try:
-            # Format messages for Groq
-            if not messages:
-                error_msg = "No messages provided"
-                log("warning", error_msg)
-                return error_msg
-
-            formatted_messages = []
-            for msg in messages:
-                formatted_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
-
-            # Ensure we have at least one user message
-            has_user_message = any(msg["role"] == "user" for msg in formatted_messages)
-            if not has_user_message:
-                log("warning", "No user message found, adding default")
-                formatted_messages.append({
-                    "role": "user",
-                    "content": "Hello"
-                })
-
-            # Ensure last message is from user
-            if formatted_messages[-1]["role"] != "user":
-                log("warning", "Last message not from user, adjusting...")
-                user_messages = [m for m in formatted_messages if m["role"] == "user"]
-                if user_messages:
-                    formatted_messages.append(user_messages[-1])
-                else:
-                    formatted_messages.append({
-                        "role": "user",
-                        "content": "Please respond"
-                    })
-
-            # Generate response
-            if stream_callback:
-                # Streaming
-                log("debug", "Using streaming mode for Groq")
-                stream = groq_client.chat.completions.create(
-                    model=model,
-                    messages=formatted_messages,
-                    stream=True,
-                    temperature=0.7,
-                    max_tokens=1024
-                )
-
-                full_response = ""
-                for chunk in stream:
-                    if chunk.choices[0].delta.content:
-                        content = chunk.choices[0].delta.content
-                        full_response += content
-                        if stream_callback:
-                            stream_callback(content)
-                log("debug", f"Groq response length: {len(full_response)}")
-                return full_response if full_response else "No response generated"
-            else:
-                # Non-streaming
-                log("debug", "Using non-streaming mode for Groq")
-                completion = groq_client.chat.completions.create(
-                    model=model,
-                    messages=formatted_messages,
-                    temperature=0.7,
-                    max_tokens=1024
-                )
-                response = completion.choices[0].message.content
-                log("debug", f"Groq response length: {len(response) if response else 0}")
-                return response or "No response generated"
-
-        except Exception as e:
-            error_msg = f"Groq error: {str(e)}"
-            log("error", error_msg)
-            return error_msg
-
 
 # Global instance
-_manager = LLMManager()
+_manager = None
 
-# Simple public interface
+def _get_manager():
+    """Get or create the global LLMManager instance."""
+    global _manager
+    if _manager is None:
+        _manager = LLMManager()
+    return _manager
+
+# Update all public functions to use _get_manager():
 async def llm_generate(message: str, stream_callback: Optional[Callable] = None) -> str:
     """Simple interface to generate response from current LLM."""
-    return await _manager.generate(message, stream_callback)
+    manager = _get_manager()
+    return await manager.generate(message, stream_callback)
 
 def set_current_llm(llm_id: str) -> bool:
     """Set the current LLM to use."""
-    return _manager.set_current_llm(llm_id)
+    manager = _get_manager()
+    return manager.set_current_llm(llm_id)
 
 def get_available_llms() -> List[Dict[str, Any]]:
     """Get list of available LLMs."""
-    return _manager.get_available_llms()
+    manager = _get_manager()
+    return manager.get_available_llms()
 
 def get_current_llm_info() -> Optional[Dict[str, Any]]:
     """Get information about the current LLM."""
-    return _manager.get_current_llm_info()
+    manager = _get_manager()
+    return manager.get_current_llm_info()
 
 def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
     """Get LLM information by name."""
-    return _manager.get_llm_by_name(name)
-
-def get_default_llm_name() -> str:
-    """Get the default LLM name from config."""
-    config = get_config()
-    return config.get("app.default_llm", "Qwen 3 4B")
+    manager = _get_manager()
+    return manager.get_llm_by_name(name)
 
 # Alias for backward compatibility
 llm = llm_generate

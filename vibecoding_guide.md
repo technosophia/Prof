@@ -1,8 +1,26 @@
-# Module Development Guide: Config, Logging & Translation System
+# Module Development Guide: Config, Logging, Translation & LLM Systems
 
 ## Overview
 
-This application provides three core utilities that all modules can use: **configuration management**, **logging**, and **translation**. Each system is designed for simple one-line initialization and easy use throughout your modules.
+This application provides four core utilities that all modules can use: **configuration management**, **logging**, **translation**, and **LLM integration**. Each system is designed for simple one-line initialization and easy use throughout your modules.
+
+## Important Initialization Order
+
+**CRITICAL**: Always load configuration **BEFORE** importing other modules that depend on it:
+
+```python
+# CORRECT ORDER:
+from shared.config import init_config, get_config
+config = init_config("config.json")  # MUST BE FIRST
+
+# Then import other modules
+from shared.logging import log, configure_logging_from_dict
+from shared.translate import init_translations_streamlit, _streamlit as _
+from shared.llm import llm_generate, set_current_llm, get_available_llms
+
+# Configure other systems
+configure_logging_from_dict(config.get("logging", {}))
+```
 
 ## 1. Configuration System (`shared/config.py`)
 
@@ -58,7 +76,7 @@ Create `your_module/config.json`:
 ## 2. Logging System (`shared/logging.py`)
 
 ### Purpose
-Simple, configurable logging with multiple levels. All logs are in English (not translated). Integrates with configuration system.
+Simple, configurable logging with multiple levels and stack trace support. All logs are in English (not translated). Integrates with configuration system.
 
 ### Key Functions
 
@@ -72,6 +90,12 @@ log("debug", "Processing item %d", item_id)
 log("warning", "Deprecated function called")
 log("error", "Failed to connect: %s", error_msg)
 
+# With stack trace for errors
+try:
+    risky_operation()
+except Exception as e:
+    log("error", "Operation failed: %s", str(e), exc_info=True)
+
 # Or use convenience functions
 from shared.logging import debug, info, warning, error
 info("Module started")
@@ -81,11 +105,11 @@ debug("Detailed debug info: %s", data)
 #### Connecting to Configuration
 ```python
 from shared.config import get_config
-from shared.logging import configure_from_dict
+from shared.logging import configure_logging_from_dict
 
 # Configure logging from config
 config = get_config()
-configure_from_dict(config.get("logging", {}))
+configure_logging_from_dict(config.get("logging", {}))
 ```
 
 ### Log Levels (from most to least verbose)
@@ -94,6 +118,17 @@ configure_from_dict(config.get("logging", {}))
 - `warning` - Potential issues that don't stop execution
 - `error` - Serious problems that affect functionality
 - `critical` - Critical errors that may cause program termination
+
+### Configuration Example
+```json
+{
+  "logging": {
+    "level": "INFO",
+    "format": "[{level}] {timestamp} - {message}",
+    "include_traceback": true
+  }
+}
+```
 
 ## 3. Translation System (`shared/translate.py`)
 
@@ -116,9 +151,12 @@ message = _("welcome_user").format(username=user_name)
 
 #### For Streamlit Modules
 ```python
-from shared.translate import _streamlit as _
+from shared.translate import init_translations_streamlit, _streamlit as _
 
-# Works the same way but with Streamlit session support
+# Initialize with Streamlit session support
+translator = init_translations_streamlit("en", "translations")
+
+# Use in Streamlit components
 st.title(_("module_title"))
 st.write(_("description"))
 ```
@@ -148,125 +186,171 @@ translator.inject_module_translations("your_module", "translations/your_module/"
 ### Translation File Structure
 ```
 translations/
-├── your_module/
-│   ├── en.json
-│   └── fr.json
+├── en.json
+├── fr.json
+└── your_module/
+    ├── en.json
+    └── fr.json
 ```
 
-**`translations/your_module/en.json`:**
+**`translations/en.json`:**
 ```json
 {
-    "module_title": "Your Module",
-    "module_description": "This is your custom module",
+    "hello_world": "Hello World!",
+    "description": "Welcome to the application",
     "button_text": "Click here"
 }
 ```
 
-**`translations/your_module/fr.json`:**
+**`translations/fr.json`:**
 ```json
 {
-    "module_title": "Votre Module",
-    "module_description": "Ceci est votre module personnalisé",
+    "hello_world": "Bonjour le monde!",
+    "description": "Bienvenue dans l'application",
     "button_text": "Cliquez ici"
 }
 ```
 
-## Complete Module Example
+## 4. LLM System (`shared/llm.py`)
 
+### Purpose
+Unified interface for multiple Large Language Models (Ollama, Gemini, Groq) with streaming support and configuration-based management.
+
+### Key Functions
+
+#### Initialization and Setup
 ```python
-"""
-Example module demonstrating all three systems.
-"""
+from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
-# 1. IMPORTS
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+# LLM manager is automatically initialized with app config
+# No manual initialization needed
+```
 
-from shared.config import inject_module_config, get_config
-from shared.logging import log, configure_from_dict
-from shared.translate import get_translator, _
+#### Generating Responses
+```python
+import asyncio
 
-# 2. INITIALIZATION FUNCTION
-def init_module():
-    """Initialize the module with config, logging, and translations."""
-    
-    # Inject module configuration
-    inject_module_config("example", "modules/example/config.json")
-    
-    # Get updated config
-    config = get_config()
-    
-    # Configure logging (optional - module-specific logging config)
-    if config.get("example.logging"):
-        configure_from_dict(config.get("example.logging"))
-    
-    # Load module translations
-    translator = get_translator()
-    translator.inject_module_translations("example", "translations/example/")
-    
-    # Log initialization
-    log("info", "Example module initialized")
-    log("debug", f"Config: enabled={config.get('example.enabled')}")
-    
-    return True
+# Simple text generation
+response = await llm_generate("Hello, how are you?")
+print(response)
 
-# 3. MODULE FUNCTIONS
-def process_data(data):
-    """Example function using all three systems."""
-    config = get_config()
-    
-    # Check if module is enabled via config
-    if not config.get("example.enabled", False):
-        log("warning", "Module is disabled, skipping processing")
-        return None
-    
-    log("info", "Starting data processing")
-    
-    try:
-        # Use translations
-        log("debug", _("processing_started"))
-        
-        # Do work
-        result = len(data)
-        log("debug", f"Processed {result} items")
-        
-        return result
-        
-    except Exception as e:
-        log("error", f"Processing failed: {e}")
-        return None
+# With streaming (real-time response)
+def stream_callback(chunk):
+    print(chunk, end="", flush=True)
 
-# 4. MAIN MODULE LOGIC (if any)
-if __name__ == "__main__":
-    # Test the module
-    init_module()
-    test_data = [1, 2, 3, 4, 5]
-    result = process_data(test_data)
-    print(f"Result: {result}")
+response = await llm_generate("Tell me a story", stream_callback)
+```
+
+#### Managing LLMs
+```python
+# Get available LLMs
+available_llms = get_available_llms()
+for llm_info in available_llms:
+    print(f"{llm_info['name']}: {llm_info['description']}")
+
+# Switch LLM
+success = set_current_llm("ollama_qwen")
+if success:
+    print("LLM switched successfully")
+
+# Get current LLM info
+current_llm = get_current_llm_info()
+if current_llm:
+    print(f"Current LLM: {current_llm['name']}")
+```
+
+### Configuration Example (`config.json`)
+```json
+{
+  "app": {
+    "name": "My App",
+    "default_llm": "Qwen 3 4B",
+    "version": "1.0.0"
+  },
+  "llms": {
+    "ollama_qwen": {
+      "type": "ollama",
+      "model": "qwen3:4b",
+      "name": "Qwen 3 4B",
+      "enabled": true,
+      "description": "Local Qwen model via Ollama",
+      "requires_api_key": false
+    },
+    "gemini": {
+      "type": "gemini",
+      "model": "gemini-2.5-flash",
+      "name": "Google Gemini",
+      "enabled": true,
+      "description": "Google's fast multimodal model",
+      "requires_api_key": true
+    },
+    "groq": {
+      "type": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "name": "Groq Llama 3",
+      "enabled": true,
+      "description": "Fast inference via Groq",
+      "requires_api_key": true
+    }
+  }
+}
+```
+
+### Environment Variables
+Create a `.env` file in your project root:
+```bash
+# Required for Gemini
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Required for Groq
+GROQ_API_KEY=your_groq_api_key_here
+
+# Optional: Custom Ollama URL
+OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 ## Best Practices
 
-1. **Initialize early**: Call initialization functions at module import or startup
-2. **Use simple logging**: Stick with `log("level", "message")` for consistency
-3. **Keep translations separate**: Store all translations in JSON files, not in code
-4. **Check config before actions**: Verify `config.get("module.enabled")` before expensive operations
-5. **Handle errors gracefully**: Use try-except with proper logging
-6. **Use English for logs**: All log messages should be in English (not translated)
+1. **Initialize in correct order**: Always load config first, then other systems
+2. **Use async for LLM calls**: Always use `asyncio.run()` or async context for LLM operations
+3. **Handle streaming properly**: Use callbacks for real-time response display
+4. **Log errors with tracebacks**: Use `exc_info=True` for error logs to get stack traces
+5. **Check LLM availability**: Verify `llm_info["available"]` before trying to use an LLM
+6. **Use environment variables**: Keep API keys in `.env` file, not in code
+7. **Validate configurations**: Ensure your `config.json` has all required fields
+8. **Graceful error handling**: Always wrap LLM calls in try-except blocks
 
 ## Quick Reference
 
 ```python
 # Most common imports
-from shared.config import get_config, inject_module_config
+from shared.config import get_config
 from shared.logging import log
 from shared.translate import _
+from shared.llm import llm_generate, set_current_llm
 
 # Most common patterns
 config = get_config()
 log("info", "Message here")
 translated_text = _("translation_key")
+response = await llm_generate("Your prompt")
 ```
 
-This system allows each module to be self-contained with its own configuration, translations, and logging while integrating seamlessly with the main application.
+## Troubleshooting
+
+### Common Issues
+
+1. **"No available LLMs found"**: Check your `.env` file for missing API keys
+2. **"cannot access local variable 'llm'"**: Avoid using `llm` as variable name in loops
+3. **Configuration errors**: Ensure config is loaded before importing other modules
+4. **Streaming not working**: Verify the LLM supports streaming and callback is defined
+5. **Translation errors**: Check that translation files exist and keys match
+
+### Debug Tips
+
+1. Enable traceback in logging config: `"include_traceback": true`
+2. Check LLM availability: `get_available_llms()` returns detailed status
+3. Verify environment variables: Use debug section in Streamlit app
+4. Monitor logs: All system operations are logged with appropriate levels
+
+This integrated system allows each module to be self-contained with its own configuration, translations, logging, and LLM capabilities while seamlessly integrating with the main application.

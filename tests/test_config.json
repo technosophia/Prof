@@ -1,0 +1,46 @@
+{
+  "logging": {
+    "level": "INFO",
+    "format": "[{level}] {timestamp} - {message}",
+    "include_traceback": true
+  },
+  "app": {
+    "name": "Test App",
+    "default_llm": "Mock LLM",
+    "version": "1.0.0",
+    "test_default_llm": "Mock LLM"
+  },
+  "llms": {
+    "mock": {
+      "type": "mock",
+      "model": "mock-fast",
+      "name": "Mock LLM",
+      "enabled": true,
+      "description": "Mock LLM for testing",
+      "requires_api_key": false
+    },
+    "ollama_qwen": {
+      "type": "ollama",
+      "model": "qwen3:4b",
+      "name": "Qwen 3 4B",
+      "enabled": true,
+      "description": "Local Qwen model via Ollama",
+      "requires_api_key": false
+    },
+    "gemini": {
+      "type": "gemini",
+      "model": "gemini-2.5-flash",
+      "enabled": false,
+      "description": "Google's fast multimodal model",
+      "requires_api_key": true
+    },
+    "groq": {
+      "type": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "name": "Groq Llama 3",
+      "enabled": false,
+      "description": "Fast inference via Groq",
+      "requires_api_key": true
+    }
+  }
+}
