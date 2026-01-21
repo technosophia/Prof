@@ -1,10 +1,37 @@
 {
   "logging": {
     "level": "INFO",
-    "format": "[{level}] {timestamp} - {message}"
+    "format": "[{level}] {timestamp} - {message}",
+    "include_traceback": true
   },
   "app": {
     "name": "Multilingual Streamlit App",
+    "default_llm": "Groq Llama 3",
     "version": "1.0.0"
+  },
+  "llms": {
+    "ollama_qwen": {
+      "type": "ollama",
+      "model": "qwen3:4b",
+      "name": "Qwen 3 4B",
+      "enabled": true,
+      "description": "Local Qwen model via Ollama",
+      "requires_api_key": false
+    },
+    "gemini": {
+      "type": "gemini",
+      "model": "gemini-2.5-flash",
+      "enabled": true,
+      "description": "Google's fast multimodal model",
+      "requires_api_key": true
+    },
+    "groq": {
+      "type": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "name": "Groq Llama 3",
+      "enabled": true,
+      "description": "Fast inference via Groq",
+      "requires_api_key": true
+    }
   }
 }

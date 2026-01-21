@@ -1,4 +1,5 @@
 import sys
+import traceback
 import time
 from enum import IntEnum
 from typing import Optional, Callable, Any
@@ -26,6 +27,7 @@ class Logger:
         self._level = LogLevel.INFO  # Default level
         self._format = "[{level}] {timestamp} - {message}"  # Default format
         self._handlers = []
+        self._include_traceback = False  # Whether to include traceback in errors
 
         # Add default console handler
         self.add_handler(self._console_handler)
@@ -51,14 +53,33 @@ class Logger:
         """
         self._format = format_str
 
-    def _format_message(self, level: str, message: str) -> str:
+    def include_traceback(self, include: bool = True):
+        """
+        Enable or disable traceback inclusion in error logs.
+
+        Args:
+            include: Whether to include traceback
+        """
+        self._include_traceback = include
+
+    def _format_message(self, level: str, message: str, include_traceback: bool = False) -> str:
         """Format log message according to current format."""
-        return self._format.format(
+        base_message = self._format.format(
             level=level.upper(),
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             message=message,
             logger=self.name
         )
+
+        if include_traceback and level.upper() in ["ERROR", "CRITICAL"]:
+            # Add traceback information
+            tb_lines = traceback.format_exc().strip().split('\n')
+            if tb_lines and tb_lines[-1] and not tb_lines[-1].startswith("Traceback"):
+                # We have a real traceback
+                tb_str = "\n".join(tb_lines[-3:])  # Last 3 lines of traceback
+                return f"{base_message}\nTraceback: {tb_str}"
+
+        return base_message
 
     def _console_handler(self, level: str, formatted_message: str):
         """Default console output handler."""
@@ -84,7 +105,7 @@ class Logger:
         """
         self._handlers.append(handler)
 
-    def _log(self, level: LogLevel, level_name: str, message: str, *args: Any):
+    def _log(self, level: LogLevel, level_name: str, message: str, *args: Any, include_traceback: bool = False):
         """Internal logging method."""
         # Check if this level should be logged
         if level < self._level:
@@ -96,7 +117,7 @@ class Logger:
             formatted_msg = message % args
 
         # Format according to configuration
-        formatted_output = self._format_message(level_name, formatted_msg)
+        formatted_output = self._format_message(level_name, formatted_msg, include_traceback)
 
         # Send to all handlers
         for handler in self._handlers:
@@ -118,15 +139,15 @@ class Logger:
         """Log warning message."""
         self._log(LogLevel.WARNING, "WARNING", message, *args)
 
-    def error(self, message: str, *args: Any):
-        """Log error message."""
-        self._log(LogLevel.ERROR, "ERROR", message, *args)
+    def error(self, message: str, *args: Any, exc_info: bool = False):
+        """Log error message with optional exception info."""
+        self._log(LogLevel.ERROR, "ERROR", message, *args, include_traceback=exc_info)
 
-    def critical(self, message: str, *args: Any):
-        """Log critical message."""
-        self._log(LogLevel.CRITICAL, "CRITICAL", message, *args)
+    def critical(self, message: str, *args: Any, exc_info: bool = False):
+        """Log critical message with optional exception info."""
+        self._log(LogLevel.CRITICAL, "CRITICAL", message, *args, include_traceback=exc_info)
 
-    def log(self, level: str, message: str, *args: Any):
+    def log(self, level: str, message: str, *args: Any, exc_info: bool = False):
         """
         Generic log method with string level.
 
@@ -134,6 +155,7 @@ class Logger:
             level: Log level as string (debug, info, warning, error, critical)
             message: Log message
             *args: Format arguments
+            exc_info: Whether to include exception traceback
         """
         level_upper = level.upper()
 
@@ -144,9 +166,9 @@ class Logger:
         elif level_upper == "WARNING":
             self.warning(message, *args)
         elif level_upper == "ERROR":
-            self.error(message, *args)
+            self.error(message, *args, exc_info=exc_info)
         elif level_upper == "CRITICAL":
-            self.critical(message, *args)
+            self.critical(message, *args, exc_info=exc_info)
         else:
             self.warning(f"Unknown log level '{level}', logging as INFO")
             self.info(message, *args)
@@ -169,7 +191,7 @@ def get_logger(name: str = "app") -> Logger:
         _logger_instance = Logger(name)
     return _logger_instance
 
-def log(level: str, message: str, *args: Any):
+def log(level: str, message: str, *args: Any, exc_info: bool = False):
     """
     Convenience function for logging.
     This is the main function that modules should use.
@@ -178,9 +200,10 @@ def log(level: str, message: str, *args: Any):
         level: Log level (debug, info, warning, error, critical)
         message: Log message
         *args: Format arguments
+        exc_info: Whether to include exception traceback
     """
     logger = get_logger()
-    logger.log(level, message, *args)
+    logger.log(level, message, *args, exc_info=exc_info)
 
 def debug(message: str, *args: Any):
     """Convenience function for debug logging."""
@@ -194,13 +217,13 @@ def warning(message: str, *args: Any):
     """Convenience function for warning logging."""
     log("WARNING", message, *args)
 
-def error(message: str, *args: Any):
+def error(message: str, *args: Any, exc_info: bool = False):
     """Convenience function for error logging."""
-    log("ERROR", message, *args)
+    log("ERROR", message, *args, exc_info=exc_info)
 
-def critical(message: str, *args: Any):
+def critical(message: str, *args: Any, exc_info: bool = False):
     """Convenience function for critical logging."""
-    log("CRITICAL", message, *args)
+    log("CRITICAL", message, *args, exc_info=exc_info)
 
 # Configuration helper functions
 def configure_logging_from_dict(config_dict: dict):
@@ -217,3 +240,6 @@ def configure_logging_from_dict(config_dict: dict):
 
     if "format" in config_dict:
         logger.set_format(config_dict["format"])
+
+    if "include_traceback" in config_dict:
+        logger.include_traceback(config_dict["include_traceback"])
