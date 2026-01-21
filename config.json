@@ -1,0 +1,10 @@
+{
+  "logging": {
+    "level": "INFO",
+    "format": "[{level}] {timestamp} - {message}"
+  },
+  "app": {
+    "name": "Multilingual Streamlit App",
+    "version": "1.0.0"
+  }
+}

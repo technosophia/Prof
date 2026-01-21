@@ -1,0 +1,9 @@
+{
+  "hello_world": "Bonjour le monde!",
+  "welcome_message": "Bienvenue dans notre application multilingue!",
+  "language_select": "Sélectionnez votre langue:",
+  "current_language": "Langue actuelle: Français",
+  "description": "Ceci est un exemple simple d'application Streamlit multilingue.",
+  "button_text": "Cliquez-moi!",
+  "button_clicked": "Bouton cliqué!"
+}
