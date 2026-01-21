@@ -14,7 +14,7 @@ from shared.config import get_config
 from shared.logging import log
 
 # Import base engine
-from llm_engine import LLMEngine
+from shared.llm_engine import LLMEngine
 
 
 class LLMManager:
@@ -38,7 +38,7 @@ class LLMManager:
     def discover_engines(self):
         """Discover and load all LLM engine modules."""
         # Look for llm_*.py files in the current directory
-        import llm_engine as engine_module
+        import shared.llm_engine as engine_module
 
         # Get the package path
         package_path = os.path.dirname(engine_module.__file__)

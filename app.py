@@ -1,3 +1,53 @@
+"""
+[agent]
+# Technical Specifications
+The technical specifications are as follows:
+- Code and comments are exclusively in English.
+- The application is multilingual (French/English), managed via gettext.
+- Function or class names are explicit.
+- Standalone utility functions are grouped by theme in a "lib" directory.
+- To determine if a function is a utility, ask the following question: Could it be useful in a completely different program, unrelated to the current specs? If yes, it's a utility function; if not, it belongs to a module.
+- All configuration is stored in a JSON file separate from the code.
+- Any value that can be changed without modifying the code and is not user data is placed in the configuration.
+- All user data is stored in a database.
+- Any key or information that should not be in the git repository is stored in a .env file, loaded at startup.
+- Provide shell instructions for launching.
+- All prompts are stored in a YAML file.
+- The requirements.txt file does not contain version numbers.
+
+Tests:
+- Each main function from the specs has a non-regression test for its workflow.
+- An initialization function creates a starting test dataset that is reset before running tests.
+
+Modules:
+- Every module is designed to be scalable and plug-and-play: the application must be able to run, even if diminished, if the module is absent.
+- A module is a directory containing ALL files necessary for its operation (tests, configuration, prompts).
+- A module injects into the application through injection points what allows it to function.
+- The architecture is modular and scalable; all modules are in a "modules" directory.
+- A module groups what is needed to code a semantic unit or a functional unit that uses semantic units.
+- Each module contains a specification in its header.
+- Each module has associated unit tests.
+- A module contains: its translations (JSON), its prompts (YAML), its configuration (JSON), its tests (pytest), its display, its business logic, its libraries. Files are always the same from one module to another.
+- A module must be independent of other modules, except for common functionalities.
+- A module can have sub-modules and its own injection points, but the only dependencies are the parent module and the application's common functionalities. There must be no module that depends on multiple modules. It is a tree structure.
+
+Common:
+- Shared modules are in a dedicated "shared" directory to clearly separate them from removable modules; these modules cannot be disabled.
+- The application provides injection points for modules for: translations, prompts and LLM calls, configuration, tests, display (side bar, main page, settings tab, user config).
+- Everything common comes with a Mock for tests.
+
+Planned Features:
+- Base: multi-user, multilingual, multi-LLM, multi-conversation.
+- MVP Features:
+- RAG with different RAG engines, means to compare and debug them.
+- Token stats: monitoring token usage per user.
+- Learning path, level assessment through discussion rather than questionnaires.
+- Additional Features:
+- Retrieval of YouTube playlists and PDFs for importing RAG content.
+- Metadata for RAG if necessary for the learning path.
+
+"""
+
 import streamlit as st
 import os
 import sys
@@ -31,10 +81,6 @@ configure_logging_from_dict(config.get("logging", {}))
 # Initialize database
 db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
 init_database(use_memory=False, db_path=db_path)
-
-# Create all tables (including users table)
-# This ensures all tables exist before we try to use them
-db_manager.create_all_tables()
 
 # Initialize user manager with default users
 init_user_manager(create_default_users=True)

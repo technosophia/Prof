@@ -1,0 +1,15 @@
+# pydoc-markdown.yml
+loaders:
+  - type: python
+    search_path: [.]
+    modules:
+      - app
+      - shared.database
+
+processors:
+  - type: filter
+    expression: "obj.docstring and '[agent]' in str(obj.docstring)"
+
+renderer:
+  type: markdown
+  filename: AGENTS.md

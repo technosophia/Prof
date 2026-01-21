@@ -1,6 +1,22 @@
 """
 Unified database management with SQLAlchemy.
 Supports both in-memory (for testing) and persistent storage.
+
+[agent]
+This module provides a singleton DatabaseManager for database operations.
+Modules like users.py should inject this service rather than creating their own connections.
+
+Public interface:
+- db_manager: Global DatabaseManager instance
+- Base: SQLAlchemy declarative base for models
+- init_database(): Initialize database connection
+- DatabaseManager.get_session(): Get database session (context manager)
+- DatabaseManager.is_initialized(): Check if database is ready
+
+Typical usage:
+1. Call init_database() at application startup
+2. Use db_manager.get_session() for database operations
+3. Define models using Base as base class
 """
 import os
 from pathlib import Path
@@ -17,7 +33,24 @@ Base = declarative_base()
 
 
 class DatabaseManager:
-    """Manages database connections and operations."""
+    """Manages database connections and operations.
+
+    [agent]
+    Singleton class providing database services. Use the global db_manager instance.
+    Other modules should inject this service rather than creating their own connections.
+
+    Public methods:
+    - get_session(): Primary method for database access
+    - is_initialized(): Check if database is ready
+
+    Usage:
+        # In another module like users.py
+        from shared.database import db_manager
+
+        if db_manager.is_initialized():
+            with db_manager.get_session() as session:
+                # Perform database operations
+    """
 
     _instance = None
 
@@ -31,15 +64,22 @@ class DatabaseManager:
         return cls._instance
 
     def __init__(self):
-        # Don't reinitialize if already done
+        # Singleton pattern - don't reinitialize
         pass
 
     def is_initialized(self):
-        """Check if database is initialized."""
+        """Check if database is initialized.
+
+        [agent]
+        Returns True if database is ready for use.
+
+        Returns:
+            bool: True if database engine is initialized
+        """
         return self._engine is not None
 
-    def initialize(self, use_memory: bool = False, db_path: Optional[str] = None):
-        """Initialize the database connection."""
+    def _initialize(self, use_memory: bool = False, db_path: Optional[str] = None):
+        """Initialize the database connection. Called by init_database()."""
         if self._engine is not None:
             return
 
@@ -86,9 +126,24 @@ class DatabaseManager:
 
     @contextmanager
     def get_session(self) -> Session:
-        """Get a database session with context manager."""
+        """Get a database session with context manager.
+
+        [agent]
+        Primary method for database access. Provides automatic session management.
+        Commits on success, rolls back on exception.
+
+        Yields:
+            sqlalchemy.orm.Session: Database session
+
+        Raises:
+            RuntimeError: If database not initialized
+
+        Example (from users.py):
+            with db_manager.get_session() as session:
+                user = session.query(UserTable).filter_by(id=user_id).first()
+        """
         if self._engine is None:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
+            raise RuntimeError("Database not initialized. Call init_database() first.")
 
         session = self._session_factory()
         try:
@@ -101,10 +156,10 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def create_tables(self, *table_classes):
-        """Create tables for the given table classes."""
+    def _create_tables(self, *table_classes):
+        """Create tables for given model classes. Internal method."""
         if self._engine is None:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
+            raise RuntimeError("Database not initialized. Call init_database() first.")
 
         try:
             for table_class in table_classes:
@@ -114,10 +169,10 @@ class DatabaseManager:
             log("error", f"Failed to create tables: {e}")
             raise
 
-    def create_all_tables(self):
-        """Create all tables registered with Base."""
+    def _create_all_tables(self):
+        """Create all tables registered with Base. Internal method."""
         if self._engine is None:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
+            raise RuntimeError("Database not initialized. Call init_database() first.")
 
         try:
             Base.metadata.create_all(self._engine)
@@ -131,17 +186,29 @@ class DatabaseManager:
 db_manager = DatabaseManager()
 
 
+
 def init_database(use_memory: bool = False, db_path: Optional[str] = None):
     """Initialize the database.
 
+    [agent]
+    Initialize database connection. Must be called before any database operations.
+
     Args:
-        use_memory: Use in-memory database for testing
-        db_path: Path to database file (for persistent storage)
+        use_memory: Use in-memory database for testing (default: False)
+        db_path: Path to database file (default: from config or "data/app.db")
+
+    Returns:
+        DatabaseManager: Initialized database manager
+
+    Example:
+        # At application startup
+        init_database(use_memory=False, db_path="data/myapp.db")
     """
-    db_manager.initialize(use_memory=use_memory, db_path=db_path)
+    db_manager._initialize(use_memory=use_memory, db_path=db_path)
+    db_manager._create_all_tables()
     return db_manager
 
 
-def get_db():
-    """Get the database manager instance."""
+def _get_db():
+    """Get database manager instance. Alternative to db_manager global."""
     return db_manager

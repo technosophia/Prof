@@ -15,7 +15,7 @@ from shared.database import Base, DatabaseManager, init_database
 
 
 # Define a test table for testing the database manager
-class TestTable(Base):
+class MockTable(Base):
     """Test table for database testing."""
     __tablename__ = 'test_table'
 
@@ -54,7 +54,7 @@ class TestDatabaseManager:
             with patch('shared.database.sessionmaker') as mock_sessionmaker:
                 # Mock the log to avoid output
                 with patch('shared.database.log'):
-                    db.initialize(use_memory=True)
+                    db._initialize(use_memory=True)
 
                     # Check that in-memory URL was used
                     mock_engine.assert_called_once_with('sqlite:///:memory:', echo=False)
@@ -79,7 +79,7 @@ class TestDatabaseManager:
                 with patch('shared.database.sessionmaker') as mock_sessionmaker:
                     with patch('shared.database.Path.mkdir'):
                         with patch('shared.database.log'):
-                            db.initialize(use_memory=False, db_path=db_path)
+                            db._initialize(use_memory=False, db_path=db_path)
 
                             # Check that file URL was used
                             expected_url = f'sqlite:///{db_path}'
@@ -121,8 +121,8 @@ class TestDatabaseManager:
         db._engine = mock_engine
 
         # Mock the table creation
-        with patch.object(TestTable.__table__, 'create') as mock_create:
-            db.create_tables(TestTable)
+        with patch.object(MockTable.__table__, 'create') as mock_create:
+            db._create_tables(MockTable)
             mock_create.assert_called_once_with(bind=mock_engine, checkfirst=True)
 
     def test_create_all_tables(self):
@@ -142,7 +142,7 @@ class TestDatabaseManager:
 
         # Mock metadata.create_all
         with patch('shared.database.Base.metadata.create_all') as mock_create_all:
-            db.create_all_tables()
+            db._create_all_tables()
             mock_create_all.assert_called_once_with(mock_engine)
 
     def test_get_session_success(self):
@@ -261,7 +261,7 @@ class TestDatabaseManager:
 
         # Should raise RuntimeError
         with pytest.raises(RuntimeError, match="Database not initialized"):
-            db.create_tables(TestTable)
+            db._create_tables(MockTable)
 
     def test_create_all_tables_not_initialized(self):
         """Test creating all tables when database is not initialized."""
@@ -279,7 +279,7 @@ class TestDatabaseManager:
 
         # Should raise RuntimeError
         with pytest.raises(RuntimeError, match="Database not initialized"):
-            db.create_all_tables()
+            db._create_all_tables()
 
 
 class TestDatabaseOperations:
@@ -390,14 +390,14 @@ def test_init_database():
 
     # Mock the db_manager that will be imported
     with patch('shared.database.db_manager') as mock_db:
-        mock_db.initialize = MagicMock()
+        mock_db._initialize = MagicMock()  # Changed from initialize to _initialize
 
         # Re-import after patching
         from shared.database import init_database
         result = init_database(use_memory=True)
 
         assert result is mock_db
-        mock_db.initialize.assert_called_once_with(use_memory=True, db_path=None)
+        mock_db._initialize.assert_called_once_with(use_memory=True, db_path=None)  # Changed to _initialize
 
 def test_init_database_with_params():
     """Test init_database with various parameters."""
@@ -409,20 +409,20 @@ def test_init_database_with_params():
 
     # Mock the db_manager
     with patch('shared.database.db_manager') as mock_db:
-        mock_db.initialize = MagicMock()
+        mock_db._initialize = MagicMock()  # Changed from initialize to _initialize
 
         # Re-import after patching
         from shared.database import init_database
 
         # Test with memory database
         init_database(use_memory=True)
-        mock_db.initialize.assert_called_with(use_memory=True, db_path=None)
+        mock_db._initialize.assert_called_with(use_memory=True, db_path=None)  # Changed to _initialize
 
         # Test with file database
         init_database(use_memory=False, db_path="/test/path.db")
-        mock_db.initialize.assert_called_with(use_memory=False, db_path="/test/path.db")
+        mock_db._initialize.assert_called_with(use_memory=False, db_path="/test/path.db")  # Changed to _initialize
 
         # Test backward compatibility
         init_database(use_memory=True)
         # Should still call with same parameters
-        mock_db.initialize.assert_called_with(use_memory=True, db_path=None)
+        mock_db._initialize.assert_called_with(use_memory=True, db_path=None)  # Changed to _initialize

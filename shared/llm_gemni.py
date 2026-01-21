@@ -4,7 +4,7 @@ Gemini LLM Engine
 
 import os
 from typing import List, Dict, Any, Optional, Callable
-from llm_engine import LLMEngine
+from shared.llm_engine import LLMEngine
 from shared.logging import log
 
 try:

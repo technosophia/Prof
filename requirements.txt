@@ -6,3 +6,6 @@ sqlalchemy
 ollama
 groq
 google.genai
+pydoc-markdown
+playwright
+pytest-bdd

@@ -12,6 +12,9 @@ from unittest.mock import patch
 # Add the parent directory to sys.path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Add the current directory (shared) to sys.path to find engine modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Load test config - it's in the tests/ directory
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEST_CONFIG_PATH = os.path.join(
@@ -40,9 +43,9 @@ def patched_llm_manager():
     """Fixture that provides an LLMManager with test configuration."""
     with patch('shared.config.get_config', return_value=TEST_CONFIG):
         # Clear cached import
-        sys.modules.pop('llm', None)
+        sys.modules.pop('shared.llm', None)
 
-        from llm import LLMManager
+        from shared.llm import LLMManager
         manager = LLMManager()
         yield manager
 
@@ -55,9 +58,9 @@ def patched_llm_module():
     """Fixture that patches the llm module for public interface tests."""
     with patch('shared.config.get_config', return_value=TEST_CONFIG):
         # Clear cached import
-        sys.modules.pop('llm', None)
+        sys.modules.pop('shared.llm', None)
 
-        import llm
+        import shared.llm as llm
         yield llm
 
 
