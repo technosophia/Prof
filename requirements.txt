@@ -9,3 +9,4 @@ google.genai
 pydoc-markdown
 playwright
 pytest-bdd
+pytest-playwright

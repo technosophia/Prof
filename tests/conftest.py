@@ -6,6 +6,7 @@ import os
 import json
 import pytest
 from unittest.mock import patch, MagicMock
+from playwright.sync_api import sync_playwright
 
 # Add the project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +19,30 @@ TEST_CONFIG_PATH = os.path.join(
 
 with open(TEST_CONFIG_PATH, 'r') as f:
     TEST_CONFIG = json.load(f)
+
+
+@pytest.fixture(scope="session")
+def playwright():
+    """Playwright session fixture."""
+    with sync_playwright() as p:
+        yield p
+
+
+@pytest.fixture(scope="session")
+def browser(playwright):
+    """Browser session fixture."""
+    browser = playwright.chromium.launch(headless=True)
+    yield browser
+    browser.close()
+
+
+@pytest.fixture
+def page(browser):
+    """Page fixture for each test."""
+    context = browser.new_context()
+    page = context.new_page()
+    yield page
+    context.close()
 
 
 @pytest.fixture(autouse=True)

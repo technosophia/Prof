@@ -64,6 +64,7 @@ def run_specific_test_suites():
     test_suites = [
         ("shared/test_translate.py", "Translator Tests"),
         ("shared/test_llm.py", "LLM Tests"),
+        ("tests/step_defs/test_button_steps.py", "BDD Button Tests"),
     ]
 
     all_passed = True
