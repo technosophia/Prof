@@ -78,6 +78,9 @@ from shared.database import init_database, db_manager
 # Import conversation management
 from shared.conversation import conversation_manager, init_conversation_manager, Message
 
+# Import UI registry system
+from shared.ui_registry import UIRegistry, register_ui_module
+
 # Configure logging from config (one line)
 configure_logging_from_dict(config.get("logging", {}))
 
@@ -94,12 +97,23 @@ init_conversation_manager()
 # Initialize translator with Streamlit session support
 translator = init_translations_streamlit("en", "translations")
 
+# Initialize UI registry - do this here, not inside main()
+# The registry will be cached in session state
+if 'ui_registry' not in st.session_state:
+    log("info", "Initializing UI registry in session state")
+    st.session_state.ui_registry = UIRegistry()
+    st.session_state.ui_registry.initialize()
+
+# Get the registry from session state
+ui_registry = st.session_state.ui_registry
+
 # Page configuration
 st.set_page_config(
     page_title="Multilingual App",
     page_icon="🌍",
     layout="centered"
 )
+
 
 def get_conversation_history_for_llm(messages):
     """Convert conversation messages to LLM history format."""
@@ -182,7 +196,17 @@ def main():
     if "edit_user_id" not in st.session_state:
         st.session_state.edit_user_id = None
 
-    # Sidebar for language, LLM, User management, and Conversations
+    # Initialize session state for UI modules
+    if "ui_modules_initialized" not in st.session_state:
+        st.session_state.ui_modules_initialized = False
+
+    # Auto-discover and register UI modules
+    if not st.session_state.ui_modules_initialized:
+        ui_registry.discover_and_register_modules()
+        st.session_state.ui_modules_initialized = True
+        log("info", f"Registered UI modules: {list(ui_registry.modules.keys())}")
+
+    # Sidebar for language, LLM, and injected UI modules
     with st.sidebar:
         st.title("🌍 " + _("language_select"))
 
@@ -208,48 +232,6 @@ def main():
             translator.set_language(lang_option)
             log("info", f"Language changed from '{old_lang}' to '{lang_option}'")
             st.rerun()
-
-        st.divider()
-
-        # User Management Section
-        st.title("👤 User Management")
-
-        # Current user info
-        if st.session_state.current_user:
-            st.info(f"**Current User:** {st.session_state.current_user['name']}")
-
-            # Switch user button
-            if st.button("Switch User"):
-                st.session_state.current_user = None
-                st.session_state.current_conversation_id = None
-                st.session_state.conversation_messages = []
-                st.rerun()
-        else:
-            st.warning("No user selected")
-
-            # User selector - USING get_all_users_dict() instead of get_all_users()
-            all_users = user_manager.get_all_users_dict()
-            if all_users:
-                user_options = ["Select a user..."] + list(all_users.keys())
-                user_display = ["Select a user..."] + [f"{user['name']} ({user_id})" for user_id, user in all_users.items()]
-
-                selected_user = st.selectbox(
-                    "Choose user",
-                    options=user_options,
-                    format_func=lambda x: user_display[user_options.index(x)] if x in user_options else x,
-                    key="user_selector"
-                )
-
-                if selected_user != "Select a user..." and selected_user:
-                    if st.button("Login as User"):
-                        st.session_state.current_user = all_users[selected_user]
-                        log("info", f"User logged in: {st.session_state.current_user['name']}")
-                        st.rerun()
-
-        # Create new user button
-        if st.button("➕ Create New User", type="primary"):
-            st.session_state.show_user_form = True
-            st.session_state.edit_user_id = None
 
         st.divider()
 
@@ -301,70 +283,13 @@ def main():
 
         st.divider()
 
-        # Conversation Management Section (only show if user is logged in)
-        if st.session_state.current_user:
-            st.title("💬 Conversations")
-
-            # Button to create new conversation
-            if st.button("➕ New Conversation", type="primary", use_container_width=True):
-                st.session_state.show_new_conversation_form = True
-                st.session_state.editing_conversation_id = None
-
-            # Get user's conversations
-            user_conversations = conversation_manager.get_user_conversations(
-                st.session_state.current_user['id'],
-                include_inactive=False
-            )
-
-            if user_conversations:
-                st.subheader("Your Conversations")
-
-                # Display conversations as selectable items
-                for conv in user_conversations:
-                    # Create a unique key for each conversation button
-                    conv_key = f"conv_{conv['id']}"
-
-                    # Determine if this is the current conversation
-                    is_current = st.session_state.current_conversation_id == conv['id']
-
-                    # Create columns for the conversation item
-                    col1, col2 = st.columns([4, 1])
-
-                    with col1:
-                        # Button to select conversation
-                        if st.button(
-                            f"{'▶️' if not is_current else '📝'} {conv['title']}",
-                            key=f"select_{conv_key}",
-                            help=f"Select this conversation ({conv['message_count']} messages)",
-                            use_container_width=True,
-                            type="primary" if is_current else "secondary"
-                        ):
-                            # Load this conversation
-                            st.session_state.current_conversation_id = conv['id']
-                            conversation = conversation_manager.get_conversation(conv['id'], include_messages=True)
-                            if conversation:
-                                st.session_state.conversation_messages = conversation.messages
-                            log("info", f"Loaded conversation: {conv['title']} ({conv['id']})")
-                            st.rerun()
-
-                    with col2:
-                        # Button to edit conversation title
-                        if st.button("✏️", key=f"edit_{conv_key}", help="Edit conversation title"):
-                            st.session_state.editing_conversation_id = conv['id']
-                            st.session_state.show_new_conversation_form = True
-                            st.rerun()
-
-                # Show current conversation info
-                if st.session_state.current_conversation_id:
-                    current_conv = next(
-                        (c for c in user_conversations if c['id'] == st.session_state.current_conversation_id),
-                        None
-                    )
-                    if current_conv:
-                        st.info(f"**Current:** {current_conv['title']}")
-                        st.caption(f"Messages: {current_conv['message_count']}")
-            else:
-                st.info("No conversations yet. Create your first one!")
+        # INJECTION POINT 1: Sidebar Content from UI Modules
+        # Call all registered sidebar render functions
+        sidebar_contents = ui_registry.render_all("sidebar")
+        for content in sidebar_contents:
+            if content:
+                # Add divider between modules if content was rendered
+                st.divider()
 
         st.divider()
         st.caption(_("current_language"))
@@ -379,191 +304,17 @@ def main():
     # Main content
     st.title(_("hello_world"))
 
-    # Show current user info if logged in
-    if st.session_state.current_user:
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.success(f"✅ Logged in as: **{st.session_state.current_user['name']}**")
-        with col2:
-            if st.button("👤 Profile"):
-                st.session_state.edit_user_id = st.session_state.current_user['id']
-                st.session_state.show_user_form = True
-        with col3:
-            if st.button("🚪 Logout"):
-                st.session_state.current_user = None
-                st.session_state.current_conversation_id = None
-                st.session_state.conversation_messages = []
-                st.rerun()
-    else:
-        st.warning("👤 Please select or create a user from the sidebar to start conversations.")
+    # INJECTION POINT 2: Main Header Content from UI Modules
+    header_contents = ui_registry.render_all("main_header")
+    for content in header_contents:
+        if content:
+            st.divider()
 
-    # Log that we're displaying main content
-    log("debug", "Displaying main content")
-
-    # New Conversation Form (shown when creating/editing conversations)
-    if st.session_state.show_new_conversation_form and st.session_state.current_user:
-        st.divider()
-
-        if st.session_state.editing_conversation_id:
-            st.subheader("✏️ Edit Conversation Title")
-            # Get current title for editing
-            current_conv = conversation_manager.get_conversation(
-                st.session_state.editing_conversation_id,
-                include_messages=False
-            )
-            default_title = current_conv.title if current_conv else "My Conversation"
-        else:
-            st.subheader("➕ Create New Conversation")
-            default_title = st.session_state.new_conversation_title
-
-        with st.form("conversation_form"):
-            title = st.text_input("Conversation Title *", value=default_title)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                submit = st.form_submit_button("💾 Save", type="primary")
-            with col2:
-                cancel = st.form_submit_button("❌ Cancel")
-
-            if submit:
-                if not title.strip():
-                    st.error("Conversation title is required")
-                else:
-                    try:
-                        if st.session_state.editing_conversation_id:
-                            # Update existing conversation title
-                            success = conversation_manager.update_conversation_title(
-                                st.session_state.editing_conversation_id,
-                                title.strip()
-                            )
-                            if success:
-                                st.success("Conversation updated successfully!")
-                                log("info", f"Conversation title updated: {title.strip()}")
-
-                                # If we're editing the current conversation, update session state
-                                if st.session_state.current_conversation_id == st.session_state.editing_conversation_id:
-                                    # Reload the conversation to get updated title
-                                    conversation = conversation_manager.get_conversation(
-                                        st.session_state.current_conversation_id,
-                                        include_messages=True
-                                    )
-                                    if conversation:
-                                        st.session_state.conversation_messages = conversation.messages
-                            else:
-                                st.error("Failed to update conversation")
-                        else:
-                            # Create new conversation
-                            # Create new conversation
-                            # Extract only serializable parts from llm_info
-                            llm_config = {}
-                            if current_llm_info:
-                                # Create a clean dictionary with only serializable data
-                                llm_config = {
-                                    "id": current_llm_info.get("id", ""),
-                                    "name": current_llm_info.get("name", ""),
-                                    "type": current_llm_info.get("type", ""),
-                                    "model": current_llm_info.get("model", ""),
-                                    "available": current_llm_info.get("available", False),
-                                    "description": current_llm_info.get("description", ""),
-                                    "enabled": current_llm_info.get("enabled", True)
-                                    # Don't include the 'engine' object or any non-serializable data
-                                }
-                                # Remove any None values
-                                llm_config = {k: v for k, v in llm_config.items() if v is not None}
-
-                            conversation_id = conversation_manager.create_conversation(
-                                user_id=st.session_state.current_user['id'],
-                                title=title.strip(),
-                                system_prompt=None,
-                                llm_config=llm_config
-                            )
-                            st.success(f"Conversation created successfully!")
-                            log("info", f"Conversation created: {title.strip()} (ID: {conversation_id})")
-
-                            # Set as current conversation
-                            st.session_state.current_conversation_id = conversation_id
-                            st.session_state.conversation_messages = []
-
-                        # Reset form state
-                        st.session_state.show_new_conversation_form = False
-                        st.session_state.editing_conversation_id = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-                        log("error", f"Conversation form error: {str(e)}")
-
-            if cancel:
-                st.session_state.show_new_conversation_form = False
-                st.session_state.editing_conversation_id = None
-                st.rerun()
-
-    # User Management Form (shown when creating/editing users)
-    if st.session_state.show_user_form:
-        st.divider()
-        st.subheader("👤 " + ("Edit User" if st.session_state.edit_user_id else "Create New User"))
-
-        with st.form("user_form"):
-            if st.session_state.edit_user_id:
-                # Editing existing user
-                user = user_manager.get_user(st.session_state.edit_user_id)
-                default_name = user["name"] if user else ""
-                default_email = user["email"] if user else ""
-            else:
-                # Creating new user
-                default_name = ""
-                default_email = ""
-
-            name = st.text_input("Name *", value=default_name)
-            email = st.text_input("Email", value=default_email)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                submit = st.form_submit_button("💾 Save User", type="primary")
-            with col2:
-                cancel = st.form_submit_button("❌ Cancel")
-
-            if submit:
-                if not name.strip():
-                    st.error("Name is required")
-                else:
-                    try:
-                        if st.session_state.edit_user_id:
-                            # Update existing user
-                            success = user_manager.update_user(
-                                st.session_state.edit_user_id,
-                                name=name.strip(),
-                                email=email.strip() if email else None
-                            )
-                            if success:
-                                st.success("User updated successfully!")
-                                # Update current user if editing self
-                                if (st.session_state.current_user and
-                                    st.session_state.current_user['id'] == st.session_state.edit_user_id):
-                                    st.session_state.current_user = user_manager.get_user(st.session_state.edit_user_id)
-                                log("info", f"User updated: {name}")
-                            else:
-                                st.error("Failed to update user")
-                        else:
-                            # Create new user
-                            user_id = user_manager.create_user(
-                                name=name.strip(),
-                                email=email.strip() if email else None
-                            )
-                            st.success(f"User created successfully! ID: {user_id}")
-                            log("info", f"User created: {name} (ID: {user_id})")
-
-                        # Reset form state
-                        st.session_state.show_user_form = False
-                        st.session_state.edit_user_id = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-                        log("error", f"User form error: {str(e)}")
-
-            if cancel:
-                st.session_state.show_user_form = False
-                st.session_state.edit_user_id = None
-                st.rerun()
+    # INJECTION POINT 3: Main Content from UI Modules (before conversation interface)
+    main_contents_before = ui_registry.render_all("main_before_conversation")
+    for content in main_contents_before:
+        if content:
+            st.divider()
 
     # Conversation Interface (only show if user is logged in)
     if st.session_state.current_user:
@@ -788,6 +539,18 @@ def main():
                 st.warning("Conversation not found. Please select another conversation.")
                 st.session_state.current_conversation_id = None
                 st.session_state.conversation_messages = []
+    else:
+        # INJECTION POINT 4: Main Content when no user is logged in
+        no_user_contents = ui_registry.render_all("main_no_user")
+        for content in no_user_contents:
+            if content:
+                st.divider()
+
+    # INJECTION POINT 5: Main Content after conversation interface
+    main_contents_after = ui_registry.render_all("main_after_conversation")
+    for content in main_contents_after:
+        if content:
+            st.divider()
 
     # Debug section in sidebar expander
     with st.expander("🔧 " + _("debug_info")):
@@ -850,6 +613,11 @@ def main():
         st.write("**Database Info:**")
         st.write(f"- Database path: {db_path}")
         st.write(f"- Data directory exists: {os.path.exists('data')}")
+
+        # UI Modules info
+        st.write("**UI Modules Info:**")
+        for module_name, module_info in ui_registry.modules.items():
+            st.write(f"- {module_name}: {len(module_info['render_functions'])} render functions")
 
         # Test logging buttons
         st.subheader("Test Logging")
