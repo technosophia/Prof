@@ -1,3 +1,4 @@
+# file name: app.py
 """
 [agent]
 ## Technical Specifications
@@ -74,6 +75,8 @@ from shared.llm import llm_generate, set_current_llm, get_available_llms, get_cu
 # Import user management
 from shared.users import user_manager, init_user_manager
 from shared.database import init_database, db_manager
+# Import conversation management
+from shared.conversation import conversation_manager, init_conversation_manager, Message
 
 # Configure logging from config (one line)
 configure_logging_from_dict(config.get("logging", {}))
@@ -84,6 +87,9 @@ init_database(use_memory=False, db_path=db_path)
 
 # Initialize user manager with default users
 init_user_manager(create_default_users=True)
+
+# Initialize conversation manager
+init_conversation_manager()
 
 # Initialize translator with Streamlit session support
 translator = init_translations_streamlit("en", "translations")
@@ -102,9 +108,19 @@ def main():
     # Get config inside main function
     current_config = get_config()
 
+    # Initialize session state for conversation management
+    if "current_conversation_id" not in st.session_state:
+        st.session_state.current_conversation_id = None
+    if "conversation_messages" not in st.session_state:
+        st.session_state.conversation_messages = []
+    if "new_conversation_title" not in st.session_state:
+        st.session_state.new_conversation_title = "New Conversation"
+    if "show_new_conversation_form" not in st.session_state:
+        st.session_state.show_new_conversation_form = False
+    if "editing_conversation_id" not in st.session_state:
+        st.session_state.editing_conversation_id = None
+
     # Initialize session state for LLM response
-    if "llm_response" not in st.session_state:
-        st.session_state.llm_response = ""
     if "streaming_active" not in st.session_state:
         st.session_state.streaming_active = False
     if "stream_buffer" not in st.session_state:
@@ -118,7 +134,7 @@ def main():
     if "edit_user_id" not in st.session_state:
         st.session_state.edit_user_id = None
 
-    # Sidebar for language, LLM, and User management
+    # Sidebar for language, LLM, User management, and Conversations
     with st.sidebar:
         st.title("🌍 " + _("language_select"))
 
@@ -153,17 +169,21 @@ def main():
         # Current user info
         if st.session_state.current_user:
             st.info(f"**Current User:** {st.session_state.current_user['name']}")
+
+            # Switch user button
             if st.button("Switch User"):
                 st.session_state.current_user = None
+                st.session_state.current_conversation_id = None
+                st.session_state.conversation_messages = []
                 st.rerun()
         else:
             st.warning("No user selected")
 
             # User selector - USING get_all_users_dict() instead of get_all_users()
-            all_users = user_manager.get_all_users_dict()  # CHANGÉ ICI
+            all_users = user_manager.get_all_users_dict()
             if all_users:
                 user_options = ["Select a user..."] + list(all_users.keys())
-                user_display = ["Select a user..."] + [f"{user['name']} ({user_id})" for user_id, user in all_users.items()]  # CHANGÉ ICI
+                user_display = ["Select a user..."] + [f"{user['name']} ({user_id})" for user_id, user in all_users.items()]
 
                 selected_user = st.selectbox(
                     "Choose user",
@@ -232,6 +252,73 @@ def main():
                     st.error(f"Failed to switch to LLM: {selected_llm_id}")
 
         st.divider()
+
+        # Conversation Management Section (only show if user is logged in)
+        if st.session_state.current_user:
+            st.title("💬 Conversations")
+
+            # Button to create new conversation
+            if st.button("➕ New Conversation", type="primary", use_container_width=True):
+                st.session_state.show_new_conversation_form = True
+                st.session_state.editing_conversation_id = None
+
+            # Get user's conversations
+            user_conversations = conversation_manager.get_user_conversations(
+                st.session_state.current_user['id'],
+                include_inactive=False
+            )
+
+            if user_conversations:
+                st.subheader("Your Conversations")
+
+                # Display conversations as selectable items
+                for conv in user_conversations:
+                    # Create a unique key for each conversation button
+                    conv_key = f"conv_{conv['id']}"
+
+                    # Determine if this is the current conversation
+                    is_current = st.session_state.current_conversation_id == conv['id']
+
+                    # Create columns for the conversation item
+                    col1, col2 = st.columns([4, 1])
+
+                    with col1:
+                        # Button to select conversation
+                        if st.button(
+                            f"{'▶️' if not is_current else '📝'} {conv['title']}",
+                            key=f"select_{conv_key}",
+                            help=f"Select this conversation ({conv['message_count']} messages)",
+                            use_container_width=True,
+                            type="primary" if is_current else "secondary"
+                        ):
+                            # Load this conversation
+                            st.session_state.current_conversation_id = conv['id']
+                            conversation = conversation_manager.get_conversation(conv['id'], include_messages=True)
+                            if conversation:
+                                st.session_state.conversation_messages = conversation.messages
+                            log("info", f"Loaded conversation: {conv['title']} ({conv['id']})")
+                            st.rerun()
+
+                    with col2:
+                        # Button to edit conversation title
+                        if st.button("✏️", key=f"edit_{conv_key}", help="Edit conversation title"):
+                            st.session_state.editing_conversation_id = conv['id']
+                            st.session_state.show_new_conversation_form = True
+                            st.rerun()
+
+                # Show current conversation info
+                if st.session_state.current_conversation_id:
+                    current_conv = next(
+                        (c for c in user_conversations if c['id'] == st.session_state.current_conversation_id),
+                        None
+                    )
+                    if current_conv:
+                        st.info(f"**Current:** {current_conv['title']}")
+                        st.caption(f"Messages: {current_conv['message_count']}")
+            else:
+                st.info("No conversations yet. Create your first one!")
+
+        st.divider()
         st.caption(_("current_language"))
 
         # Show current LLM info in sidebar
@@ -243,7 +330,6 @@ def main():
 
     # Main content
     st.title(_("hello_world"))
-    st.write(_("description"))
 
     # Show current user info if logged in
     if st.session_state.current_user:
@@ -257,10 +343,111 @@ def main():
         with col3:
             if st.button("🚪 Logout"):
                 st.session_state.current_user = None
+                st.session_state.current_conversation_id = None
+                st.session_state.conversation_messages = []
                 st.rerun()
+    else:
+        st.warning("👤 Please select or create a user from the sidebar to start conversations.")
 
     # Log that we're displaying main content
     log("debug", "Displaying main content")
+
+    # New Conversation Form (shown when creating/editing conversations)
+    if st.session_state.show_new_conversation_form and st.session_state.current_user:
+        st.divider()
+
+        if st.session_state.editing_conversation_id:
+            st.subheader("✏️ Edit Conversation Title")
+            # Get current title for editing
+            current_conv = conversation_manager.get_conversation(
+                st.session_state.editing_conversation_id,
+                include_messages=False
+            )
+            default_title = current_conv.title if current_conv else "My Conversation"
+        else:
+            st.subheader("➕ Create New Conversation")
+            default_title = st.session_state.new_conversation_title
+
+        with st.form("conversation_form"):
+            title = st.text_input("Conversation Title *", value=default_title)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                submit = st.form_submit_button("💾 Save", type="primary")
+            with col2:
+                cancel = st.form_submit_button("❌ Cancel")
+
+            if submit:
+                if not title.strip():
+                    st.error("Conversation title is required")
+                else:
+                    try:
+                        if st.session_state.editing_conversation_id:
+                            # Update existing conversation title
+                            success = conversation_manager.update_conversation_title(
+                                st.session_state.editing_conversation_id,
+                                title.strip()
+                            )
+                            if success:
+                                st.success("Conversation updated successfully!")
+                                log("info", f"Conversation title updated: {title.strip()}")
+
+                                # If we're editing the current conversation, update session state
+                                if st.session_state.current_conversation_id == st.session_state.editing_conversation_id:
+                                    # Reload the conversation to get updated title
+                                    conversation = conversation_manager.get_conversation(
+                                        st.session_state.current_conversation_id,
+                                        include_messages=True
+                                    )
+                                    if conversation:
+                                        st.session_state.conversation_messages = conversation.messages
+                            else:
+                                st.error("Failed to update conversation")
+                        else:
+                            # Create new conversation
+                            # Create new conversation
+                            # Extract only serializable parts from llm_info
+                            llm_config = {}
+                            if current_llm_info:
+                                # Create a clean dictionary with only serializable data
+                                llm_config = {
+                                    "id": current_llm_info.get("id", ""),
+                                    "name": current_llm_info.get("name", ""),
+                                    "type": current_llm_info.get("type", ""),
+                                    "model": current_llm_info.get("model", ""),
+                                    "available": current_llm_info.get("available", False),
+                                    "description": current_llm_info.get("description", ""),
+                                    "enabled": current_llm_info.get("enabled", True)
+                                    # Don't include the 'engine' object or any non-serializable data
+                                }
+                                # Remove any None values
+                                llm_config = {k: v for k, v in llm_config.items() if v is not None}
+
+                            conversation_id = conversation_manager.create_conversation(
+                                user_id=st.session_state.current_user['id'],
+                                title=title.strip(),
+                                system_prompt=None,
+                                llm_config=llm_config
+                            )
+                            st.success(f"Conversation created successfully!")
+                            log("info", f"Conversation created: {title.strip()} (ID: {conversation_id})")
+
+                            # Set as current conversation
+                            st.session_state.current_conversation_id = conversation_id
+                            st.session_state.conversation_messages = []
+
+                        # Reset form state
+                        st.session_state.show_new_conversation_form = False
+                        st.session_state.editing_conversation_id = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                        log("error", f"Conversation form error: {str(e)}")
+
+            if cancel:
+                st.session_state.show_new_conversation_form = False
+                st.session_state.editing_conversation_id = None
+                st.rerun()
 
     # User Management Form (shown when creating/editing users)
     if st.session_state.show_user_form:
@@ -330,146 +517,163 @@ def main():
                 st.session_state.edit_user_id = None
                 st.rerun()
 
-    # User List (only show if not showing form)
-    elif not st.session_state.show_user_form:
-        st.divider()
-        st.subheader("👥 All Users")
-
-        # Get all users - USING get_all_users() which returns a list
-        all_users_list = user_manager.get_all_users()  # CHANGÉ ICI
-
-        if all_users_list:
-            # Create a table of users
-            user_data = []
-            for user in all_users_list:  # CHANGÉ ICI
-                user_data.append({
-                    "ID": user["id"],
-                    "Name": user["name"],
-                    "Email": user["email"] or "-",
-                    "Created": user["created_at"][:10] if user["created_at"] else "-",
-                    "Status": "✅ Active" if user.get("is_active", True) else "❌ Inactive",
-                    "Actions": user["id"]
-                })
-
-            # Display users in columns
-            for user_row in user_data:
-                col1, col2, col3, col4, col5, col6 = st.columns([1, 3, 3, 2, 2, 2])
-                with col1:
-                    st.write(user_row["ID"][:8] + "...")
-                with col2:
-                    st.write(user_row["Name"])
-                with col3:
-                    st.write(user_row["Email"])
-                with col4:
-                    st.write(user_row["Created"])
-                with col5:
-                    st.write(user_row["Status"])
-                with col6:
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        if st.button("✏️", key=f"edit_{user_row['Actions']}", help="Edit user"):
-                            st.session_state.edit_user_id = user_row["Actions"]
-                            st.session_state.show_user_form = True
-                            st.rerun()
-                    with col_b:
-                        if st.button("🗑️", key=f"delete_{user_row['Actions']}", help="Delete user"):
-                            if user_manager.delete_user(user_row["Actions"]):
-                                st.success(f"User {user_row['Name']} deleted")
-                                if (st.session_state.current_user and
-                                    st.session_state.current_user['id'] == user_row["Actions"]):
-                                    st.session_state.current_user = None
-                                st.rerun()
-                            else:
-                                st.error("Cannot delete default test users")
-        else:
-            st.info("No users found. Create your first user!")
-
-        st.divider()
-
-    # Example button with logging
-    if st.button(_("button_text"), type="primary"):
-        log("info", "Main button clicked")
-        st.success(_("button_clicked"))
-
-    # LLM Chat Section (only show if a user is logged in)
+    # Conversation Interface (only show if user is logged in)
     if st.session_state.current_user:
-        st.divider()
-        st.subheader("🤖 " + _("llm_chat"))
+        # Show current conversation or prompt to create one
+        if not st.session_state.current_conversation_id:
+            st.divider()
+            st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
+        else:
+            # Get current conversation info
+            current_conv = conversation_manager.get_conversation(
+                st.session_state.current_conversation_id,
+                include_messages=False
+            )
 
-        # Text area for user input
-        user_message = st.text_area(
-            _("enter_message"),
-            value=_("default_prompt"),
-            height=150,
-            key="user_message"
-        )
+            if current_conv:
+                # Conversation header
+                col1, col2, col3 = st.columns([4, 1, 1])
+                with col1:
+                    st.subheader(f"💬 {current_conv.title}")
+                with col2:
+                    if st.button("🔄 Refresh", help="Reload conversation from database"):
+                        conversation = conversation_manager.get_conversation(
+                            st.session_state.current_conversation_id,
+                            include_messages=True
+                        )
+                        if conversation:
+                            st.session_state.conversation_messages = conversation.messages
+                        st.rerun()
+                with col3:
+                    if st.button("🗑️ Clear", help="Clear all messages in this conversation"):
+                        if conversation_manager.clear_conversation_messages(st.session_state.current_conversation_id):
+                            st.session_state.conversation_messages = []
+                            st.success("Conversation cleared")
+                            st.rerun()
 
-        # Columns for buttons
-        col1, col2 = st.columns(2)
+                # Display conversation messages
+                st.divider()
 
-        with col1:
-            # Send button
-            if st.button("🚀 " + _("send_message"), type="primary", use_container_width=True):
-                if user_message.strip():
-                    log("info", f"Sending message to LLM: {user_message[:50]}...")
+                if st.session_state.conversation_messages:
+                    for i, message in enumerate(st.session_state.conversation_messages):
+                        if message.role == "user":
+                            with st.chat_message("user"):
+                                st.write(message.content)
+                        elif message.role == "assistant":
+                            with st.chat_message("assistant"):
+                                st.write(message.content)
+                        elif message.role == "system":
+                            with st.container():
+                                st.markdown(f"*System: {message.content}*")
 
-                    # Clear previous response
-                    st.session_state.llm_response = ""
-                    st.session_state.stream_buffer = ""
-                    st.session_state.streaming_active = True
+                # Display streaming buffer if active
+                if st.session_state.streaming_active and st.session_state.stream_buffer:
+                    with st.chat_message("assistant"):
+                        st.markdown(st.session_state.stream_buffer)
+                        st.caption("⏳ " + _("streaming_in_progress"))
 
-                    # Create a placeholder for the streaming response
-                    response_placeholder = st.empty()
+                # Chat input at the bottom
+                st.divider()
 
-                    # Define streaming callback
-                    def stream_callback(chunk):
-                        st.session_state.stream_buffer += chunk
-                        response_placeholder.markdown(st.session_state.stream_buffer)
+                # Text area for user input
+                user_message = st.chat_input(
+                    _("enter_message"),
+                    key="chat_input"
+                )
 
-                    # Run async LLM call
+                if user_message:
+                    # Add user message to conversation
+                    user_msg = Message(
+                        role="user",
+                        content=user_message.strip()
+                    )
+
+                    # Add to database and session state
                     try:
-                        # Use llm_generate directly instead of aliased 'llm'
-                        response = asyncio.run(llm_generate(user_message.strip(), stream_callback))
-                        st.session_state.llm_response = response
-                        st.session_state.streaming_active = False
+                        message_id = conversation_manager.add_message(
+                            st.session_state.current_conversation_id,
+                            user_msg
+                        )
+                        st.session_state.conversation_messages.append(user_msg)
 
-                        # If streaming didn't work, show the full response
-                        if not st.session_state.stream_buffer and response:
-                            st.markdown(response)
+                        log("info", f"Sending message to LLM: {user_message[:50]}...")
 
-                        log("info", "LLM response received")
+                        # Clear previous streaming buffer
+                        st.session_state.stream_buffer = ""
+                        st.session_state.streaming_active = True
+
+                        # Create a placeholder for the streaming response
+                        response_placeholder = st.empty()
+
+                        # Define streaming callback
+                        def stream_callback(chunk):
+                            st.session_state.stream_buffer += chunk
+                            response_placeholder.markdown(st.session_state.stream_buffer)
+
+                        # Run async LLM call
+                        try:
+                            # Prepare conversation history for LLM
+                            conversation_history = []
+                            for msg in st.session_state.conversation_messages:
+                                if msg.role in ["user", "assistant", "system"]:
+                                    conversation_history.append({
+                                        "role": msg.role,
+                                        "content": msg.content
+                                    })
+
+                            # Use llm_generate with conversation history
+                            try:
+                                # First try the simple version (no conversation history)
+                                response = asyncio.run(llm_generate(user_message.strip(), stream_callback))
+                            except TypeError as e:
+                                # If that fails, the function might have changed
+                                # Check if it supports conversation_history
+                                if "conversation_history" in str(e):
+                                    # Try without conversation_history
+                                    response = asyncio.run(llm_generate(user_message.strip(), stream_callback))
+                                else:
+                                    # Re-raise other errors
+                                    raise
+
+                            # Create assistant message
+                            assistant_msg = Message(
+                                role="assistant",
+                                content=response
+                            )
+
+                            # Add to database and session state
+                            conversation_manager.add_message(
+                                st.session_state.current_conversation_id,
+                                assistant_msg
+                            )
+                            st.session_state.conversation_messages.append(assistant_msg)
+
+                            st.session_state.streaming_active = False
+
+                            # If streaming didn't work, show the full response
+                            if not st.session_state.stream_buffer and response:
+                                with st.chat_message("assistant"):
+                                    st.markdown(response)
+
+                            log("info", "LLM response received and saved")
+
+                            # Rerun to update the display
+                            st.rerun()
+
+                        except Exception as e:
+                            error_msg = f"Error calling LLM: {str(e)}"
+                            log("error", error_msg, exc_info=True)
+                            st.error(error_msg)
+                            st.session_state.streaming_active = False
+
                     except Exception as e:
-                        error_msg = f"Error calling LLM: {str(e)}"
-                        log("error", error_msg, exc_info=True)  # Use exc_info=True for traceback
+                        error_msg = f"Error saving message: {str(e)}"
+                        log("error", error_msg, exc_info=True)
                         st.error(error_msg)
-                else:
-                    st.warning(_("please_enter_message"))
-
-        with col2:
-            # Clear button
-            if st.button("🗑️ " + _("clear_chat"), use_container_width=True):
-                st.session_state.llm_response = ""
-                st.session_state.stream_buffer = ""
-                st.session_state.streaming_active = False
-                log("info", "Chat cleared")
-                st.rerun()
-
-        # Display the response if we have one
-        if st.session_state.llm_response and not st.session_state.streaming_active:
-            st.divider()
-            st.subheader("💬 " + _("response"))
-            st.markdown(st.session_state.llm_response)
-
-        # Display streaming buffer if active
-        elif st.session_state.streaming_active and st.session_state.stream_buffer:
-            st.divider()
-            st.subheader("💬 " + _("response_streaming"))
-            st.markdown(st.session_state.stream_buffer)
-            st.caption("⏳ " + _("streaming_in_progress"))
-    else:
-        # Show message when no user is logged in
-        st.divider()
-        st.warning("👤 Please select or create a user from the sidebar to use the LLM chat feature.")
+            else:
+                st.warning("Conversation not found. Please select another conversation.")
+                st.session_state.current_conversation_id = None
+                st.session_state.conversation_messages = []
 
     # Debug section in sidebar expander
     with st.expander("🔧 " + _("debug_info")):
@@ -486,6 +690,22 @@ def main():
             st.write(f"- Email: {st.session_state.current_user['email']}")
             st.write(f"- Created: {st.session_state.current_user['created_at']}")
             st.write(f"- Active: {st.session_state.current_user['is_active']}")
+
+            # Conversation info
+            if st.session_state.current_conversation_id:
+                st.write("**Current Conversation:**")
+                st.write(f"- ID: {st.session_state.current_conversation_id}")
+                st.write(f"- Message count: {len(st.session_state.conversation_messages)}")
+
+                # Get conversation from DB for more info
+                conv = conversation_manager.get_conversation(
+                    st.session_state.current_conversation_id,
+                    include_messages=False
+                )
+                if conv:
+                    st.write(f"- Title: {conv.title}")
+                    st.write(f"- Created: {conv.created_at}")
+                    st.write(f"- Updated: {conv.updated_at}")
         else:
             st.write("- No user logged in")
 
