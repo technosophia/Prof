@@ -36,39 +36,54 @@ class LLMManager:
         log("debug", f"LLMManager initialized with {len(self.engines)} engines")
 
     def discover_engines(self):
-        """Discover and load all LLM engine modules."""
-        # Look for llm_*.py files in the current directory
-        import shared.llm_engine as engine_module
+        """Discover and load all LLM engine modules from shared/llms directory."""
+        # Get the path to the shared directory
+        import shared
+        shared_dir = os.path.dirname(shared.__file__)
+        llms_dir = os.path.join(shared_dir, 'llms')
 
-        # Get the package path
-        package_path = os.path.dirname(engine_module.__file__)
+        log("debug", f"Looking for engines in: {llms_dir}")
 
-        # Find all llm_*.py files
-        for _, module_name, is_pkg in pkgutil.iter_modules([package_path]):
-            if module_name.startswith('llm_') and module_name != 'llm_engine':
-                try:
-                    # Import the module
-                    module = importlib.import_module(f"{module_name}")
+        if not os.path.exists(llms_dir):
+            log("error", f"LLMs directory not found: {llms_dir}")
+            return
 
-                    # Find engine classes (classes ending with 'Engine')
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if (isinstance(attr, type) and
-                            issubclass(attr, LLMEngine) and
-                            attr != LLMEngine and
-                            attr_name.endswith('Engine')):
+        # Ensure the directory is in sys.path for import
+        if shared_dir not in sys.path:
+            sys.path.insert(0, shared_dir)
 
-                            # Create instance
-                            engine = attr()
-                            engine_type = engine.engine_type
+        # Use pkgutil to iterate through modules
+        try:
+            # Create a proper package path for pkgutil
+            for _, module_name, is_pkg in pkgutil.iter_modules([llms_dir]):
+                if not is_pkg and module_name.startswith('llm_'):
+                    try:
+                        # Import the module
+                        full_module_name = f"llms.{module_name}"
+                        module = importlib.import_module(full_module_name)
 
-                            # Add to engines
-                            self.engines[engine_type] = engine
-                            log("info", f"Loaded LLM engine: {engine_type}")
-                            break
+                        # Find engine classes
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if (isinstance(attr, type) and
+                                issubclass(attr, LLMEngine) and
+                                attr != LLMEngine and
+                                attr_name.endswith('Engine')):
 
-                except Exception as e:
-                    log("error", f"Failed to load engine module {module_name}: {e}")
+                                # Create instance
+                                engine = attr()
+                                engine_type = engine.engine_type
+
+                                # Add to engines
+                                self.engines[engine_type] = engine
+                                log("info", f"Loaded LLM engine: {engine_type} from {module_name}")
+                                break
+
+                    except Exception as e:
+                        log("error", f"Failed to load engine module {module_name}: {e}")
+
+        except Exception as e:
+            log("error", f"Failed to discover engines using pkgutil: {e}")
 
         # Log discovered engines
         log("debug", f"Discovered engines: {list(self.engines.keys())}")

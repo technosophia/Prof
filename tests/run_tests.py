@@ -60,20 +60,19 @@ def run_specific_test_suites():
     print("="*60)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
 
     test_suites = [
-        ("shared/test_translate.py", "Translator Tests"),
-        ("shared/test_llm.py", "LLM Tests"),
-        ("tests/step_defs/test_button_steps.py", "BDD Button Tests"),
+        (os.path.join(project_root, "shared", "tests", "test_translate.py"), "Translator Tests"),
+        (os.path.join(project_root, "shared", "tests", "test_llm.py"), "LLM Tests"),
+        (os.path.join(current_dir, "step_defs", "test_button_steps.py"), "BDD Button Tests"),
     ]
 
     all_passed = True
 
     for test_file, suite_name in test_suites:
-        file_path = os.path.join(current_dir, test_file)
-
-        if not os.path.exists(file_path):
-            print(f"\n⚠️  {suite_name}: File not found at {file_path}")
+        if not os.path.exists(test_file):
+            print(f"\n⚠️  {suite_name}: File not found at {test_file}")
             continue
 
         print(f"\n" + "="*60)
@@ -82,7 +81,7 @@ def run_specific_test_suites():
 
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pytest", file_path, "-v"],
+                [sys.executable, "-m", "pytest", test_file, "-v"],
                 check=False,
                 capture_output=True,
                 text=True

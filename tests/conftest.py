@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 # Add the project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Load test config
+# Load test config - FIXED PATH
 TEST_CONFIG_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "test_config.json"
@@ -48,6 +48,7 @@ def page(browser):
 @pytest.fixture(autouse=True)
 def patch_config():
     """Patch the get_config function for all tests."""
+    # Only patch the actual import path
     with patch('shared.config.get_config', return_value=TEST_CONFIG):
         yield
 
