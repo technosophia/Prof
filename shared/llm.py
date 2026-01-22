@@ -277,8 +277,11 @@ class LLMManager:
 
         return None
 
-    async def generate(self, message: str, stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from current LLM."""
+    async def generate(self,
+                      message: str,
+                      stream_callback: Optional[Callable] = None,
+                      conversation_history: Optional[List[Dict]] = None) -> str:
+        """Generate response from current LLM with optional conversation history."""
         if not self.current_llm:
             error_msg = "No LLM selected"
             log("error", error_msg)
@@ -286,9 +289,18 @@ class LLMManager:
 
         log("info", f"Generating response with current LLM: {self.current_llm}")
         log("debug", f"Message: {message[:100]}...")
+        if conversation_history:
+            log("debug", f"Conversation history: {len(conversation_history)} messages")
 
         # Prepare messages for the LLM
-        messages = [{"role": "user", "content": message}]
+        messages = []
+
+        # Add conversation history if provided
+        if conversation_history:
+            messages.extend(conversation_history)
+
+        # Add current user message
+        messages.append({"role": "user", "content": message})
 
         return await self.generate_response(self.current_llm, messages, stream_callback)
 
@@ -355,11 +367,13 @@ def _get_manager():
         _manager = LLMManager()
     return _manager
 
-# Update all public functions to use _get_manager():
-async def llm_generate(message: str, stream_callback: Optional[Callable] = None) -> str:
-    """Simple interface to generate response from current LLM."""
+# Update public functions with backward compatibility
+async def llm_generate(message: str,
+                      stream_callback: Optional[Callable] = None,
+                      conversation_history: Optional[List[Dict]] = None) -> str:
+    """Simple interface to generate response from current LLM with conversation history."""
     manager = _get_manager()
-    return await manager.generate(message, stream_callback)
+    return await manager.generate(message, stream_callback, conversation_history)
 
 def set_current_llm(llm_id: str) -> bool:
     """Set the current LLM to use."""
@@ -381,5 +395,5 @@ def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
     manager = _get_manager()
     return manager.get_llm_by_name(name)
 
-# Alias for backward compatibility
+# Alias for backward compatibility - maintains old interface
 llm = llm_generate
