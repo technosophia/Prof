@@ -1,10 +1,20 @@
-"""
-UI Registry System
-==================
+"""UI Registry System
 
-This module provides a registry system for UI modules to inject content into
-the main application. UI modules can register render functions for specific
-injection points.
+[agent]
+
+Provides a modular UI injection system for Streamlit applications. UI modules
+can register render functions that are automatically discovered and injected
+into predefined injection points.
+
+Module Discovery:
+- Discovers UI modules from shared/*_ui.py files
+- Discovers UI modules from modules/*/*_ui.py files (subdirectories within modules)
+
+Naming Conventions:
+- Module files must end with _ui.py
+- Render functions can use either pattern:
+  1. Direct injection point names: sidebar(), main_header(), etc.
+  2. Namespaced pattern: modulename_render_injectionpoint()
 
 Injection Points:
 - sidebar: Content injected into the sidebar
@@ -13,8 +23,15 @@ Injection Points:
 - main_no_user: Content injected when no user is logged in
 - main_after_conversation: Content injected after conversation interface
 
-UI modules should be placed in the shared directory and named with _ui.py suffix.
-They should define functions with names that match the injection points.
+Module Requirements:
+1. Must be placed in shared/ or modules/*/ directories
+2. Must have filename ending with _ui.py
+3. Must define at least one render function matching an injection point
+4. Render functions must be callable and return a value
+
+Registry Initialization:
+Automatically initialized and cached in Streamlit session state.
+No manual initialization required in modules.
 """
 
 import os
@@ -46,24 +63,46 @@ class UIRegistry:
             self._initialized = True
 
     def discover_and_register_modules(self):
-        """Discover and register all UI modules in the shared directory."""
+        """Discover and register all UI modules in shared and modules directories."""
         # Get the directory where this file is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        shared_dir = current_dir
+        project_root = os.path.dirname(current_dir)
 
-        log("debug", f"Looking for UI modules in: {shared_dir}")
+        # Search paths for UI modules
+        search_paths = [
+            current_dir,  # shared directory
+            os.path.join(project_root, "modules")  # modules directory
+        ]
 
-        if not os.path.exists(shared_dir):
-            log("warning", f"Shared directory not found: {shared_dir}")
-            return
+        for base_path in search_paths:
+            if not os.path.exists(base_path):
+                log("debug", f"Search path not found: {base_path}")
+                continue
 
-        # Look for files ending with _ui.py
-        for file_name in os.listdir(shared_dir):
-            if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
-                module_name = file_name[:-3]  # Remove .py
-                module_path = os.path.join(shared_dir, file_name)
-                log("debug", f"Found UI module file: {file_name} at {module_path}")
-                self.register_module(module_name, module_path)
+            self._discover_modules_in_directory(base_path)
+
+    def _discover_modules_in_directory(self, base_path: str):
+        """Discover UI modules in a directory and its subdirectories."""
+        log("debug", f"Discovering UI modules in: {base_path}")
+
+        # Walk through directory and subdirectories
+        for root, dirs, files in os.walk(base_path):
+            for file_name in files:
+                if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
+                    module_name = file_name[:-3]  # Remove .py
+                    module_path = os.path.join(root, file_name)
+
+                    # Create a unique module key based on relative path
+                    rel_path = os.path.relpath(root, base_path)
+                    if rel_path == '.':
+                        module_key = module_name
+                    else:
+                        # Convert path to valid module identifier
+                        path_parts = rel_path.replace(os.sep, '_')
+                        module_key = f"{path_parts}_{module_name}"
+
+                    log("debug", f"Found UI module: {file_name} at {module_path} (key: {module_key})")
+                    self.register_module(module_key, module_path)
 
     def register_module(self, module_name: str, module_path: str):
         """Register a UI module from a file path."""
@@ -95,6 +134,17 @@ class UIRegistry:
                         if injection_point in self.injection_points:
                             render_functions[injection_point] = obj
                             log("debug", f"Found render function: {module_name}.{name} -> {injection_point}")
+                    else:
+                        # Check if function follows modulename_render_injectionpoint pattern
+                        # where modulename might be different from module_name
+                        for ip in self.injection_points:
+                            if name.endswith(f"_render_{ip}"):
+                                # Extract base module name from function name
+                                base_name = name[:-len(f"_render_{ip}")]
+                                if base_name:
+                                    render_functions[ip] = obj
+                                    log("debug", f"Found render function: {module_name}.{name} -> {ip}")
+                                    break
 
             if render_functions:
                 self.modules[module_name] = {
@@ -111,9 +161,6 @@ class UIRegistry:
 
     def render_all(self, injection_point: str) -> List[Any]:
         """Call all render functions for a specific injection point."""
-        log("info", f"Rendering all modules for injection point: {injection_point}")
-        log("info", f"Available modules: {list(self.modules.keys())}")
-
         if injection_point not in self.injection_points:
             log("error", f"Unknown injection point: {injection_point}")
             return []
@@ -124,18 +171,13 @@ class UIRegistry:
             render_func = module_info['render_functions'].get(injection_point)
             if render_func:
                 try:
-                    log("debug", f"Calling render function for {module_name}.{injection_point}")
                     # Call the render function
                     result = render_func()
-                    log("debug", f"Render function {module_name}.{injection_point} returned: {result}")
                     results.append(result)
                 except Exception as e:
                     log("error", f"Error rendering {injection_point} from {module_name}: {str(e)}", exc_info=True)
                     results.append(None)
-            else:
-                log("debug", f"No render function for {injection_point} in module {module_name}")
 
-        log("debug", f"Render results for {injection_point}: {len(results)} results")
         return results
 
     def get_module(self, module_name: str) -> Dict:
