@@ -208,7 +208,7 @@ def get_translator() -> Translator:
         _translator_instance = Translator()
     return _translator_instance
 
-def _(key: str) -> str:
+def _internal(key: str) -> str:
     """Helper function to access translations"""
     return get_translator()(key)
 
@@ -267,7 +267,11 @@ def get_translator_streamlit():
 
     return st.session_state.translator
 
-def _streamlit(key: str) -> str:
+
+def _(key: str) -> str:
+    """
+    Helper function to access translations.
+    """
     import streamlit as st
 
     if "translator" not in st.session_state:

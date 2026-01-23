@@ -62,7 +62,7 @@ load_dotenv()
 sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
-from shared.translate import init_translations_multiple, _streamlit as _
+from shared.translate import init_translations_multiple, _
 from shared.config import init_config, get_config
 
 # Initialize configuration (one line) - BEFORE ANY OTHER IMPORTS THAT USE CONFIG

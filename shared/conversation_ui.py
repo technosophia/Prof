@@ -11,7 +11,7 @@ import asyncio
 from shared.logging import log
 from shared.conversation import conversation_manager, Message
 from shared.llm import get_current_llm_info
-from shared.translate import _streamlit as _
+from shared.translate import _
 
 # Import helper functions from main app
 from app import generate_llm_response, get_conversation_history_for_llm
