@@ -12,6 +12,7 @@ loaders:
       - shared.database
       - shared.users
       - shared.ui_registry
+      - shared.module_handler
 
 processors:
   - type: filter

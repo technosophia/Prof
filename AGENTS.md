@@ -576,3 +576,40 @@ Registry Initialization:
 Automatically initialized and cached in Streamlit session state.
 No manual initialization required in modules.
 
+<a id="shared.module_handler"></a>
+
+# shared.module\_handler
+
+Module Handler
+
+[agent]
+Provides module discovery, activation, and management for the application.
+Scans ./modules directory to detect modules and allows loading them or not,
+depending on the configuration. Module activation status is stored in modules.json.
+
+Key Features:
+- Auto-discovers modules in the modules/ directory
+- Loads module configuration from module.json files
+- Manages activation status in modules.json
+- Provides toggle functionality for modules
+- Integrates with UI registry for selective module loading
+
+Module Requirements:
+1. Must be placed in modules/ directory as a subdirectory
+2. Must contain a module.json file with metadata
+3. UI modules should follow *_ui.py naming convention
+4. Can include config.json for module-specific configuration
+
+Module JSON Structure:
+```json
+{
+    "name": "module_name",
+    "version": "1.0.0",
+    "description": "Module description",
+    "author": "Author name",
+    "enabled_by_default": true,
+    "category": "category",
+    "dependencies": []
+}
+```
+

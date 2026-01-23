@@ -80,6 +80,8 @@ from shared.conversation import conversation_manager, init_conversation_manager,
 
 # Import UI registry system
 from shared.ui_registry import UIRegistry, register_ui_module
+# Import module handler
+from shared.module_handler import ModuleHandler, get_active_modules, toggle_module
 
 # Configure logging from config (one line)
 configure_logging_from_dict(config.get("logging", {}))
@@ -97,11 +99,32 @@ init_conversation_manager()
 # Initialize translator with Streamlit session support
 translator = init_translations_streamlit("en", "translations")
 
+# Initialize Module Handler - store in session state
+if 'module_handler' not in st.session_state:
+    log("info", "Initializing module handler in session state")
+    st.session_state.module_handler = ModuleHandler()
+    st.session_state.module_handler.initialize()
+
+# Use the session state module handler
+module_handler = st.session_state.module_handler
+
+# Load active module UIs immediately
+active_modules = module_handler.get_active_modules()
+log("info", f"Active modules: {active_modules}")
+for module_name in active_modules:
+    ui_module = module_handler.load_module_ui(module_name)
+    if ui_module:
+        log("info", f"Successfully loaded UI for module: {module_name}")
+    else:
+        log("warning", f"Could not load UI for module: {module_name}")
+
 # Initialize UI registry - do this here, not inside main()
 # The registry will be cached in session state
 if 'ui_registry' not in st.session_state:
     log("info", "Initializing UI registry in session state")
     st.session_state.ui_registry = UIRegistry()
+    # Pass the module handler to the registry
+    st.session_state.ui_registry.set_module_handler(module_handler)
     st.session_state.ui_registry.initialize()
 
 # Get the registry from session state
@@ -159,12 +182,128 @@ async def generate_llm_response(user_message, conversation_history, current_llm_
         st.session_state.streaming_active = False
         raise Exception(error_msg)
 
+def show_admin_page():
+    """Display the Admin page."""
+    st.title("🔧 Admin Panel")
+
+    # Get active modules - USE THE SINGLETON INSTANCE
+    active_modules = module_handler.get_active_modules()
+    all_modules = module_handler.get_all_modules()
+
+    # Module Management Section
+    st.header("📦 Module Management")
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.subheader("Available Modules")
+    with col2:
+        if st.button("🔄 Refresh Modules"):
+            module_handler.refresh_modules()
+            st.rerun()
+
+    # Display module status
+    for module_name, module_info in all_modules.items():
+        is_active = module_name in active_modules
+
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            st.write(f"**{module_name}**")
+            if module_info.get('description'):
+                st.caption(module_info.get('description'))
+            if module_info.get('version'):
+                st.caption(f"Version: {module_info.get('version')}")
+
+        with col2:
+            status = "🟢 Active" if is_active else "🔴 Inactive"
+            st.write(status)
+
+        with col3:
+            if is_active:
+                if st.button("Disable", key=f"disable_{module_name}"):
+                    log("debug", f"Attempting to disable module: {module_name}")
+                    log("debug", f"Current active modules: {module_handler.active_modules}")
+                    log("debug", f"Module in modules dict: {module_name in module_handler.modules}")
+
+                    if module_handler.toggle_module(module_name, False):
+                        # Force UI registry to refresh
+                        st.session_state.ui_registry = UIRegistry()
+                        # Pass the CURRENT module handler instance
+                        st.session_state.ui_registry.set_module_handler(module_handler)
+                        st.session_state.ui_registry.initialize()
+                        st.session_state.ui_modules_initialized = False
+                        # Also save modules file
+                        module_handler._save_modules_file()
+                        st.success(f"Module '{module_name}' disabled")
+                        st.rerun()
+                    else:
+                        log("error", f"Toggle failed for {module_name}")
+            else:
+                if st.button("Enable", key=f"enable_{module_name}"):
+                    log("debug", f"Attempting to enable module: {module_name}")
+                    if module_handler.toggle_module(module_name, True):
+                        log("debug", f"Toggle succeeded for {module_name}")
+                        # Force UI registry to refresh
+                        st.session_state.ui_registry = UIRegistry()
+                        st.session_state.ui_registry.initialize()
+                        st.session_state.ui_modules_initialized = False
+                        # Also save modules file
+                        module_handler._save_modules_file()
+                        st.success(f"Module '{module_name}' enabled")
+                        st.rerun()
+
+    # System Information Section
+    st.header("ℹ️ System Information")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Application")
+        st.write(f"**Name:** {config.get('app.name', 'N/A')}")
+        st.write(f"**Version:** {config.get('app.version', 'N/A')}")
+        st.write(f"**Active Modules:** {len(active_modules)}/{len(all_modules)}")
+        st.write(f"**UI Registry Modules:** {len(ui_registry.modules)}")
+
+    with col2:
+        st.subheader("Database")
+        st.write(f"**Path:** {db_path}")
+        st.write(f"**User Count:** {user_manager.get_user_count()}")
+
+        # Count conversations - FIXED VERSION
+        from shared.conversation import ConversationTable  # Import the table class
+        with db_manager.get_session() as session:
+            from sqlalchemy import func
+            conv_count = session.query(func.count(ConversationTable.id)).scalar()
+            st.write(f"**Conversation Count:** {conv_count}")
+
+    # LLM Status Section
+    st.header("🤖 LLM Status")
+    available_llms_list = get_available_llms()
+
+    for llm_item in available_llms_list:
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            status_icon = "🟢" if llm_item["available"] else "🔴"
+            st.write(f"{status_icon} **{llm_item['name']}**")
+            st.caption(f"{llm_item['type']} - {llm_item['model']}")
+
+        with col2:
+            st.write("Available" if llm_item["available"] else "Unavailable")
+
+        with col3:
+            if llm_item["requires_api_key"]:
+                has_key = bool(os.getenv(f"{llm_item['type'].upper()}_API_KEY"))
+                st.write("🔑 Key: " + ("✅" if has_key else "❌"))
+
 def main():
     # Log main function entry
     log("debug", "Entering main function")
 
     # Get config inside main function
     current_config = get_config()
+
+    # Initialize session state for page navigation
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = "chat"
 
     # Initialize session state for conversation management
     if "current_conversation_id" not in st.session_state:
@@ -200,13 +339,7 @@ def main():
     if "ui_modules_initialized" not in st.session_state:
         st.session_state.ui_modules_initialized = False
 
-    # Auto-discover and register UI modules
-    if not st.session_state.ui_modules_initialized:
-        ui_registry.discover_and_register_modules()
-        st.session_state.ui_modules_initialized = True
-        log("info", f"Registered UI modules: {list(ui_registry.modules.keys())}")
-
-    # Sidebar for language, LLM, and injected UI modules
+    # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:
         st.title("🌍 " + _("language_select"))
 
@@ -233,7 +366,20 @@ def main():
             log("info", f"Language changed from '{old_lang}' to '{lang_option}'")
             st.rerun()
 
-        st.divider()
+        # Navigation
+        st.title("🧭 Navigation")
+
+        # Navigation buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💬 Chat", use_container_width=True):
+                st.session_state.current_page = "chat"
+                st.rerun()
+
+        with col2:
+            if st.button("🔧 Admin", use_container_width=True):
+                st.session_state.current_page = "admin"
+                st.rerun()
 
         # LLM Selection
         st.title("🤖 " + _("llm_selection"))
@@ -281,17 +427,9 @@ def main():
                 else:
                     st.error(f"Failed to switch to LLM: {selected_llm_id}")
 
-        st.divider()
-
         # INJECTION POINT 1: Sidebar Content from UI Modules
         # Call all registered sidebar render functions
         sidebar_contents = ui_registry.render_all("sidebar")
-        for content in sidebar_contents:
-            if content:
-                # Add divider between modules if content was rendered
-                st.divider()
-
-        st.divider()
         st.caption(_("current_language"))
 
         # Show current LLM info in sidebar
@@ -301,135 +439,212 @@ def main():
             st.caption(f"Model: {current_llm_info['model']}")
             st.caption(f"Status: {'✅ Available' if current_llm_info['available'] else '❌ Unavailable'}")
 
-    # Main content
-    st.title(_("hello_world"))
+    # Main content - Page Router
+    if st.session_state.current_page == "admin":
+        show_admin_page()
+    else:
+        # Chat page (default)
+        st.title(_("hello_world"))
 
-    # INJECTION POINT 2: Main Header Content from UI Modules
-    header_contents = ui_registry.render_all("main_header")
-    for content in header_contents:
-        if content:
-            st.divider()
+        # INJECTION POINT 2: Main Header Content from UI Modules
+        header_contents = ui_registry.render_all("main_header")
 
-    # INJECTION POINT 3: Main Content from UI Modules (before conversation interface)
-    main_contents_before = ui_registry.render_all("main_before_conversation")
-    for content in main_contents_before:
-        if content:
-            st.divider()
+        # INJECTION POINT 3: Main Content from UI Modules (before conversation interface)
+        main_contents_before = ui_registry.render_all("main_before_conversation")
 
-    # Conversation Interface (only show if user is logged in)
-    if st.session_state.current_user:
-        # Show current conversation or prompt to create one
-        if not st.session_state.current_conversation_id:
-            st.divider()
-            st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
-        else:
-            # Get current conversation info
-            current_conv = conversation_manager.get_conversation(
-                st.session_state.current_conversation_id,
-                include_messages=False
-            )
-
-            if current_conv:
-                # Conversation header
-                col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
-                with col1:
-                    st.subheader(f"💬 {current_conv.title}")
-                with col2:
-                    # Refresh button
-                    if st.button("🔄 Refresh", help="Reload conversation from database"):
-                        conversation = conversation_manager.get_conversation(
-                            st.session_state.current_conversation_id,
-                            include_messages=True
-                        )
-                        if conversation:
-                            st.session_state.conversation_messages = conversation.messages
-                        st.rerun()
-                with col3:
-                    # Clear button
-                    if st.button("🗑️ Clear", help="Clear all messages in this conversation"):
-                        if conversation_manager.clear_conversation_messages(st.session_state.current_conversation_id):
-                            st.session_state.conversation_messages = []
-                            st.success("Conversation cleared")
-                            st.rerun()
-                with col4:
-                    # Regenerate button - only enable if there are messages and the last message is from assistant
-                    has_messages = len(st.session_state.conversation_messages) > 0
-                    last_is_assistant = has_messages and st.session_state.conversation_messages[-1].role == "assistant"
-
-                    if st.button("🔄 Regenerate",
-                               help="Regenerate the last assistant response",
-                               disabled=not (has_messages and last_is_assistant),
-                               type="secondary"):
-                        # Set regeneration flag and trigger regeneration
-                        st.session_state.regenerating_message_id = len(st.session_state.conversation_messages) - 1
-                        st.rerun()
-
-                # Display conversation messages
+        # Conversation Interface (only show if user is logged in)
+        if st.session_state.current_user:
+            # Show current conversation or prompt to create one
+            if not st.session_state.current_conversation_id:
                 st.divider()
+                st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
+            else:
+                # Get current conversation info
+                current_conv = conversation_manager.get_conversation(
+                    st.session_state.current_conversation_id,
+                    include_messages=False
+                )
 
-                if st.session_state.conversation_messages:
-                    for i, message in enumerate(st.session_state.conversation_messages):
-                        if message.role == "user":
-                            with st.chat_message("user"):
-                                st.write(message.content)
-                        elif message.role == "assistant":
-                            with st.chat_message("assistant"):
-                                st.write(message.content)
+                if current_conv:
+                    # Conversation header
+                    col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+                    with col1:
+                        st.subheader(f"💬 {current_conv.title}")
+                    with col2:
+                        # Refresh button
+                        if st.button("🔄 Refresh", help="Reload conversation from database"):
+                            conversation = conversation_manager.get_conversation(
+                                st.session_state.current_conversation_id,
+                                include_messages=True
+                            )
+                            if conversation:
+                                st.session_state.conversation_messages = conversation.messages
+                            st.rerun()
+                    with col3:
+                        # Clear button
+                        if st.button("🗑️ Clear", help="Clear all messages in this conversation"):
+                            if conversation_manager.clear_conversation_messages(st.session_state.current_conversation_id):
+                                st.session_state.conversation_messages = []
+                                st.success("Conversation cleared")
+                                st.rerun()
+                    with col4:
+                        # Regenerate button - only enable if there are messages and the last message is from assistant
+                        has_messages = len(st.session_state.conversation_messages) > 0
+                        last_is_assistant = has_messages and st.session_state.conversation_messages[-1].role == "assistant"
 
-                                # Add regenerate button for each assistant message
-                                if i == len(st.session_state.conversation_messages) - 1:  # Only for last message
-                                    col_a, col_b = st.columns([1, 6])
-                                    with col_a:
-                                        if st.button("🔄",
-                                                   key=f"regenerate_{i}",
-                                                   help="Regenerate this response"):
-                                            st.session_state.regenerating_message_id = i
-                                            st.rerun()
-                        elif message.role == "system":
-                            with st.container():
-                                st.markdown(f"*System: {message.content}*")
+                        if st.button("🔄 Regenerate",
+                                   help="Regenerate the last assistant response",
+                                   disabled=not (has_messages and last_is_assistant),
+                                   type="secondary"):
+                            # Set regeneration flag and trigger regeneration
+                            st.session_state.regenerating_message_id = len(st.session_state.conversation_messages) - 1
+                            st.rerun()
 
-                # Handle regeneration if triggered
-                if (st.session_state.regenerating_message_id is not None and
-                    st.session_state.regenerating_message_id < len(st.session_state.conversation_messages)):
+                    # Display conversation messages
+                    st.divider()
 
-                    # Get the message index to regenerate
-                    regen_index = st.session_state.regenerating_message_id
+                    if st.session_state.conversation_messages:
+                        for i, message in enumerate(st.session_state.conversation_messages):
+                            if message.role == "user":
+                                with st.chat_message("user"):
+                                    st.write(message.content)
+                            elif message.role == "assistant":
+                                with st.chat_message("assistant"):
+                                    st.write(message.content)
 
-                    # Find the last user message before this assistant message
-                    user_message = ""
-                    for i in range(regen_index, -1, -1):
-                        if st.session_state.conversation_messages[i].role == "user":
-                            user_message = st.session_state.conversation_messages[i].content
-                            break
+                                    # Add regenerate button for each assistant message
+                                    if i == len(st.session_state.conversation_messages) - 1:  # Only for last message
+                                        col_a, col_b = st.columns([1, 6])
+                                        with col_a:
+                                            if st.button("🔄",
+                                                       key=f"regenerate_{i}",
+                                                       help="Regenerate this response"):
+                                                st.session_state.regenerating_message_id = i
+                                                st.rerun()
+                            elif message.role == "system":
+                                with st.container():
+                                    st.markdown(f"*System: {message.content}*")
+
+                    # Handle regeneration if triggered
+                    if (st.session_state.regenerating_message_id is not None and
+                        st.session_state.regenerating_message_id < len(st.session_state.conversation_messages)):
+
+                        # Get the message index to regenerate
+                        regen_index = st.session_state.regenerating_message_id
+
+                        # Find the last user message before this assistant message
+                        user_message = ""
+                        for i in range(regen_index, -1, -1):
+                            if st.session_state.conversation_messages[i].role == "user":
+                                user_message = st.session_state.conversation_messages[i].content
+                                break
+
+                        if user_message:
+                            # Get conversation history up to the user message
+                            history_up_to_user = st.session_state.conversation_messages[:regen_index]
+
+                            # Remove the assistant message being regenerated
+                            st.session_state.conversation_messages = st.session_state.conversation_messages[:regen_index]
+
+                            # Clear regeneration flag
+                            st.session_state.regenerating_message_id = None
+
+                            # Process regeneration
+                            try:
+                                # Add user message to display
+                                with st.chat_message("user"):
+                                    st.write(user_message)
+
+                                # Generate new response
+                                with st.spinner("Regenerating response..."):
+                                    response = asyncio.run(
+                                        generate_llm_response(
+                                            user_message,
+                                            history_up_to_user,
+                                            current_llm_info
+                                        )
+                                    )
+
+                                # Create and add new assistant message
+                                assistant_msg = Message(
+                                    role="assistant",
+                                    content=response
+                                )
+
+                                # Add to database and session state
+                                conversation_manager.add_message(
+                                    st.session_state.current_conversation_id,
+                                    assistant_msg
+                                )
+                                st.session_state.conversation_messages.append(assistant_msg)
+
+                                # Display the new response
+                                with st.chat_message("assistant"):
+                                    st.write(response)
+
+                                log("info", "LLM response regenerated and saved")
+                                st.rerun()
+
+                            except Exception as e:
+                                error_msg = f"Error regenerating response: {str(e)}"
+                                log("error", error_msg, exc_info=True)
+                                st.error(error_msg)
+                                # Restore original messages if regeneration failed
+                                conversation = conversation_manager.get_conversation(
+                                    st.session_state.current_conversation_id,
+                                    include_messages=True
+                                )
+                                if conversation:
+                                    st.session_state.conversation_messages = conversation.messages
+                                st.rerun()
+                        else:
+                            st.error("Could not find user message to regenerate from")
+                            st.session_state.regenerating_message_id = None
+                            st.rerun()
+
+                    # Display streaming buffer if active
+                    if st.session_state.streaming_active and st.session_state.stream_buffer:
+                        with st.chat_message("assistant"):
+                            st.markdown(st.session_state.stream_buffer)
+                            st.caption("⏳ " + _("streaming_in_progress"))
+
+                    # Chat input at the bottom
+                    st.divider()
+
+                    # Text area for user input
+                    user_message = st.chat_input(
+                        _("enter_message"),
+                        key="chat_input"
+                    )
 
                     if user_message:
-                        # Get conversation history up to the user message
-                        history_up_to_user = st.session_state.conversation_messages[:regen_index]
+                        # Add user message to conversation
+                        user_msg = Message(
+                            role="user",
+                            content=user_message.strip()
+                        )
 
-                        # Remove the assistant message being regenerated
-                        st.session_state.conversation_messages = st.session_state.conversation_messages[:regen_index]
-
-                        # Clear regeneration flag
-                        st.session_state.regenerating_message_id = None
-
-                        # Process regeneration
+                        # Add to database and session state
                         try:
-                            # Add user message to display
-                            with st.chat_message("user"):
-                                st.write(user_message)
+                            message_id = conversation_manager.add_message(
+                                st.session_state.current_conversation_id,
+                                user_msg
+                            )
+                            st.session_state.conversation_messages.append(user_msg)
 
-                            # Generate new response
-                            with st.spinner("Regenerating response..."):
+                            log("info", f"Sending message to LLM: {user_message[:50]}...")
+
+                            # Generate LLM response with conversation history
+                            with st.spinner("Thinking..."):
                                 response = asyncio.run(
                                     generate_llm_response(
-                                        user_message,
-                                        history_up_to_user,
+                                        user_message.strip(),
+                                        st.session_state.conversation_messages,
                                         current_llm_info
                                     )
                                 )
 
-                            # Create and add new assistant message
+                            # Create assistant message
                             assistant_msg = Message(
                                 role="assistant",
                                 content=response
@@ -442,211 +657,42 @@ def main():
                             )
                             st.session_state.conversation_messages.append(assistant_msg)
 
-                            # Display the new response
-                            with st.chat_message("assistant"):
-                                st.write(response)
+                            # If streaming didn't work, show the full response
+                            if not st.session_state.stream_buffer and response:
+                                with st.chat_message("assistant"):
+                                    st.markdown(response)
 
-                            log("info", "LLM response regenerated and saved")
+                            log("info", "LLM response received and saved")
+
+                            # Rerun to update the display
                             st.rerun()
 
                         except Exception as e:
-                            error_msg = f"Error regenerating response: {str(e)}"
+                            error_msg = f"Error processing message: {str(e)}"
                             log("error", error_msg, exc_info=True)
                             st.error(error_msg)
-                            # Restore original messages if regeneration failed
-                            conversation = conversation_manager.get_conversation(
-                                st.session_state.current_conversation_id,
-                                include_messages=True
-                            )
-                            if conversation:
-                                st.session_state.conversation_messages = conversation.messages
-                            st.rerun()
-                    else:
-                        st.error("Could not find user message to regenerate from")
-                        st.session_state.regenerating_message_id = None
-                        st.rerun()
+                else:
+                    st.warning("Conversation not found. Please select another conversation.")
+                    st.session_state.current_conversation_id = None
+                    st.session_state.conversation_messages = []
+        else:
+            # INJECTION POINT 4: Main Content when no user is logged in
+            no_user_contents = ui_registry.render_all("main_no_user")
+            for content in no_user_contents:
+                if content:
+                    st.divider()
 
-                # Display streaming buffer if active
-                if st.session_state.streaming_active and st.session_state.stream_buffer:
-                    with st.chat_message("assistant"):
-                        st.markdown(st.session_state.stream_buffer)
-                        st.caption("⏳ " + _("streaming_in_progress"))
-
-                # Chat input at the bottom
-                st.divider()
-
-                # Text area for user input
-                user_message = st.chat_input(
-                    _("enter_message"),
-                    key="chat_input"
-                )
-
-                if user_message:
-                    # Add user message to conversation
-                    user_msg = Message(
-                        role="user",
-                        content=user_message.strip()
-                    )
-
-                    # Add to database and session state
-                    try:
-                        message_id = conversation_manager.add_message(
-                            st.session_state.current_conversation_id,
-                            user_msg
-                        )
-                        st.session_state.conversation_messages.append(user_msg)
-
-                        log("info", f"Sending message to LLM: {user_message[:50]}...")
-
-                        # Generate LLM response with conversation history
-                        with st.spinner("Thinking..."):
-                            response = asyncio.run(
-                                generate_llm_response(
-                                    user_message.strip(),
-                                    st.session_state.conversation_messages,
-                                    current_llm_info
-                                )
-                            )
-
-                        # Create assistant message
-                        assistant_msg = Message(
-                            role="assistant",
-                            content=response
-                        )
-
-                        # Add to database and session state
-                        conversation_manager.add_message(
-                            st.session_state.current_conversation_id,
-                            assistant_msg
-                        )
-                        st.session_state.conversation_messages.append(assistant_msg)
-
-                        # If streaming didn't work, show the full response
-                        if not st.session_state.stream_buffer and response:
-                            with st.chat_message("assistant"):
-                                st.markdown(response)
-
-                        log("info", "LLM response received and saved")
-
-                        # Rerun to update the display
-                        st.rerun()
-
-                    except Exception as e:
-                        error_msg = f"Error processing message: {str(e)}"
-                        log("error", error_msg, exc_info=True)
-                        st.error(error_msg)
-            else:
-                st.warning("Conversation not found. Please select another conversation.")
-                st.session_state.current_conversation_id = None
-                st.session_state.conversation_messages = []
-    else:
-        # INJECTION POINT 4: Main Content when no user is logged in
-        no_user_contents = ui_registry.render_all("main_no_user")
-        for content in no_user_contents:
+        # INJECTION POINT 5: Main Content after conversation interface
+        main_contents_after = ui_registry.render_all("main_after_conversation")
+        for content in main_contents_after:
             if content:
                 st.divider()
 
-    # INJECTION POINT 5: Main Content after conversation interface
-    main_contents_after = ui_registry.render_all("main_after_conversation")
-    for content in main_contents_after:
-        if content:
-            st.divider()
-
-    # Debug section in sidebar expander
-    with st.expander("🔧 " + _("debug_info")):
-        st.write(f"**Current language:** {translator.get_current_language()}")
-        st.write(f"**Available languages:** {', '.join(available_langs)}")
-        st.write(f"**Log level from config:** {current_config.get('logging.level', 'INFO')}")
-        st.write(f"**App name:** {current_config.get('app.name')}")
-        st.write(f"**App version:** {current_config.get('app.version')}")
-
-        # User info
-        st.write("**User Info:**")
-        if st.session_state.current_user:
-            st.write(f"- Current User: {st.session_state.current_user['name']} ({st.session_state.current_user['id']})")
-            st.write(f"- Email: {st.session_state.current_user['email']}")
-            st.write(f"- Created: {st.session_state.current_user['created_at']}")
-            st.write(f"- Active: {st.session_state.current_user['is_active']}")
-
-            # Conversation info
-            if st.session_state.current_conversation_id:
-                st.write("**Current Conversation:**")
-                st.write(f"- ID: {st.session_state.current_conversation_id}")
-                st.write(f"- Message count: {len(st.session_state.conversation_messages)}")
-
-                # Get conversation from DB for more info
-                conv = conversation_manager.get_conversation(
-                    st.session_state.current_conversation_id,
-                    include_messages=False
-                )
-                if conv:
-                    st.write(f"- Title: {conv.title}")
-                    st.write(f"- Created: {conv.created_at}")
-                    st.write(f"- Updated: {conv.updated_at}")
-        else:
-            st.write("- No user logged in")
-
-        st.write(f"**Total Users:** {user_manager.get_user_count()}")
-
-        # Current LLM info
-        if current_llm_info:
-            st.write("**Current LLM:**")
-            st.write(f"- ID: {current_llm_info['id']}")
-            st.write(f"- Name: {current_llm_info['name']}")
-            st.write(f"- Type: {current_llm_info['type']}")
-            st.write(f"- Model: {current_llm_info['model']}")
-            st.write(f"- Available: {current_llm_info['available']}")
-
-        # All LLMs info
-        st.write("**All LLMs:**")
-        for llm_item in available_llms_list:
-            status = "🟢" if llm_item["available"] else "🔴"
-            st.write(f"- {status} {llm_item['name']} ({llm_item['type']}): {llm_item['description']}")
-
-        # Environment info
-        st.write("**Environment Info:**")
-        st.write(f"- GEMINI_API_KEY present: {'Yes' if os.getenv('GEMINI_API_KEY') else 'No'}")
-        st.write(f"- GROQ_API_KEY present: {'Yes' if os.getenv('GROQ_API_KEY') else 'No'}")
-        st.write(f"- OLLAMA_BASE_URL: {os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')}")
-
-        # Database info
-        st.write("**Database Info:**")
-        st.write(f"- Database path: {db_path}")
-        st.write(f"- Data directory exists: {os.path.exists('data')}")
-
-        # UI Modules info
-        st.write("**UI Modules Info:**")
-        for module_name, module_info in ui_registry.modules.items():
-            st.write(f"- {module_name}: {len(module_info['render_functions'])} render functions")
-
-        # Test logging buttons
-        st.subheader("Test Logging")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            if st.button("Debug", key="debug_btn"):
-                log("debug", "Debug test message from Streamlit")
-                st.success("Debug message logged")
-        with col2:
-            if st.button("Info", key="info_btn"):
-                log("info", "Info test message from Streamlit")
-                st.success("Info message logged")
-        with col3:
-            if st.button("Warning", key="warning_btn"):
-                log("warning", "Warning test message from Streamlit")
-                st.success("Warning message logged")
-        with col4:
-            if st.button("Error", key="error_btn"):
-                log("error", "Error test message from Streamlit", exc_info=False)
-                st.success("Error message logged")
-
-        # Test error with traceback
-        if st.button("Test Error with Traceback"):
-            try:
-                # Create a test error
-                raise ValueError("This is a test error for traceback")
-            except Exception as e:
-                log("error", "Test error with traceback", exc_info=True)
-                st.success("Error with traceback logged")
+        # INJECTION POINT 6: Main Footer Content
+        main_footer = ui_registry.render_all("main_footer")
+        for content in main_footer:
+            if content:
+                st.divider()
 
 if __name__ == "__main__":
     main()

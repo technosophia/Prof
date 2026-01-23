@@ -1,0 +1,9 @@
+{
+  "debug": {
+    "enabled": true,
+    "log_level": "DEBUG",
+    "show_environment_info": true,
+    "show_database_info": true,
+    "show_module_info": true
+  }
+}
