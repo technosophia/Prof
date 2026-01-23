@@ -6,8 +6,6 @@
   "description": "Ceci est un exemple simple d'application Streamlit multilingue.",
   "button_text": "Cliquez-moi!",
   "button_clicked": "Bouton cliqué!",
-  "language_select": "Sélectionner la langue",
-  "current_language": "Langue actuelle",
   "hello_world": "Bonjour le monde!",
   "description": "Bienvenue dans l'application multilingue avec intégration LLM",
   "button_text": "Cliquez-moi",

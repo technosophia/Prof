@@ -9,7 +9,7 @@ Must be imported like this : from shared.translate import _streamlit as _
 
 import json
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 # Import the simple log function (no config dependency)
 from shared.logging import log
@@ -32,6 +32,7 @@ class Translator:
             bool: True if loaded successfully, False otherwise
         """
         try:
+
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
                     translations = json.load(f)
@@ -40,8 +41,10 @@ class Translator:
                     self.translations[lang_code] = {}
 
                 self.translations[lang_code].update(translations)
-                log("debug", f"Loaded {len(translations)} translations for language '{lang_code}' from {filepath}")
+                log("info", f"Loaded {len(translations)} translations for language '{lang_code}' from {filepath}")
                 return True
+            else:
+                log("warning", f"Translation file not found: {filepath}")
         except Exception as e:
             log("error", f"Error loading translation file {filepath}: {e}")
 
@@ -128,6 +131,7 @@ class Translator:
                 if filename.endswith(".json"):
                     lang_code = filename.split(".")[0]
                     filepath = os.path.join(translations_dir, filename)
+                    log("info", f"Loading translations from directory: {filepath}")
                     self.load_language_file(lang_code, filepath)
 
     def set_language(self, lang: str):
@@ -181,6 +185,18 @@ class Translator:
             # If no translation found
             log("warning", f"Translation key '{key}' not found in any language")
             return f"[{key}]"
+
+    def debug_info(self):
+        """Print debug information about loaded translations"""
+        log("debug", f"Current language: {self.current_lang}")
+        log("debug", f"Available languages: {list(self.translations.keys())}")
+
+        for lang_code in self.translations:
+            log("debug", f"Language '{lang_code}' has {len(self.translations[lang_code])} translations")
+            # List first few keys as examples
+            keys = list(self.translations[lang_code].keys())[:5]
+            if keys:
+                log("debug", f"  Sample keys for '{lang_code}': {keys}")
 
 # Global translator instance
 _translator_instance = None
@@ -263,3 +279,32 @@ def _streamlit(key: str) -> str:
             return f"[{key}]"
 
     return st.session_state.translator(key)
+
+def init_translations_multiple(lang: str = "en", translation_dirs: List[str] = None):
+    """
+    Initialize translations from multiple directories.
+
+    Args:
+        lang: Default language code
+        translation_dirs: List of directories containing translation JSON files
+
+    Returns:
+        Translator: Initialized translator instance
+    """
+    import streamlit as st
+
+    # Use Streamlit's session state to persist the translator
+    if "translator" not in st.session_state:
+        translator = Translator()
+
+        # Load from all specified directories
+        for trans_dir in translation_dirs:
+            if os.path.exists(trans_dir):
+                translator.load_app_translations(trans_dir)
+
+        translator.set_language(lang)
+        st.session_state.translator = translator
+        st.session_state.current_language = lang
+        log("info", f"Translator initialized with language '{lang}' from directories: {translation_dirs}")
+
+    return st.session_state.translator

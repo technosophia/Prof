@@ -11,6 +11,7 @@ import asyncio
 from shared.logging import log
 from shared.conversation import conversation_manager, Message
 from shared.llm import get_current_llm_info
+from shared.translate import _streamlit as _
 
 # Import helper functions from main app
 from app import generate_llm_response, get_conversation_history_for_llm
@@ -167,14 +168,12 @@ def show_conversation_interface():
         if st.session_state.streaming_active and st.session_state.stream_buffer:
             with st.chat_message("assistant"):
                 st.markdown(st.session_state.stream_buffer)
-                from shared.translate import _
                 st.caption("⏳ " + _("streaming_in_progress"))
 
         # Chat input at the bottom
         st.divider()
 
         # Text area for user input
-        from shared.translate import _
         user_message = st.chat_input(
             _("enter_message"),
             key="chat_input"
