@@ -110,11 +110,10 @@ module_handler = st.session_state.module_handler
 
 # Load active module UIs immediately
 active_modules = module_handler.get_active_modules()
-log("info", f"Active modules: {active_modules}")
 for module_name in active_modules:
     ui_module = module_handler.load_module_ui(module_name)
     if ui_module:
-        log("info", f"Successfully loaded UI for module: {module_name}")
+        log("debug", f"Successfully loaded UI for module: {module_name}")
     else:
         log("warning", f"Could not load UI for module: {module_name}")
 
