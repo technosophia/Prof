@@ -140,10 +140,57 @@ class TestDatabaseManager:
         mock_engine = MagicMock()
         db._engine = mock_engine
 
-        # Mock metadata.create_all
+        # Mock metadata.create_all - first call should create tables
         with patch('shared.database.Base.metadata.create_all') as mock_create_all:
+            db._tables_created = False  # Ensure tables not created yet
             db._create_all_tables()
             mock_create_all.assert_called_once_with(mock_engine)
+            assert db._tables_created == True
+
+    def test_create_all_tables_skips_if_already_created(self):
+        """Test that create_all_tables skips if tables already created."""
+        # Clear module and create fresh instance
+        import importlib
+        import sys
+        if 'shared.database' in sys.modules:
+            del sys.modules['shared.database']
+
+        from shared.database import DatabaseManager
+        db = DatabaseManager()
+
+        # Mock engine
+        mock_engine = MagicMock()
+        db._engine = mock_engine
+
+        # Mock metadata.create_all
+        with patch('shared.database.Base.metadata.create_all') as mock_create_all:
+            with patch('shared.database.log') as mock_log:
+                # Set tables as already created
+                db._tables_created = True
+                db._create_all_tables()
+
+                # Should NOT call create_all
+                mock_create_all.assert_not_called()
+                # Should log that tables are already created
+                mock_log.assert_called_with("debug", "Database tables already created, skipping")
+
+    def test_are_tables_created(self):
+        """Test are_tables_created method."""
+        # Clear module and create fresh instance
+        import importlib
+        import sys
+        if 'shared.database' in sys.modules:
+            del sys.modules['shared.database']
+
+        from shared.database import DatabaseManager
+        db = DatabaseManager()
+
+        # Initially not created
+        assert db.are_tables_created() == False
+
+        # Set as created
+        db._tables_created = True
+        assert db.are_tables_created() == True
 
     def test_get_session_success(self):
         """Test successful session creation."""
@@ -304,6 +351,7 @@ class TestDatabaseOperations:
         # Set up the db with mocks
         self.db._engine = self.mock_engine
         self.db._session_factory = self.mock_session_factory
+        self.db._tables_created = False  # Default to not created
 
     def test_get_session_context(self):
         """Test the context manager behavior."""
@@ -390,14 +438,40 @@ def test_init_database():
 
     # Mock the db_manager that will be imported
     with patch('shared.database.db_manager') as mock_db:
-        mock_db._initialize = MagicMock()  # Changed from initialize to _initialize
+        mock_db._initialize = MagicMock()
+        mock_db._create_all_tables = MagicMock()
+        mock_db.is_initialized = MagicMock(return_value=False)
 
         # Re-import after patching
         from shared.database import init_database
         result = init_database(use_memory=True)
 
         assert result is mock_db
-        mock_db._initialize.assert_called_once_with(use_memory=True, db_path=None)  # Changed to _initialize
+        mock_db._initialize.assert_called_once_with(use_memory=True, db_path=None)
+        mock_db._create_all_tables.assert_called_once()
+
+def test_init_database_already_initialized():
+    """Test init_database when already initialized."""
+    # Clear module
+    import importlib
+    import sys
+    if 'shared.database' in sys.modules:
+        del sys.modules['shared.database']
+
+    # Mock the db_manager that will be imported
+    with patch('shared.database.db_manager') as mock_db:
+        mock_db._initialize = MagicMock()
+        mock_db._create_all_tables = MagicMock()
+        mock_db.is_initialized = MagicMock(return_value=True)
+
+        # Re-import after patching
+        from shared.database import init_database
+        result = init_database(use_memory=True)
+
+        assert result is mock_db
+        # Should NOT initialize or create tables if already initialized
+        mock_db._initialize.assert_not_called()
+        mock_db._create_all_tables.assert_not_called()
 
 def test_init_database_with_params():
     """Test init_database with various parameters."""
@@ -409,20 +483,24 @@ def test_init_database_with_params():
 
     # Mock the db_manager
     with patch('shared.database.db_manager') as mock_db:
-        mock_db._initialize = MagicMock()  # Changed from initialize to _initialize
+        mock_db._initialize = MagicMock()
+        mock_db._create_all_tables = MagicMock()
+        mock_db.is_initialized = MagicMock(return_value=False)
 
         # Re-import after patching
         from shared.database import init_database
 
         # Test with memory database
         init_database(use_memory=True)
-        mock_db._initialize.assert_called_with(use_memory=True, db_path=None)  # Changed to _initialize
+        mock_db._initialize.assert_called_with(use_memory=True, db_path=None)
+        mock_db._create_all_tables.assert_called()
+
+        # Reset mocks
+        mock_db._initialize.reset_mock()
+        mock_db._create_all_tables.reset_mock()
+        mock_db.is_initialized.return_value = False
 
         # Test with file database
         init_database(use_memory=False, db_path="/test/path.db")
-        mock_db._initialize.assert_called_with(use_memory=False, db_path="/test/path.db")  # Changed to _initialize
-
-        # Test backward compatibility
-        init_database(use_memory=True)
-        # Should still call with same parameters
-        mock_db._initialize.assert_called_with(use_memory=True, db_path=None)  # Changed to _initialize
+        mock_db._initialize.assert_called_with(use_memory=False, db_path="/test/path.db")
+        mock_db._create_all_tables.assert_called()
