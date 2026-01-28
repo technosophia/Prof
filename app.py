@@ -75,8 +75,6 @@ from shared.llm import llm_generate, set_current_llm, get_available_llms, get_cu
 # Import user management
 from shared.users import user_manager, init_user_manager
 from shared.database import init_database, db_manager
-# Import conversation management
-from shared.conversation import conversation_manager, init_conversation_manager, Message
 
 # Import UI registry system
 from shared.ui_registry import UIRegistry, register_ui_module
@@ -92,9 +90,6 @@ init_database(use_memory=False, db_path=db_path)
 
 # Initialize user manager with default users
 init_user_manager(create_default_users=True)
-
-# Initialize conversation manager
-init_conversation_manager()
 
 # Initialize translator with Streamlit session support
 translator = init_translations_multiple("en")
@@ -136,50 +131,6 @@ st.set_page_config(
     layout="centered"
 )
 
-
-def get_conversation_history_for_llm(messages):
-    """Convert conversation messages to LLM history format."""
-    history = []
-    for msg in messages:
-        if msg.role in ["user", "assistant", "system"]:
-            history.append({
-                "role": msg.role,
-                "content": msg.content
-            })
-    return history
-
-async def generate_llm_response(user_message, conversation_history, current_llm_info):
-    """Generate LLM response with conversation history."""
-    # Prepare conversation history for LLM
-    llm_history = get_conversation_history_for_llm(conversation_history)
-
-    # Clear previous streaming buffer
-    st.session_state.stream_buffer = ""
-    st.session_state.streaming_active = True
-
-    # Create a placeholder for the streaming response
-    response_placeholder = st.empty()
-
-    # Define streaming callback
-    def stream_callback(chunk):
-        st.session_state.stream_buffer += chunk
-        response_placeholder.markdown(st.session_state.stream_buffer)
-
-    try:
-        # Use llm_generate with conversation history
-        response = await llm_generate(
-            user_message.strip(),
-            stream_callback,
-            conversation_history=llm_history
-        )
-
-        st.session_state.streaming_active = False
-        return response
-    except Exception as e:
-        error_msg = f"Error calling LLM: {str(e)}"
-        log("error", error_msg, exc_info=True)
-        st.session_state.streaming_active = False
-        raise Exception(error_msg)
 
 def main():
     # Log main function entry
@@ -321,22 +272,8 @@ def main():
     # INJECTION POINT 5: Main Content when no user is logged in
     no_user_contents = ui_registry.render_all("main_content")
 
-    # If no UI modules rendered anything for the current page/state, show default content
-    if not any([header_contents, main_contents_before, no_user_contents]):
-        if st.session_state.current_page == "admin":
-            # This will be handled by admin_ui.py via UI registry
-            st.info("Admin interface not loaded. Please check if admin_ui.py is in the shared directory.")
-        else:
-            # Chat page default content
-            if st.session_state.current_user:
-                if st.session_state.current_conversation_id:
-                    # This will be handled by conversation_ui.py via UI registry
-                    st.info("Conversation interface not loaded. Please check if conversation_ui.py is in the shared directory.")
-                else:
-                    st.divider()
-                    st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
-            else:
-                st.info("👤 Please log in to start chatting.")
+    # Let UI modules handle ALL content - no default fallback content in app.py
+    # Each UI module should handle its own fallback logic
 
     # INJECTION POINT 6: Main Content after conversation interface
     main_contents_after = ui_registry.render_all("main_after_conversation")

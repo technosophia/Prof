@@ -462,3 +462,6 @@ def init_conversation_manager():
     """Initialize the conversation manager."""
     # Just return the instance - tables will be created when needed
     return conversation_manager
+
+# Initialize conversation manager
+init_conversation_manager()

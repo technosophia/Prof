@@ -14,9 +14,54 @@ import streamlit as st
 import asyncio
 from shared.conversation import conversation_manager, Message
 from shared.logging import log
-from shared.llm import get_current_llm_info
+from shared.llm import llm_generate, get_current_llm_info
 from shared.translate import _
-from app import generate_llm_response
+
+
+def get_conversation_history_for_llm(messages):
+    """Convert conversation messages to LLM history format."""
+    history = []
+    for msg in messages:
+        if msg.role in ["user", "assistant", "system"]:
+            history.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+    return history
+
+
+async def generate_llm_response(user_message, conversation_history, current_llm_info):
+    """Generate LLM response with conversation history."""
+    # Prepare conversation history for LLM
+    llm_history = get_conversation_history_for_llm(conversation_history)
+
+    # Clear previous streaming buffer
+    st.session_state.stream_buffer = ""
+    st.session_state.streaming_active = True
+
+    # Create a placeholder for the streaming response
+    response_placeholder = st.empty()
+
+    # Define streaming callback
+    def stream_callback(chunk):
+        st.session_state.stream_buffer += chunk
+        response_placeholder.markdown(st.session_state.stream_buffer)
+
+    try:
+        # Use llm_generate with conversation history
+        response = await llm_generate(
+            user_message.strip(),
+            stream_callback,
+            conversation_history=llm_history
+        )
+
+        st.session_state.streaming_active = False
+        return response
+    except Exception as e:
+        error_msg = f"Error calling LLM: {str(e)}"
+        log("error", error_msg, exc_info=True)
+        st.session_state.streaming_active = False
+        raise Exception(error_msg)
 
 
 def inject_ui_initialize():
@@ -238,11 +283,33 @@ def inject_ui_main_before_conversation():
 
 
 def inject_ui_main_content():
-    """Render content when no user is logged in."""
-    if st.session_state.get('current_page') == 'chat' and not st.session_state.get('current_user'):
+    """Render content when no user is logged in or no conversation is selected."""
+    # Check if we're on the chat page
+    if st.session_state.get('current_page') != 'chat':
+        return None
+
+    # If no user is logged in
+    if not st.session_state.get('current_user'):
         st.info("👤 Please log in to start chatting.")
         return True
+
+    # If user is logged in but no conversation is selected
+    if (st.session_state.get('current_user') and
+        not st.session_state.get('current_conversation_id')):
+        st.divider()
+        st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
+        return True
+
     return None
+
+
+def inject_ui_admin_content():
+    """Render admin page content."""
+    if st.session_state.get('current_page') == 'admin':
+        st.info("Admin interface would go here.")
+        return True
+    return None
+
 
 # Internal helper functions
 def show_conversation_interface():
@@ -469,3 +536,6 @@ def show_conversation_interface():
         st.warning("Conversation not found. Please select another conversation.")
         st.session_state.current_conversation_id = None
         st.session_state.conversation_messages = []
+        st.rerun()
+
+    return True
