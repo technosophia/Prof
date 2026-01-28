@@ -35,6 +35,13 @@ def streamlit_server():
     # Kill any existing Streamlit process
     subprocess.run(["pkill", "-f", "streamlit"], capture_output=True)
 
+    # Create test environment
+    env = os.environ.copy()
+    env["TEST_MODE"] = "true"
+
+    # Also set the config path to ensure test config is used
+    env["CONFIG_FILE"] = "test_config.json"
+
     # Start Streamlit server in a separate process
     cmd = ["streamlit", "run", "app.py", "--server.headless", "true",
            "--server.port", "8502", "--server.runOnSave", "false",
@@ -307,6 +314,8 @@ def default_user_logged_in(context, username):
     return context
 
 
+# In test_conversation_steps.py, update the mock_llm_available function:
+
 @given("the mock LLM is configured and available")
 def mock_llm_available(context):
     """Verify the mock LLM is configured and available."""
@@ -314,15 +323,36 @@ def mock_llm_available(context):
     debug_enabled = context.get('debug_enabled', False)
 
     print("\n=== Selecting Mock LLM ===")
+    print("TEST_MODE env var:", os.getenv("TEST_MODE"))
+    print("CONFIG_FILE env var:", os.getenv("CONFIG_FILE"))
 
     # Take screenshot before
     take_screenshot(page, "conversation_before_llm_select.png", debug_enabled)
 
     # Find the LLM selectbox (second selectbox)
     selectboxes = page.locator("[data-testid='stSelectbox']")
-    if selectboxes.count() >= 2:
-        llm_selectbox = selectboxes.nth(1)
+    print(f"Found {selectboxes.count()} selectboxes")
 
+    # Log all selectboxes for debugging
+    for i in range(selectboxes.count()):
+        try:
+            selectbox = selectboxes.nth(i)
+            text = selectbox.text_content()
+            print(f"  Selectbox {i}: {text[:100]}")
+        except:
+            print(f"  Selectbox {i}: Could not read text")
+
+    # Try to find LLM selector - look for selectbox containing "LLM" or "AI Model"
+    llm_selectbox = None
+    for i in range(selectboxes.count()):
+        selectbox = selectboxes.nth(i)
+        text = selectbox.text_content()
+        if "llm" in text.lower() or "ai model" in text.lower() or "selection" in text.lower():
+            llm_selectbox = selectbox
+            print(f"Found LLM selectbox at index {i}: {text[:50]}")
+            break
+
+    if llm_selectbox:
         # Click to open dropdown
         llm_selectbox.click()
         time.sleep(2)
@@ -336,14 +366,14 @@ def mock_llm_available(context):
             if options.count() > 0:
                 print(f"Found {options.count()} LLM options with {selector}")
 
-                # Look for Mock LLM
+                # Log all options
                 for i in range(options.count()):
                     option = options.nth(i)
                     option_text = option.text_content()
                     print(f"  Option {i}: {option_text}")
 
                     if "Mock" in option_text or "mock" in option_text.lower():
-                        print(f"  Selecting Mock LLM: {option_text}")
+                        print(f"  ✓ Selecting Mock LLM: {option_text}")
                         option.click()
                         time.sleep(3)  # Wait for selection to apply
 
@@ -358,6 +388,8 @@ def mock_llm_available(context):
                 options.first.click()
                 time.sleep(3)
                 break
+    else:
+        print("Warning: Could not find LLM selectbox")
 
     print("Note: Could not select Mock LLM, continuing anyway")
     take_screenshot(page, "conversation_llm_final.png", debug_enabled)

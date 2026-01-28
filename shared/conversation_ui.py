@@ -302,15 +302,6 @@ def inject_ui_main_content():
 
     return None
 
-
-def inject_ui_admin_content():
-    """Render admin page content."""
-    if st.session_state.get('current_page') == 'admin':
-        st.info("Admin interface would go here.")
-        return True
-    return None
-
-
 # Internal helper functions
 def show_conversation_interface():
     """Display the conversation chat interface."""

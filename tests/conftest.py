@@ -1,3 +1,4 @@
+# file name: conftest.py
 """
 Pytest configuration and fixtures.
 """
@@ -11,15 +12,54 @@ from playwright.sync_api import sync_playwright
 # Add the project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Load test config - FIXED PATH
+# FIXED: Find test_config.json relative to this file
 TEST_CONFIG_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "test_config.json"
 )
 
+print(f"Looking for test config at: {TEST_CONFIG_PATH}")
+
+# Check if the file exists
+if not os.path.exists(TEST_CONFIG_PATH):
+    # Try looking from the project root
+    project_root = os.path.dirname(TEST_CONFIG_PATH)
+    alt_path = os.path.join(project_root, "tests", "test_config.json")
+    print(f"Test config not found at primary location, trying: {alt_path}")
+    if os.path.exists(alt_path):
+        TEST_CONFIG_PATH = alt_path
+    else:
+        raise FileNotFoundError(f"Could not find test_config.json. Tried: {TEST_CONFIG_PATH} and {alt_path}")
+
+print(f"Loading test config from: {TEST_CONFIG_PATH}")
+
 with open(TEST_CONFIG_PATH, 'r') as f:
     TEST_CONFIG = json.load(f)
 
+print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).keys())}")
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_environment():
+    """Setup test environment before any tests run."""
+    # Set TEST_MODE environment variable
+    os.environ["TEST_MODE"] = "true"
+
+    # Also set CONFIG_FILE to ensure test config is used
+    os.environ["CONFIG_FILE"] = TEST_CONFIG_PATH
+
+    print(f"\n=== TEST ENVIRONMENT SETUP ===")
+    print(f"TEST_MODE: {os.getenv('TEST_MODE')}")
+    print(f"CONFIG_FILE: {os.getenv('CONFIG_FILE')}")
+    print(f"Mock LLM in config: {'mock' in TEST_CONFIG.get('llms', {})}")
+    print("=" * 30 + "\n")
+
+    yield
+
+    # Cleanup
+    if "TEST_MODE" in os.environ:
+        del os.environ["TEST_MODE"]
+    if "CONFIG_FILE" in os.environ:
+        del os.environ["CONFIG_FILE"]
 
 @pytest.fixture(scope="session")
 def playwright():
@@ -27,14 +67,12 @@ def playwright():
     with sync_playwright() as p:
         yield p
 
-
 @pytest.fixture(scope="session")
 def browser(playwright):
     """Browser session fixture."""
     browser = playwright.chromium.launch(headless=True)
     yield browser
     browser.close()
-
 
 @pytest.fixture
 def page(browser):
@@ -44,14 +82,17 @@ def page(browser):
     yield page
     context.close()
 
-
 @pytest.fixture(autouse=True)
 def patch_config():
     """Patch the get_config function for all tests."""
-    # Only patch the actual import path
-    with patch('shared.config.get_config', return_value=TEST_CONFIG):
-        yield
+    # Ensure TEST_MODE is set
+    os.environ["TEST_MODE"] = "true"
 
+    # Patch the config module
+    with patch('shared.config.get_config', return_value=TEST_CONFIG):
+        # Also patch init_config to return test config
+        with patch('shared.config.init_config', return_value=TEST_CONFIG):
+            yield
 
 @pytest.fixture
 def mock_db_manager():
@@ -88,7 +129,6 @@ def mock_db_manager():
 
         yield mock_db
 
-
 @pytest.fixture
 def mock_user_manager(mock_db_manager):
     """Mock user manager for testing."""
@@ -106,3 +146,11 @@ def mock_user_manager(mock_db_manager):
         mock_user_mgr.update_last_login.return_value = None
 
         yield mock_user_mgr
+
+@pytest.fixture(autouse=True)
+def patch_database():
+    """Patch database to use test config."""
+    with patch('app.init_database') as mock_init_db:
+        # Make it use in-memory database
+        mock_init_db.return_value = None
+        yield
