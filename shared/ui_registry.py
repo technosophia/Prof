@@ -19,7 +19,7 @@ Injection Points:
 - sidebar: Content injected into the sidebar
 - main_header: Content injected into the main header area
 - main_before_conversation: Content injected before conversation interface
-- main_no_user: Content injected when no user is logged in
+- main_content: Content injected when no user is logged in
 - main_after_conversation: Content injected after conversation interface
 - main_footer: Content injected into the main footer area
 
@@ -51,7 +51,7 @@ class UIRegistry:
             'sidebar',
             'main_header',
             'main_before_conversation',
-            'main_no_user',
+            'main_content',
             'main_after_conversation',
             'main_footer',
         }

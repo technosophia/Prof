@@ -563,7 +563,7 @@ Injection Points:
 - sidebar: Content injected into the sidebar
 - main_header: Content injected into the main header area
 - main_before_conversation: Content injected before conversation interface
-- main_no_user: Content injected when no user is logged in
+- main_content: Content injected when no user is logged in
 - main_after_conversation: Content injected after conversation interface
 
 Module Requirements:

@@ -336,7 +336,7 @@ def main():
     main_contents_before = ui_registry.render_all("main_before_conversation")
 
     # INJECTION POINT 4: Main Content when no user is logged in
-    no_user_contents = ui_registry.render_all("main_no_user")
+    no_user_contents = ui_registry.render_all("main_content")
 
     # If no UI modules rendered anything for the current page/state, show default content
     if not any([header_contents, main_contents_before, no_user_contents]):

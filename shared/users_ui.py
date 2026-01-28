@@ -75,7 +75,7 @@ def inject_ui_main_header():
         st.warning("👤 Please select or create a user from the sidebar to start conversations.")
         return True
 
-def inject_ui_main_no_user():
+def inject_ui_main_content():
     """Render content when no user is logged in."""
     if not st.session_state.current_user:
         # User form if triggered

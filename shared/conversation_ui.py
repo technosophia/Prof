@@ -208,7 +208,7 @@ def inject_ui_main_before_conversation():
     return None
 
 
-def inject_ui_main_no_user():
+def inject_ui_main_content():
     """Render content when no user is logged in."""
     if st.session_state.get('current_page') == 'chat' and not st.session_state.get('current_user'):
         st.info("👤 Please log in to start chatting.")
