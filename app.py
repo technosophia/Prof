@@ -97,7 +97,7 @@ init_user_manager(create_default_users=True)
 init_conversation_manager()
 
 # Initialize translator with Streamlit session support
-translator = init_translations_multiple("en", ["shared", "translations"])
+translator = init_translations_multiple("en")
 
 # Initialize Module Handler - store in session state
 if 'module_handler' not in st.session_state:

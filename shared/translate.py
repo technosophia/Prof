@@ -284,31 +284,57 @@ def _(key: str) -> str:
 
     return st.session_state.translator(key)
 
-def init_translations_multiple(lang: str = "en", translation_dirs: List[str] = None):
+def init_translations_multiple(lang: str = "en"):
     """
-    Initialize translations from multiple directories.
+    Initialize translations by automatically searching for translation directories.
+    Searches in:
+    - root directory
+    - shared directory
+    - all subdirectories of modules and their subdirectories
 
     Args:
         lang: Default language code
-        translation_dirs: List of directories containing translation JSON files
 
     Returns:
         Translator: Initialized translator instance
     """
     import streamlit as st
+    import os
 
     # Use Streamlit's session state to persist the translator
     if "translator" not in st.session_state:
         translator = Translator()
 
-        # Load from all specified directories
-        for trans_dir in translation_dirs:
+        # List of base directories to search from
+        base_dirs = [".", "shared"]  # root and shared directories
+
+        # Find all translation directories
+        translation_dirs = set()
+
+        for base_dir in base_dirs:
+            if os.path.exists(base_dir):
+                # Search for "translations" directories in current level and all subdirectories
+                for root, dirs, _ in os.walk(base_dir):
+                    if "translations" in dirs:
+                        trans_path = os.path.join(root, "translations")
+                        if os.path.exists(trans_path):
+                            translation_dirs.add(trans_path)
+
+        # Load translations from all found directories
+        for trans_dir in sorted(translation_dirs):
             if os.path.exists(trans_dir):
+                log("info", f"Loading translations from: {trans_dir}")
                 translator.load_app_translations(trans_dir)
 
         translator.set_language(lang)
         st.session_state.translator = translator
         st.session_state.current_language = lang
-        log("info", f"Translator initialized with language '{lang}' from directories: {translation_dirs}")
+        log("info", f"Translator initialized with language '{lang}' from {len(translation_dirs)} translation directories")
+
+        # Log the found directories for debugging
+        if translation_dirs:
+            log("debug", f"Found translation directories: {sorted(translation_dirs)}")
+        else:
+            log("warning", "No translation directories found")
 
     return st.session_state.translator

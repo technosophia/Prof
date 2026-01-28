@@ -1,0 +1,13 @@
+{
+  "enter_message": "Enter some text",
+  "login_to_view_conversations": "Log in to view your conversations",
+  "no_conversations_yet": "No conversations yet",
+  "start_new_conversation": "Start New Conversation",
+  "new_conversation": "New Conversation",
+  "new_conversation_created": "New conversation created!",
+  "conversations": "Conversations",
+  "new_conversation": "New Conversation",
+  "current_conversation": "Current Conversation",
+  "messages": "messages",
+  "tokens": "tokens"
+}
