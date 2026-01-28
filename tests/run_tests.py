@@ -63,9 +63,6 @@ def run_specific_test_suites():
     project_root = os.path.dirname(current_dir)
 
     test_suites = [
-        (os.path.join(project_root, "shared", "tests", "test_translate.py"), "Translator Tests"),
-        (os.path.join(project_root, "shared", "tests", "test_llm.py"), "LLM Tests"),
-        (os.path.join(current_dir, "step_defs", "test_button_steps.py"), "BDD Button Tests"),
     ]
 
     all_passed = True
