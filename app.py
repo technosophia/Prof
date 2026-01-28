@@ -65,8 +65,35 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 from shared.translate import init_translations_multiple, _
 from shared.config import init_config, get_config
 
-# Initialize configuration (one line) - BEFORE ANY OTHER IMPORTS THAT USE CONFIG
-config = init_config("config.json")
+# Determine if we're in test mode
+TEST_MODE = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
+
+# Load appropriate config
+if TEST_MODE:
+    print("🔧 TEST MODE: Loading test configuration")
+
+    # FIXED: Use absolute path to find test_config.json
+    # First, get the directory where app.py is located
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Look for test config in the tests directory
+    test_config_path = os.path.join(app_dir, "tests", "test_config.json")
+
+    if os.path.exists(test_config_path):
+        config_file = test_config_path
+        print(f"Found test config at: {test_config_path}")
+    else:
+        # Fallback: look in current directory
+        config_file = "test_config.json"
+        print(f"Test config not found at {test_config_path}, trying current directory")
+
+    # Also set environment variable to ensure test mode is propagated
+    os.environ["TEST_MODE"] = "true"
+else:
+    config_file = "config.json"
+
+# Initialize configuration
+config = init_config(config_file)
 
 from shared.logging import log, configure_logging_from_dict
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
@@ -85,7 +112,14 @@ configure_logging_from_dict(config.get("logging", {}))
 
 # Initialize database
 db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
-init_database(use_memory=False, db_path=db_path)
+if TEST_MODE:
+    # Force in-memory database for tests
+    print("TEST MODE: Using in-memory database")
+    init_database(use_memory=True, db_path=None)
+else:
+    # Normal database setup
+    db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
+    init_database(use_memory=False, db_path=db_path)
 
 # Initialize translator with Streamlit session support
 translator = init_translations_multiple("en")
@@ -127,10 +161,80 @@ st.set_page_config(
     layout="centered"
 )
 
+# NEW: Initialize critical session state variables BEFORE main()
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+
+if "app_initialized" not in st.session_state:
+    st.session_state.app_initialized = False
+
+# NEW: Add a flag to track if user explicitly logged out/switched
+if "user_manually_logged_out" not in st.session_state:
+    st.session_state.user_manually_logged_out = False
+
+# NEW: Auto-login function with manual logout protection
+def auto_login_first_user():
+    """Automatically log in the first available user if none is logged in AND user hasn't manually logged out."""
+
+    # Don't auto-login if user has manually logged out/switched
+    if st.session_state.user_manually_logged_out:
+        log("debug", "Skipping auto-login: user manually logged out")
+        return False
+
+    if not st.session_state.current_user:
+        try:
+            # Import user manager here to avoid circular imports
+            from shared.users import user_manager
+
+            # Get all users
+            all_users = user_manager.get_all_users_dict()
+
+            if all_users:
+                # Get the first user (sorted by ID for consistency)
+                first_user_id = sorted(all_users.keys())[0]
+                first_user = all_users[first_user_id]
+
+                # Set as current user
+                st.session_state.current_user = first_user
+
+                # Update last login
+                user_manager.update_last_login(first_user_id)
+
+                # Set the flag to show this was an auto-login
+                st.session_state.just_auto_logged_in = True
+
+                log("info", f"Auto-logged in user: {first_user['name']}")
+                return True
+            else:
+                log("warning", "No users available for auto-login")
+                return False
+        except Exception as e:
+            log("error", f"Auto-login failed: {e}")
+            return False
+    return True  # Already logged in
+
 
 def main():
     # Log main function entry
     log("debug", "Entering main function")
+
+    # NEW: Check if app needs initialization
+    if not st.session_state.app_initialized:
+        # Initialize session state for page navigation
+        if "current_page" not in st.session_state:
+            st.session_state.current_page = "chat"
+
+        # Initialize session state for UI modules
+        if "ui_modules_initialized" not in st.session_state:
+            st.session_state.ui_modules_initialized = False
+
+        # Initialize the just_auto_logged_in flag
+        if "just_auto_logged_in" not in st.session_state:
+            st.session_state.just_auto_logged_in = False
+
+        # Mark as initialized
+        st.session_state.app_initialized = True
+        log("debug", "App initialization complete")
 
     # Get config inside main function
     current_config = get_config()
@@ -140,13 +244,10 @@ def main():
     log("debug", "Calling UI module initialization functions")
     initialization_results = ui_registry.render_all("initialize")
 
-    # Initialize session state for page navigation
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = "chat"
-
-    # Initialize session state for UI modules
-    if "ui_modules_initialized" not in st.session_state:
-        st.session_state.ui_modules_initialized = False
+    # NEW: Auto-login after UI components are initialized
+    # This ensures user manager is available and session state is ready
+    if not TEST_MODE:
+        auto_login_first_user()
 
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:

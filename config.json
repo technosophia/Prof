@@ -38,14 +38,6 @@
       "enabled": true,
       "description": "Fast inference via Groq",
       "requires_api_key": true
-    },
-    "mock": {
-      "type": "mock",
-      "model": "mock-fast",
-      "name": "Mock LLM",
-      "enabled": true,
-      "description": "Mock LLM for testing",
-      "requires_api_key": false
     }
   }
 }

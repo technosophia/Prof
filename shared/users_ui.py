@@ -20,6 +20,8 @@ def inject_ui_sidebar():
 
         # Switch user button
         if st.button("Switch User"):
+            # Set the manual logout flag to prevent auto-login
+            st.session_state.user_manually_logged_out = True
             st.session_state.current_user = None
             st.session_state.current_conversation_id = None
             st.session_state.conversation_messages = []
@@ -42,9 +44,13 @@ def inject_ui_sidebar():
 
             if selected_user != "Select a user..." and selected_user:
                 if st.button("Login as User"):
+                    # Clear the manual logout flag when manually logging in
+                    st.session_state.user_manually_logged_out = False
                     st.session_state.current_user = all_users[selected_user]
                     log("info", f"User logged in: {st.session_state.current_user['name']}")
                     st.rerun()
+        else:
+            st.info("No users found. Please create a user first.")
 
     # Create new user button
     if st.button("➕ Create New User", type="primary"):
@@ -55,17 +61,37 @@ def inject_ui_sidebar():
 
 def inject_ui_main_header():
     """Render user info in the main header."""
+    # NEW: Check if we just auto-logged in
+    if "just_auto_logged_in" not in st.session_state:
+        st.session_state.just_auto_logged_in = False
+
     if st.session_state.current_user:
+        # NEW: Show welcome message if just auto-logged in
+        if st.session_state.just_auto_logged_in:
+            st.success(f"👋 Welcome, **{st.session_state.current_user['name']}**! You've been automatically logged in.")
+            # Clear the flag
+            st.session_state.just_auto_logged_in = False
+        else:
+            st.success(f"✅ Logged in as: **{st.session_state.current_user['name']}**")
+
         col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
-            st.success(f"✅ Logged in as: **{st.session_state.current_user['name']}**")
-        with col2:
             if st.button("👤 Profile", key="profile_header_btn"):
                 st.session_state.edit_user_id = st.session_state.current_user['id']
                 st.session_state.show_user_form = True
                 st.rerun()
+        with col2:
+            if st.button("🔄 Switch User", key="switch_header_btn"):
+                # Set the manual logout flag
+                st.session_state.user_manually_logged_out = True
+                st.session_state.current_user = None
+                st.session_state.current_conversation_id = None
+                st.session_state.conversation_messages = []
+                st.rerun()
         with col3:
             if st.button("🚪 Logout", key="logout_header_btn"):
+                # Set the manual logout flag
+                st.session_state.user_manually_logged_out = True
                 st.session_state.current_user = None
                 st.session_state.current_conversation_id = None
                 st.session_state.conversation_messages = []
@@ -139,6 +165,16 @@ def render_user_form():
                         st.success(f"User created successfully! ID: {user_id}")
                         log("info", f"User created: {name} (ID: {user_id})")
 
+                        # NEW: Auto-login the newly created user if no user is logged in
+                        if not st.session_state.current_user:
+                            # Clear the manual logout flag since we're creating a new user
+                            st.session_state.user_manually_logged_out = False
+                            new_user = user_manager.get_user(user_id)
+                            if new_user:
+                                st.session_state.current_user = new_user
+                                st.session_state.just_auto_logged_in = True
+                                log("info", f"Auto-logged in newly created user: {name}")
+
                     # Reset form state
                     st.session_state.show_user_form = False
                     st.session_state.edit_user_id = None
@@ -153,6 +189,7 @@ def render_user_form():
             st.rerun()
 
 def inject_ui_initialize():
+    """Initialize session state for user management."""
     # Initialize session state for user management
     if "current_user" not in st.session_state:
         st.session_state.current_user = None
@@ -160,3 +197,9 @@ def inject_ui_initialize():
         st.session_state.show_user_form = False
     if "edit_user_id" not in st.session_state:
         st.session_state.edit_user_id = None
+    # NEW: Flag for auto-login notification
+    if "just_auto_logged_in" not in st.session_state:
+        st.session_state.just_auto_logged_in = False
+    # NEW: Flag to track manual logout/switch (initialize to False for first launch)
+    if "user_manually_logged_out" not in st.session_state:
+        st.session_state.user_manually_logged_out = False
