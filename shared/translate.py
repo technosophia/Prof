@@ -3,7 +3,7 @@
 [agent]
 Streamlit-safe translation function.
 Works with the translator in session state.
-Must be imported like this : from shared.translate import _streamlit as _
+Must be imported like this : from shared.translate import as _
 """
 
 

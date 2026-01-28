@@ -18,7 +18,7 @@ config = init_config("config.json")  # MUST BE FIRST
 
 # Then import other modules
 from shared.logging import log, configure_logging_from_dict
-from shared.translate import init_translations_streamlit, _streamlit as _
+from shared.translate import init_translations_streamlit, _
 from shared.llm import llm_generate, set_current_llm, get_available_llms
 
 # Configure other systems
@@ -154,7 +154,7 @@ message = _("welcome_user").format(username=user_name)
 
 #### For Streamlit Modules
 ```python
-from shared.translate import init_translations_streamlit, _streamlit as _
+from shared.translate import init_translations_streamlit, _
 
 # Initialize with Streamlit session support
 translator = init_translations_streamlit("en", "translations")

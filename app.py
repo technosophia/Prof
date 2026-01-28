@@ -188,31 +188,14 @@ def main():
     # Get config inside main function
     current_config = get_config()
 
+    # NEW: Call UI module initialization functions
+    # INJECTION POINT: Initialize - for setting up session state variables
+    log("debug", "Calling UI module initialization functions")
+    initialization_results = ui_registry.render_all("initialize")
+
     # Initialize session state for page navigation
     if "current_page" not in st.session_state:
         st.session_state.current_page = "chat"
-
-    # Initialize session state for conversation management
-    if "current_conversation_id" not in st.session_state:
-        st.session_state.current_conversation_id = None
-    if "conversation_messages" not in st.session_state:
-        st.session_state.conversation_messages = []
-    if "new_conversation_title" not in st.session_state:
-        st.session_state.new_conversation_title = "New Conversation"
-    if "show_new_conversation_form" not in st.session_state:
-        st.session_state.show_new_conversation_form = False
-    if "editing_conversation_id" not in st.session_state:
-        st.session_state.editing_conversation_id = None
-
-    # Initialize session state for LLM response
-    if "streaming_active" not in st.session_state:
-        st.session_state.streaming_active = False
-    if "stream_buffer" not in st.session_state:
-        st.session_state.stream_buffer = ""
-
-    # Initialize session state for regeneration
-    if "regenerating_message_id" not in st.session_state:
-        st.session_state.regenerating_message_id = None
 
     # Initialize session state for user management
     if "current_user" not in st.session_state:
@@ -314,7 +297,7 @@ def main():
                 else:
                     st.error(f"Failed to switch to LLM: {selected_llm_id}")
 
-        # INJECTION POINT 1: Sidebar Content from UI Modules
+        # INJECTION POINT 2: Sidebar Content from UI Modules
         # Call all registered sidebar render functions
         sidebar_contents = ui_registry.render_all("sidebar")
         st.caption(_("current_language"))
@@ -329,13 +312,13 @@ def main():
     # Main content - Page Router
     st.title(_("hello_world"))
 
-    # INJECTION POINT 2: Main Header Content from UI Modules
+    # INJECTION POINT 3: Main Header Content from UI Modules
     header_contents = ui_registry.render_all("main_header")
 
-    # INJECTION POINT 3: Main Content from UI Modules (before conversation interface)
+    # INJECTION POINT 4: Main Content from UI Modules (before conversation interface)
     main_contents_before = ui_registry.render_all("main_before_conversation")
 
-    # INJECTION POINT 4: Main Content when no user is logged in
+    # INJECTION POINT 5: Main Content when no user is logged in
     no_user_contents = ui_registry.render_all("main_content")
 
     # If no UI modules rendered anything for the current page/state, show default content
@@ -355,13 +338,13 @@ def main():
             else:
                 st.info("👤 Please log in to start chatting.")
 
-    # INJECTION POINT 5: Main Content after conversation interface
+    # INJECTION POINT 6: Main Content after conversation interface
     main_contents_after = ui_registry.render_all("main_after_conversation")
     for content in main_contents_after:
         if content:
             st.divider()
 
-    # INJECTION POINT 6: Main Footer Content
+    # INJECTION POINT 7: Main Footer Content
     main_footer = ui_registry.render_all("main_footer")
     for content in main_footer:
         if content:

@@ -19,6 +19,35 @@ from shared.translate import _
 from app import generate_llm_response
 
 
+def inject_ui_initialize():
+    """Initialize conversation-related session state variables."""
+    log("debug", "Initializing conversation UI session state")
+
+    # Initialize session state for conversation management
+    if "current_conversation_id" not in st.session_state:
+        st.session_state.current_conversation_id = None
+    if "conversation_messages" not in st.session_state:
+        st.session_state.conversation_messages = []
+    if "new_conversation_title" not in st.session_state:
+        st.session_state.new_conversation_title = "New Conversation"
+    if "show_new_conversation_form" not in st.session_state:
+        st.session_state.show_new_conversation_form = False
+    if "editing_conversation_id" not in st.session_state:
+        st.session_state.editing_conversation_id = None
+
+    # Initialize session state for LLM response
+    if "streaming_active" not in st.session_state:
+        st.session_state.streaming_active = False
+    if "stream_buffer" not in st.session_state:
+        st.session_state.stream_buffer = ""
+
+    # Initialize session state for regeneration
+    if "regenerating_message_id" not in st.session_state:
+        st.session_state.regenerating_message_id = None
+
+    return True
+
+
 def inject_ui_sidebar():
     """Render conversation management section in the sidebar."""
     # Only show if user is logged in

@@ -1,7 +1,5 @@
 """UI Registry System
 
-[agent]
-
 Provides a modular UI injection system for Streamlit applications. UI modules
 can register render functions that are automatically discovered and injected
 into predefined injection points.
@@ -16,6 +14,7 @@ Naming Conventions:
   Example: inject_ui_sidebar(), inject_ui_main_header(), etc.
 
 Injection Points:
+- initialize: Content injected at the beginning of app initialization
 - sidebar: Content injected into the sidebar
 - main_header: Content injected into the main header area
 - main_before_conversation: Content injected before conversation interface
@@ -48,6 +47,7 @@ class UIRegistry:
     def __init__(self):
         self.modules: Dict[str, Dict] = {}
         self.injection_points = {
+            'initialize',  # NEW: For initialization code
             'sidebar',
             'main_header',
             'main_before_conversation',
@@ -282,7 +282,7 @@ class UIRegistry:
             # Check if module is active
             # For shared modules (user_ui, conservation_ui), always render them
             # For module directory modules (debug), only render if active
-            is_shared = "shared" in module_info.get('path', '') or module_name in ['user_ui', 'conservation_ui']
+            is_shared = "shared" in module_info.get('path', '') or module_name in ['user_ui', 'conversation_ui']
 
             if not is_shared and module_name not in active_modules:
                 log("debug", f"Skipping inactive module: {module_name}")
