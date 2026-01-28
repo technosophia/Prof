@@ -17,7 +17,7 @@ from shared.conversation import conversation_manager
 from shared.module_handler import get_active_modules, module_handler
 from shared.ui_registry import ui_registry
 
-def debug_render_main_footer():
+def main_footer():
     """Render debug information in the main footer."""
     log("debug", "debug_render_main_footer called")
     if not st.session_state.get("show_debug", False):
@@ -136,7 +136,7 @@ def debug_render_main_footer():
 
     return None
 
-def debug_render_sidebar():
+def sidebar():
     """Render debug toggle in sidebar."""
     log("debug", "debug_render_sidebar called")
     if st.session_state.get("current_page") == "chat":
@@ -152,15 +152,5 @@ def debug_render_sidebar():
                 st.rerun()
 
     return None
-
-def sidebar():
-    """Render debug toggle in sidebar."""
-    log("debug", "Debug module sidebar() function called")
-    return debug_render_sidebar()
-
-def main_footer():
-    """Render debug information in the main footer."""
-    log("debug", "Debug module main_footer() function called")
-    return debug_render_main_footer()
 
 log("debug", f"Debug UI module loaded. Functions defined: sidebar={sidebar}, main_footer={main_footer}")

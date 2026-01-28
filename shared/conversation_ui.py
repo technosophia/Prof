@@ -241,7 +241,7 @@ def show_conversation_interface():
         st.session_state.current_conversation_id = None
         st.session_state.conversation_messages = []
 
-def conversation_render_main_before_conversation():
+def main_before_conversation():
     """Render conversation interface when appropriate."""
     # Only render if we're on chat page and user is logged in
     if (st.session_state.get('current_page') == 'chat' and
@@ -250,17 +250,9 @@ def conversation_render_main_before_conversation():
         return show_conversation_interface()
     return None
 
-def conversation_render_main_no_user():
+def main_no_user():
     """Render content when no user is logged in."""
     if st.session_state.get('current_page') == 'chat' and not st.session_state.get('current_user'):
         st.info("👤 Please log in to start chatting.")
         return True
     return None
-
-# Export functions for UI registry
-sidebar = None
-main_header = None
-main_before_conversation = conversation_render_main_before_conversation
-main_no_user = conversation_render_main_no_user
-main_after_conversation = None
-main_footer = None
