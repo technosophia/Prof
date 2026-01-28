@@ -61,6 +61,7 @@ class DatabaseManager:
             cls._instance._engine = None
             cls._instance._session_factory = None
             cls._instance._in_memory = False
+            cls._instance._tables_created = False
         return cls._instance
 
     def __init__(self):
@@ -174,12 +175,23 @@ class DatabaseManager:
         if self._engine is None:
             raise RuntimeError("Database not initialized. Call init_database() first.")
 
+        # Check if tables already created
+        if self._tables_created:
+            log("debug", "Database tables already created, skipping")
+            return
+
         try:
             Base.metadata.create_all(self._engine)
+            self._tables_created = True  # Mark as created
             log("info", "All database tables created successfully")
         except Exception as e:
             log("error", f"Failed to create database tables: {e}")
             raise
+
+    # Add method to check if tables created
+    def are_tables_created(self):
+        """Check if tables have been created."""
+        return self._tables_created
 
 
 # Global database manager instance
@@ -199,11 +211,11 @@ def init_database(use_memory: bool = False, db_path: Optional[str] = None):
 
     Returns:
         DatabaseManager: Initialized database manager
-
-    Example:
-        # At application startup
-        init_database(use_memory=False, db_path="data/myapp.db")
     """
+    # Don't reinitialize if already done
+    if db_manager.is_initialized():
+        return db_manager
+
     db_manager._initialize(use_memory=use_memory, db_path=db_path)
     db_manager._create_all_tables()
     return db_manager
