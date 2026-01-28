@@ -10,7 +10,7 @@ import streamlit as st
 from shared.users import user_manager
 from shared.logging import log
 
-def sidebar():
+def inject_ui_sidebar():
     """Render user management section in the sidebar."""
     st.title("👤 User Management")
 
@@ -53,7 +53,7 @@ def sidebar():
 
     return True  # Return value indicates content was rendered
 
-def main_header():
+def inject_ui_main_header():
     """Render user info in the main header."""
     if st.session_state.current_user:
         col1, col2, col3 = st.columns([3, 1, 1])
@@ -75,7 +75,7 @@ def main_header():
         st.warning("👤 Please select or create a user from the sidebar to start conversations.")
         return True
 
-def main_no_user():
+def inject_ui_main_no_user():
     """Render content when no user is logged in."""
     if not st.session_state.current_user:
         # User form if triggered

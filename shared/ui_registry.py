@@ -12,9 +12,8 @@ Module Discovery:
 
 Naming Conventions:
 - Module files must end with _ui.py
-- Render functions can use either pattern:
-  1. Direct injection point names: sidebar(), main_header(), etc.
-  2. Namespaced pattern: modulename_render_injectionpoint()
+- Render functions must follow the pattern: inject_ui_injectionpoint()
+  Example: inject_ui_sidebar(), inject_ui_main_header(), etc.
 
 Injection Points:
 - sidebar: Content injected into the sidebar
@@ -22,11 +21,12 @@ Injection Points:
 - main_before_conversation: Content injected before conversation interface
 - main_no_user: Content injected when no user is logged in
 - main_after_conversation: Content injected after conversation interface
+- main_footer: Content injected into the main footer area
 
 Module Requirements:
 1. Must be placed in shared/ or modules/*/ directories
 2. Must have filename ending with _ui.py
-3. Must define at least one render function matching an injection point
+3. Must define at least one render function matching the inject_ui_injectionpoint pattern
 4. Render functions must be callable and return a value
 
 Registry Initialization:
@@ -220,32 +220,26 @@ class UIRegistry:
                               if not name.startswith('_') and callable(obj)]
             log("info", f"Module {module_name} contains callable functions: {module_contents}")
 
-            # Find render functions
+            # Find render functions using the new naming convention
             render_functions = {}
+            PREFIX = "inject_ui_"
+
             for name, obj in inspect.getmembers(module):
                 # Check if it's a callable function (not a class or module)
                 if callable(obj) and not name.startswith('_') and not inspect.isclass(obj):
                     log("debug", f"Checking function: {name}")
-                    # Check if function name matches an injection point
-                    if name in self.injection_points:
-                        render_functions[name] = obj
-                        log("info", f"Found direct render function: {module_name}.{name}")
-                    elif name.startswith(f"{module_name}_render_"):
-                        # Extract injection point from name
-                        injection_point = name[len(f"{module_name}_render_"):]
+
+                    # Check if function name follows the new pattern: inject_ui_injectionpoint
+                    if name.startswith(PREFIX):
+                        injection_point = name[len(PREFIX):]  # Remove "inject_ui_" prefix
+
                         if injection_point in self.injection_points:
                             render_functions[injection_point] = obj
-                            log("info", f"Found namespaced render function: {module_name}.{name} -> {injection_point}")
+                            log("info", f"Found render function: {module_name}.{name} -> {injection_point}")
+                        else:
+                            log("warning", f"Function {name} has correct prefix but unknown injection point: {injection_point}")
                     else:
-                        # Check if function follows modulename_render_injectionpoint pattern
-                        for ip in self.injection_points:
-                            if name.endswith(f"_render_{ip}"):
-                                # Extract base module name from function name
-                                base_name = name[:-len(f"_render_{ip}")]
-                                if base_name:
-                                    render_functions[ip] = obj
-                                    log("info", f"Found pattern render function: {module_name}.{name} -> {ip}")
-                                    break
+                        log("debug", f"Function {name} doesn't match inject_ui_ pattern")
 
             if render_functions:
                 self.modules[module_name] = {

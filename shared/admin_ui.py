@@ -177,7 +177,7 @@ def show_admin_page():
         st.error("Could not load LLM status")
 
 # Register render functions for the UI registry
-def admin_render():
+def inject_ui_main_header():
     """Render admin content when admin page is active."""
     # Check if we're on the admin page
     if st.session_state.get('current_page') != 'admin':
@@ -195,12 +195,3 @@ def admin_render():
 
         # Return a non-None value to indicate content was rendered
         return True
-
-# Export functions for the UI registry
-# Note: We'll only use main_header to avoid duplicate rendering
-sidebar = None
-main_header = admin_render  # Render admin only in main_header
-main_before_conversation = None  # Don't render in main_before_conversation
-main_no_user = None
-main_after_conversation = None
-main_footer = None

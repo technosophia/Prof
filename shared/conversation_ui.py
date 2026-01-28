@@ -19,7 +19,7 @@ from shared.translate import _
 from app import generate_llm_response
 
 
-def sidebar():
+def inject_ui_sidebar():
     """Render conversation management section in the sidebar."""
     # Only show if user is logged in
     if not st.session_state.current_user:
@@ -190,11 +190,16 @@ def render_conversation_form():
             st.rerun()
 
 
-def conversation_render_main_before_conversation():
+def inject_ui_main_before_conversation():
     """
     Render conversation interface when appropriate.
     This uses a namespaced function name to avoid conflicts with main_before_conversation().
     """
+    # First check if we need to show the conversation form
+    if st.session_state.current_user and st.session_state.show_new_conversation_form:
+        render_conversation_form()
+        return True
+
     # Only render if we're on chat page and user is logged in
     if (st.session_state.get('current_page') == 'chat' and
         st.session_state.get('current_user') and
@@ -203,28 +208,12 @@ def conversation_render_main_before_conversation():
     return None
 
 
-def main_no_user():
+def inject_ui_main_no_user():
     """Render content when no user is logged in."""
     if st.session_state.get('current_page') == 'chat' and not st.session_state.get('current_user'):
         st.info("👤 Please log in to start chatting.")
         return True
     return None
-
-
-# Main injection point functions
-def main_before_conversation():
-    """
-    Combined main_before_conversation handler.
-    Renders conversation form if triggered, otherwise renders chat interface.
-    """
-    # First check if we need to show the conversation form
-    if st.session_state.current_user and st.session_state.show_new_conversation_form:
-        render_conversation_form()
-        return True
-
-    # Otherwise, check if we should show the conversation interface
-    return conversation_render_main_before_conversation()
-
 
 # Internal helper functions
 def show_conversation_interface():
