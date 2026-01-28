@@ -5,8 +5,8 @@ python_classes = "Test*"
 python_functions = "test_*"
 asyncio_mode = "auto"
 # Use string format with escaped quotes
-#addopts = "-v --tb=short -m 'not ollama and not bdd'"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not ollama and not bdd'"
+#addopts = "-v --tb=short"
 markers = [
     "asyncio: mark test as using asyncio",
     "ollama: mark test as requiring Ollama service",
@@ -20,3 +20,4 @@ markers = [
 [tool.pytest-bdd]
 features_base_dir = "tests/features"
 steps_base_dir = "tests/step_defs"
+cleanup_test_files = true

@@ -191,5 +191,28 @@ class RAGManager:
             log("error", f"Failed to clear all documents: {str(e)}", exc_info=True)
             return False
 
+    # Ajoutez cette méthode à la classe RAGManager
+    def clear_test_files(self, pattern: str = "*test*") -> bool:
+        """Clear test files from the data directory (for testing only)."""
+        try:
+            # Delete files matching pattern
+            for file_path in self.data_dir.glob(pattern):
+                if file_path.is_file() and file_path != self.metadata_file:
+                    file_path.unlink()
+                    log("debug", f"Test file deleted: {file_path.name}")
+
+            # Also clean up metadata entries for test files
+            test_filenames = [k for k in self.documents.keys() if "test" in k.lower()]
+            for filename in test_filenames:
+                del self.documents[filename]
+
+            self._save_metadata()
+            log("info", f"Cleaned {len(test_filenames)} test files")
+            return True
+
+        except Exception as e:
+            log("error", f"Failed to clear test files: {str(e)}", exc_info=True)
+            return False
+
 # Create a singleton instance
 rag_manager = RAGManager()

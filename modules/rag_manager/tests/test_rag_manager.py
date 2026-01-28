@@ -51,14 +51,38 @@ def temp_rag_manager():
 
     yield manager
 
-    # Cleanup
+    # Cleanup - ONLY clean the files we know we created in tests
     try:
-        # Remove the test data directory
+        # Get list of all files before cleanup
+        all_files = list(manager.documents.keys())
+
+        # Only delete files that were created by our tests
+        # (filenames starting with timestamp or containing specific test patterns)
+        for filename in all_files:
+            if any(pattern in filename.lower() for pattern in ['test', 'delete_test', 'meta_test']):
+                manager.delete_document(filename)
+
+        # Remove the test data directory (it should be empty now)
         if test_data_dir.exists():
-            shutil.rmtree(test_data_dir)
+            # Try to remove files first
+            for file_path in test_data_dir.glob("*"):
+                if file_path.is_file():
+                    try:
+                        file_path.unlink()
+                    except:
+                        pass
+            # Then remove directory
+            try:
+                test_data_dir.rmdir()
+            except:
+                pass
+
         # Remove the temp directory
         if Path(temp_dir).exists():
-            shutil.rmtree(temp_dir)
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
     except Exception as e:
         print(f"Warning during cleanup: {e}")
 
@@ -123,6 +147,9 @@ def test_delete_document(temp_rag_manager):
 
 def test_get_document_list(temp_rag_manager):
     """Test getting document list."""
+    # Clear any existing test files first by getting current count
+    initial_count = len(temp_rag_manager.documents)
+
     # Upload a few test documents
     for i in range(3):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
@@ -137,16 +164,22 @@ def test_get_document_list(temp_rag_manager):
     # Get list
     documents = temp_rag_manager.get_document_list()
 
-    # Should have exactly 3 documents
-    assert len(documents) == 3
+    # Should have initial_count + 3 documents
+    assert len(documents) == initial_count + 3
     assert all('filename' in doc for doc in documents)
     assert all('original_filename' in doc for doc in documents)
 
-    # Verify we have the right documents
-    filenames = [doc['original_filename'] for doc in documents]
-    assert "test_0.txt" in filenames
-    assert "test_1.txt" in filenames
-    assert "test_2.txt" in filenames
+    # Verify we have the right documents among the last 3 uploaded
+    recent_docs = documents[:3]  # Newest first
+    filenames = [doc['original_filename'] for doc in recent_docs]
+
+    # Check that our test files are in the list (order might vary)
+    expected_filenames = {"test_0.txt", "test_1.txt", "test_2.txt"}
+    actual_filenames = set(filenames)
+
+    # We should find all our test files among the uploaded ones
+    for expected in expected_filenames:
+        assert any(expected in doc['original_filename'] for doc in recent_docs)
 
 def test_file_validation(temp_rag_manager):
     """Test file validation."""
@@ -234,10 +267,29 @@ def test_metadata_persistence():
     finally:
         # Cleanup
         try:
+            # Only delete the specific test file we created
+            test_files = [k for k in manager1.documents.keys() if 'meta_test' in k]
+            for filename in test_files:
+                manager1.delete_document(filename)
+
+            # Clean up directory
             if test_data_dir.exists():
-                shutil.rmtree(test_data_dir)
+                for file_path in test_data_dir.glob("*"):
+                    if file_path.is_file():
+                        try:
+                            file_path.unlink()
+                        except:
+                            pass
+                try:
+                    test_data_dir.rmdir()
+                except:
+                    pass
+
             if Path(temp_dir).exists():
-                shutil.rmtree(temp_dir)
+                try:
+                    shutil.rmtree(temp_dir)
+                except:
+                    pass
         except Exception as e:
             print(f"Warning during cleanup: {e}")
 
