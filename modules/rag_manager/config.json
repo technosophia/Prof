@@ -1,0 +1,8 @@
+{
+  "rag_manager": {
+    "data_directory": "./data/rag_documents",
+    "allowed_extensions": [".txt", ".pdf", ".md", ".json", ".csv", ".html"],
+    "max_file_size_mb": 10,
+    "enable_vectorization": false
+  }
+}

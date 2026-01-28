@@ -1,0 +1,22 @@
+{
+  "rag_manager_title": "Gestionnaire de documents RAG",
+  "rag_manager_description": "Gérer les documents pour RAG (Retrieval Augmented Generation)",
+  "upload_documents": "Télécharger des documents",
+  "upload_button": "📤 Télécharger",
+  "document_list": "Liste des documents",
+  "filename": "Nom du fichier",
+  "size": "Taille",
+  "uploaded": "Téléchargé le",
+  "actions": "Actions",
+  "delete": "Supprimer",
+  "no_documents": "Aucun document téléchargé pour le moment.",
+  "upload_success": "Document téléchargé avec succès !",
+  "upload_error": "Erreur lors du téléchargement : {error}",
+  "delete_confirm": "Êtes-vous sûr de vouloir supprimer '{filename}' ?",
+  "delete_success": "Document supprimé avec succès !",
+  "delete_error": "Erreur lors de la suppression : {error}",
+  "file_too_large": "Fichier trop volumineux. Taille maximale : {max_size}MB.",
+  "unsupported_format": "Format non supporté. Formats autorisés : {formats}",
+  "total_documents": "Documents totaux : {count}",
+  "total_size": "Taille totale : {size} MB"
+}

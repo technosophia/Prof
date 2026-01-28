@@ -1,0 +1,9 @@
+{
+  "name": "rag_manager",
+  "version": "1.0.0",
+  "description": "RAG Manager for document storage and management",
+  "author": "Your Name",
+  "enabled_by_default": true,
+  "category": "rag",
+  "dependencies": []
+}

@@ -1,0 +1,22 @@
+{
+  "rag_manager_title": "RAG Document Manager",
+  "rag_manager_description": "Manage documents for RAG (Retrieval Augmented Generation)",
+  "upload_documents": "Upload Documents",
+  "upload_button": "📤 Upload",
+  "document_list": "Document List",
+  "filename": "Filename",
+  "size": "Size",
+  "uploaded": "Uploaded",
+  "actions": "Actions",
+  "delete": "Delete",
+  "no_documents": "No documents uploaded yet.",
+  "upload_success": "Document uploaded successfully!",
+  "upload_error": "Error uploading document: {error}",
+  "delete_confirm": "Are you sure you want to delete '{filename}'?",
+  "delete_success": "Document deleted successfully!",
+  "delete_error": "Error deleting document: {error}",
+  "file_too_large": "File is too large. Maximum size is {max_size}MB.",
+  "unsupported_format": "Unsupported file format. Allowed: {formats}",
+  "total_documents": "Total Documents: {count}",
+  "total_size": "Total Size: {size} MB"
+}
