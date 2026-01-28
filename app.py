@@ -73,7 +73,6 @@ from shared.logging import log, configure_logging_from_dict
 from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # Import user management
-from shared.users import user_manager, init_user_manager
 from shared.database import init_database, db_manager
 
 # Import UI registry system
@@ -87,9 +86,6 @@ configure_logging_from_dict(config.get("logging", {}))
 # Initialize database
 db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
 init_database(use_memory=False, db_path=db_path)
-
-# Initialize user manager with default users
-init_user_manager(create_default_users=True)
 
 # Initialize translator with Streamlit session support
 translator = init_translations_multiple("en")
@@ -147,14 +143,6 @@ def main():
     # Initialize session state for page navigation
     if "current_page" not in st.session_state:
         st.session_state.current_page = "chat"
-
-    # Initialize session state for user management
-    if "current_user" not in st.session_state:
-        st.session_state.current_user = None
-    if "show_user_form" not in st.session_state:
-        st.session_state.show_user_form = False
-    if "edit_user_id" not in st.session_state:
-        st.session_state.edit_user_id = None
 
     # Initialize session state for UI modules
     if "ui_modules_initialized" not in st.session_state:

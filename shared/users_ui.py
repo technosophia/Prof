@@ -151,3 +151,12 @@ def render_user_form():
             st.session_state.show_user_form = False
             st.session_state.edit_user_id = None
             st.rerun()
+
+def inject_ui_initialize():
+    # Initialize session state for user management
+    if "current_user" not in st.session_state:
+        st.session_state.current_user = None
+    if "show_user_form" not in st.session_state:
+        st.session_state.show_user_form = False
+    if "edit_user_id" not in st.session_state:
+        st.session_state.edit_user_id = None
