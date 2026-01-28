@@ -1,3 +1,65 @@
+"""
+    This is a simple logging system with configurable levels.
+
+[agent]
+## Logging System (`shared/logging.py`)
+
+### Purpose
+Simple, configurable logging with multiple levels and stack trace support. All logs are in English (not translated). Integrates with configuration system.
+
+### Key Functions
+
+#### Simple Logging (main way to log)
+```python
+from shared.logging import log
+
+# One-line logging
+log("info", "Module initialized successfully")
+log("debug", "Processing item %d", item_id)
+log("warning", "Deprecated function called")
+log("error", "Failed to connect: %s", error_msg)
+
+# With stack trace for errors
+try:
+    risky_operation()
+except Exception as e:
+    log("error", "Operation failed: %s", str(e), exc_info=True)
+
+# Or use convenience functions
+from shared.logging import debug, info, warning, error
+info("Module started")
+debug("Detailed debug info: %s", data)
+```
+
+#### Connecting to Configuration
+```python
+from shared.config import get_config
+from shared.logging import configure_logging_from_dict
+
+# Configure logging from config
+config = get_config()
+configure_logging_from_dict(config.get("logging", {}))
+```
+
+### Log Levels (from most to least verbose)
+- `debug` - Detailed information for debugging
+- `info` - General information about program execution
+- `warning` - Potential issues that don't stop execution
+- `error` - Serious problems that affect functionality
+- `critical` - Critical errors that may cause program termination
+
+### Configuration Example
+```json
+{
+  "logging": {
+    "level": "INFO",
+    "format": "[{level}] {timestamp} - {message}",
+    "include_traceback": true
+  }
+}
+```
+"""
+
 import sys
 import traceback
 import time

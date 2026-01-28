@@ -1,9 +1,35 @@
 """ Translate helper function
 
 [agent]
-Streamlit-safe translation function.
-Works with the translator in session state.
-Must be imported like this : from shared.translate import as _
+Translation System (`shared/translate.py`)
+
+## Purpose
+Multilingual support with module-specific translations. Uses simple `_()` function for translation lookups.
+
+```python
+from shared.translate import _
+
+title = _("module_title")
+description = _("module_description")
+
+message = _("welcome_user").format(username=user_name)
+```
+
+Put that in your module :
+```
+translations/
+├── en.json
+├── fr.json
+```
+
+Example `translations/en.json`:
+```json
+{
+    "hello_world": "Hello World!",
+    "description": "Welcome to the application",
+    "button_text": "Click here"
+}
+```
 """
 
 

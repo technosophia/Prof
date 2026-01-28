@@ -1,5 +1,37 @@
 """
 LLM Manager using plugin-based engine system.
+
+[agent]
+## LLM System (`shared/llm.py`)
+
+### Purpose
+Unified interface for multiple Large Language Models (Ollama, Gemini, Groq) with streaming support and configuration-based management.
+
+### Key Functions
+
+#### Initialization and Setup
+```python
+from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+
+# LLM manager is automatically initialized with app config
+# No manual initialization needed
+```
+
+#### Generating Responses
+```python
+import asyncio
+
+# Simple text generation
+response = await llm_generate("Hello, how are you?")
+print(response)
+
+# With streaming (real-time response)
+def stream_callback(chunk):
+    print(chunk, end="", flush=True)
+
+response = await llm_generate("Tell me a story", stream_callback)
+```
+
 """
 
 import os

@@ -1,3 +1,59 @@
+"""
+Configuration manager with module injection support.
+
+[agent]
+## Configuration System (`shared/config.py`)
+
+### Purpose
+Centralized configuration management with module injection support. Loads from JSON files and supports nested configurations with duplicate checking.
+
+### Key Functions
+
+#### Initialization (in your module)
+```python
+from shared.config import init_config, inject_module_config, get_config
+
+# Initialize main config (usually done once in app.py)
+config = init_config("config.json")
+
+# Inject module-specific config (one line)
+inject_module_config("your_module_name", "path/to/your/config.json")
+```
+
+#### Using Configuration
+```python
+from shared.config import get_config
+
+config = get_config()
+
+# Get values with dot notation
+log_level = config.get("logging.level", "INFO")
+app_name = config.get("app.name")
+
+# Set values
+config.set("your_module.some_key", "value")
+
+# Check if key exists
+if "your_module.enabled" in config:
+    # Do something
+```
+
+### Module Configuration File Example
+Create `your_module/config.json`:
+```json
+{
+    "your_module": {
+        "enabled": true,
+        "api_key": "your_key_here",
+        "endpoint": "https://api.example.com"
+    },
+    "logging": {
+        "your_module_level": "DEBUG"
+    }
+}
+```
+"""
+
 import json
 import os
 from typing import Dict, Any, Optional
