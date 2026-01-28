@@ -10,6 +10,43 @@ import streamlit as st
 from shared.users import user_manager
 from shared.logging import log
 
+def auto_login_first_user():
+    """Automatically log in the first available user if none is logged in AND user hasn't manually logged out."""
+
+    # Don't auto-login if user has manually logged out/switched
+    if st.session_state.user_manually_logged_out:
+        log("debug", "Skipping auto-login: user manually logged out")
+        return False
+
+    if not st.session_state.current_user:
+        try:
+            # Get all users
+            all_users = user_manager.get_all_users_dict()
+
+            if all_users:
+                # Get the first user (sorted by ID for consistency)
+                first_user_id = sorted(all_users.keys())[0]
+                first_user = all_users[first_user_id]
+
+                # Set as current user
+                st.session_state.current_user = first_user
+
+                # Update last login
+                user_manager.update_last_login(first_user_id)
+
+                # Set the flag to show this was an auto-login
+                st.session_state.just_auto_logged_in = True
+
+                log("info", f"Auto-logged in user: {first_user['name']}")
+                return True
+            else:
+                log("warning", "No users available for auto-login")
+                return False
+        except Exception as e:
+            log("error", f"Auto-login failed: {e}")
+            return False
+    return True  # Already logged in
+
 def inject_ui_sidebar():
     """Render user management section in the sidebar."""
     st.title("👤 User Management")

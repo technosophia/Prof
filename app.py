@@ -172,47 +172,6 @@ if "app_initialized" not in st.session_state:
 if "user_manually_logged_out" not in st.session_state:
     st.session_state.user_manually_logged_out = False
 
-# NEW: Auto-login function with manual logout protection
-def auto_login_first_user():
-    """Automatically log in the first available user if none is logged in AND user hasn't manually logged out."""
-
-    # Don't auto-login if user has manually logged out/switched
-    if st.session_state.user_manually_logged_out:
-        log("debug", "Skipping auto-login: user manually logged out")
-        return False
-
-    if not st.session_state.current_user:
-        try:
-            # Import user manager here to avoid circular imports
-            from shared.users import user_manager
-
-            # Get all users
-            all_users = user_manager.get_all_users_dict()
-
-            if all_users:
-                # Get the first user (sorted by ID for consistency)
-                first_user_id = sorted(all_users.keys())[0]
-                first_user = all_users[first_user_id]
-
-                # Set as current user
-                st.session_state.current_user = first_user
-
-                # Update last login
-                user_manager.update_last_login(first_user_id)
-
-                # Set the flag to show this was an auto-login
-                st.session_state.just_auto_logged_in = True
-
-                log("info", f"Auto-logged in user: {first_user['name']}")
-                return True
-            else:
-                log("warning", "No users available for auto-login")
-                return False
-        except Exception as e:
-            log("error", f"Auto-login failed: {e}")
-            return False
-    return True  # Already logged in
-
 
 def main():
     # Log main function entry
@@ -247,7 +206,27 @@ def main():
     # NEW: Auto-login after UI components are initialized
     # This ensures user manager is available and session state is ready
     if not TEST_MODE:
-        auto_login_first_user()
+        # Call auto-login function from users_ui module
+        # Since users_ui is a shared module, we can call it directly
+        try:
+            # Import here to avoid circular imports
+            from shared.users_ui import auto_login_first_user
+            auto_login_first_user()
+        except ImportError as e:
+            log("error", f"Failed to import auto_login_first_user: {e}")
+            # Fallback: try importing from users module instead
+            try:
+                from shared.users import user_manager
+                # Simple fallback auto-login logic
+                if not st.session_state.current_user and not st.session_state.user_manually_logged_out:
+                    all_users = user_manager.get_all_users_dict()
+                    if all_users:
+                        first_user_id = sorted(all_users.keys())[0]
+                        st.session_state.current_user = all_users[first_user_id]
+                        st.session_state.just_auto_logged_in = True
+                        log("info", f"Fallback auto-login: {st.session_state.current_user['name']}")
+            except Exception as fallback_error:
+                log("error", f"Fallback auto-login also failed: {fallback_error}")
 
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:
