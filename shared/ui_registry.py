@@ -5,8 +5,8 @@ can register render functions that are automatically discovered and injected
 into predefined injection points.
 
 Module Discovery:
-- Discovers UI modules from shared/*_ui.py files
-- Discovers UI modules from modules/*/*_ui.py files (subdirectories within modules)
+- Discovers UI modules from shared/**/*_ui.py files (including subdirectories)
+- Discovers UI modules from modules/**/*_ui.py files (all subdirectories within modules)
 
 Naming Conventions:
 - Module files must end with _ui.py
@@ -24,7 +24,7 @@ Injection Points:
 - admin_tab: NEW: Content injected as admin tabs in the admin interface
 
 Module Requirements:
-1. Must be placed in shared/ or modules/*/ directories
+1. Must be placed in shared/ or modules/*/ directories (or subdirectories)
 2. Must have filename ending with _ui.py
 3. Must define at least one render function matching the inject_ui_injectionpoint pattern
 4. Render functions must be callable and return a value
@@ -93,107 +93,81 @@ class UIRegistry:
             log("info", "Module handler not initialized, initializing now")
             self.module_handler.initialize()
 
+        # Get active modules
         active_modules = set(self.module_handler.get_active_modules())
-        log("info", f"Active modules from handler: {active_modules} (total: {len(active_modules)})")
+        log("info", f"Active modules from handler: {active_modules}")
 
-        # Log the actual modules discovered by handler
-        log("info", f"Module handler has {len(self.module_handler.modules)} modules: {list(self.module_handler.modules.keys())}")
+        # Discover UI modules in shared directory (including subdirectories)
+        shared_dir = current_dir
+        self._discover_ui_files_recursive(
+            directory=shared_dir,
+            is_shared=True,
+            base_name="shared"
+        )
 
-        # Always load shared modules (not in modules directory)
-        log("info", f"Loading shared UI modules from: {current_dir}")
-        # Get list of files in shared directory
-        shared_files = os.listdir(current_dir) if os.path.exists(current_dir) else []
-        log("info", f"Shared directory contains {len(shared_files)} files")
-
-        for file_name in shared_files:
-            if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
-                module_path = os.path.join(current_dir, file_name)
-                module_key = file_name[:-3]  # Remove _ui.py
-                log("info", f"Found shared UI file: {file_name} -> {module_key}")
-                self.register_module(module_key, module_path)
-
-        # Load modules from modules directory
+        # Discover UI modules in modules directory
         modules_dir = os.path.join(project_root, "modules")
         if os.path.exists(modules_dir):
-            log("info", f"Looking for UI modules in modules directory: {modules_dir}")
-            modules_dir_contents = os.listdir(modules_dir)
-            log("info", f"Modules directory contains: {modules_dir_contents}")
+            # For each directory in modules, check if it's an active module
+            for module_name in os.listdir(modules_dir):
+                module_path = os.path.join(modules_dir, module_name)
 
-            # Walk through each item in modules directory
-            for item in modules_dir_contents:
-                item_path = os.path.join(modules_dir, item)
-
-                # Check if it's a directory (a module)
-                if os.path.isdir(item_path):
-                    module_name = item
-                    log("info", f"Found module directory: {module_name}")
-
-                    # Check if module is active
+                if os.path.isdir(module_path):
+                    # Check if this module is active
                     if module_name in active_modules:
-                        log("info", f"Module '{module_name}' is ACTIVE, searching for UI files")
-
-                        # Look for _ui.py files in this module directory
-                        try:
-                            module_files = os.listdir(item_path)
-                            log("info", f"Module '{module_name}' contains: {module_files}")
-
-                            ui_files_found = []
-                            for file_name in module_files:
-                                if file_name.endswith('_ui.py'):
-                                    ui_files_found.append(file_name)
-                                    module_path = os.path.join(item_path, file_name)
-                                    module_key = f"{file_name[:-6]}"
-                                    log("info", f"Found module UI file: {file_name} in {module_name} -> {module_key}")
-                                    self.register_module(module_key, module_path)
-
-                            if not ui_files_found:
-                                log("warning", f"No _ui.py files found in module directory: {module_name}")
-                        except Exception as e:
-                            log("error", f"Error scanning module directory {module_name}: {str(e)}")
+                        log("info", f"Module '{module_name}' is ACTIVE, discovering UI files")
+                        self._discover_ui_files_recursive(
+                            directory=module_path,
+                            is_shared=False,
+                            base_name=module_name
+                        )
                     else:
                         log("info", f"Module '{module_name}' is INACTIVE, skipping")
-                else:
-                    log("debug", f"Skipping non-directory: {item}")
         else:
             log("warning", f"Modules directory not found: {modules_dir}")
 
         log("info", f"Total UI modules registered: {len(self.modules)}")
         log("info", f"Registered UI modules: {list(self.modules.keys())}")
 
-    def _discover_modules_in_directory(self, directory: str, module_name: str = None, is_shared: bool = False):
-        """Discover UI modules in a directory."""
-        log("debug", f"Discovering UI modules in directory: {directory}")
-        log("debug", f"Module name: {module_name}, Is shared: {is_shared}")
+    def _discover_ui_files_recursive(self, directory: str, is_shared: bool, base_name: str):
+        """Recursively discover _ui.py files in a directory and its subdirectories."""
+        log("debug", f"Discovering UI files in {directory} (base: {base_name}, shared: {is_shared})")
 
         if not os.path.exists(directory):
-            log("debug", f"Directory not found: {directory}")
             return
 
-        ui_files_found = []
-        for file_name in os.listdir(directory):
-            log("debug", f"Checking file: {file_name}")
-            if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
-                ui_files_found.append(file_name)
-                module_path = os.path.join(directory, file_name)
+        for root, dirs, files in os.walk(directory):
+            # Skip __pycache__ directories
+            dirs[:] = [d for d in dirs if d != '__pycache__']
 
-                # Determine module key
-                if is_shared:
-                    # For shared modules, use filename without _ui
-                    module_key = file_name[:-3]  # Remove _ui.py
-                else:
-                    # For module directories, use directory name as module key
-                    module_key = module_name or os.path.basename(directory)
+            for file_name in files:
+                if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
+                    file_path = os.path.join(root, file_name)
 
-                log("info", f"Found UI file: {file_name} in {directory} -> module key: {module_key}")
-                log("debug", f"Module path: {module_path}")
-                self.register_module(module_key, module_path)
+                    # Generate a unique module key
+                    if is_shared:
+                        # For shared directory, use relative path from shared directory
+                        rel_path = os.path.relpath(file_path, directory)
+                        # Remove .py extension and replace path separators with _
+                        module_key = rel_path.replace('.py', '').replace(os.path.sep, '_')
+                    else:
+                        # For module directories, include module name in the key
+                        rel_path = os.path.relpath(file_path, directory)
+                        # Remove .py extension and replace path separators with _
+                        path_part = rel_path.replace('.py', '').replace(os.path.sep, '_')
+                        module_key = f"{base_name}_{path_part}" if path_part else base_name
 
-        if not ui_files_found:
-            log("debug", f"No _ui.py files found in {directory}")
+                    # Register the module
+                    self.register_module(module_key, file_path, is_shared, base_name)
 
-    def register_module(self, module_name: str, module_path: str):
+    def register_module(self, module_key: str, module_path: str, is_shared: bool = False, base_name: str = None):
         """Register a UI module from a file path."""
-        log("info", f"Attempting to register module: {module_name} from {module_path}")
+        log("info", f"Attempting to register module: {module_key} from {module_path}")
+
+        # Check if module is already registered
+        if module_key in self.modules:
+            log("debug", f"Module {module_key} already registered, skipping")
+            return
 
         try:
             # Check if file exists
@@ -201,26 +175,17 @@ class UIRegistry:
                 log("error", f"Module file does not exist: {module_path}")
                 return
 
-            log("debug", f"File exists, loading module...")
-
             # Load the module
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            spec = importlib.util.spec_from_file_location(module_key, module_path)
             if spec is None:
-                log("error", f"Could not load spec for module: {module_name}")
+                log("error", f"Could not load spec for module: {module_key}")
                 return
 
             module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
+            sys.modules[module_key] = module
 
             # Execute the module
-            log("debug", f"Executing module...")
             spec.loader.exec_module(module)
-
-            # Log what's in the module
-            import inspect
-            module_contents = [name for name, obj in inspect.getmembers(module)
-                              if not name.startswith('_') and callable(obj)]
-            log("info", f"Module {module_name} contains callable functions: {module_contents}")
 
             # Find render functions using the new naming convention
             render_functions = {}
@@ -229,33 +194,30 @@ class UIRegistry:
             for name, obj in inspect.getmembers(module):
                 # Check if it's a callable function (not a class or module)
                 if callable(obj) and not name.startswith('_') and not inspect.isclass(obj):
-                    log("debug", f"Checking function: {name}")
-
                     # Check if function name follows the new pattern: inject_ui_injectionpoint
                     if name.startswith(PREFIX):
                         injection_point = name[len(PREFIX):]  # Remove "inject_ui_" prefix
 
                         if injection_point in self.injection_points:
                             render_functions[injection_point] = obj
-                            log("info", f"Found render function: {module_name}.{name} -> {injection_point}")
+                            log("info", f"Found render function: {module_key}.{name} -> {injection_point}")
                         else:
                             log("warning", f"Function {name} has correct prefix but unknown injection point: {injection_point}")
-                    else:
-                        log("debug", f"Function {name} doesn't match inject_ui_ pattern")
 
             if render_functions:
-                self.modules[module_name] = {
+                self.modules[module_key] = {
                     'module': module,
                     'render_functions': render_functions,
-                    'path': module_path
+                    'path': module_path,
+                    'is_shared': is_shared,
+                    'base_name': base_name
                 }
-                log("info", f"Successfully registered UI module: {module_name} with {len(render_functions)} render functions: {list(render_functions.keys())}")
+                log("info", f"Successfully registered UI module: {module_key} with {len(render_functions)} render functions: {list(render_functions.keys())}")
             else:
-                log("warning", f"No render functions found in module: {module_name}")
-                log("debug", f"Available functions in module: {module_contents}")
+                log("warning", f"No render functions found in module: {module_key}")
 
         except Exception as e:
-            log("error", f"Failed to register UI module {module_name}: {str(e)}", exc_info=True)
+            log("error", f"Failed to register UI module {module_key}: {str(e)}", exc_info=True)
 
     def render_all(self, injection_point: str) -> List[Any]:
         """Call all render functions for a specific injection point."""
@@ -269,89 +231,67 @@ class UIRegistry:
         active_modules = set()
         if self.module_handler:
             active_modules = set(self.module_handler.get_active_modules())
-        else:
-            # Fallback to imported module handler
-            try:
-                from shared.module_handler import module_handler
-                active_modules = set(module_handler.get_active_modules())
-            except:
-                log("error", "Could not get active modules")
 
-        log("debug", f"Rendering {injection_point} - Active modules: {active_modules}")
-        log("debug", f"Available modules in registry: {list(self.modules.keys())}")
+        for module_key, module_info in self.modules.items():
+            # Shared modules are always rendered
+            # Module directory modules are only rendered if the base module is active
+            is_shared = module_info.get('is_shared', False)
+            base_name = module_info.get('base_name')
 
-        for module_name, module_info in self.modules.items():
-            # Check if module is active
-            # For shared modules (user_ui, conservation_ui), always render them
-            # For module directory modules (debug), only render if active
-            is_shared = "shared" in module_info.get('path', '') or module_name in ['user_ui', 'conversation_ui']
-
-            if not is_shared and module_name not in active_modules:
-                log("debug", f"Skipping inactive module: {module_name}")
-                continue
+            if not is_shared:
+                # Check if the base module is active
+                if base_name not in active_modules:
+                    log("debug", f"Skipping module {module_key} because base module {base_name} is not active")
+                    continue
 
             render_func = module_info['render_functions'].get(injection_point)
             if render_func:
                 try:
-                    log("debug", f"Rendering {injection_point} from {module_name}")
-                    # Call the render function
+                    log("debug", f"Rendering {injection_point} from {module_key}")
                     result = render_func()
                     results.append(result)
                 except Exception as e:
-                    log("error", f"Error rendering {injection_point} from {module_name}: {str(e)}", exc_info=True)
+                    log("error", f"Error rendering {injection_point} from {module_key}: {str(e)}", exc_info=True)
                     results.append(None)
             else:
-                log("debug", f"No render function for {injection_point} in {module_name}")
+                log("debug", f"No render function for {injection_point} in {module_key}")
 
         return results
 
     def render_admin_tabs(self) -> Dict[str, Any]:
-        """Special method to collect admin tab content from all modules.
-        Returns a dictionary of {tab_name: content}."""
+        log("info", "=== START COLLECTING ADMIN TABS ===")
         admin_tabs = {}
+        active_modules = set(self.module_handler.get_active_modules() if self.module_handler else [])
 
-        # Get active modules from module handler
-        active_modules = set()
-        if self.module_handler:
-            active_modules = set(self.module_handler.get_active_modules())
+        for module_key, module_info in self.modules.items():
+            is_shared = module_info.get('is_shared', False)
+            base_name = module_info.get('base_name')
+            should_render = is_shared or (base_name in active_modules)
 
-        for module_name, module_info in self.modules.items():
-            # Check if module is active
-            # For shared modules (admin_ui), always render them
-            # For module directory modules (rag_manager), only render if active
-            is_shared = "shared" in module_info.get('path', '') or module_name == 'admin_ui'
-
-            if not is_shared and module_name not in active_modules:
-                # Also check if this is a sub-module of an active module
-                # Example: debug_admin is a sub-module of debug
-                parent_module = module_name.split('_')[0] if '_' in module_name else None
-                if not parent_module or parent_module not in active_modules:
-                    continue
+            log("info", f"Processing module {module_key} | shared: {is_shared} | base: {base_name} | render: {should_render}")
 
             render_func = module_info['render_functions'].get('admin_tab')
-            if render_func:
+            if render_func and should_render:
                 try:
-                    log("debug", f"Rendering admin_tab from {module_name}")
-                    # Call the render function - it should return (tab_name, content_func)
                     result = render_func()
+                    log("info", f"admin_tab result from {module_key}: {result}")
                     if result and isinstance(result, tuple) and len(result) == 2:
                         tab_name, content_func = result
                         admin_tabs[tab_name] = content_func
-                        log("debug", f"Registered admin tab '{tab_name}' from module {module_name}")
-                    else:
-                        log("warning", f"Module {module_name} admin_tab function returned invalid format: {result}")
+                        log("info", f"ADDED TAB '{tab_name}' from {module_key}")
                 except Exception as e:
-                    log("error", f"Error rendering admin_tab from {module_name}: {str(e)}", exc_info=True)
+                    log("error", f"Error getting admin_tab from {module_key}: {e}", exc_info=True)
 
+        log("info", f"=== FINAL ADMIN TABS: {list(admin_tabs.keys())} ===")
         return admin_tabs
 
-    def get_module(self, module_name: str) -> Dict:
+    def get_module(self, module_key: str) -> Dict:
         """Get information about a registered module."""
-        return self.modules.get(module_name)
+        return self.modules.get(module_key)
 
-    def has_module(self, module_name: str) -> bool:
+    def has_module(self, module_key: str) -> bool:
         """Check if a module is registered."""
-        return module_name in self.modules
+        return module_key in self.modules
 
 # Create a singleton instance
 ui_registry = UIRegistry()
@@ -365,6 +305,8 @@ def register_ui_module(module_name: str, render_functions: Dict[str, Callable]):
     ui_registry.modules[module_name] = {
         'module': None,
         'render_functions': render_functions,
-        'path': None
+        'path': None,
+        'is_shared': False,
+        'base_name': module_name.split('_')[0] if '_' in module_name else module_name
     }
     log("info", f"Directly registered UI module: {module_name}")
