@@ -1,0 +1,9 @@
+{
+  "name": "test",
+  "version": "1.0.0",
+  "description": "Test module providing system information and debugging tools",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "system",
+  "dependencies": []
+}
