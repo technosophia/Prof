@@ -133,6 +133,10 @@ if 'module_handler' not in st.session_state:
 # Use the session state module handler
 module_handler = st.session_state.module_handler
 
+from shared.users import init_user_manager
+# Initialize user manager with default users
+init_user_manager(create_default_users=True)
+
 # Load active module UIs immediately
 active_modules = module_handler.get_active_modules()
 for module_name in active_modules:
@@ -210,27 +214,9 @@ def main():
     # NEW: Auto-login after UI components are initialized
     # This ensures user manager is available and session state is ready
     if not TEST_MODE:
-        # Call auto-login function from users_ui module
-        # Since users_ui is a shared module, we can call it directly
-        try:
-            # Import here to avoid circular imports
-            from shared.users_ui import auto_login_first_user
-            auto_login_first_user()
-        except ImportError as e:
-            log("error", f"Failed to import auto_login_first_user: {e}")
-            # Fallback: try importing from users module instead
-            try:
-                from shared.users import user_manager
-                # Simple fallback auto-login logic
-                if not st.session_state.current_user and not st.session_state.user_manually_logged_out:
-                    all_users = user_manager.get_all_users_dict()
-                    if all_users:
-                        first_user_id = sorted(all_users.keys())[0]
-                        st.session_state.current_user = all_users[first_user_id]
-                        st.session_state.just_auto_logged_in = True
-                        log("info", f"Fallback auto-login: {st.session_state.current_user['name']}")
-            except Exception as fallback_error:
-                log("error", f"Fallback auto-login also failed: {fallback_error}")
+        from shared.users_ui import auto_login_first_user
+        auto_login_first_user()
+
 
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:

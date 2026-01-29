@@ -290,6 +290,3 @@ def init_user_manager(create_default_users: bool = True):
 def get_all_users() -> Dict[str, Dict[str, Any]]:
     """Backward compatibility alias for UserManager.get_all_users_dict()"""
     return user_manager.get_all_users_dict()
-
-# Initialize user manager with default users
-init_user_manager(create_default_users=True)

@@ -168,7 +168,6 @@ def inject_ui_admin_tab():
 
 def inject_ui_initialize():
     """Initialize RAG manager module."""
-    log("info", "RAG Manager UI initialized")
     # No need to register anything here - handled by UI registry
 
 def inject_ui_main_content():

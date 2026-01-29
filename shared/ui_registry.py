@@ -333,7 +333,7 @@ class UIRegistry:
                     if result and isinstance(result, tuple) and len(result) == 2:
                         tab_name, content_func = result
                         admin_tabs[tab_name] = content_func
-                        log("info", f"Registered admin tab '{tab_name}' from module {module_name}")
+                        log("debug", f"Registered admin tab '{tab_name}' from module {module_name}")
                     else:
                         log("warning", f"Module {module_name} admin_tab function returned invalid format: {result}")
                 except Exception as e:

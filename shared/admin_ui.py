@@ -101,5 +101,4 @@ def inject_ui_admin_tab():
 
 def inject_ui_initialize():
     """Initialize the admin UI module."""
-    log("info", "Admin UI module initialized")
     # No need to register anything here - handled by UI registry
