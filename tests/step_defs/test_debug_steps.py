@@ -387,12 +387,50 @@ def verify_result_section_empty(test_context):
 
     print("\n=== Verifying result section is empty ===")
 
-    # Just verify the page is still valid
+    # Look for the "Text Result" section specifically
     page_text = page.locator("body").text_content()
-    assert len(page_text) > 0, "Page is empty"
 
-    print("✓ Page is still valid")
+    # Check if "Text Result" section exists
+    if "Text Result" in page_text:
+        # If it exists, we need to check if it's empty or contains actual text
+        # The section might still exist but be empty
+        # Let's look for the actual result content
+        sections = page.locator("h3, h4, .stMarkdown, .stInfo")
 
+        found_result_section = False
+        for i in range(sections.count()):
+            section = sections.nth(i)
+            section_text = section.text_content()
+
+            if "Text Result" in section_text:
+                print(f"Found 'Text Result' section: {section_text}")
+                found_result_section = True
+                # Check if the section has actual content beyond the header
+                # Look for any content after this section
+                break
+
+        if found_result_section:
+            # Try to find the actual displayed text
+            # In Streamlit, the result might be in a st.info container
+            info_containers = page.locator(".stAlert, .stInfo, .stSuccess")
+            has_content = False
+
+            for i in range(info_containers.count()):
+                container = info_containers.nth(i)
+                container_text = container.text_content()
+                # Skip if it's just the result section header
+                if container_text and "Text Result" not in container_text:
+                    # Check if it's the actual result
+                    if container_text.strip() and not container_text.startswith("Character count"):
+                        print(f"Found content in result section: '{container_text[:50]}...'")
+                        has_content = True
+                        break
+
+            assert not has_content, "Result section should be empty but contains content"
+    else:
+        print("✓ 'Text Result' section not found, so result section is empty")
+
+    print("✓ Result section is empty as expected")
     return test_context
 
 @when("I clear the text area")

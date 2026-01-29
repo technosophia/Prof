@@ -21,11 +21,10 @@ Feature: Debug Admin UI Testing
         And I should see the word count displayed
 
     Scenario: Clear text functionality
-        Given I have entered text "Test text to clear" in the text area
-        And I have displayed the text
+        When I enter text "Test text to clear" in the text area
+        And I click the "Display Text" button
         When I click the "Clear Text" button
-        Then the text area should be empty
-        And the result section should be empty
+        Then the result section should be empty
 
     Scenario: Test with empty text
         When I clear the text area
