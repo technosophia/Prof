@@ -439,7 +439,7 @@ def verify_warning_message(test_context):
 
     return test_context
 
-@then('I should see "{expected_text}" in the header')
+@then(parsers.parse('I should see "{expected_text}" in the header'))
 def verify_text_in_header(test_context, expected_text):
     """Verify text appears in a header on the page."""
     page = test_context['page']
