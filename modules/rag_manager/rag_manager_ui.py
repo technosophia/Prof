@@ -2,6 +2,7 @@
 RAG Manager UI Module
 
 UI components for RAG document management.
+Uses the new UI injection mechanism with admin_tab injection point.
 """
 
 import streamlit as st
@@ -31,8 +32,8 @@ except ImportError:
         sys.path.insert(0, str(module_dir))
         from rag_manager import rag_manager
 
-def show_rag_admin_page():
-    """Display the RAG Manager admin page."""
+def show_rag_admin_content():
+    """Display the RAG Manager admin content."""
     st.title("📚 RAG Document Manager")
 
     # Get configuration from shared config
@@ -160,30 +161,20 @@ def show_rag_admin_page():
         st.subheader("Configuration")
         st.json(rag_config)
 
+def inject_ui_admin_tab():
+    """Register the RAG Manager admin tab using the new injection mechanism.
+    Returns: (tab_name, render_function) tuple."""
+    return ("RAG Manager", show_rag_admin_content)
+
+def inject_ui_initialize():
+    """Initialize RAG manager module."""
+    log("info", "RAG Manager UI initialized")
+    # No need to register anything here - handled by UI registry
+
 def inject_ui_main_content():
     """Render RAG manager content in main area (if applicable)."""
     # This module only provides admin interface
     return None
-
-def register_admin_page():
-    """Register the RAG manager admin page."""
-    try:
-        from shared.admin_ui import register_admin_page as register_admin
-        register_admin("RAG Manager", show_rag_admin_page)
-        log("info", "RAG Manager admin page registered")
-        return True
-    except Exception as e:
-        log("error", f"Failed to register RAG Manager admin page: {str(e)}")
-        return False
-
-def inject_ui_initialize():
-    """Initialize RAG manager module."""
-    # Register admin page on initialization
-    try:
-        register_admin_page()
-        log("info", "RAG Manager UI initialized")
-    except Exception as e:
-        log("error", f"Failed to initialize RAG Manager UI: {str(e)}")
 
 # Test function
 def test_rag_manager():

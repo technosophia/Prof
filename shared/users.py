@@ -5,7 +5,7 @@ import uuid
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON
+from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func
 from sqlalchemy.orm import Session
 
 from shared.database import Base, db_manager
@@ -138,6 +138,19 @@ class UserManager:
 
         with self.db.get_session() as session:
             user = session.query(UserTable).filter_by(id=user_id).first()
+            if user:
+                return self._user_to_dict(user)
+            return None
+
+    def get_user_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get a user by name (case-insensitive)."""
+        # Ensure table exists before querying
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter(
+                func.lower(UserTable.name) == name.lower()
+            ).first()
             if user:
                 return self._user_to_dict(user)
             return None

@@ -97,7 +97,10 @@ def inject_ui_sidebar():
     """Render conversation management section in the sidebar."""
     # Only show if user is logged in
     if not st.session_state.current_user:
+        log("debug", "No current user, skipping conversation sidebar")
         return False
+
+    log("debug", f"Current user: {st.session_state.current_user.get('name')} (ID: {st.session_state.current_user.get('id')})")
 
     st.title("💬 Conversations")
 
@@ -105,12 +108,23 @@ def inject_ui_sidebar():
     if st.button("➕ New Conversation", type="primary", use_container_width=True):
         st.session_state.show_new_conversation_form = True
         st.session_state.editing_conversation_id = None
+        st.rerun()
 
-    # Get user's conversations
-    user_conversations = conversation_manager.get_user_conversations(
-        st.session_state.current_user['id'],
-        include_inactive=False
-    )
+    try:
+        # Get user's conversations
+        from shared.conversation import conversation_manager
+        user_conversations = conversation_manager.get_user_conversations(
+            st.session_state.current_user['id'],
+            include_inactive=False
+        )
+
+        # DEBUG: Log the conversations found
+        log("debug", f"Found {len(user_conversations)} conversations for user {st.session_state.current_user['id']}")
+
+    except Exception as e:
+        log("error", f"Error getting user conversations: {e}", exc_info=True)
+        user_conversations = []
+        st.error(f"Error loading conversations: {str(e)}")
 
     if user_conversations:
         st.subheader("Your Conversations")
@@ -128,8 +142,9 @@ def inject_ui_sidebar():
 
             with col1:
                 # Button to select conversation
+                button_label = f"{'▶️' if not is_current else '📝'} {conv['title']}"
                 if st.button(
-                    f"{'▶️' if not is_current else '📝'} {conv['title']}",
+                    button_label,
                     key=f"select_{conv_key}",
                     help=f"Select this conversation ({conv['message_count']} messages)",
                     use_container_width=True,
@@ -137,10 +152,14 @@ def inject_ui_sidebar():
                 ):
                     # Load this conversation
                     st.session_state.current_conversation_id = conv['id']
-                    conversation = conversation_manager.get_conversation(conv['id'], include_messages=True)
-                    if conversation:
-                        st.session_state.conversation_messages = conversation.messages
-                    log("info", f"Loaded conversation: {conv['title']} ({conv['id']})")
+                    try:
+                        conversation = conversation_manager.get_conversation(conv['id'], include_messages=True)
+                        if conversation:
+                            st.session_state.conversation_messages = conversation.messages
+                        log("info", f"Loaded conversation: {conv['title']} ({conv['id']})")
+                    except Exception as e:
+                        log("error", f"Error loading conversation {conv['id']}: {e}")
+                        st.error(f"Error loading conversation: {str(e)}")
                     st.rerun()
 
             with col2:

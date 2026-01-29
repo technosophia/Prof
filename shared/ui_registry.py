@@ -21,6 +21,7 @@ Injection Points:
 - main_content: Content injected when no user is logged in
 - main_after_conversation: Content injected after conversation interface
 - main_footer: Content injected into the main footer area
+- admin_tab: NEW: Content injected as admin tabs in the admin interface
 
 Module Requirements:
 1. Must be placed in shared/ or modules/*/ directories
@@ -47,13 +48,14 @@ class UIRegistry:
     def __init__(self):
         self.modules: Dict[str, Dict] = {}
         self.injection_points = {
-            'initialize',  # NEW: For initialization code
+            'initialize',  # For initialization code
             'sidebar',
             'main_header',
             'main_before_conversation',
             'main_content',
             'main_after_conversation',
             'main_footer',
+            'admin_tab',  # NEW: For admin tab content
         }
         self._initialized = False
         self.module_handler = None  # Will be set externally
@@ -302,6 +304,42 @@ class UIRegistry:
                 log("debug", f"No render function for {injection_point} in {module_name}")
 
         return results
+
+    def render_admin_tabs(self) -> Dict[str, Any]:
+        """Special method to collect admin tab content from all modules.
+        Returns a dictionary of {tab_name: content}."""
+        admin_tabs = {}
+
+        # Get active modules from module handler
+        active_modules = set()
+        if self.module_handler:
+            active_modules = set(self.module_handler.get_active_modules())
+
+        for module_name, module_info in self.modules.items():
+            # Check if module is active
+            # For shared modules (admin_ui), always render them
+            # For module directory modules (rag_manager), only render if active
+            is_shared = "shared" in module_info.get('path', '') or module_name == 'admin_ui'
+
+            if not is_shared and module_name not in active_modules:
+                continue
+
+            render_func = module_info['render_functions'].get('admin_tab')
+            if render_func:
+                try:
+                    log("debug", f"Rendering admin_tab from {module_name}")
+                    # Call the render function - it should return (tab_name, content_func)
+                    result = render_func()
+                    if result and isinstance(result, tuple) and len(result) == 2:
+                        tab_name, content_func = result
+                        admin_tabs[tab_name] = content_func
+                        log("info", f"Registered admin tab '{tab_name}' from module {module_name}")
+                    else:
+                        log("warning", f"Module {module_name} admin_tab function returned invalid format: {result}")
+                except Exception as e:
+                    log("error", f"Error rendering admin_tab from {module_name}: {str(e)}", exc_info=True)
+
+        return admin_tabs
 
     def get_module(self, module_name: str) -> Dict:
         """Get information about a registered module."""

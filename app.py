@@ -172,6 +172,10 @@ if "app_initialized" not in st.session_state:
 if "user_manually_logged_out" not in st.session_state:
     st.session_state.user_manually_logged_out = False
 
+# NEW: Initialize admin tab state
+if "admin_current_tab" not in st.session_state:
+    st.session_state.admin_current_tab = "System"
+
 
 def main():
     # Log main function entry
@@ -329,31 +333,71 @@ def main():
             st.caption(f"Status: {'✅ Available' if current_llm_info['available'] else '❌ Unavailable'}")
 
     # Main content - Page Router
-    st.title(_("hello_world"))
+    if st.session_state.current_page == "chat":
+        # Chat page content
+        st.title(_("hello_world"))
 
-    # INJECTION POINT 3: Main Header Content from UI Modules
-    header_contents = ui_registry.render_all("main_header")
+        # INJECTION POINT 3: Main Header Content from UI Modules
+        header_contents = ui_registry.render_all("main_header")
 
-    # INJECTION POINT 4: Main Content from UI Modules (before conversation interface)
-    main_contents_before = ui_registry.render_all("main_before_conversation")
+        # INJECTION POINT 4: Main Content from UI Modules (before conversation interface)
+        main_contents_before = ui_registry.render_all("main_before_conversation")
 
-    # INJECTION POINT 5: Main Content when no user is logged in
-    no_user_contents = ui_registry.render_all("main_content")
+        # INJECTION POINT 5: Main Content when no user is logged in
+        no_user_contents = ui_registry.render_all("main_content")
 
-    # Let UI modules handle ALL content - no default fallback content in app.py
-    # Each UI module should handle its own fallback logic
+        # Let UI modules handle ALL content - no default fallback content in app.py
+        # Each UI module should handle its own fallback logic
 
-    # INJECTION POINT 6: Main Content after conversation interface
-    main_contents_after = ui_registry.render_all("main_after_conversation")
-    for content in main_contents_after:
-        if content:
-            st.divider()
+        # INJECTION POINT 6: Main Content after conversation interface
+        main_contents_after = ui_registry.render_all("main_after_conversation")
+        for content in main_contents_after:
+            if content:
+                st.divider()
 
-    # INJECTION POINT 7: Main Footer Content
-    main_footer = ui_registry.render_all("main_footer")
-    for content in main_footer:
-        if content:
-            st.divider()
+        # INJECTION POINT 7: Main Footer Content
+        main_footer = ui_registry.render_all("main_footer")
+        for content in main_footer:
+            if content:
+                st.divider()
+
+    elif st.session_state.current_page == "admin":
+        # Admin page content - using the new injection mechanism
+        st.title("🔧 Admin Panel")
+
+        # Get all admin tabs from UI modules
+        admin_tabs_dict = ui_registry.render_admin_tabs()
+
+        if not admin_tabs_dict:
+            st.warning("No admin modules found or active. Install and enable admin modules.")
+            st.info("Available modules can be enabled through the System tab (if admin_ui module is loaded).")
+
+            # Provide a way to go back to chat
+            if st.button("← Back to Chat"):
+                st.session_state.current_page = "chat"
+                st.rerun()
+            return
+
+        # Get tab names and ensure System is first
+        tab_names = list(admin_tabs_dict.keys())
+        if "System" in tab_names:
+            # Move System to first position
+            tab_names.remove("System")
+            tab_names = ["System"] + sorted(tab_names)
+
+        # Create tabs
+        tabs = st.tabs(tab_names)
+
+        # Render each tab content
+        for i, tab_name in enumerate(tab_names):
+            with tabs[i]:
+                if tab_name in admin_tabs_dict:
+                    try:
+                        # Call the tab's render function
+                        admin_tabs_dict[tab_name]()
+                    except Exception as e:
+                        st.error(f"Error loading {tab_name} admin page: {str(e)}")
+                        log("error", f"Error loading {tab_name} admin page: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
     main()
