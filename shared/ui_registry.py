@@ -142,7 +142,7 @@ class UIRegistry:
                                 if file_name.endswith('_ui.py'):
                                     ui_files_found.append(file_name)
                                     module_path = os.path.join(item_path, file_name)
-                                    module_key = module_name  # Use directory name as key
+                                    module_key = f"{file_name[:-6]}"
                                     log("info", f"Found module UI file: {file_name} in {module_name} -> {module_key}")
                                     self.register_module(module_key, module_path)
 
@@ -322,7 +322,11 @@ class UIRegistry:
             is_shared = "shared" in module_info.get('path', '') or module_name == 'admin_ui'
 
             if not is_shared and module_name not in active_modules:
-                continue
+                # Also check if this is a sub-module of an active module
+                # Example: debug_admin is a sub-module of debug
+                parent_module = module_name.split('_')[0] if '_' in module_name else None
+                if not parent_module or parent_module not in active_modules:
+                    continue
 
             render_func = module_info['render_functions'].get('admin_tab')
             if render_func:
