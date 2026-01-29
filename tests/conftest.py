@@ -9,6 +9,10 @@ import pytest
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
+
 # Add the project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -154,3 +158,18 @@ def patch_database():
         # Make it use in-memory database
         mock_init_db.return_value = None
         yield
+
+
+# Ajouter ces fixtures si elles n'existent pas déjà
+
+@pytest.fixture(scope="function")
+def test_context():
+    """Test context to store state between steps."""
+    return {}
+
+# Optionnel: Fixture spécifique pour les tests Test
+@pytest.fixture
+def test_module_enabled():
+    """Ensure Test module is enabled for testing."""
+    # You might need to patch or enable the Test module here
+    return True

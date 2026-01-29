@@ -12,4 +12,4 @@ from shared.module_handler import get_active_modules, module_handler
 from shared.ui_registry import ui_registry
 
 def inject_ui_main_footer():
-    st.write("Test module active")
+    st.write("Test module content")

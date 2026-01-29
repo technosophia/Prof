@@ -52,7 +52,7 @@ def streamlit_server():
         "--server.port", "8502",
         "--server.runOnSave", "false",
         "--browser.serverAddress", "localhost",
-        "--logger.level", "error",
+        "--logger.level", "info",
         "--server.fileWatcherType", "none"
     ]
 
