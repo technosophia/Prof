@@ -43,6 +43,8 @@ class UserManager:
             self._initialized = True
             # NOTE: We don't call _ensure_table_exists() here anymore
             # It will be called when needed
+            # Initialize callback registry
+            self._before_delete_callbacks = []
 
     def _ensure_table_exists(self):
         """Ensure the users table exists."""
@@ -224,18 +226,58 @@ class UserManager:
             # NO explicit commit here - the context manager handles it
             return True
 
+    def register_before_delete_callback(self, callback_func):
+        """Register a callback to be executed before a user is deleted.
+
+        Args:
+            callback_func: Function that takes user_id as argument and returns bool
+                         (True if cleanup successful, False otherwise)
+        """
+        if callback_func not in self._before_delete_callbacks:
+            self._before_delete_callbacks.append(callback_func)
+            log("debug", f"Registered before_delete callback: {callback_func.__name__}")
+
+    def unregister_before_delete_callback(self, callback_func):
+        """Unregister a before_delete callback."""
+        if callback_func in self._before_delete_callbacks:
+            self._before_delete_callbacks.remove(callback_func)
+            log("debug", f"Unregistered before_delete callback: {callback_func.__name__}")
+
     def delete_user(self, user_id: str) -> bool:
         """Delete a user."""
         # Ensure table exists before deleting
         self._ensure_table_exists()
 
+        # Execute all registered before_delete callbacks
+        log("info", f"Executing before_delete callbacks for user {user_id}")
+        all_successful = True
+
+        for callback in self._before_delete_callbacks:
+            try:
+                success = callback(user_id)
+                if not success:
+                    log("warning", f"Callback {callback.__name__} failed for user {user_id}")
+                    all_successful = False
+                else:
+                    log("debug", f"Callback {callback.__name__} succeeded for user {user_id}")
+            except Exception as e:
+                log("error", f"Callback {callback.__name__} raised exception: {e}")
+                all_successful = False
+
+        # If any callback failed, don't delete the user
+        if not all_successful:
+            log("error", f"Aborting user deletion for {user_id} due to callback failures")
+            return False
+
         with self.db.get_session() as session:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if not user:
+                log("warning", f"User {user_id} not found for deletion")
                 return False
 
+            user_name = user.name
             session.delete(user)
-            log("info", f"Deleted user: {user.name} (ID: {user_id})")
+            log("info", f"Deleted user: {user_name} (ID: {user_id})")
             # NO explicit commit here - the context manager handles it
             return True
 
