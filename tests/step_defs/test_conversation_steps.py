@@ -32,45 +32,81 @@ def enable_debug():
 @pytest.fixture(scope="session")
 def streamlit_server():
     """Start Streamlit server for testing - runs once per session."""
+    import atexit
+    import signal
+
     # Kill any existing Streamlit process
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True)
+    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
+    time.sleep(1)  # Give time for processes to terminate
 
     # Create test environment
     env = os.environ.copy()
     env["TEST_MODE"] = "true"
-
-    # Also set the config path to ensure test config is used
     env["CONFIG_FILE"] = "test_config.json"
+    env["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
 
-    # Start Streamlit server in a separate process
-    cmd = ["streamlit", "run", "app.py", "--server.headless", "true",
-           "--server.port", "8502", "--server.runOnSave", "false",
-           "--browser.serverAddress", "localhost", "--logger.level", "error"]
+    # Start Streamlit server in a separate process with explicit cleanup
+    cmd = [
+        "streamlit", "run", "app.py",
+        "--server.headless", "true",
+        "--server.port", "8502",
+        "--server.runOnSave", "false",
+        "--browser.serverAddress", "localhost",
+        "--logger.level", "error",
+        "--server.fileWatcherType", "none"
+    ]
 
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        preexec_fn=os.setsid  # Create new process group
+    )
 
-    # Wait for server to start
+    # Register cleanup function
+    def cleanup():
+        if process.poll() is None:  # Still running
+            try:
+                # Kill entire process group
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                process.wait(timeout=5)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    atexit.register(cleanup)
+
+    # Wait for server to start with better detection
     max_retries = 30
     for i in range(max_retries):
         try:
             response = requests.get("http://localhost:8502/_stcore/health", timeout=2)
             if response.status_code == 200:
-                print("Streamlit server started successfully")
+                print("✓ Streamlit server started successfully")
                 break
         except:
-            time.sleep(1)
             if i == max_retries - 1:
-                raise RuntimeError("Failed to start Streamlit server")
+                cleanup()
+                raise RuntimeError("Failed to start Streamlit server after 30 seconds")
+            time.sleep(1)
 
-    # Give it a bit more time to fully initialize
-    time.sleep(3)
+    # Additional brief wait to ensure full initialization
+    time.sleep(2)
 
     yield process
 
-    # Cleanup
-    process.terminate()
-    process.wait()
-    time.sleep(2)
+    # Cleanup after tests
+    cleanup()
+
+    # Remove atexit handler to avoid duplicate calls
+    atexit.unregister(cleanup)
+
+    # Clean up any leftover processes
+    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
+    time.sleep(1)
 
 
 @pytest.fixture(scope="session")
@@ -150,6 +186,53 @@ def app_is_running(context, page: Page, debug_dir, streamlit_server):
 
     print("Application is running and loaded")
     return context
+
+
+@given(parsers.parse('"{username}" exists in the user database'))
+def user_exists_in_database(context, username, mock_db_manager):
+    """Verify that a user exists in the database by checking the mock directly."""
+    print(f"\n=== Verifying user exists in database: {username} ===")
+
+    # Get all users from the mock database
+    mock_users = mock_db_manager.get_all_users()
+    print(f"Mock database has {len(mock_users)} users:")
+
+    user_found = False
+    for user in mock_users:
+        print(f"  - {user.get('name')} (id: {user.get('id')})")
+        if user.get('name') == username:
+            print(f"✓ Found user '{username}' in mock database")
+            user_found = True
+            context['user_id'] = user['id']
+            context['user_info'] = user
+            break
+
+    if not user_found:
+        # Try case-insensitive
+        for user in mock_users:
+            if user.get('name', '').lower() == username.lower():
+                print(f"✓ Found user '{username}' (case-insensitive) in mock database")
+                user_found = True
+                context['user_id'] = user['id']
+                context['user_info'] = user
+                break
+
+    # Final assertion
+    assert user_found, f"User '{username}' does not exist in database and could not be added"
+
+    # Also verify through user_manager for consistency
+    try:
+        from shared.users import user_manager
+        user_from_manager = user_manager.get_user_by_name(username)
+        if user_from_manager:
+            print(f"✓ Verified through user_manager.get_user_by_name: {username}")
+        else:
+            print(f"⚠ user_manager.get_user_by_name didn't find {username}")
+    except Exception as e:
+        print(f"⚠ Could not verify through user_manager: {e}")
+
+    return context
+
 
 
 @given(parsers.parse('the default user "{username}" is logged in'))

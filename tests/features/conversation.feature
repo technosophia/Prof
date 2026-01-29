@@ -5,6 +5,7 @@ Feature: Conversation with LLM
 
     Background:
         Given the application is running
+        And "Test User 1" exists in the user database
         And the default user "Test User 1" is logged in
         And the mock LLM is configured and available
 
