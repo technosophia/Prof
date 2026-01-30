@@ -20,7 +20,6 @@ from conftest import (
     setup_test_environment,
     playwright,
     browser,
-    page as conftest_page,
     patch_config,
     mock_db_manager,
     mock_user_manager,
@@ -28,9 +27,7 @@ from conftest import (
     enable_debug,
     streamlit_server,
     browser_context,
-    page as conversation_page,
     debug_dir,
-    context as conversation_context,
     take_screenshot
 )
 
@@ -42,13 +39,13 @@ scenarios('../../tests/features/test.feature')
 # ================ SCENARIO STEPS ================
 
 @then(parsers.parse('I should see "{expected_text}" in the admin content'))
-def verify_admin_content(test_context, expected_text):
+def verify_admin_content(context, expected_text):
     """Verify text appears in the admin content area."""
-    if 'page' not in test_context:
-        raise KeyError("No 'page' in test_context")
+    if 'page' not in context:
+        raise KeyError("No 'page' in context")
 
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f'\n=== [Test Module] Verifying admin content: "{expected_text}" ===')
 
@@ -97,13 +94,13 @@ def verify_admin_content(test_context, expected_text):
 
 
 @then(parsers.parse('I should see "{expected_text}" in the header'))
-def verify_text_in_header_for_test(test_context, expected_text):
+def verify_text_in_header_for_test(context, expected_text):
     """Verify text appears in a header on the page for Test module."""
-    if 'page' not in test_context:
-        raise KeyError("No 'page' in test_context")
+    if 'page' not in context:
+        raise KeyError("No 'page' in context")
 
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f'\n=== [Test Module] Verifying header text: "{expected_text}" ===')
 
@@ -207,13 +204,13 @@ def verify_text_in_header_for_test(test_context, expected_text):
     return
 
 @given("the Test module is available")
-def test_module_available(test_context):
+def test_module_available(context):
     """Verify the Test module is available in the admin panel."""
     print("\n=== [Test Module] Assuming Test module is available ===")
 
     # Wait for page to be loaded if available
-    if 'page' in test_context:
-        page = test_context['page']
+    if 'page' in context:
+        page = context['page']
         page.wait_for_load_state("networkidle", timeout=30000)
         # Use multiple strategies to verify page is ready
         try:

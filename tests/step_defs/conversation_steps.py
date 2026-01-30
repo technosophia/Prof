@@ -24,7 +24,6 @@ from conftest import (
     setup_test_environment,
     playwright,
     browser,
-    page as conftest_page,
     patch_config,
     mock_db_manager,
     mock_user_manager,
@@ -34,7 +33,6 @@ from conftest import (
     browser_context,
     page as conversation_page,
     debug_dir,
-    context as conversation_context,
     take_screenshot
 )
 

@@ -29,7 +29,6 @@ from conftest import (
     browser_context,
     page as conversation_page,
     debug_dir,
-    context as conversation_context,
     take_screenshot
 )
 
@@ -39,10 +38,10 @@ from common_steps import *
 scenarios('../../tests/features/debug.feature')
 
 @given(parsers.parse('the default user "{username}" is logged in'))
-def default_user_logged_in(test_context, username):
+def default_user_logged_in(context, username):
     """Log in as the default test user."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f"\n=== Logging in as: {username} ===")
 
@@ -95,23 +94,23 @@ def default_user_logged_in(test_context, username):
             # Wait for main app container
             expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    test_context['current_user'] = username
-    return test_context
+    context['current_user'] = username
+    return context
 
 
 # Now define the debug-specific steps
 @given("I am logged in as an admin user")
-def logged_in_as_admin(test_context):
+def logged_in_as_admin(context):
     """Log in as an admin user."""
     # Use "Test User 2" which is an admin in mock data
-    return default_user_logged_in(test_context, "Test User 2")
+    return default_user_logged_in(context, "Test User 2")
 
 
 @when(parsers.parse('I enter text "{text}" in the text area'))
-def enter_text_in_textarea(test_context, text):
+def enter_text_in_textarea(context, text):
     """Enter text in the debug text area."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f'\n=== Entering text in text area: "{text}" ===')
 
@@ -134,20 +133,20 @@ def enter_text_in_textarea(test_context, text):
         # No Streamlit rerun expected for typing, just ensure text is entered
         expect(text_area).to_have_value(text, timeout=30000)
 
-        test_context['entered_text'] = text
+        context['entered_text'] = text
 
         if debug_enabled:
             take_screenshot(page, "debug_text_entered.png")
     else:
         print("Warning: Could not find text area")
 
-    return test_context
+    return context
 
 @when('I click the "Display Text" button')
-def click_display_text_button(test_context):
+def click_display_text_button(context):
     """Click the Display Text button."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print('\n=== Clicking "Display Text" button ===')
 
@@ -173,13 +172,13 @@ def click_display_text_button(test_context):
     if debug_enabled:
         take_screenshot(page, "debug_display_clicked.png")
 
-    return test_context
+    return context
 
 @then(parsers.parse('I should see "{expected_text}" in the result section'))
-def verify_text_in_result(test_context, expected_text):
+def verify_text_in_result(context, expected_text):
     """Verify text appears in the result section."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f'\n=== Verifying text in result: "{expected_text}" ===')
 
@@ -198,12 +197,12 @@ def verify_text_in_result(test_context, expected_text):
         assert expected_text in page_text, f"Expected text '{expected_text}' not found on page. Page text: {page_text[:500]}..."
         print(f"✓ Found text: {expected_text}")
 
-    return test_context
+    return context
 
 @then("I should see the character count displayed")
-def verify_character_count(test_context):
+def verify_character_count(context):
     """Verify character count is displayed."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Verifying character count ===")
 
@@ -217,12 +216,12 @@ def verify_character_count(test_context):
     else:
         print("Note: Character count not specifically found")
 
-    return test_context
+    return context
 
 @then("I should see the word count displayed")
-def verify_word_count(test_context):
+def verify_word_count(context):
     """Verify word count is displayed."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Verifying word count ===")
 
@@ -236,23 +235,23 @@ def verify_word_count(test_context):
     else:
         print("Note: Word count not specifically found")
 
-    return test_context
+    return context
 
 @given(parsers.parse('I have entered text "{text}" in the text area'))
-def given_entered_text(test_context, text):
+def given_entered_text(context, text):
     """Precondition: text has been entered."""
-    return enter_text_in_textarea(test_context, text)
+    return enter_text_in_textarea(context, text)
 
 @given("I have displayed the text")
-def given_displayed_text(test_context):
+def given_displayed_text(context):
     """Precondition: text has been displayed."""
-    return click_display_text_button(test_context)
+    return click_display_text_button(context)
 
 @when('I click the "Clear Text" button')
-def click_clear_text_button(test_context):
+def click_clear_text_button(context):
     """Click the Clear Text button."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print('\n=== Clicking "Clear Text" button ===')
 
@@ -308,12 +307,12 @@ def click_clear_text_button(test_context):
 
         print("✓ Text area is now empty")
 
-    return test_context
+    return context
 
 @then("the text area should be empty")
-def verify_textarea_empty(test_context):
+def verify_textarea_empty(context):
     """Verify the text area is empty."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Verifying text area is empty ===")
 
@@ -331,12 +330,12 @@ def verify_textarea_empty(test_context):
     else:
         print("Warning: No text area found")
 
-    return test_context
+    return context
 
 @then("the result section should be empty")
-def verify_result_section_empty(test_context):
+def verify_result_section_empty(context):
     """Verify the result section is empty of displayed text."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Verifying result section is empty ===")
 
@@ -387,13 +386,13 @@ def verify_result_section_empty(test_context):
         print("✓ 'Text Result' section not found, so result section is empty")
 
     print("✓ Result section is empty as expected")
-    return test_context
+    return context
 
 # FIX: This step was missing - added to match the feature file
 @when("I clear the text area")
-def clear_text_area(test_context):
+def clear_text_area(context):
     """Clear the text area manually."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Clearing text area manually ===")
 
@@ -413,17 +412,17 @@ def clear_text_area(test_context):
     else:
         print("Warning: No text area found")
 
-    return test_context
+    return context
 
 @when("I click the \"Display Text\" button without entering text")
-def click_display_without_text(test_context):
+def click_display_without_text(context):
     """Click Display Text button with empty text area."""
-    return click_display_text_button(test_context)
+    return click_display_text_button(context)
 
 @then("I should see a warning message about empty text")
-def verify_warning_message(test_context):
+def verify_warning_message(context):
     """Verify a warning message appears about empty text."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Verifying warning message ===")
 
@@ -460,13 +459,13 @@ def verify_warning_message(test_context):
     if not found_warning:
         print("Note: No explicit warning found")
 
-    return test_context
+    return context
 
 @then(parsers.parse('I should see "{expected_text}" in the header'))
-def verify_text_in_header(test_context, expected_text):
+def verify_text_in_header(context, expected_text):
     """Verify text appears in a header on the page."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f'\n=== Verifying text in header: "{expected_text}" ===')
 
@@ -497,12 +496,12 @@ def verify_text_in_header(test_context, expected_text):
     if debug_enabled:
         take_screenshot(page, "debug_header_found.png")
 
-    return test_context
+    return context
 
 @given("the debug module is loaded")
-def debug_module_loaded(test_context):
+def debug_module_loaded(context):
     """Verify the debug module is loaded in the admin panel."""
-    page = test_context['page']
+    page = context['page']
 
     print("\n=== Verifying debug module is loaded ===")
 
@@ -562,4 +561,4 @@ def debug_module_loaded(test_context):
         print("\nAll page text (first 1000 chars):")
         print(page_text[:1000])
 
-    return test_context
+    return context

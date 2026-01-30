@@ -27,7 +27,7 @@ from conftest import (
 )
 
 @given("the application is running")
-def app_is_running(test_context, page: Page, debug_dir, streamlit_server):
+def app_is_running(context, page: Page, debug_dir, streamlit_server):
     """Verify the application is running and navigate to it."""
     print("\n=== [Test Module] Navigating to application ===")
 
@@ -40,29 +40,29 @@ def app_is_running(test_context, page: Page, debug_dir, streamlit_server):
     # Take initial screenshot if debug mode
     take_screenshot(page, "test_app_running.png", debug_dir, full_page=True)
 
-    # Store the page reference in test_context
-    test_context['page'] = page
-    test_context['debug_enabled'] = debug_dir
+    # Store the page reference in context
+    context['page'] = page
+    context['debug_enabled'] = debug_dir
 
     print("✓ Application is running and loaded")
-    return test_context
+    return context
 
 
 # Create a test context that's separate from BrowserContext
 @pytest.fixture
-def test_context():
+def context():
     """Test context to store state between steps."""
     return {'debug_enabled': False}
 
 
 @given("I navigate to the admin panel")
-def navigate_to_admin_panel_common(test_context):
+def navigate_to_admin_panel_common(context):
     """Navigate to the admin panel - common implementation for all modules."""
-    if 'page' not in test_context:
-        raise KeyError("No 'page' in test_context. Did you call 'the application is running' first?")
+    if 'page' not in context:
+        raise KeyError("No 'page' in context. Did you call 'the application is running' first?")
 
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print("\n=== Navigating to admin panel ===")
 
@@ -121,17 +121,17 @@ def navigate_to_admin_panel_common(test_context):
         take_screenshot(page, "admin_panel_navigated.png", debug_enabled, full_page=True)
 
     # Update context
-    test_context['current_page'] = 'admin'
+    context['current_page'] = 'admin'
     print("✓ Admin panel navigation completed")
 
-    return test_context
+    return context
 
 
 @given(parsers.parse('I select the "{tab_name}" tab'))
-def select_debug_tab(test_context, tab_name):
+def select_debug_tab(context, tab_name):
     """Select a tab in the admin panel."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
 
     print(f'\n=== Selecting "{tab_name}" tab ===')
 
@@ -180,20 +180,20 @@ def select_debug_tab(test_context, tab_name):
             tab_text = all_tabs.nth(i).text_content()
             print(f"  Tab {i}: {tab_text}")
 
-    return test_context
+    return context
 
 
 
 @given(parsers.parse('I am on the "{tab_name}" tab'))
-def on_tab(test_context, tab_name):
+def on_tab(context, tab_name):
     """Precondition: on the Test tab."""
     # Try to select the Test tab
     try:
-        select_admin_tab(test_context, tab_name)
+        select_admin_tab(context, tab_name)
     except:
         print(f"Note: Could not select {tab_name} tab, continuing anyway")
 
-    return test_context
+    return context
 
 @given("the mock LLM is configured and available")
 def mock_llm_available(context):
