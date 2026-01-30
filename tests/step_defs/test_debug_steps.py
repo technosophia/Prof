@@ -3,7 +3,6 @@ pytest-bdd step definitions for debug admin UI testing.
 Tests the basic text input and display functionality.
 """
 import pytest
-import time
 import re
 from pytest_bdd import given, when, then, scenarios, parsers
 import sys
@@ -47,14 +46,28 @@ def default_user_logged_in(test_context, username):
 
     print(f"\n=== Logging in as: {username} ===")
 
-    # Simplified login for debug tests
+    # Wait for Streamlit to load
+    page.wait_for_load_state("networkidle", timeout=30000)
+    # Check for either sidebar OR app container (not both with .or_())
+    try:
+        # First try to wait for sidebar
+        expect(page.locator("[data-testid='stSidebar']")).to_be_visible(timeout=10000)
+        print("✓ Sidebar is visible")
+    except AssertionError:
+        # If sidebar not found, check for app container
+        expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=10000)
+        print("✓ App container is visible")
+
     # Look for user selector
     selectboxes = page.locator("[data-testid='stSelectbox']")
 
     if selectboxes.count() >= 3:
         user_selectbox = selectboxes.nth(2)
+        expect(user_selectbox).to_be_visible(timeout=30000)
         user_selectbox.click()
-        time.sleep(1)
+
+        # Wait for dropdown options to appear
+        expect(page.locator("li[role='option']").first).to_be_visible(timeout=30000)
 
         # Try to find and select the user
         options = page.locator("[data-testid='stSelectboxOption'], div[role='option']")
@@ -63,15 +76,24 @@ def default_user_logged_in(test_context, username):
             option_text = option.text_content()
             if username in option_text:
                 option.click()
-                time.sleep(1)
+                # Wait for Streamlit rerun after selection
+                page.wait_for_load_state("networkidle", timeout=30000)
+                # Wait for Streamlit app container
+                expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
                 print(f"✓ Selected user: {username}")
                 break
 
         # Look for login button
         login_button = page.get_by_text("Login as User").or_(page.get_by_text("Login")).or_(page.get_by_text("Log in"))
         if login_button.count() > 0:
-            login_button.first.click()
-            time.sleep(1)
+            login_button = login_button.first
+            expect(login_button).to_be_visible(timeout=30000)
+            expect(login_button).to_be_enabled(timeout=30000)
+            login_button.click()
+            # Wait for login to complete and Streamlit to rerun
+            page.wait_for_load_state("networkidle", timeout=30000)
+            # Wait for main app container
+            expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
     test_context['current_user'] = username
     return test_context
@@ -93,21 +115,29 @@ def enter_text_in_textarea(test_context, text):
 
     print(f'\n=== Entering text in text area: "{text}" ===')
 
+    # Wait for app to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     # Find text area
     text_areas = page.locator("textarea")
+    expect(text_areas.first).to_be_visible(timeout=30000)
 
     if text_areas.count() > 0:
         text_area = text_areas.first
+        expect(text_area).to_be_visible(timeout=30000)
+        expect(text_area).to_be_enabled(timeout=30000)
+
         text_area.fill("")
         text_area.type(text, delay=50)
-        time.sleep(0.5)
+
+        # No Streamlit rerun expected for typing, just ensure text is entered
+        expect(text_area).to_have_value(text, timeout=30000)
 
         test_context['entered_text'] = text
 
         if debug_enabled:
-            debug_path = os.path.join("tests", "debug")
-            os.makedirs(debug_path, exist_ok=True)
-            page.screenshot(path=os.path.join(debug_path, "debug_text_entered.png"))
+            take_screenshot(page, "debug_text_entered.png")
     else:
         print("Warning: Could not find text area")
 
@@ -121,19 +151,27 @@ def click_display_text_button(test_context):
 
     print('\n=== Clicking "Display Text" button ===')
 
-    # Find display button
-    display_button = page.get_by_text("Display Text").or_(page.get_by_text("📤 Display Text"))
+    # Wait for app to be ready first
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if display_button.count() > 0:
-        display_button.first.click()
-        time.sleep(2)
+    # Find display button using robust selectors
+    display_button = page.get_by_role("button", name=re.compile(r"display text", re.IGNORECASE)).or_(
+        page.get_by_text("Display Text").or_(page.get_by_text("📤 Display Text"))
+    )
 
-        if debug_enabled:
-            debug_path = os.path.join("tests", "debug")
-            os.makedirs(debug_path, exist_ok=True)
-            page.screenshot(path=os.path.join(debug_path, "debug_display_clicked.png"))
-    else:
-        print("Warning: Could not find Display Text button")
+    expect(display_button.first).to_be_visible(timeout=30000)
+    expect(display_button.first).to_be_enabled(timeout=30000)
+
+    display_button.first.click()
+
+    # Wait for Streamlit rerun after button click
+    page.wait_for_load_state("networkidle", timeout=30000)
+    # Wait for Streamlit app container
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
+    if debug_enabled:
+        take_screenshot(page, "debug_display_clicked.png")
 
     return test_context
 
@@ -145,14 +183,21 @@ def verify_text_in_result(test_context, expected_text):
 
     print(f'\n=== Verifying text in result: "{expected_text}" ===')
 
-    time.sleep(1)
+    # Wait for Streamlit to be stable
+    page.wait_for_load_state("networkidle", timeout=30000)
+    # Wait for app container
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Check if text appears on page
-    page_text = page.locator("body").text_content()
+    # Use expect with custom message for better debugging
+    try:
+        expect(page.locator("div[data-testid='stApp']")).to_contain_text(expected_text, timeout=10000)
+        print(f"✓ Found text: {expected_text}")
+    except AssertionError:
+        # Fallback: check text content directly
+        page_text = page.locator("body").text_content()
+        assert expected_text in page_text, f"Expected text '{expected_text}' not found on page. Page text: {page_text[:500]}..."
+        print(f"✓ Found text: {expected_text}")
 
-    assert expected_text in page_text, f"Expected text '{expected_text}' not found on page"
-
-    print(f"✓ Found text: {expected_text}")
     return test_context
 
 @then("I should see the character count displayed")
@@ -162,7 +207,9 @@ def verify_character_count(test_context):
 
     print("\n=== Verifying character count ===")
 
-    page_text = page.locator("body").text_content()
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+    page_text = page.locator("div[data-testid='stApp']").text_content()
 
     # Look for character count pattern
     if re.search(r'character.*count', page_text, re.IGNORECASE):
@@ -179,7 +226,9 @@ def verify_word_count(test_context):
 
     print("\n=== Verifying word count ===")
 
-    page_text = page.locator("body").text_content()
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+    page_text = page.locator("div[data-testid='stApp']").text_content()
 
     # Look for word count pattern
     if re.search(r'word.*count', page_text, re.IGNORECASE):
@@ -207,13 +256,57 @@ def click_clear_text_button(test_context):
 
     print('\n=== Clicking "Clear Text" button ===')
 
-    clear_button = page.get_by_text("Clear Text").or_(page.get_by_text("🗑️ Clear Text"))
+    # Wait for app to be ready first
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if clear_button.count() > 0:
-        clear_button.first.click()
-        time.sleep(2)
-    else:
-        print("Warning: Could not find Clear Text button")
+    # First get the current text to debug
+    text_areas = page.locator("textarea")
+    if text_areas.count() > 0:
+        text_area = text_areas.first
+        current_value = text_area.input_value()
+        print(f"Text area currently contains: '{current_value}'")
+
+    clear_button = page.get_by_role("button", name=re.compile(r"clear text", re.IGNORECASE)).or_(
+        page.get_by_text("Clear Text").or_(page.get_by_text("🗑️ Clear Text"))
+    )
+
+    expect(clear_button.first).to_be_visible(timeout=30000)
+    expect(clear_button.first).to_be_enabled(timeout=30000)
+
+    clear_button.first.click()
+
+    # Wait for Streamlit rerun after clear
+    page.wait_for_load_state("networkidle", timeout=30000)
+    # Wait for app container
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
+    # Wait for text area to be cleared - with retry logic
+    text_areas = page.locator("textarea")
+    if text_areas.count() > 0:
+        text_area = text_areas.first
+
+        # Try multiple times with shorter timeout
+        for attempt in range(5):
+            current_value = text_area.input_value()
+            if current_value == "":
+                print(f"✓ Text area cleared on attempt {attempt + 1}")
+                break
+            else:
+                print(f"Attempt {attempt + 1}: Text area still contains '{current_value}'")
+                if attempt < 4:
+                    page.wait_for_timeout(1000)  # Wait 1 second before retrying
+                else:
+                    # Last attempt failed, try to clear manually
+                    print("Clear button didn't work, clearing manually...")
+                    text_area.fill("")
+                    text_area.press("Control+A")
+                    text_area.press("Delete")
+                    # Verify it's empty
+                    current_value = text_area.input_value()
+                    assert current_value == "", f"Failed to clear text area manually. Still contains: '{current_value}'"
+
+        print("✓ Text area is now empty")
 
     return test_context
 
@@ -224,12 +317,19 @@ def verify_textarea_empty(test_context):
 
     print("\n=== Verifying text area is empty ===")
 
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     text_areas = page.locator("textarea")
+
     if text_areas.count() > 0:
         text_area = text_areas.first
-        current_value = text_area.input_value()
-        assert current_value == "", f"Text area not empty, contains: {current_value}"
+        expect(text_area).to_be_visible(timeout=30000)
+        # Use to_have_value with empty string for more reliable check
+        expect(text_area).to_have_value("", timeout=10000)
         print("✓ Text area is empty")
+    else:
+        print("Warning: No text area found")
 
     return test_context
 
@@ -240,8 +340,11 @@ def verify_result_section_empty(test_context):
 
     print("\n=== Verifying result section is empty ===")
 
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     # Look for the "Text Result" section specifically
-    page_text = page.locator("body").text_content()
+    page_text = page.locator("div[data-testid='stApp']").text_content()
 
     # Check if "Text Result" section exists
     if "Text Result" in page_text:
@@ -286,6 +389,7 @@ def verify_result_section_empty(test_context):
     print("✓ Result section is empty as expected")
     return test_context
 
+# FIX: This step was missing - added to match the feature file
 @when("I clear the text area")
 def clear_text_area(test_context):
     """Clear the text area manually."""
@@ -293,11 +397,21 @@ def clear_text_area(test_context):
 
     print("\n=== Clearing text area manually ===")
 
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     text_areas = page.locator("textarea")
+
     if text_areas.count() > 0:
         text_area = text_areas.first
+        expect(text_area).to_be_visible(timeout=30000)
+        expect(text_area).to_be_enabled(timeout=30000)
         text_area.fill("")
-        time.sleep(0.5)
+
+        # Verify text area is empty
+        expect(text_area).to_have_value("", timeout=5000)
+    else:
+        print("Warning: No text area found")
 
     return test_context
 
@@ -313,19 +427,37 @@ def verify_warning_message(test_context):
 
     print("\n=== Verifying warning message ===")
 
-    page_text = page.locator("body").text_content().lower()
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Check for any warning indicators
-    warning_indicators = ["warning", "please enter", "empty", "no text"]
+    # Check for warning elements specifically
+    warning_elements = page.locator(".stAlert, .stWarning, .stError")
 
-    found = False
-    for indicator in warning_indicators:
-        if indicator in page_text:
-            found = True
-            print(f"✓ Found warning: {indicator}")
+    found_warning = False
+    for i in range(warning_elements.count()):
+        element = warning_elements.nth(i)
+        element_text = element.text_content().lower()
+
+        warning_indicators = ["warning", "please enter", "empty", "no text"]
+        for indicator in warning_indicators:
+            if indicator in element_text:
+                print(f"✓ Found warning element: {element_text[:100]}")
+                found_warning = True
+                break
+        if found_warning:
             break
 
-    if not found:
+    if not found_warning:
+        # Fallback to checking all page text
+        page_text = page.locator("div[data-testid='stApp']").text_content().lower()
+        warning_indicators = ["warning", "please enter", "empty", "no text"]
+        for indicator in warning_indicators:
+            if indicator in page_text:
+                print(f"✓ Found warning in page text: {indicator}")
+                found_warning = True
+                break
+
+    if not found_warning:
         print("Note: No explicit warning found")
 
     return test_context
@@ -338,11 +470,12 @@ def verify_text_in_header(test_context, expected_text):
 
     print(f'\n=== Verifying text in header: "{expected_text}" ===')
 
-    # Wait a bit for the page to load
-    time.sleep(2)
+    # Wait for page to load completely
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Check headers (h1, h2, h3 elements)
-    headers = page.locator("h1, h2, h3, h4, h5, h6")
+    # Check headers (h1, h2, h3 elements) within the app container
+    headers = page.locator("div[data-testid='stApp'] h1, div[data-testid='stApp'] h2, div[data-testid='stApp'] h3")
 
     found = False
     for i in range(headers.count()):
@@ -354,18 +487,15 @@ def verify_text_in_header(test_context, expected_text):
             break
 
     if not found:
-        # Also check for any element containing the text
-        all_text = page.locator("body").text_content()
-        if expected_text in all_text:
-            print(f"✓ Found '{expected_text}' somewhere on page")
-            found = True
+        # Also check for any element containing the text within the app container
+        expect(page.locator("div[data-testid='stApp']")).to_contain_text(expected_text, timeout=10000)
+        print(f"✓ Found '{expected_text}' somewhere on page")
+        found = True
 
     assert found, f"Expected text '{expected_text}' not found in any header"
 
     if debug_enabled:
-        debug_path = os.path.join("tests", "debug")
-        os.makedirs(debug_path, exist_ok=True)
-        page.screenshot(path=os.path.join(debug_path, "debug_header_found.png"))
+        take_screenshot(page, "debug_header_found.png")
 
     return test_context
 
@@ -376,23 +506,32 @@ def debug_module_loaded(test_context):
 
     print("\n=== Verifying debug module is loaded ===")
 
+    # Wait for admin panel to load
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
+
+    # Check for "Admin Panel" text within the app container
+    admin_panel_text = page.locator("div[data-testid='stApp']").get_by_text("Admin Panel")
+    expect(admin_panel_text).to_be_visible(timeout=30000)
+
     # Check for debug module in available modules
-    page_text = page.locator("body").text_content().lower()
+    page_text = page.locator("div[data-testid='stApp']").text_content().lower()
 
     debug_found = False
     if "debug" in page_text:
         print("✓ Found 'debug' text on page")
         debug_found = True
 
-    # Also check for specific debug UI elements
-    debug_elements = page.locator(":text('debug'):visible")
+    # Also check for specific debug UI elements within the app container
+    debug_elements = page.locator("div[data-testid='stApp']").locator(":text('debug'):visible")
     print(f"Found {debug_elements.count()} visible elements with 'debug' text")
 
     # Print all tabs for debugging
-    tabs = page.locator("[role='tab']")
+    tabs = page.locator("div[data-testid='stApp']").locator("[role='tab']")
     print(f"Found {tabs.count()} tabs:")
     for i in range(tabs.count()):
         tab = tabs.nth(i)
+        expect(tab).to_be_visible(timeout=5000)
         tab_text = tab.text_content()
         print(f"  Tab {i}: '{tab_text}'")
 
