@@ -202,20 +202,3 @@ def verify_text_in_header_for_test(context, expected_text):
         take_screenshot(page, "test_header_found.png", debug_enabled)
 
     return
-
-@given("the Test module is available")
-def test_module_available(context):
-    """Verify the Test module is available in the admin panel."""
-    print("\n=== [Test Module] Assuming Test module is available ===")
-
-    # Wait for page to be loaded if available
-    if 'page' in context:
-        page = context['page']
-        page.wait_for_load_state("networkidle", timeout=30000)
-        # Use multiple strategies to verify page is ready
-        try:
-            page.locator("body").wait_for(state="visible", timeout=10000)
-        except:
-            pass  # Continue even if body visibility check fails
-
-    return
