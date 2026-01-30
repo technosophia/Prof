@@ -174,7 +174,6 @@ def navigate_to_admin_panel(test_context):
         time.sleep(2)
         admin_button.first.click()
         time.sleep(2)
-        take_screenshot(page, "debug_admin_panel.png", True, full_page=True)
         # Wait for admin page
         page.wait_for_selector("h1", timeout=10000)
 
@@ -206,7 +205,6 @@ def select_debug_tab(test_context):
     if debug_tab.count() > 0:
         debug_tab.first.click()
         time.sleep(2)
-        take_screenshot(page, "debug_admin_tab.png", True, full_page=True)
 
         if debug_enabled:
             debug_path = os.path.join("tests", "debug")

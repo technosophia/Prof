@@ -14,7 +14,7 @@ from pytest_bdd import given, when, then, parsers
 from playwright.sync_api import Page, expect
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def enable_debug():
     """Fixture to enable debug mode (screenshots, logging)."""
     debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
@@ -22,7 +22,7 @@ def enable_debug():
     return debug_enabled
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def streamlit_server():
     """Start Streamlit server for testing - runs once per session."""
     # Kill any existing Streamlit process
@@ -102,7 +102,7 @@ def debug_dir(enable_debug):
     return enable_debug
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def browser_context(playwright, streamlit_server):
     """Create browser context once per session."""
     browser = playwright.chromium.launch(headless=True)

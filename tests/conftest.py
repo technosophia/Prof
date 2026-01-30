@@ -42,7 +42,7 @@ with open(TEST_CONFIG_PATH, 'r') as f:
 
 print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).keys())}")
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
     # Set TEST_MODE environment variable
@@ -65,16 +65,16 @@ def setup_test_environment():
     if "CONFIG_FILE" in os.environ:
         del os.environ["CONFIG_FILE"]
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def playwright():
     """Playwright session fixture."""
     with sync_playwright() as p:
         yield p
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def browser(playwright):
     """Browser session fixture."""
-    browser = playwright.chromium.launch(headless=True)
+    browser = playwright.chromium.launch()
     yield browser
     browser.close()
 
@@ -173,3 +173,46 @@ def test_module_enabled():
     """Ensure Test module is enabled for testing."""
     # You might need to patch or enable the Test module here
     return True
+
+import pytest
+import os
+from _pytest.nodes import Item
+from _pytest.reports import TestReport
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item: Item, call: pytest.CallInfo) -> None:
+    """
+    Hook pour prendre un screenshot automatique en cas d'échec d'un test.
+    Le screenshot est sauvegardé dans tests/debug/errors/error_<test_name>.png
+    """
+    # Exécute tous les autres hooks pour obtenir le report final
+    outcome = yield
+    rep: TestReport = outcome.get_result()
+
+    # On ne s'intéresse qu'aux échecs pendant la phase "call" (exécution du test)
+    # (on ignore les erreurs de setup/teardown pour éviter les doublons)
+    if rep.when == "call" and rep.failed:
+        # Vérifie que la fixture 'page' existe bien dans le test
+        if "page" in item.fixturenames:
+            page = item.funcargs["page"]
+
+            # Crée le répertoire de destination s'il n'existe pas
+            error_dir = os.path.join("tests", "debug", "errors")
+            os.makedirs(error_dir, exist_ok=True)
+
+            # Nom du screenshot : error_<nom_du_test>.png
+            # item.name est le nom du test (ex: test_create_conversation_and_send_a_message)
+            # On nettoie les caractères problématiques pour le nom de fichier
+            safe_test_name = "".join(c if c.isalnum() else "_" for c in item.name)
+            filename = f"error_{safe_test_name}.png"
+            filepath = os.path.join(error_dir, filename)
+
+            try:
+                page.screenshot(path=filepath, full_page=True)
+                print(f"\nScreenshot d'erreur sauvegardé : {filepath}")
+
+                # Optionnel : attacher le screenshot au report (utile pour pytest-html ou Allure)
+                if hasattr(rep, "longrepr"):
+                    rep.longrepr = f"{rep.longrepr}\n[Screenshot] {filepath}"
+            except Exception as e:
+                print(f"\nImpossible de prendre le screenshot : {e}")
