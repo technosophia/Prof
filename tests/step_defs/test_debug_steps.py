@@ -126,36 +126,6 @@ def logged_in_as_admin(test_context):
     # Use "Test User 2" which is an admin in mock data
     return default_user_logged_in(test_context, "Test User 2")
 
-@given("I navigate to the admin panel")
-def navigate_to_admin_panel(test_context):
-    """Navigate to the admin panel."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
-
-    print("\n=== Navigating to admin panel ===")
-
-    # Look for admin button
-    admin_button = page.get_by_text("🔧 Admin").or_(page.get_by_text("Admin"))
-
-    if admin_button.count() > 0:
-        admin_button.first.click()
-        time.sleep(2)
-        # Wait for admin page
-        page.wait_for_selector("h1", timeout=10000)
-
-        if debug_enabled:
-            debug_path = os.path.join("tests", "debug")
-            os.makedirs(debug_path, exist_ok=True)
-            page.screenshot(path=os.path.join(debug_path, "debug_admin_panel.png"))
-
-        test_context['current_page'] = 'admin'
-    else:
-        print("Warning: Could not find admin button")
-        # Try direct navigation
-        page.goto("http://localhost:8502/", wait_until="networkidle")
-        time.sleep(2)
-
-    return test_context
 
 @given('I select the "Debug" tab')
 def select_debug_tab(test_context):
