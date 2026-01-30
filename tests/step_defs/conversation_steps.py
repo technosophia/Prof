@@ -40,14 +40,6 @@ from conftest import (
 
 from common_steps import *
 
-def find_element_by_text(page, text, exact=False):
-    """Find an element containing specific text."""
-    if exact:
-        return page.get_by_text(text, exact=True)
-    else:
-        return page.get_by_text(text)
-
-
 @given("the application is running")
 def app_is_running(context, page: Page, debug_dir, streamlit_server):
     """Verify the application is running and navigate to it."""
@@ -254,86 +246,6 @@ def default_user_logged_in(context, username):
 
     return context
 
-
-@given("the mock LLM is configured and available")
-def mock_llm_available(context):
-    """Verify the mock LLM is configured and available."""
-    page = context['page']
-    debug_enabled = context.get('debug_enabled', False)
-
-    print("\n=== Selecting Mock LLM ===")
-    print("TEST_MODE env var:", os.getenv("TEST_MODE"))
-    print("CONFIG_FILE env var:", os.getenv("CONFIG_FILE"))
-
-    # Take screenshot before
-    take_screenshot(page, "conversation_before_llm_select.png", debug_enabled)
-
-    # Wait for page to be ready
-    page.wait_for_load_state("networkidle", timeout=30000)
-    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-
-    # Find the LLM selectbox
-    selectboxes = page.locator("[data-testid='stSelectbox']")
-    print(f"Found {selectboxes.count()} selectboxes")
-
-    # Try to find LLM selector - look for selectbox containing "LLM" or "AI Model"
-    llm_selectbox = None
-    for i in range(selectboxes.count()):
-        selectbox = selectboxes.nth(i)
-        text = selectbox.text_content()
-        if "llm" in text.lower() or "ai model" in text.lower() or "selection" in text.lower():
-            llm_selectbox = selectbox
-            print(f"Found LLM selectbox at index {i}: {text[:50]}")
-            break
-
-    if llm_selectbox:
-        # Click to open dropdown
-        expect(llm_selectbox).to_be_visible(timeout=30000)
-        llm_selectbox.click()
-
-        # Wait for dropdown to open
-        expect(page.locator("li[role='option']").first).to_be_visible(timeout=30000)
-
-        # Take screenshot of dropdown
-        take_screenshot(page, "conversation_llm_dropdown.png", debug_enabled)
-
-        # Look for options
-        for selector in ["li[role='option']", "[data-testid='stSelectboxOption']"]:
-            options = page.locator(selector)
-            if options.count() > 0:
-                print(f"Found {options.count()} LLM options with {selector}")
-
-                # Try to find Mock LLM
-                for i in range(options.count()):
-                    option = options.nth(i)
-                    option_text = option.text_content()
-                    print(f"  Option {i}: {option_text}")
-
-                    if "Mock" in option_text or "mock" in option_text.lower():
-                        print(f"  ✓ Selecting Mock LLM: {option_text}")
-                        option.click()
-                        # Wait for selection to apply
-                        page.wait_for_load_state("networkidle", timeout=30000)
-                        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-
-                        # Take screenshot after selection
-                        take_screenshot(page, "conversation_mock_llm_selected.png", debug_enabled)
-
-                        print("✓ Mock LLM selected")
-                        return context
-
-                # If Mock not found but we have options, select the first one
-                print("Mock LLM not found in options, selecting first option")
-                options.first.click()
-                page.wait_for_load_state("networkidle", timeout=30000)
-                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-                break
-    else:
-        print("Warning: Could not find LLM selectbox")
-
-    print("Note: Could not select Mock LLM, continuing anyway")
-    take_screenshot(page, "conversation_llm_final.png", debug_enabled)
-    return context
 
 @when("I navigate to the chat page")
 def navigate_to_chat_page(context):
