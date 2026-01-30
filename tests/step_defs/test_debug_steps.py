@@ -13,9 +13,6 @@ from playwright.sync_api import Page, expect
 # Add the project root to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# Load feature files
-scenarios('../../tests/features/debug.feature')
-
 pytestmark = pytest.mark.bdd
 
 # Re-use fixtures from conftest.py
@@ -37,35 +34,10 @@ from conftest import (
     take_screenshot
 )
 
-# Create a test context that's separate from BrowserContext
-@pytest.fixture
-def test_context():
-    """Test context to store state between steps."""
-    return {}
+from common_steps import *
 
-
-# Now define the missing step that's causing the issue
-@given("the application is running")
-def app_is_running(test_context, page: Page, debug_dir, streamlit_server):
-    """Verify the application is running and navigate to it."""
-    print("\n=== Navigating to application ===")
-    page.goto("http://localhost:8502/", wait_until="networkidle")
-
-    # Wait for Streamlit to fully load
-    page.wait_for_selector("[data-testid='stApp']", timeout=30000)
-
-    # Take initial screenshot if debug mode
-    if debug_dir:
-        debug_path = os.path.join("tests", "debug")
-        os.makedirs(debug_path, exist_ok=True)
-        page.screenshot(path=os.path.join(debug_path, "debug_app_running.png"), full_page=True)
-
-    # Store the page reference in test_context (not BrowserContext)
-    test_context['page'] = page
-    test_context['debug_enabled'] = debug_dir
-
-    print("Application is running and loaded")
-    return test_context
+# Load feature files
+scenarios('../../tests/features/debug.feature')
 
 # Define the other required steps from the Background
 @given(parsers.parse('"{username}" exists in the user database'))

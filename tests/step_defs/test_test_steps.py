@@ -14,9 +14,6 @@ from playwright.sync_api import Page, expect
 # Add the project root to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# Load feature files
-scenarios('../../tests/features/test.feature')
-
 pytestmark = pytest.mark.bdd
 
 # Import fixtures from conftest.py only
@@ -38,42 +35,13 @@ from conftest import (
     take_screenshot
 )
 
-# Create a test context that's separate from BrowserContext
-@pytest.fixture
-def test_context():
-    """Test context to store state between steps."""
-    return {'debug_enabled': False}
+from common_steps import *
 
-# Helper functions
-def find_element_by_text(page, text, exact=False):
-    """Find an element containing specific text."""
-    if exact:
-        return page.get_by_text(text, exact=True)
-    else:
-        return page.get_by_text(text)
+# Load feature files
+scenarios('../../tests/features/test.feature')
 
 # ================ BACKGROUND STEPS ================
 
-@given("the application is running")
-def app_is_running(test_context, page: Page, debug_dir, streamlit_server):
-    """Verify the application is running and navigate to it."""
-    print("\n=== [Test Module] Navigating to application ===")
-
-    # Use the page fixture from conftest
-    page.goto("http://localhost:8502/", wait_until="networkidle")
-
-    # Wait for Streamlit to fully load
-    page.wait_for_selector("[data-testid='stApp']", timeout=30000)
-
-    # Take initial screenshot if debug mode
-    take_screenshot(page, "test_app_running.png", debug_dir, full_page=True)
-
-    # Store the page reference in test_context
-    test_context['page'] = page
-    test_context['debug_enabled'] = debug_dir
-
-    print("✓ Application is running and loaded")
-    return test_context
 
 @given("I navigate to the admin panel")
 def navigate_to_admin_panel_for_test(test_context):
