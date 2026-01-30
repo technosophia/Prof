@@ -21,16 +21,23 @@ scenarios('../../tests/features/conversation.feature')
 pytestmark = pytest.mark.bdd
 
 # Re-use fixtures from conversation tests
-from tests.step_defs.common_steps import (
+from conftest import (
+    setup_test_environment,
+    playwright,
+    browser,
+    page as conftest_page,
+    patch_config,
+    mock_db_manager,
+    mock_user_manager,
+    patch_database,
     enable_debug,
     streamlit_server,
     browser_context,
-    page,
+    page as conversation_page,
     debug_dir,
-    context,
+    context as conversation_context,
     take_screenshot
 )
-
 
 
 def find_element_by_text(page, text, exact=False):

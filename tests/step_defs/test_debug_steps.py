@@ -27,11 +27,7 @@ from conftest import (
     patch_config,
     mock_db_manager,
     mock_user_manager,
-    patch_database
-)
-
-# Re-use fixtures from conversation tests
-from tests.step_defs.common_steps import (
+    patch_database,
     enable_debug,
     streamlit_server,
     browser_context,

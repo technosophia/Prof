@@ -22,17 +22,13 @@ pytestmark = pytest.mark.bdd
 # Import fixtures from conftest.py only
 from conftest import (
     setup_test_environment,
-    page,
+    playwright,
+    browser,
+    page as conftest_page,
     patch_config,
     mock_db_manager,
     mock_user_manager,
     patch_database,
-    browser,
-    playwright
-)
-
-# Re-use fixtures from conversation tests
-from tests.step_defs.common_steps import (
     enable_debug,
     streamlit_server,
     browser_context,

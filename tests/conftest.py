@@ -1,22 +1,27 @@
-# file name: conftest.py
+# file name: conftest.py (version refactorisée)
 """
-Pytest configuration and fixtures.
+Pytest configuration and fixtures for all tests.
 """
 import sys
 import os
 import json
 import pytest
+import time
+import subprocess
+import requests
+import atexit
+import signal
+import warnings
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
-import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
 
 # Add the project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# FIXED: Find test_config.json relative to this file
+# ============ CONFIGURATION ============
 TEST_CONFIG_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "test_config.json"
@@ -24,9 +29,7 @@ TEST_CONFIG_PATH = os.path.join(
 
 print(f"Looking for test config at: {TEST_CONFIG_PATH}")
 
-# Check if the file exists
 if not os.path.exists(TEST_CONFIG_PATH):
-    # Try looking from the project root
     project_root = os.path.dirname(TEST_CONFIG_PATH)
     alt_path = os.path.join(project_root, "tests", "test_config.json")
     print(f"Test config not found at primary location, trying: {alt_path}")
@@ -42,14 +45,14 @@ with open(TEST_CONFIG_PATH, 'r') as f:
 
 print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).keys())}")
 
+# ============ SESSION FIXTURES ============
+
 @pytest.fixture(scope="function", autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
-    # Set TEST_MODE environment variable
     os.environ["TEST_MODE"] = "true"
-
-    # Also set CONFIG_FILE to ensure test config is used
     os.environ["CONFIG_FILE"] = TEST_CONFIG_PATH
+    os.environ["PLAYWRIGHT_ASYNCIO"] = "0"  # Important pour éviter le conflit
 
     print(f"\n=== TEST ENVIRONMENT SETUP ===")
     print(f"TEST_MODE: {os.getenv('TEST_MODE')}")
@@ -59,17 +62,26 @@ def setup_test_environment():
 
     yield
 
-    # Cleanup
     if "TEST_MODE" in os.environ:
         del os.environ["TEST_MODE"]
     if "CONFIG_FILE" in os.environ:
         del os.environ["CONFIG_FILE"]
+    if "PLAYWRIGHT_ASYNCIO" in os.environ:
+        del os.environ["PLAYWRIGHT_ASYNCIO"]
 
 @pytest.fixture(scope="function")
 def playwright():
     """Playwright session fixture."""
+    # Désactiver asyncio pour Playwright sync
+    original_asyncio_mode = os.environ.get("PYTEST_ASYNCIO_MODE")
+    if original_asyncio_mode:
+        del os.environ["PYTEST_ASYNCIO_MODE"]
+
     with sync_playwright() as p:
         yield p
+
+    if original_asyncio_mode:
+        os.environ["PYTEST_ASYNCIO_MODE"] = original_asyncio_mode
 
 @pytest.fixture(scope="function")
 def browser(playwright):
@@ -78,23 +90,121 @@ def browser(playwright):
     yield browser
     browser.close()
 
+@pytest.fixture(scope="function")
+def streamlit_server():
+    """Start Streamlit server for testing - runs once per session."""
+    # Kill any existing Streamlit process
+    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
+    time.sleep(1)
+
+    # Create test environment
+    env = os.environ.copy()
+    env["TEST_MODE"] = "true"
+    env["CONFIG_FILE"] = "test_config.json"
+    env["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
+
+    # Start Streamlit server
+    cmd = [
+        "streamlit", "run", "app.py",
+        "--server.port", "8502",
+        "--server.runOnSave", "false",
+        "--browser.serverAddress", "localhost",
+        "--logger.level", "info",
+        "--server.fileWatcherType", "none"
+    ]
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        preexec_fn=os.setsid
+    )
+
+    # Register cleanup function
+    def cleanup():
+        if process.poll() is None:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                process.wait(timeout=5)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    atexit.register(cleanup)
+
+    # Wait for server to start
+    max_retries = 30
+    for i in range(max_retries):
+        try:
+            response = requests.get("http://localhost:8502/_stcore/health", timeout=2)
+            if response.status_code == 200:
+                print("✓ Streamlit server started successfully")
+                break
+        except:
+            if i == max_retries - 1:
+                cleanup()
+                raise RuntimeError("Failed to start Streamlit server after 30 seconds")
+            time.sleep(1)
+
+    time.sleep(2)
+    yield process
+
+    # Cleanup after tests
+    cleanup()
+    atexit.unregister(cleanup)
+    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
+    time.sleep(1)
+
+# ============ FUNCTION FIXTURES ============
+
 @pytest.fixture
-def page(browser):
-    """Page fixture for each test."""
+def context():
+    """Test context to store state between steps."""
+    return {}
+
+@pytest.fixture
+def enable_debug():
+    """Fixture to enable debug mode (screenshots, logging)."""
+    debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
+    print(f"Debug mode: {'ENABLED' if debug_enabled else 'DISABLED'}")
+    return debug_enabled
+
+@pytest.fixture
+def debug_dir(enable_debug):
+    """Create debug directory if debug mode is enabled."""
+    if enable_debug:
+        debug_path = os.path.join("tests", "debug")
+        os.makedirs(debug_path, exist_ok=True)
+        print(f"Debug directory: {os.path.abspath(debug_path)}")
+    return enable_debug
+
+@pytest.fixture
+def browser_context(browser):
+    """Create browser context once per test."""
     context = browser.new_context()
-    page = context.new_page()
-    yield page
+    yield context
     context.close()
+
+@pytest.fixture
+def page(browser_context):
+    """Create a new page for each test."""
+    page = browser_context.new_page()
+    # Set longer timeout for slow Streamlit
+    page.set_default_timeout(30000)
+    yield page
+    page.close()
+
+# ============ MOCK FIXTURES ============
 
 @pytest.fixture(autouse=True)
 def patch_config():
     """Patch the get_config function for all tests."""
-    # Ensure TEST_MODE is set
     os.environ["TEST_MODE"] = "true"
 
-    # Patch the config module
     with patch('shared.config.get_config', return_value=TEST_CONFIG):
-        # Also patch init_config to return test config
         with patch('shared.config.init_config', return_value=TEST_CONFIG):
             yield
 
@@ -139,7 +249,6 @@ def mock_user_manager(mock_db_manager):
     with patch('shared.users.user_manager') as mock_user_mgr:
         mock_user_mgr.db = mock_db_manager
 
-        # Setup user manager methods
         mock_user_mgr.get_user.side_effect = mock_db_manager.get_user
         mock_user_mgr.get_all_users.return_value = {
             user["id"]: user for user in mock_db_manager.get_all_users()
@@ -155,54 +264,43 @@ def mock_user_manager(mock_db_manager):
 def patch_database():
     """Patch database to use test config."""
     with patch('app.init_database') as mock_init_db:
-        # Make it use in-memory database
         mock_init_db.return_value = None
         yield
 
+# ============ HELPER FUNCTIONS ============
 
-# Ajouter ces fixtures si elles n'existent pas déjà
+def take_screenshot(page, filename, debug_enabled, full_page=False):
+    """Take screenshot only if debug mode is enabled."""
+    if debug_enabled:
+        debug_path = os.path.join("tests", "debug")
+        filepath = os.path.join(debug_path, filename)
+        page.screenshot(path=filepath, full_page=full_page)
+        print(f"  Screenshot saved: {filename}")
 
-@pytest.fixture(scope="function")
-def test_context():
-    """Test context to store state between steps."""
-    return {}
+def find_element_by_text(page, text, exact=False):
+    """Find an element containing specific text."""
+    if exact:
+        return page.get_by_text(text, exact=True)
+    else:
+        return page.get_by_text(text)
 
-# Optionnel: Fixture spécifique pour les tests Test
-@pytest.fixture
-def test_module_enabled():
-    """Ensure Test module is enabled for testing."""
-    # You might need to patch or enable the Test module here
-    return True
-
-import pytest
-import os
-from _pytest.nodes import Item
-from _pytest.reports import TestReport
+# ============ HOOKS ============
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
-def pytest_runtest_makereport(item: Item, call: pytest.CallInfo) -> None:
+def pytest_runtest_makereport(item, call):
     """
     Hook pour prendre un screenshot automatique en cas d'échec d'un test.
-    Le screenshot est sauvegardé dans tests/debug/errors/error_<test_name>.png
     """
-    # Exécute tous les autres hooks pour obtenir le report final
     outcome = yield
-    rep: TestReport = outcome.get_result()
+    rep = outcome.get_result()
 
-    # On ne s'intéresse qu'aux échecs pendant la phase "call" (exécution du test)
-    # (on ignore les erreurs de setup/teardown pour éviter les doublons)
     if rep.when == "call" and rep.failed:
-        # Vérifie que la fixture 'page' existe bien dans le test
         if "page" in item.fixturenames:
             page = item.funcargs["page"]
 
-            # Crée le répertoire de destination s'il n'existe pas
             error_dir = os.path.join("tests", "debug", "errors")
             os.makedirs(error_dir, exist_ok=True)
 
-            # Nom du screenshot : error_<nom_du_test>.png
-            # item.name est le nom du test (ex: test_create_conversation_and_send_a_message)
-            # On nettoie les caractères problématiques pour le nom de fichier
             safe_test_name = "".join(c if c.isalnum() else "_" for c in item.name)
             filename = f"error_{safe_test_name}.png"
             filepath = os.path.join(error_dir, filename)
@@ -210,9 +308,22 @@ def pytest_runtest_makereport(item: Item, call: pytest.CallInfo) -> None:
             try:
                 page.screenshot(path=filepath, full_page=True)
                 print(f"\nScreenshot d'erreur sauvegardé : {filepath}")
-
-                # Optionnel : attacher le screenshot au report (utile pour pytest-html ou Allure)
-                if hasattr(rep, "longrepr"):
-                    rep.longrepr = f"{rep.longrepr}\n[Screenshot] {filepath}"
             except Exception as e:
                 print(f"\nImpossible de prendre le screenshot : {e}")
+
+# ============ MARKS ============
+
+def pytest_configure(config):
+    """Configure pytest markers."""
+    config.addinivalue_line(
+        "markers",
+        "bdd: BDD tests using pytest-bdd"
+    )
+    config.addinivalue_line(
+        "markers",
+        "integration: Integration tests with UI"
+    )
+    config.addinivalue_line(
+        "markers",
+        "unit: Unit tests without UI"
+    )
