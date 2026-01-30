@@ -1,7 +1,7 @@
 {
   "active_modules": [
-    "debug",
     "rag_manager",
+    "debug",
     "test"
   ],
   "total_modules": 3

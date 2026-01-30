@@ -362,6 +362,33 @@ def _show_index_tab():
 
     user_id = current_user['id']
 
+    # Helper function to clear engine index and metadata
+    def clear_engine_index_for_user(engine_type, user_id):
+        """Clear engine index for a user and update metadata."""
+        engine = rag_manager.get_engine(engine_type)
+        if not engine:
+            return False, "Engine not found"
+
+        # Clear from engine
+        if not engine.clear_user_index(user_id):
+            return False, "Failed to clear engine index"
+
+        # Update metadata
+        updated_count = 0
+        for filename, doc_info in rag_manager.documents.items():
+            # Check if this document belongs to the user
+            if 'uploaded_by' in doc_info and doc_info['uploaded_by'] == user_id:
+                # Check if it's indexed in this engine
+                if 'indexed_in' in doc_info and engine_type in doc_info['indexed_in']:
+                    # Remove this engine from indexed_in
+                    del doc_info['indexed_in'][engine_type]
+                    updated_count += 1
+
+        # Save the updated metadata
+        rag_manager._save_metadata()
+
+        return True, f"Cleared index for {updated_count} documents"
+
     # Get available engines
     engines = rag_manager.get_available_engines()
     available_engines = [e for e in engines if e['available']]
@@ -422,7 +449,7 @@ def _show_index_tab():
             col1, col2, col3 = st.columns([1, 3, 2])
             with col1:
                 # Checkbox for selection
-                if st.checkbox("Add", key=f"select_{doc['filename']}_{selected_engine_type}"):
+                if st.checkbox("Select", key=f"select_{doc['filename']}_{selected_engine_type}"):
                     selected_docs.append(doc)
             with col2:
                 st.write(f"**{doc['original_filename']}**")
@@ -551,21 +578,27 @@ def _show_index_tab():
             # Get engine stats
             engine_stats = selected_engine.get_stats(user_id)
             st.markdown("**Engine Statistics**")
-            for key, value in engine_stats.items():
-                if key != 'engine_type':
-                    st.write(f"- {key.replace('_', ' ').title()}: {value}")
+            if engine_stats:
+                for key, value in engine_stats.items():
+                    if key != 'engine_type':
+                        st.write(f"- {key.replace('_', ' ').title()}: {value}")
+            else:
+                st.write("No statistics available")
 
         with col2:
             # Clear index option
             st.markdown("**Index Management**")
             if st.button("🗑️ Clear Index for This Engine", type="secondary"):
                 if st.session_state.get(f"confirm_clear_{selected_engine_type}", False):
-                    if selected_engine.clear_user_index(user_id):
-                        st.success(f"Cleared {selected_engine_type} index for your documents")
+                    success, message = clear_engine_index_for_user(selected_engine_type, user_id)
+                    if success:
+                        st.success(message)
                         st.rerun()
+                    else:
+                        st.error(message)
                 else:
                     st.session_state[f"confirm_clear_{selected_engine_type}"] = True
-                    st.warning(f"Are you sure you want to clear the {selected_engine_type} index?")
+                    st.warning(f"Are you sure you want to clear the {selected_engine_type} index? This will remove all your documents from this engine's index.")
 
     # Refresh button
     if st.button("🔄 Refresh Indexing Status"):
