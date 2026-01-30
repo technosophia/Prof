@@ -114,7 +114,6 @@ configure_logging_from_dict(config.get("logging", {}))
 db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
 if TEST_MODE:
     # Force in-memory database for tests
-    print("TEST MODE: Using in-memory database")
     init_database(use_memory=True, db_path=None)
 else:
     # Normal database setup

@@ -156,7 +156,14 @@ class Logger:
         reset = "\033[0m"
 
         color = colors.get(level.upper(), "")
-        print(f"{color}{formatted_message}{reset}")
+        full_message = f"{color}{formatted_message}{reset}"
+
+        try:
+            print(full_message)
+        except (BrokenPipeError, OSError, IOError):
+            # Silently ignore pipe errors in test/headless environments
+            # Streamlit reruns often close stdout/stderr pipes
+            pass
 
     def add_handler(self, handler: Callable[[str, str], None]):
         """
