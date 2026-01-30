@@ -66,57 +66,55 @@ def navigate_to_admin_panel_common(test_context):
 
     print("\n=== Navigating to admin panel ===")
 
-    # Try multiple methods to find and click the admin button
-    admin_found = False
+    # Wait for sidebar to be fully loaded
+    sidebar = page.locator("[data-testid='stSidebar']").first
+    expect(sidebar).to_be_visible(timeout=10000)
 
-    # Method 1: Look in sidebar first
-    sidebar_content = page.locator("[data-testid='stSidebar']").first
+    # Try multiple methods to find and click the admin button
     admin_button = None
 
-    if sidebar_content.count() > 0:
-        print("Found sidebar, looking for admin button...")
-        # Look for button with "Admin" text in sidebar
-        admin_button = sidebar_content.get_by_text("🔧 Admin").or_(sidebar_content.get_by_text("Admin")).first
-    else:
-        print("Could not find sidebar, looking anywhere...")
-        admin_button = page.get_by_text("🔧 Admin").or_(page.get_by_text("Admin")).first
+    # Method 1: Look for admin button in sidebar with multiple text variations
+    admin_button = sidebar.get_by_text(re.compile(r"Admin", re.IGNORECASE)).first
 
-    # Method 2: Try to click if found
-    if admin_button and admin_button.count() > 0 and admin_button.is_visible():
-        print("Found admin button, clicking...")
+    # Method 2: If not found in sidebar, look anywhere on page
+    if admin_button.count() == 0:
+        print("Admin button not in sidebar, searching entire page...")
+        admin_button = page.get_by_text(re.compile(r"Admin", re.IGNORECASE)).first
+
+    # Method 3: Try button role with admin text
+    if admin_button.count() == 0:
+        print("Trying button role with admin text...")
+        admin_button = page.get_by_role("button", name=re.compile(r"Admin", re.IGNORECASE)).first
+
+    # Click the admin button if found
+    if admin_button.count() > 0:
+        print("Found admin button, ensuring it's visible and enabled...")
+        expect(admin_button).to_be_visible(timeout=10000)
+        expect(admin_button).to_be_enabled(timeout=5000)
+
+        print("Clicking admin button...")
         admin_button.click()
-        time.sleep(2)
-        admin_found = True
+
+        # Wait for Streamlit rerun to complete
+        page.wait_for_load_state("networkidle", timeout=30000)
+
+        # Wait for admin panel content to appear (look for "Admin Panel" heading or tabs)
+        admin_indicator = page.locator("text=/Admin Panel/i").or_(page.locator("[role='tab']")).first
+        expect(admin_indicator).to_be_visible(timeout=30000)
+
+        print("✓ Admin panel loaded successfully")
     else:
-        # Method 3: Search all buttons
-        print("Admin button not found by text, trying alternative methods...")
-        all_buttons = page.get_by_role("button").all()
-        for btn in all_buttons:
-            try:
-                if btn.is_visible():
-                    btn_text = btn.text_content()
-                    if btn_text and "admin" in btn_text.lower():
-                        print(f"Found potential admin button: {btn_text}")
-                        btn.click()
-                        time.sleep(2)
-                        admin_found = True
-                        break
-            except:
-                continue
+        # Method 4: Check if already on admin page
+        print("Admin button not found, checking if already on admin page...")
+        admin_content = page.locator("text=/Admin Panel/i").or_(page.locator("[role='tab']")).first
 
-    # Method 4: Check if already on admin page
-    if not admin_found:
-        page_text = page.locator("body").text_content()
-        if "admin" in page_text.lower() or "Admin Panel" in page_text:
-            print("Already on admin page or admin content visible")
-            admin_found = True
+        if admin_content.count() > 0:
+            print("Already on admin page")
         else:
-            print("WARNING: Could not find admin button or navigate to admin panel")
-            # Try direct navigation as fallback
+            # Fallback: try direct navigation
+            print("WARNING: Could not find admin button, attempting direct navigation...")
             page.goto("http://localhost:8502/", wait_until="networkidle")
-            time.sleep(2)
-
-    time.sleep(2)  # Wait for navigation to complete
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
 
     # Take screenshot if debug enabled
     if debug_enabled:
@@ -124,122 +122,67 @@ def navigate_to_admin_panel_common(test_context):
 
     # Update context
     test_context['current_page'] = 'admin'
-    print("✓ Admin panel navigation attempted")
+    print("✓ Admin panel navigation completed")
 
     return test_context
 
 
 @given(parsers.parse('I select the "{tab_name}" tab'))
 def select_debug_tab(test_context, tab_name):
-    """Select the Debug tab in the admin panel."""
+    """Select a tab in the admin panel."""
     page = test_context['page']
     debug_enabled = test_context.get('debug_enabled', False)
 
     print(f'\n=== Selecting "{tab_name}" tab ===')
 
-    # Look for Debug tab
-    debug_tab = page.get_by_text(tab_name, exact=True)
+    # Wait for tabs to be visible
+    tabs_container = page.locator("[role='tab']").first
+    expect(tabs_container).to_be_visible(timeout=10000)
 
-    if debug_tab.count() > 0:
-        debug_tab.first.click()
-        time.sleep(2)
+    # Look for the specific tab by exact text
+    tab = page.get_by_role("tab", name=tab_name, exact=True).first
+
+    # If exact match not found, try case-insensitive regex
+    if tab.count() == 0:
+        print(f"Exact match not found, trying case-insensitive search for {tab_name}...")
+        tab = page.get_by_role("tab", name=re.compile(rf"{re.escape(tab_name)}", re.IGNORECASE)).first
+
+    # If still not found, try by text content
+    if tab.count() == 0:
+        print(f"Role-based search failed, trying text search...")
+        tab = page.get_by_text(tab_name, exact=True).first
+
+    if tab.count() > 0:
+        print(f"Found {tab_name} tab, ensuring it's visible and enabled...")
+        expect(tab).to_be_visible(timeout=10000)
+        expect(tab).to_be_enabled(timeout=5000)
+
+        print(f"Clicking {tab_name} tab...")
+        tab.click()
+
+        # Wait for Streamlit rerun to complete
+        page.wait_for_load_state("networkidle", timeout=30000)
+
+        # Wait for tab content to be visible (the clicked tab should have aria-selected="true")
+        expect(tab).to_have_attribute("aria-selected", "true", timeout=10000)
+
+        print(f"✓ {tab_name} tab selected successfully")
 
         if debug_enabled:
-            debug_path = os.path.join("tests", "debug")
-            os.makedirs(debug_path, exist_ok=True)
-            page.screenshot(path=os.path.join(debug_path, f"{tab_name}_tab_selected.png"))
+            take_screenshot(page, f"{tab_name}_tab_selected.png", debug_enabled)
     else:
-        print("Warning: Could not find Debug tab")
-        # Try to find tabs
-        tabs = page.locator("[role='tab']")
-        for i in range(tabs.count()):
-            tab = tabs.nth(i)
-            if tab_name in tab.text_content():
-                tab.click()
-                time.sleep(2)
-                break
+        print(f"Warning: Could not find {tab_name} tab")
+
+        # Log all available tabs for debugging
+        all_tabs = page.locator("[role='tab']")
+        print(f"Available tabs ({all_tabs.count()}):")
+        for i in range(all_tabs.count()):
+            tab_text = all_tabs.nth(i).text_content()
+            print(f"  Tab {i}: {tab_text}")
 
     return test_context
 
 
-@given("the mock LLM is configured and available")
-def mock_llm_available(context):
-    """Verify the mock LLM is configured and available."""
-    page = context['page']
-    debug_enabled = context.get('debug_enabled', False)
-
-    print("\n=== Selecting Mock LLM ===")
-    print("TEST_MODE env var:", os.getenv("TEST_MODE"))
-    print("CONFIG_FILE env var:", os.getenv("CONFIG_FILE"))
-
-    # Take screenshot before
-    take_screenshot(page, "conversation_before_llm_select.png", debug_enabled)
-
-    # Find the LLM selectbox (second selectbox)
-    selectboxes = page.locator("[data-testid='stSelectbox']")
-    print(f"Found {selectboxes.count()} selectboxes")
-
-    # Log all selectboxes for debugging
-    for i in range(selectboxes.count()):
-        try:
-            selectbox = selectboxes.nth(i)
-            text = selectbox.text_content()
-            print(f"  Selectbox {i}: {text[:100]}")
-        except:
-            print(f"  Selectbox {i}: Could not read text")
-
-    # Try to find LLM selector - look for selectbox containing "LLM" or "AI Model"
-    llm_selectbox = None
-    for i in range(selectboxes.count()):
-        selectbox = selectboxes.nth(i)
-        text = selectbox.text_content()
-        if "llm" in text.lower() or "ai model" in text.lower() or "selection" in text.lower():
-            llm_selectbox = selectbox
-            print(f"Found LLM selectbox at index {i}: {text[:50]}")
-            break
-
-    if llm_selectbox:
-        # Click to open dropdown
-        llm_selectbox.click()
-        time.sleep(2)
-
-        # Take screenshot of dropdown
-        take_screenshot(page, "conversation_llm_dropdown.png", debug_enabled)
-
-        # Look for options - try multiple selectors
-        for selector in ["li[role='option']", "[data-testid='stSelectboxOption']", "div[role='option']"]:
-            options = page.locator(selector)
-            if options.count() > 0:
-                print(f"Found {options.count()} LLM options with {selector}")
-
-                # Log all options
-                for i in range(options.count()):
-                    option = options.nth(i)
-                    option_text = option.text_content()
-                    print(f"  Option {i}: {option_text}")
-
-                    if "Mock" in option_text or "mock" in option_text.lower():
-                        print(f"  ✓ Selecting Mock LLM: {option_text}")
-                        option.click()
-                        time.sleep(3)  # Wait for selection to apply
-
-                        # Take screenshot after selection
-                        take_screenshot(page, "conversation_mock_llm_selected.png", debug_enabled)
-
-                        print("✓ Mock LLM selected")
-                        return context
-
-                # If Mock not found but we have options, select the first one
-                print("Mock LLM not found in options, selecting first option")
-                options.first.click()
-                time.sleep(3)
-                break
-    else:
-        print("Warning: Could not find LLM selectbox")
-
-    print("Note: Could not select Mock LLM, continuing anyway")
-    take_screenshot(page, "conversation_llm_final.png", debug_enabled)
-    return context
 
 @given(parsers.parse('I am on the "{tab_name}" tab'))
 def on_tab(test_context, tab_name):
