@@ -259,7 +259,7 @@ class UIRegistry:
         return results
 
     def render_admin_tabs(self) -> Dict[str, Any]:
-        log("info", "=== START COLLECTING ADMIN TABS ===")
+        log("debug", "=== START COLLECTING ADMIN TABS ===")
         admin_tabs = {}
         active_modules = set(self.module_handler.get_active_modules() if self.module_handler else [])
 
@@ -268,21 +268,21 @@ class UIRegistry:
             base_name = module_info.get('base_name')
             should_render = is_shared or (base_name in active_modules)
 
-            log("info", f"Processing module {module_key} | shared: {is_shared} | base: {base_name} | render: {should_render}")
+            log("debug", f"Processing module {module_key} | shared: {is_shared} | base: {base_name} | render: {should_render}")
 
             render_func = module_info['render_functions'].get('admin_tab')
             if render_func and should_render:
                 try:
                     result = render_func()
-                    log("info", f"admin_tab result from {module_key}: {result}")
+                    log("debug", f"admin_tab result from {module_key}: {result}")
                     if result and isinstance(result, tuple) and len(result) == 2:
                         tab_name, content_func = result
                         admin_tabs[tab_name] = content_func
-                        log("info", f"ADDED TAB '{tab_name}' from {module_key}")
+                        log("debug", f"ADDED TAB '{tab_name}' from {module_key}")
                 except Exception as e:
                     log("error", f"Error getting admin_tab from {module_key}: {e}", exc_info=True)
 
-        log("info", f"=== FINAL ADMIN TABS: {list(admin_tabs.keys())} ===")
+        log("debug", f"=== FINAL ADMIN TABS: {list(admin_tabs.keys())} ===")
         return admin_tabs
 
     def get_module(self, module_key: str) -> Dict:
