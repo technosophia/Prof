@@ -140,8 +140,6 @@ def navigate_to_admin_panel(test_context):
     if admin_button.count() > 0:
         admin_button.first.click()
         time.sleep(2)
-        admin_button.first.click()
-        time.sleep(2)
         # Wait for admin page
         page.wait_for_selector("h1", timeout=10000)
 
