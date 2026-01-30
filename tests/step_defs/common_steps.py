@@ -55,16 +55,6 @@ def test_context():
     return {'debug_enabled': False}
 
 
-# Helper functions
-def find_element_by_text(page, text, exact=False):
-    """Find an element containing specific text."""
-    if exact:
-        return page.get_by_text(text, exact=True)
-    else:
-        return page.get_by_text(text)
-
-
-
 @given("I navigate to the admin panel")
 def navigate_to_admin_panel_common(test_context):
     """Navigate to the admin panel - common implementation for all modules."""
