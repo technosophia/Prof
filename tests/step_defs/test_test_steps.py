@@ -4,7 +4,6 @@ pytest-bdd step definitions for Test admin UI testing.
 Tests the Test module functionality in the admin panel.
 """
 import pytest
-import time
 import re
 from pytest_bdd import given, when, then, scenarios, parsers
 import sys
@@ -53,11 +52,34 @@ def verify_admin_content(test_context, expected_text):
 
     print(f'\n=== [Test Module] Verifying admin content: "{expected_text}" ===')
 
-    # Wait for content to load
-    time.sleep(1)
+    # Wait for admin content area to be stable after potential reruns
+    page.wait_for_load_state("networkidle", timeout=30000)
+
+    # Wait for admin panel to be fully loaded - try multiple selectors
+    admin_selectors = [
+        page.get_by_text("Admin Panel", exact=False),
+        page.get_by_text("Admin", exact=False),
+        page.locator('[data-testid="stSidebar"]').get_by_text("Admin", exact=False),
+        page.get_by_role("heading", name=re.compile(r"Admin", re.IGNORECASE))
+    ]
+
+    admin_visible = False
+    for selector in admin_selectors:
+        try:
+            selector.wait_for(state="visible", timeout=5000)
+            admin_visible = True
+            print(f"✓ Admin panel detected using: {selector}")
+            break
+        except:
+            continue
+
+    if not admin_visible:
+        print("⚠ Could not find Admin Panel text, continuing with general page load check...")
+        # Fallback: just ensure page is loaded
+        page.wait_for_load_state("domcontentloaded", timeout=30000)
 
     # Get all text from the page
-    page_text = page.locator("body").text_content()
+    page_text = page.locator("body").text_content(timeout=10000)
 
     # Check if expected text is in page text
     if expected_text not in page_text:
@@ -71,7 +93,7 @@ def verify_admin_content(test_context, expected_text):
     if debug_enabled:
         take_screenshot(page, "test_admin_content_found.png", debug_enabled)
 
-    return test_context
+    return
 
 
 @then(parsers.parse('I should see "{expected_text}" in the header'))
@@ -85,61 +107,118 @@ def verify_text_in_header_for_test(test_context, expected_text):
 
     print(f'\n=== [Test Module] Verifying header text: "{expected_text}" ===')
 
-    # Wait for content to load
-    time.sleep(1)
+    # Wait for page to be stable after any reruns
+    page.wait_for_load_state("networkidle", timeout=30000)
 
-    # Check headers (h1, h2, h3 elements)
-    found = False
+    # Wait for page to be fully loaded with multiple fallback strategies
+    try:
+        # First try to find admin panel
+        admin_selectors = [
+            page.get_by_text("Admin Panel", exact=False),
+            page.get_by_text("Admin", exact=False),
+            page.get_by_role("heading", name=re.compile(r"Admin", re.IGNORECASE))
+        ]
 
-    # Check all header elements
-    for tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-        headers = page.locator(tag)
-        for i in range(headers.count()):
+        page_loaded = False
+        for selector in admin_selectors:
             try:
-                header = headers.nth(i)
-                header_text = header.text_content().strip()
-                if expected_text in header_text:
-                    print(f"✓ Found '{expected_text}' in {tag}: '{header_text}'")
-                    found = True
-                    break
+                selector.wait_for(state="visible", timeout=5000)
+                page_loaded = True
+                print(f"✓ Page loaded indicator found: {selector}")
+                break
             except:
                 continue
+
+        if not page_loaded:
+            # Fallback: check for any visible content
+            page.locator("body").wait_for(state="visible", timeout=10000)
+            print("✓ Page body is visible")
+
+    except Exception as e:
+        print(f"⚠ Page load check warning: {e}")
+        # Continue anyway - the header check will handle missing elements
+
+    # Check headers (h1, h2, h3 elements) with retry logic
+    found = False
+    max_retries = 3
+
+    for retry in range(max_retries):
+        if retry > 0:
+            print(f"Retry {retry + 1}/{max_retries} for finding header...")
+            page.wait_for_timeout(1000)  # Brief pause between retries
+
+        # Check all header elements
+        for tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+            try:
+                headers_locator = page.locator(tag)
+
+                # Try to get count without timeout parameter
+                count = headers_locator.count()
+                if count > 0:
+                    for i in range(count):
+                        try:
+                            header = headers_locator.nth(i)
+                            # Check if header is visible
+                            if header.is_visible():
+                                header_text = header.text_content()
+                                if header_text and expected_text in header_text.strip():
+                                    print(f"✓ Found '{expected_text}' in {tag}: '{header_text.strip()}'")
+                                    found = True
+                                    break
+                        except:
+                            continue
+            except:
+                continue
+
         if found:
             break
 
-    # Also check for text anywhere on page
+    # Also check for text anywhere on page if not found in headers
     if not found:
-        page_text = page.locator("body").text_content()
-        if expected_text in page_text:
+        page_text = page.locator("body").text_content(timeout=5000)
+        if page_text and expected_text in page_text:
             print(f"✓ Found '{expected_text}' somewhere on page")
             found = True
+
+    # Try one more strategy: look for any element containing the text
+    if not found:
+        try:
+            matching_elements = page.locator(f':has-text("{expected_text}")')
+            if matching_elements.count() > 0:
+                for i in range(matching_elements.count()):
+                    element = matching_elements.nth(i)
+                    if element.is_visible():
+                        element_text = element.text_content()
+                        if element_text and expected_text in element_text:
+                            print(f"✓ Found '{expected_text}' in element: '{element_text[:50]}...'")
+                            found = True
+                            break
+        except:
+            pass
 
     if not found:
         if debug_enabled:
             take_screenshot(page, "test_header_not_found.png", debug_enabled)
-        raise AssertionError(f"Expected text '{expected_text}' not found in any header")
+        raise AssertionError(f"Expected text '{expected_text}' not found in any header or on page")
 
     if debug_enabled:
         take_screenshot(page, "test_header_found.png", debug_enabled)
 
-    return test_context
+    return
 
 @given("the Test module is available")
 def test_module_available(test_context):
     """Verify the Test module is available in the admin panel."""
-    # Note: This is just a placeholder step definition
-    # The actual verification happens in the scenario steps
     print("\n=== [Test Module] Assuming Test module is available ===")
-    return
 
-# Optional: Add these step definitions if needed by your feature file
-@when('I select another admin tab')
-def select_other_admin_tab(test_context):
-    """Select a different admin tab than the current one."""
-    # Implementation if needed
-    return
+    # Wait for page to be loaded if available
+    if 'page' in test_context:
+        page = test_context['page']
+        page.wait_for_load_state("networkidle", timeout=30000)
+        # Use multiple strategies to verify page is ready
+        try:
+            page.locator("body").wait_for(state="visible", timeout=10000)
+        except:
+            pass  # Continue even if body visibility check fails
 
-@when('I return to the "Test" tab')
-def return_to_test_tab(test_context):
-    """Return to the Test tab."""
-    return select_admin_tab(test_context, "Test")
+    return
