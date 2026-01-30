@@ -5,7 +5,7 @@ Simple RAG Engine Plugin
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from ..rag_manager import RAGEngine
+from .rag_engine import RAGEngine
 from shared.logging import log
 
 
