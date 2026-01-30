@@ -19,11 +19,12 @@ def show_rag_admin_content():
     st.title("📚 RAG Document Manager")
 
     # Tabs for different functionalities
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📄 Documents",
         "🔧 Engines",
         "🔍 Search Test",
-        "📊 Stats"
+        "📊 Stats",
+        "🔗 Index"  # NEW TAB
     ])
 
     with tab1:
@@ -37,6 +38,9 @@ def show_rag_admin_content():
 
     with tab4:
         _show_stats_tab()
+
+    with tab5:  # NEW TAB
+        _show_index_tab()
 
 
 def _show_documents_tab():
@@ -344,6 +348,228 @@ def _show_stats_tab():
             with col2:
                 if st.button("🔄 Refresh", type="secondary"):
                     st.rerun()
+
+
+def _show_index_tab():
+    """NEW: Show document indexing tab."""
+    st.header("📚 Document Indexing")
+
+    # Get current user
+    current_user = st.session_state.get('current_user')
+    if not current_user:
+        st.warning("Please log in to manage indexing")
+        return
+
+    user_id = current_user['id']
+
+    # Get available engines
+    engines = rag_manager.get_available_engines()
+    available_engines = [e for e in engines if e['available']]
+
+    if not available_engines:
+        st.warning("No RAG engines available for indexing")
+        return
+
+    # Engine selection
+    st.subheader("1. Select RAG Engine")
+
+    engine_options = {e['type']: e for e in available_engines}
+    selected_engine_type = st.selectbox(
+        "Choose an engine to index documents:",
+        options=list(engine_options.keys()),
+        format_func=lambda x: f"{x.upper()} - {engine_options[x]['description']}"
+    )
+
+    # Get documents for current user
+    documents = rag_manager.get_user_documents(user_id)
+
+    if not documents:
+        st.info("No documents available for indexing. Upload documents first.")
+        return
+
+    # Filter documents not yet indexed in selected engine
+    unindexed_documents = []
+    indexed_documents = []
+
+    for doc in documents:
+        if selected_engine_type in doc.get('indexed_in', []):
+            indexed_documents.append(doc)
+        else:
+            unindexed_documents.append(doc)
+
+    st.subheader("2. Indexing Status")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Documents", len(documents))
+    with col2:
+        st.metric("Indexed", len(indexed_documents))
+    with col3:
+        st.metric("Not Indexed", len(unindexed_documents))
+
+    # Indexing options
+    st.subheader("3. Indexing Options")
+
+    if unindexed_documents:
+        # Individual document indexing
+        st.markdown("**Index Individual Documents**")
+
+        # Create a table of unindexed documents with checkboxes
+        st.markdown("Select documents to index:")
+
+        selected_docs = []
+        for doc in unindexed_documents:
+            col1, col2, col3 = st.columns([1, 3, 2])
+            with col1:
+                # Checkbox for selection
+                if st.checkbox("Add", key=f"select_{doc['filename']}_{selected_engine_type}"):
+                    selected_docs.append(doc)
+            with col2:
+                st.write(f"**{doc['original_filename']}**")
+            with col3:
+                upload_date = datetime.fromisoformat(doc['uploaded_at']).strftime("%Y-%m-%d")
+                st.write(f"Uploaded: {upload_date}")
+
+        # Bulk indexing options
+        st.divider()
+        st.markdown("**Bulk Operations**")
+
+        col_a, col_b, col_c = st.columns(3)
+
+        with col_a:
+            # Index selected documents
+            if selected_docs and st.button(f"📥 Index Selected ({len(selected_docs)})", type="primary"):
+                success_count = 0
+                failed_count = 0
+
+                with st.spinner(f"Indexing {len(selected_docs)} document(s)..."):
+                    for doc in selected_docs:
+                        if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                            success_count += 1
+                        else:
+                            failed_count += 1
+
+                if success_count > 0:
+                    st.success(f"Successfully indexed {success_count} document(s)")
+                if failed_count > 0:
+                    st.error(f"Failed to index {failed_count} document(s)")
+                st.rerun()
+
+        with col_b:
+            # Index all unindexed documents
+            if unindexed_documents and st.button("📦 Index All Unindexed", type="secondary"):
+                success_count = 0
+                failed_count = 0
+
+                with st.spinner(f"Indexing {len(unindexed_documents)} document(s)..."):
+                    for doc in unindexed_documents:
+                        if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                            success_count += 1
+                        else:
+                            failed_count += 1
+
+                if success_count > 0:
+                    st.success(f"Successfully indexed {success_count} document(s)")
+                if failed_count > 0:
+                    st.error(f"Failed to index {failed_count} document(s)")
+                st.rerun()
+
+        with col_c:
+            # Re-index all documents (even already indexed)
+            if st.button("🔄 Re-index All", type="secondary"):
+                success_count = 0
+                failed_count = 0
+
+                with st.spinner(f"Re-indexing {len(documents)} document(s)..."):
+                    for doc in documents:
+                        if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                            success_count += 1
+                        else:
+                            failed_count += 1
+
+                if success_count > 0:
+                    st.success(f"Successfully re-indexed {success_count} document(s)")
+                if failed_count > 0:
+                    st.error(f"Failed to re-index {failed_count} document(s)")
+                st.rerun()
+
+    else:
+        st.info(f"All your documents are already indexed in the {selected_engine_type} engine.")
+
+        # Option to re-index anyway
+        if st.button("🔄 Re-index All Documents Anyway", type="secondary"):
+            success_count = 0
+            failed_count = 0
+
+            with st.spinner(f"Re-indexing {len(documents)} document(s)..."):
+                for doc in documents:
+                    if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
+
+            if success_count > 0:
+                st.success(f"Successfully re-indexed {success_count} document(s)")
+            if failed_count > 0:
+                st.error(f"Failed to re-index {failed_count} document(s)")
+            st.rerun()
+
+    # Already indexed documents section
+    if indexed_documents:
+        st.divider()
+        st.subheader(f"Already Indexed in {selected_engine_type.upper()}")
+
+        with st.expander(f"View {len(indexed_documents)} indexed documents", expanded=False):
+            for doc in indexed_documents:
+                col1, col2, col3 = st.columns([3, 2, 1])
+                with col1:
+                    st.write(f"**{doc['original_filename']}**")
+                with col2:
+                    # Get indexing date if available
+                    doc_info = rag_manager.documents.get(doc['filename'], {})
+                    indexed_info = doc_info.get('indexed_in', {})
+                    if selected_engine_type in indexed_info:
+                        index_date = datetime.fromisoformat(indexed_info[selected_engine_type]).strftime("%Y-%m-%d %H:%M")
+                        st.caption(f"Indexed: {index_date}")
+                with col3:
+                    # Re-index button for individual document
+                    if st.button("↻", key=f"reindex_{doc['filename']}_{selected_engine_type}", help="Re-index this document"):
+                        with st.spinner(f"Re-indexing {doc['original_filename']}..."):
+                            if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                                st.success(f"Re-indexed {doc['original_filename']}")
+                                st.rerun()
+
+    # Engine management section
+    st.divider()
+    st.subheader("4. Engine Management")
+
+    selected_engine = rag_manager.get_engine(selected_engine_type)
+    if selected_engine:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Get engine stats
+            engine_stats = selected_engine.get_stats(user_id)
+            st.markdown("**Engine Statistics**")
+            for key, value in engine_stats.items():
+                if key != 'engine_type':
+                    st.write(f"- {key.replace('_', ' ').title()}: {value}")
+
+        with col2:
+            # Clear index option
+            st.markdown("**Index Management**")
+            if st.button("🗑️ Clear Index for This Engine", type="secondary"):
+                if st.session_state.get(f"confirm_clear_{selected_engine_type}", False):
+                    if selected_engine.clear_user_index(user_id):
+                        st.success(f"Cleared {selected_engine_type} index for your documents")
+                        st.rerun()
+                else:
+                    st.session_state[f"confirm_clear_{selected_engine_type}"] = True
+                    st.warning(f"Are you sure you want to clear the {selected_engine_type} index?")
+
+    # Refresh button
+    if st.button("🔄 Refresh Indexing Status"):
+        st.rerun()
 
 
 def inject_ui_admin_tab():
