@@ -3,7 +3,6 @@ pytest-bdd step definitions for conversation testing.
 Tests the complete conversation flow with mock LLM.
 """
 import pytest
-import time
 import re
 from pytest_bdd import given, when, then, scenarios, parsers
 import sys
@@ -55,8 +54,15 @@ def app_is_running(context, page: Page, debug_dir, streamlit_server):
     print("\n=== Navigating to application ===")
     page.goto("http://localhost:8502/", wait_until="networkidle")
 
-    # Wait for Streamlit to fully load - look for any Streamlit element
-    page.wait_for_selector("[data-testid='stApp']", timeout=30000)
+    # Wait for Streamlit to fully load
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
+    # Wait for sidebar to be visible (if present)
+    try:
+        expect(page.locator("[data-testid='stSidebar']")).to_be_visible(timeout=10000)
+        print("✓ Sidebar is visible")
+    except AssertionError:
+        print("Note: Sidebar not found, continuing...")
 
     # Take initial screenshot if debug mode
     take_screenshot(page, "conversation_01_homepage.png", debug_dir, full_page=True)
@@ -127,33 +133,31 @@ def default_user_logged_in(context, username):
     # Take screenshot before login
     take_screenshot(page, "conversation_before_login.png", debug_enabled, full_page=True)
 
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     # Find ALL selectboxes
     all_selectboxes = page.locator("[data-testid='stSelectbox']")
     selectbox_count = all_selectboxes.count()
     print(f"Found {selectbox_count} selectboxes total")
-
-    # List all selectboxes for debugging
-    for i in range(selectbox_count):
-        selectbox = all_selectboxes.nth(i)
-        text = selectbox.text_content()
-        print(f"  Selectbox {i}: '{text}'")
 
     # The user selectbox should be the one with "Choose user" or similar
     # Based on earlier error, it's the 3rd one (index 2)
     if selectbox_count >= 3:
         print("Clicking the third selectbox (assuming it's the user selector)...")
         user_selectbox = all_selectboxes.nth(2)
+        expect(user_selectbox).to_be_visible(timeout=30000)
         user_selectbox.click()
-        time.sleep(2)  # Give more time for dropdown
+
+        # Wait for dropdown to open
+        expect(page.locator("li[role='option']").first).to_be_visible(timeout=30000)
 
         # Try different selectors for dropdown options
-        # Streamlit dropdowns can appear in different places
         option_selectors = [
             "[data-testid='stSelectboxOption']",
             "div[role='option']",
-            "li[role='option']",
-            ".stSelectbox option",
-            "div[data-baseweb='menu'] div[role='option']"
+            "li[role='option']"
         ]
 
         options_found = False
@@ -173,7 +177,9 @@ def default_user_logged_in(context, username):
 
                     if username in option_text:
                         option.click()
-                        time.sleep(2)
+                        # Wait for Streamlit rerun
+                        page.wait_for_load_state("networkidle", timeout=30000)
+                        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
                         print(f"✓ Selected user: {username}")
                         user_found = True
                         break
@@ -181,51 +187,40 @@ def default_user_logged_in(context, username):
                 if not user_found and option_count > 0:
                     # Select first option
                     options.first.click()
-                    time.sleep(2)
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
                     print("Selected first available user (username not found)")
 
                 break
 
         if not options_found:
             print("Warning: No dropdown options found after clicking selectbox")
+            # Close dropdown if open
+            page.keyboard.press("Escape")
 
-            # Try pressing down arrow to navigate dropdown
-            page.keyboard.press("ArrowDown")
-            time.sleep(0.5)
-            page.keyboard.press("Enter")
-            time.sleep(2)
-            print("Used keyboard navigation to select user")
-    else:
-        print(f"Warning: Expected at least 3 selectboxes, found {selectbox_count}")
+    # Look for login button - use robust selectors
+    login_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"login as user", re.IGNORECASE)),
+        page.get_by_role("button", name=re.compile(r"login", re.IGNORECASE)),
+        page.get_by_role("button", name=re.compile(r"log in", re.IGNORECASE))
+    ]
 
-    # Look for login button - it might be near the user selector
     login_button = None
-
-    # Try different button texts
-    button_texts = ["Login as User", "Login", "Log in", "Connect", "Se connecter"]
-    for button_text in button_texts:
-        button = find_element_by_text(page, button_text)
-        if button.count() > 0:
-            login_button = button
-            print(f"Found login button: {button_text}")
+    for selector in login_button_selectors:
+        if selector.count() > 0:
+            login_button = selector.first
             break
 
     if login_button:
-        login_button.first.click()
-        time.sleep(2)
+        expect(login_button).to_be_visible(timeout=30000)
+        expect(login_button).to_be_enabled(timeout=30000)
+        login_button.click()
+        # Wait for login to complete
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
         print("Clicked login button")
     else:
         print("Note: No login button found - maybe login happens automatically")
-
-        # Try to find any button that might be a login button
-        buttons = page.get_by_role("button").all()
-        for btn in buttons:
-            btn_text = btn.text_content()
-            if "login" in btn_text.lower() or "connect" in btn_text.lower():
-                btn.click()
-                time.sleep(2)
-                print(f"Clicked button with text: {btn_text}")
-                break
 
     # Take screenshot after login attempt
     take_screenshot(page, "conversation_02_logged_in.png", debug_enabled, full_page=True)
@@ -247,14 +242,6 @@ def default_user_logged_in(context, username):
         "chat"
     ]
 
-    # Negative indicators (not logged in)
-    negative_indicators = [
-        "please log in",
-        "no user selected",
-        "select a user",
-        "please select.*user"
-    ]
-
     logged_in = False
     for indicator in positive_indicators:
         if re.search(indicator, page_text, re.IGNORECASE):
@@ -263,22 +250,10 @@ def default_user_logged_in(context, username):
             break
 
     if not logged_in:
-        # Check for negative indicators
-        found_negative = False
-        for indicator in negative_indicators:
-            if re.search(indicator, page_text, re.IGNORECASE):
-                print(f"✗ Found negative indicator: {indicator}")
-                found_negative = True
-
-        if found_negative:
-            print("Warning: User may not be logged in (found negative indicators)")
-        else:
-            print("Note: No clear login status indicators found")
+        print("Note: No clear login status indicators found")
 
     return context
 
-
-# In test_conversation_steps.py, update the mock_llm_available function:
 
 @given("the mock LLM is configured and available")
 def mock_llm_available(context):
@@ -293,18 +268,13 @@ def mock_llm_available(context):
     # Take screenshot before
     take_screenshot(page, "conversation_before_llm_select.png", debug_enabled)
 
-    # Find the LLM selectbox (second selectbox)
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
+    # Find the LLM selectbox
     selectboxes = page.locator("[data-testid='stSelectbox']")
     print(f"Found {selectboxes.count()} selectboxes")
-
-    # Log all selectboxes for debugging
-    for i in range(selectboxes.count()):
-        try:
-            selectbox = selectboxes.nth(i)
-            text = selectbox.text_content()
-            print(f"  Selectbox {i}: {text[:100]}")
-        except:
-            print(f"  Selectbox {i}: Could not read text")
 
     # Try to find LLM selector - look for selectbox containing "LLM" or "AI Model"
     llm_selectbox = None
@@ -318,19 +288,22 @@ def mock_llm_available(context):
 
     if llm_selectbox:
         # Click to open dropdown
+        expect(llm_selectbox).to_be_visible(timeout=30000)
         llm_selectbox.click()
-        time.sleep(2)
+
+        # Wait for dropdown to open
+        expect(page.locator("li[role='option']").first).to_be_visible(timeout=30000)
 
         # Take screenshot of dropdown
         take_screenshot(page, "conversation_llm_dropdown.png", debug_enabled)
 
-        # Look for options - try multiple selectors
-        for selector in ["li[role='option']", "[data-testid='stSelectboxOption']", "div[role='option']"]:
+        # Look for options
+        for selector in ["li[role='option']", "[data-testid='stSelectboxOption']"]:
             options = page.locator(selector)
             if options.count() > 0:
                 print(f"Found {options.count()} LLM options with {selector}")
 
-                # Log all options
+                # Try to find Mock LLM
                 for i in range(options.count()):
                     option = options.nth(i)
                     option_text = option.text_content()
@@ -339,7 +312,9 @@ def mock_llm_available(context):
                     if "Mock" in option_text or "mock" in option_text.lower():
                         print(f"  ✓ Selecting Mock LLM: {option_text}")
                         option.click()
-                        time.sleep(3)  # Wait for selection to apply
+                        # Wait for selection to apply
+                        page.wait_for_load_state("networkidle", timeout=30000)
+                        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
                         # Take screenshot after selection
                         take_screenshot(page, "conversation_mock_llm_selected.png", debug_enabled)
@@ -350,7 +325,8 @@ def mock_llm_available(context):
                 # If Mock not found but we have options, select the first one
                 print("Mock LLM not found in options, selecting first option")
                 options.first.click()
-                time.sleep(3)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
                 break
     else:
         print("Warning: Could not find LLM selectbox")
@@ -367,19 +343,31 @@ def navigate_to_chat_page(context):
 
     print("\n=== Navigating to chat page ===")
 
-    # Look for chat button in sidebar navigation
-    chat_button = find_element_by_text(page, "💬 Chat")
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if chat_button.count() == 0:
-        # Try without emoji
-        chat_button = find_element_by_text(page, "Chat")
+    # Look for chat button using robust selectors
+    chat_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"chat", re.IGNORECASE)),
+        page.get_by_text("💬 Chat"),
+        page.get_by_text("Chat")
+    ]
 
-    if chat_button.count() > 0:
-        chat_button.first.click()
-        time.sleep(2)
+    chat_button = None
+    for selector in chat_button_selectors:
+        if selector.count() > 0:
+            chat_button = selector.first
+            break
 
+    if chat_button:
+        expect(chat_button).to_be_visible(timeout=30000)
+        expect(chat_button).to_be_enabled(timeout=30000)
+        chat_button.click()
         # Wait for chat page to load
-        page.wait_for_selector("h1", timeout=10000)
+        page.wait_for_load_state("networkidle", timeout=30000)
+        # Wait for chat input to be visible
+        expect(page.locator("[data-testid='stChatInput']").or_(page.get_by_text("Conversation"))).to_be_visible(timeout=30000)
 
         take_screenshot(page, "conversation_04_chat_page.png", debug_enabled)
 
@@ -387,21 +375,11 @@ def navigate_to_chat_page(context):
         context['current_page'] = 'chat'
     else:
         print("Warning: Could not find chat button, assuming already on chat page")
-
-        # Check current page by looking for chat-related elements
-        page_text = page.locator("body").text_content()
-        if "conversation" in page_text.lower() or "chat" in page_text.lower():
+        # Check if chat input is already visible
+        if page.locator("[data-testid='stChatInput']").count() > 0:
             context['current_page'] = 'chat'
         else:
-            # Try to find any navigation button
-            buttons = page.get_by_role("button").all()
-            for btn in buttons:
-                btn_text = btn.text_content()
-                if "chat" in btn_text.lower():
-                    btn.click()
-                    time.sleep(2)
-                    context['current_page'] = 'chat'
-                    break
+            print("ERROR: Not on chat page and no chat button found")
 
     return context
 
@@ -417,47 +395,34 @@ def create_new_conversation(context, conversation_name):
     # Take screenshot before
     take_screenshot(page, "conversation_before_create.png", debug_enabled)
 
-    # Try multiple ways to find new conversation button
-    new_convo_button = None
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Method 1: Look for button with text
-    button_texts = ["➕ New Conversation", "New Conversation", "New conversation", "Create conversation", "Start new conversation"]
-    for text in button_texts:
-        button = find_element_by_text(page, text)
-        if button.count() > 0:
-            new_convo_button = button.first
-            print(f"Found new conversation button: {text}")
+    # Try multiple ways to find new conversation button
+    new_convo_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"new conversation", re.IGNORECASE)),
+        page.get_by_text("➕ New Conversation"),
+        page.get_by_text("New Conversation"),
+        page.get_by_text("Create conversation")
+    ]
+
+    new_convo_button = None
+    for selector in new_convo_button_selectors:
+        if selector.count() > 0:
+            new_convo_button = selector.first
             break
 
-    # Method 2: Look for button in conversations section
-    if not new_convo_button:
-        # Look for conversations heading
-        conv_headings = page.locator(":text('Conversations'):visible")
-        if conv_headings.count() > 0:
-            # Look for buttons near conversations heading
-            buttons_near = page.locator(":near(:text('Conversations'), 200)").get_by_role("button")
-            if buttons_near.count() > 0:
-                for i in range(buttons_near.count()):
-                    btn = buttons_near.nth(i)
-                    btn_text = btn.text_content()
-                    if any(word in btn_text.lower() for word in ["new", "create", "add", "+"]):
-                        new_convo_button = btn
-                        print(f"Found button near Conversations: {btn_text}")
-                        break
-
-    # Method 3: Look for any plus button
-    if not new_convo_button:
-        plus_buttons = page.locator("button:has-text('+'), button:has-text('➕')")
-        if plus_buttons.count() > 0:
-            new_convo_button = plus_buttons.first
-            print("Found plus button")
-
     if new_convo_button:
+        expect(new_convo_button).to_be_visible(timeout=30000)
+        expect(new_convo_button).to_be_enabled(timeout=30000)
         new_convo_button.click()
-        time.sleep(2)
+
+        # Wait for dialog to appear
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
         # Now look for conversation title input
-        # Try multiple selectors for input
         input_selectors = [
             "input[type='text']",
             "input[placeholder*='title']",
@@ -474,29 +439,46 @@ def create_new_conversation(context, conversation_name):
                 break
 
         if title_input:
+            expect(title_input).to_be_visible(timeout=30000)
+            expect(title_input).to_be_enabled(timeout=30000)
             title_input.fill("")
             title_input.type(conversation_name, delay=100)
-            time.sleep(0.5)
+
+            # Wait for input to have value
+            expect(title_input).to_have_value(conversation_name, timeout=30000)
 
             # Look for save button
-            save_button = find_element_by_text(page, "Save")
-            if save_button.count() == 0:
-                save_button = find_element_by_text(page, "Create")
+            save_button_selectors = [
+                page.get_by_role("button", name=re.compile(r"save", re.IGNORECASE)),
+                page.get_by_role("button", name=re.compile(r"create", re.IGNORECASE)),
+                page.get_by_text("Save"),
+                page.get_by_text("Create")
+            ]
 
-            if save_button.count() > 0:
-                save_button.first.click()
-                time.sleep(3)
+            save_button = None
+            for selector in save_button_selectors:
+                if selector.count() > 0:
+                    save_button = selector.first
+                    break
+
+            if save_button:
+                expect(save_button).to_be_visible(timeout=30000)
+                expect(save_button).to_be_enabled(timeout=30000)
+                save_button.click()
+                # Wait for conversation to be created
+                page.wait_for_load_state("networkidle", timeout=30000)
+                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
                 print(f"Created conversation: {conversation_name}")
             else:
-                # Press Enter
+                # Press Enter as fallback
                 title_input.press("Enter")
-                time.sleep(3)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
                 print(f"Created conversation with Enter: {conversation_name}")
         else:
             print("Warning: Could not find title input")
     else:
         print("Warning: Could not find new conversation button")
-        # Try to create conversation by other means if possible
 
     take_screenshot(page, "conversation_after_create.png", debug_enabled)
 
@@ -515,13 +497,16 @@ def send_message(context, message):
     # Take screenshot before sending
     take_screenshot(page, "conversation_before_send.png", debug_enabled, full_page=True)
 
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     # Try multiple ways to find chat input
     chat_input = None
 
     # Method 1: Streamlit's chat input
     chat_inputs = page.locator("[data-testid='stChatInput']").all()
     if chat_inputs:
-        # Find textarea or input inside
         for elem in chat_inputs:
             input_elem = elem.locator("textarea, input")
             if input_elem.count() > 0:
@@ -539,45 +524,25 @@ def send_message(context, message):
                 print(f"Found chat input via placeholder: {placeholder}")
                 break
 
-    # Method 3: Look for any input that could be chat
-    if not chat_input:
-        inputs = page.locator("input[type='text']").all()
-        for inp in inputs:
-            placeholder = inp.get_attribute("placeholder") or ""
-            if any(word in placeholder.lower() for word in ["message", "type", "say", "ask"]):
-                chat_input = inp
-                print(f"Found chat input via input placeholder: {placeholder}")
-                break
-
-    # Method 4: Last resort - look for any text input
-    if not chat_input:
-        # Look for any element that accepts text input
-        editable_elements = page.locator("[contenteditable='true'], textarea, input[type='text']")
-        if editable_elements.count() > 0:
-            # Take the last one (usually chat is at bottom)
-            chat_input = editable_elements.last
-            print("Found chat input via last editable element")
-
     if chat_input:
-        # Clear and type
+        expect(chat_input).to_be_visible(timeout=30000)
+        expect(chat_input).to_be_enabled(timeout=30000)
         chat_input.fill("")
         chat_input.type(message, delay=100)
-        time.sleep(0.5)
+
+        # Wait for text to be entered
+        expect(chat_input).to_have_value(message, timeout=30000)
 
         # Press Enter
         chat_input.press("Enter")
         print("Message sent with Enter")
-        time.sleep(3)  # Wait for response
-    else:
-        print("ERROR: Could not find chat input at all")
-        # Take detailed screenshot
-        take_screenshot(page, "conversation_no_chat_input.png", debug_enabled, full_page=True)
 
-        # Try to print page structure for debugging
-        print("Page structure around likely chat area:")
-        main_area = page.locator("main, [data-testid='stMain']")
-        if main_area.count() > 0:
-            print(main_area.first.text_content()[:500])
+        # Wait for response to start processing
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+    else:
+        print("ERROR: Could not find chat input")
+        take_screenshot(page, "conversation_no_chat_input.png", debug_enabled, full_page=True)
 
     take_screenshot(page, "conversation_after_send.png", debug_enabled, full_page=True)
     context['last_message'] = message
@@ -592,35 +557,33 @@ def verify_mock_response(context):
 
     print("\n=== Verifying mock LLM response ===")
 
-    # Wait a bit more for response to appear
-    time.sleep(2)
+    # Wait for response to appear
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Take screenshot to see what's on the page
-    take_screenshot(page, "conversation_response_debug.png", debug_enabled, full_page=True)
-
-    # Look for assistant messages or any response
+    # Look for assistant messages with retry logic
+    max_attempts = 5
     found_response = False
     response_text = ""
 
-    # Method 1: Look for chat messages (Streamlit structure)
-    chat_messages = page.locator("[data-testid='stChatMessage']").all()
-    if chat_messages:
-        print(f"Found {len(chat_messages)} chat messages")
-        # The last one should be the assistant response
-        if len(chat_messages) > 0:
-            last_message = chat_messages[-1]
-            response_text = last_message.text_content()
-            print(f"Last chat message: {response_text[:100]}...")
+    for attempt in range(max_attempts):
+        # Method 1: Look for chat messages (Streamlit structure)
+        chat_messages = page.locator("[data-testid='stChatMessage']").all()
+        if chat_messages:
+            print(f"Found {len(chat_messages)} chat messages")
+            # The last one should be the assistant response
+            if len(chat_messages) > 0:
+                last_message = chat_messages[-1]
+                response_text = last_message.text_content()
+                print(f"Last chat message: {response_text[:100]}...")
 
-            # Check for mock indicators
-            if any(indicator in response_text.lower() for indicator in ["mock", "test", "hello", "response"]):
-                found_response = True
+                # Check for mock indicators
+                if any(indicator in response_text.lower() for indicator in ["mock", "test", "hello", "response"]):
+                    found_response = True
+                    break
 
-    # Method 2: Look for any text that looks like a response
-    if not found_response:
+        # Method 2: Look for any text that looks like a response
         page_text = page.locator("body").text_content()
-
-        # Look for patterns that indicate a response
         response_patterns = [
             r"mock.*response",
             r"test.*llm",
@@ -637,18 +600,16 @@ def verify_mock_response(context):
                 print(f"Found response pattern: {pattern}")
                 break
 
-    # Method 3: Look for assistant role in chat
-    if not found_response:
-        assistant_elements = page.locator("[class*='assistant'], [class*='Assistant']").all()
-        for elem in assistant_elements:
-            text = elem.text_content()
-            if text and len(text) > 10:
-                found_response = True
-                response_text = text
-                print(f"Found assistant element: {text[:100]}...")
-                break
+        if found_response:
+            break
 
-    assert found_response, "No mock LLM response found on page"
+        if attempt < max_attempts - 1:
+            print(f"Response not found yet, waiting... (attempt {attempt + 1}/{max_attempts})")
+            page.wait_for_timeout(1000)  # Brief wait between attempts
+
+    if not found_response:
+        take_screenshot(page, "conversation_response_debug.png", debug_enabled, full_page=True)
+        assert found_response, "No mock LLM response found on page"
 
     take_screenshot(page, "conversation_08_response_received.png", debug_enabled)
     context['last_response'] = response_text
@@ -662,6 +623,10 @@ def verify_response_contains(context, expected_text):
     page = context['page']
 
     print(f"\n=== Verifying response contains: {expected_text} ===")
+
+    # Wait for page to be stable
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
     # Get last response from context or find it on page
     if 'last_response' in context:
@@ -722,15 +687,30 @@ def click_regenerate_button(context):
 
     print("\n=== Clicking regenerate button ===")
 
-    # Look for regenerate buttons
-    regenerate_button = find_element_by_text(page, "🔄 Regenerate")
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if regenerate_button.count() == 0:
-        regenerate_button = find_element_by_text(page, "Regenerate")
+    # Look for regenerate buttons with robust selectors
+    regenerate_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"regenerate", re.IGNORECASE)),
+        page.get_by_text("🔄 Regenerate"),
+        page.get_by_text("Regenerate")
+    ]
 
-    if regenerate_button.count() > 0:
-        regenerate_button.first.click()
-        time.sleep(2)
+    regenerate_button = None
+    for selector in regenerate_button_selectors:
+        if selector.count() > 0:
+            regenerate_button = selector.first
+            break
+
+    if regenerate_button:
+        expect(regenerate_button).to_be_visible(timeout=30000)
+        expect(regenerate_button).to_be_enabled(timeout=30000)
+        regenerate_button.click()
+        # Wait for regeneration to start
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
         print("Clicked regenerate button")
     else:
         print("Warning: Could not find regenerate button")
@@ -747,12 +727,11 @@ def verify_response_updated(context):
     print("\n=== Verifying response was regenerated ===")
 
     # Wait for regeneration to complete
-    time.sleep(3)
-
-    # Just check that we're still on the page and no errors
-    page_text = page.locator("body").text_content()
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
     # Check that we don't see error messages
+    page_text = page.locator("body").text_content()
     error_indicators = ["error", "failed", "exception", "traceback"]
     for indicator in error_indicators:
         assert indicator not in page_text.lower(), f"Error found after regeneration: {indicator}"
@@ -774,35 +753,64 @@ def have_two_conversations(context, conversation1, conversation2):
 
     # Send a test message to first conversation
     context = send_message(context, f"Message in {conversation1}")
-    time.sleep(2)
+
+    # Wait for response
+    page = context['page']
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
     # Create second conversation
-    # Need to find and click "New Conversation" button again
-    page = context['page']
-    new_convo_button = find_element_by_text(page, "➕ New Conversation")
+    new_convo_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"new conversation", re.IGNORECASE)),
+        page.get_by_text("➕ New Conversation"),
+        page.get_by_text("New Conversation")
+    ]
 
-    if new_convo_button.count() == 0:
-        new_convo_button = find_element_by_text(page, "New Conversation")
+    new_convo_button = None
+    for selector in new_convo_button_selectors:
+        if selector.count() > 0:
+            new_convo_button = selector.first
+            break
 
-    if new_convo_button.count() > 0:
-        new_convo_button.first.click()
-        time.sleep(1)
+    if new_convo_button:
+        expect(new_convo_button).to_be_visible(timeout=30000)
+        expect(new_convo_button).to_be_enabled(timeout=30000)
+        new_convo_button.click()
+
+        # Wait for dialog
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
         # Fill second conversation name
         text_inputs = page.locator("input[type='text']").all()
         if text_inputs:
-            text_inputs[0].fill(conversation2)
-            time.sleep(0.5)
+            title_input = text_inputs[0]
+            expect(title_input).to_be_visible(timeout=30000)
+            expect(title_input).to_be_enabled(timeout=30000)
+            title_input.fill(conversation2)
 
             # Submit
-            save_button = find_element_by_text(page, "Save")
-            if save_button.count() > 0:
-                save_button.first.click()
-                time.sleep(2)
+            save_button_selectors = [
+                page.get_by_role("button", name=re.compile(r"save", re.IGNORECASE)),
+                page.get_by_text("Save")
+            ]
+
+            save_button = None
+            for selector in save_button_selectors:
+                if selector.count() > 0:
+                    save_button = selector.first
+                    break
+
+            if save_button:
+                expect(save_button).to_be_visible(timeout=30000)
+                expect(save_button).to_be_enabled(timeout=30000)
+                save_button.click()
+                # Wait for creation
+                page.wait_for_load_state("networkidle", timeout=30000)
+                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
                 # Send a different message to second conversation
                 context = send_message(context, f"Message in {conversation2}")
-                time.sleep(2)
 
     context['conversation1'] = conversation1
     context['conversation2'] = conversation2
@@ -818,12 +826,20 @@ def select_conversation_quoted(context, conversation_name):
 
     print(f"\n=== Selecting conversation: {conversation_name} ===")
 
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     # Look for conversation button
     conversation_button = find_element_by_text(page, conversation_name)
 
     if conversation_button.count() > 0:
+        expect(conversation_button.first).to_be_visible(timeout=30000)
+        expect(conversation_button.first).to_be_enabled(timeout=30000)
         conversation_button.first.click()
-        time.sleep(2)
+        # Wait for conversation to load
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
         print(f"Selected conversation: {conversation_name}")
     else:
         print(f"Warning: Could not find conversation button for: {conversation_name}")
@@ -840,6 +856,10 @@ def verify_conversation_history(context, conversation_name):
     page = context['page']
 
     print(f"\n=== Verifying history for: {conversation_name} ===")
+
+    # Wait for page to be stable
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
     # Check if conversation title appears
     page_text = page.locator("body").text_content()
@@ -863,9 +883,13 @@ def have_conversation_with_messages(context, conversation_name):
 
     # Send a couple of messages
     context = send_message(context, "First test message")
-    time.sleep(1)
+
+    # Wait between messages
+    page = context['page']
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     context = send_message(context, "Second test message")
-    time.sleep(1)
 
     return context
 
@@ -878,15 +902,31 @@ def clear_conversation_messages(context):
 
     print("\n=== Clearing conversation messages ===")
 
-    # Look for clear button
-    clear_button = find_element_by_text(page, "🗑️ Clear")
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if clear_button.count() == 0:
-        clear_button = find_element_by_text(page, "Clear")
+    # Look for clear button with robust selectors
+    clear_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"clear", re.IGNORECASE)),
+        page.get_by_text("🗑️ Clear"),
+        page.get_by_text("Clear")
+    ]
 
-    if clear_button.count() > 0:
-        clear_button.first.click()
-        time.sleep(1)
+    clear_button = None
+    for selector in clear_button_selectors:
+        if selector.count() > 0:
+            clear_button = selector.first
+            break
+
+    if clear_button:
+        expect(clear_button).to_be_visible(timeout=30000)
+        expect(clear_button).to_be_enabled(timeout=30000)
+        clear_button.click()
+        # Wait for clear to complete
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+        print("Clicked clear button")
     else:
         print("Warning: Could not find Clear button")
 
@@ -901,9 +941,12 @@ def verify_conversation_empty(context):
 
     print("\n=== Verifying conversation is empty ===")
 
+    # Wait for page to be stable
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+
     # Simple check - just see if we're still on a valid page
     page_text = page.locator("body").text_content()
-
     assert len(page_text) > 100, "Page seems empty"
 
     print("✓ Page is still valid after clear")
@@ -924,25 +967,63 @@ def edit_conversation_title(context, new_title):
 
     print(f"\n=== Editing conversation title to: {new_title} ===")
 
-    # Look for edit button
-    edit_button = find_element_by_text(page, "✏️")
+    # Wait for page to be ready
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if edit_button.count() > 0:
-        edit_button.first.click()
-        time.sleep(1)
+    # Look for edit button
+    edit_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"edit", re.IGNORECASE)),
+        page.get_by_text("✏️"),
+        page.get_by_text("Edit")
+    ]
+
+    edit_button = None
+    for selector in edit_button_selectors:
+        if selector.count() > 0:
+            edit_button = selector.first
+            break
+
+    if edit_button:
+        expect(edit_button).to_be_visible(timeout=30000)
+        expect(edit_button).to_be_enabled(timeout=30000)
+        edit_button.click()
+
+        # Wait for edit dialog
+        page.wait_for_load_state("networkidle", timeout=30000)
+        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
         # Fill new title
         text_inputs = page.locator("input[type='text']").all()
         if text_inputs:
-            text_inputs[0].fill("")
-            text_inputs[0].type(new_title, delay=100)
-            time.sleep(0.5)
+            title_input = text_inputs[0]
+            expect(title_input).to_be_visible(timeout=30000)
+            expect(title_input).to_be_enabled(timeout=30000)
+            title_input.fill("")
+            title_input.type(new_title, delay=100)
+
+            # Wait for input to have value
+            expect(title_input).to_have_value(new_title, timeout=30000)
 
             # Save
-            save_button = find_element_by_text(page, "Save")
-            if save_button.count() > 0:
-                save_button.first.click()
-                time.sleep(2)
+            save_button_selectors = [
+                page.get_by_role("button", name=re.compile(r"save", re.IGNORECASE)),
+                page.get_by_text("Save")
+            ]
+
+            save_button = None
+            for selector in save_button_selectors:
+                if selector.count() > 0:
+                    save_button = selector.first
+                    break
+
+            if save_button:
+                expect(save_button).to_be_visible(timeout=30000)
+                expect(save_button).to_be_enabled(timeout=30000)
+                save_button.click()
+                # Wait for save to complete
+                page.wait_for_load_state("networkidle", timeout=30000)
+                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
     else:
         print("Warning: Could not find edit button")
 
@@ -956,6 +1037,10 @@ def verify_conversation_title(context, expected_title):
     page = context['page']
 
     print(f"\n=== Verifying conversation title: {expected_title} ===")
+
+    # Wait for page to be stable
+    page.wait_for_load_state("networkidle", timeout=30000)
+    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
     # Simple check - just see if title is somewhere on page
     page_text = page.locator("body").text_content()
