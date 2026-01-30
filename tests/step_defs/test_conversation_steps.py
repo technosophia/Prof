@@ -39,6 +39,7 @@ from conftest import (
     take_screenshot
 )
 
+from common_steps import *
 
 def find_element_by_text(page, text, exact=False):
     """Find an element containing specific text."""

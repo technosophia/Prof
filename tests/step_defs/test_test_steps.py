@@ -42,84 +42,6 @@ scenarios('../../tests/features/test.feature')
 
 # ================ SCENARIO STEPS ================
 
-@when(parsers.parse('I select the "{tab_name}" tab in the admin panel'))
-def select_admin_tab(test_context, tab_name):
-    """Select a specific tab in the admin panel."""
-    if 'page' not in test_context:
-        raise KeyError("No 'page' in test_context")
-
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
-
-    print(f'\n=== [Test Module] Selecting admin tab: "{tab_name}" ===')
-
-    # Store current tab for reference
-    test_context['previous_tab'] = test_context.get('current_tab', None)
-    test_context['current_tab'] = tab_name
-
-    # Wait for page to settle
-    time.sleep(1)
-
-    # Check if we're on admin page
-    page_text = page.locator("body").text_content()
-    if "Admin Panel" not in page_text:
-        print("Not on admin page, trying to navigate...")
-        # Try to navigate to admin first
-        test_context = navigate_to_admin_panel_for_test(test_context)
-        time.sleep(2)
-
-    # Try to find tabs
-    tab_found = False
-
-    # Method 1: Look for tabs with role='tab'
-    tabs = page.locator("[role='tab']")
-    tab_count = tabs.count()
-    print(f"Found {tab_count} elements with role='tab'")
-
-    if tab_count > 0:
-        for i in range(tab_count):
-            try:
-                tab = tabs.nth(i)
-                tab_text = tab.text_content()
-                print(f"  Tab {i}: '{tab_text}'")
-
-                if tab_name in tab_text:
-                    print(f"  Found matching tab, clicking...")
-                    tab.click()
-                    time.sleep(2)
-                    tab_found = True
-                    break
-            except:
-                continue
-
-    if not tab_found:
-        # Method 2: Look for the tab text anywhere
-        print(f"Tab '{tab_name}' not found in tab elements, searching for text...")
-        text_elements = page.locator(f"text='{tab_name}'")
-        if text_elements.count() > 0:
-            for i in range(text_elements.count()):
-                try:
-                    elem = text_elements.nth(i)
-                    if elem.is_visible():
-                        print(f"Found text '{tab_name}', clicking...")
-                        elem.click()
-                        time.sleep(2)
-                        tab_found = True
-                        break
-                except:
-                    continue
-
-    if not tab_found:
-        print(f"WARNING: Could not find or select tab '{tab_name}'")
-        # Don't fail here - let the test continue to see what happens
-    else:
-        print(f"✓ Tab '{tab_name}' selected")
-
-    if debug_enabled:
-        take_screenshot(page, f"test_tab_{tab_name}.png", debug_enabled)
-
-    return test_context
-
 @then(parsers.parse('I should see "{expected_text}" in the admin content'))
 def verify_admin_content(test_context, expected_text):
     """Verify text appears in the admin content area."""
@@ -151,35 +73,6 @@ def verify_admin_content(test_context, expected_text):
 
     return test_context
 
-@given(parsers.parse('I have selected the "{tab_name}" tab'))
-def given_selected_tab(test_context, tab_name):
-    """Precondition: tab has been selected."""
-    # First ensure we're in admin panel
-    if test_context.get('current_page') != 'admin':
-        test_context = navigate_to_admin_panel_for_test(test_context)
-
-    # Select the tab (don't assert, just try)
-    try:
-        select_admin_tab(test_context, tab_name)
-    except:
-        print(f"Note: Could not select tab '{tab_name}', continuing anyway")
-
-    return test_context
-
-@given('I am on the "Test" tab')
-def on_test_tab(test_context):
-    """Precondition: on the Test tab."""
-    # First ensure we're in admin panel
-    if test_context.get('current_page') != 'admin':
-        test_context = navigate_to_admin_panel_for_test(test_context)
-
-    # Try to select the Test tab
-    try:
-        select_admin_tab(test_context, "Test")
-    except:
-        print("Note: Could not select Test tab, continuing anyway")
-
-    return test_context
 
 @then(parsers.parse('I should see "{expected_text}" in the header'))
 def verify_text_in_header_for_test(test_context, expected_text):

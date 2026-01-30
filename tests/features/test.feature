@@ -8,9 +8,9 @@ Feature: Test Admin UI Verification
         And I navigate to the admin panel
 
     Scenario: Verify Test module loads in admin panel
-        When I select the "Test" tab in the admin panel
+        Given I select the "Test" tab
         Then I should see "Test module active" in the admin content
 
     Scenario: Verify Test tab header
-        Given I have selected the "Test" tab
+        Given I select the "Test" tab
         Then I should see "Test" in the header

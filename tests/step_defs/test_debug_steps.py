@@ -39,38 +39,6 @@ from common_steps import *
 # Load feature files
 scenarios('../../tests/features/debug.feature')
 
-# Define the other required steps from the Background
-@given(parsers.parse('"{username}" exists in the user database'))
-def user_exists_in_database(test_context, username, mock_db_manager):
-    """Verify that a user exists in the database."""
-    print(f"\n=== Verifying user exists in database: {username} ===")
-
-    mock_users = mock_db_manager.get_all_users()
-    print(f"Mock database has {len(mock_users)} users:")
-
-    user_found = False
-    for user in mock_users:
-        print(f"  - {user.get('name')} (id: {user.get('id')})")
-        if user.get('name') == username:
-            print(f"✓ Found user '{username}' in mock database")
-            user_found = True
-            test_context['user_id'] = user['id']
-            test_context['user_info'] = user
-            break
-
-    if not user_found:
-        for user in mock_users:
-            if user.get('name', '').lower() == username.lower():
-                print(f"✓ Found user '{username}' (case-insensitive) in mock database")
-                user_found = True
-                test_context['user_id'] = user['id']
-                test_context['user_info'] = user
-                break
-
-    assert user_found, f"User '{username}' does not exist in database"
-
-    return test_context
-
 @given(parsers.parse('the default user "{username}" is logged in'))
 def default_user_logged_in(test_context, username):
     """Log in as the default test user."""
@@ -108,16 +76,6 @@ def default_user_logged_in(test_context, username):
     test_context['current_user'] = username
     return test_context
 
-@given("the mock LLM is configured and available")
-def mock_llm_available(test_context):
-    """Verify the mock LLM is configured and available."""
-    page = test_context['page']
-
-    print("\n=== Selecting Mock LLM ===")
-
-    # Simple LLM selection - just return context
-    # For debug tests, we don't necessarily need to select LLM
-    return test_context
 
 # Now define the debug-specific steps
 @given("I am logged in as an admin user")
@@ -126,38 +84,6 @@ def logged_in_as_admin(test_context):
     # Use "Test User 2" which is an admin in mock data
     return default_user_logged_in(test_context, "Test User 2")
 
-
-@given('I select the "Debug" tab')
-def select_debug_tab(test_context):
-    """Select the Debug tab in the admin panel."""
-    page = test_context['page']
-    debug_enabled = test_context.get('debug_enabled', False)
-
-    print('\n=== Selecting "Debug" tab ===')
-
-    # Look for Debug tab
-    debug_tab = page.get_by_text("Debug", exact=True)
-
-    if debug_tab.count() > 0:
-        debug_tab.first.click()
-        time.sleep(2)
-
-        if debug_enabled:
-            debug_path = os.path.join("tests", "debug")
-            os.makedirs(debug_path, exist_ok=True)
-            page.screenshot(path=os.path.join(debug_path, "debug_tab_selected.png"))
-    else:
-        print("Warning: Could not find Debug tab")
-        # Try to find tabs
-        tabs = page.locator("[role='tab']")
-        for i in range(tabs.count()):
-            tab = tabs.nth(i)
-            if "Debug" in tab.text_content():
-                tab.click()
-                time.sleep(2)
-                break
-
-    return test_context
 
 @when(parsers.parse('I enter text "{text}" in the text area'))
 def enter_text_in_textarea(test_context, text):
