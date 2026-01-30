@@ -38,32 +38,6 @@ from conftest import (
 
 from common_steps import *
 
-@given("the application is running")
-def app_is_running(context, page: Page, debug_dir, streamlit_server):
-    """Verify the application is running and navigate to it."""
-    print("\n=== Navigating to application ===")
-    page.goto("http://localhost:8502/", wait_until="networkidle")
-
-    # Wait for Streamlit to fully load
-    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-
-    # Wait for sidebar to be visible (if present)
-    try:
-        expect(page.locator("[data-testid='stSidebar']")).to_be_visible(timeout=10000)
-        print("✓ Sidebar is visible")
-    except AssertionError:
-        print("Note: Sidebar not found, continuing...")
-
-    # Take initial screenshot if debug mode
-    take_screenshot(page, "conversation_01_homepage.png", debug_dir, full_page=True)
-
-    # Store the page reference
-    context['page'] = page
-    context['debug_enabled'] = debug_dir
-
-    print("Application is running and loaded")
-    return context
-
 
 @given(parsers.parse('"{username}" exists in the user database'))
 def user_exists_in_database(context, username, mock_db_manager):
