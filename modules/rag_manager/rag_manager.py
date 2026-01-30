@@ -1,20 +1,227 @@
 """
-RAG Manager Module
-
-Core functionality for document storage and management.
+RAG Manager Module with Plugin-based Engine System
 """
 
 import os
 import json
+from abc import ABC, abstractmethod
 from pathlib import Path
 import shutil
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any, Callable
+import importlib
+import pkgutil
+import sys
+
 from shared.logging import log
 from shared.config import get_config
+from shared.users import UserRole, user_manager
+
+
+class RAGEngine(ABC):
+    """Abstract base class for all RAG engines."""
+
+    def __init__(self, engine_type: str):
+        self.engine_type = engine_type
+        self.description = ""
+
+    @abstractmethod
+    def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:
+        """Index a document for a specific user."""
+        pass
+
+    @abstractmethod
+    def delete_document(self, user_id: str, filename: str) -> bool:
+        """Delete a document from the index."""
+        pass
+
+    @abstractmethod
+    def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search for relevant documents/chunks."""
+        pass
+
+    @abstractmethod
+    def get_indexed_documents(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get list of indexed documents."""
+        pass
+
+    @abstractmethod
+    def clear_user_index(self, user_id: str) -> bool:
+        """Clear all indexed documents for a user."""
+        pass
+
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Check if the engine is available."""
+        pass
+
+    @abstractmethod
+    def get_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get engine statistics."""
+        pass
+
+
+class SimpleRAGEngine(RAGEngine):
+    """Simple RAG engine using basic text matching."""
+
+    def __init__(self):
+        super().__init__("simple")
+        self.description = "Simple text-based RAG engine using keyword matching"
+        self.indices = {}  # user_id -> {filename: {content, metadata}}
+
+    def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:
+        """Index a document by reading its content."""
+        try:
+            if content is None:
+                # Read file content
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+            if user_id not in self.indices:
+                self.indices[user_id] = {}
+
+            self.indices[user_id][filename] = {
+                'content': content,
+                'metadata': {
+                    'indexed_at': datetime.now().isoformat(),
+                    'file_path': file_path,
+                    'size': os.path.getsize(file_path)
+                }
+            }
+
+            log("info", f"Indexed document {filename} for user {user_id} using simple engine")
+            return True
+
+        except Exception as e:
+            log("error", f"Failed to index document {filename}: {str(e)}")
+            return False
+
+    def delete_document(self, user_id: str, filename: str) -> bool:
+        """Delete a document from the index."""
+        try:
+            if user_id in self.indices and filename in self.indices[user_id]:
+                del self.indices[user_id][filename]
+                log("info", f"Deleted document {filename} from index for user {user_id}")
+                return True
+            return False
+        except Exception as e:
+            log("error", f"Failed to delete document {filename}: {str(e)}")
+            return False
+
+    def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Simple keyword search."""
+        results = []
+
+        if user_id not in self.indices:
+            return results
+
+        query_lower = query.lower()
+
+        for filename, data in self.indices[user_id].items():
+            content = data['content'].lower()
+
+            # Simple relevance scoring based on keyword frequency
+            score = 0
+            for word in query_lower.split():
+                score += content.count(word)
+
+            if score > 0:
+                # Extract context around first match
+                context = self._extract_context(data['content'], query_lower)
+
+                results.append({
+                    'filename': filename,
+                    'score': score,
+                    'content': context,
+                    'metadata': data['metadata']
+                })
+
+        # Sort by score descending
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:limit]
+
+    def _extract_context(self, content: str, query: str, context_size: int = 200) -> str:
+        """Extract context around the query match."""
+        content_lower = content.lower()
+        pos = content_lower.find(query)
+
+        if pos == -1:
+            # If exact query not found, find any word
+            for word in query.split():
+                pos = content_lower.find(word)
+                if pos != -1:
+                    break
+
+        if pos == -1:
+            return content[:context_size] + "..." if len(content) > context_size else content
+
+        start = max(0, pos - context_size // 2)
+        end = min(len(content), pos + context_size // 2)
+
+        context = content[start:end]
+        if start > 0:
+            context = "..." + context
+        if end < len(content):
+            context = context + "..."
+
+        return context
+
+    def get_indexed_documents(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get list of indexed documents."""
+        documents = []
+
+        if user_id:
+            users_to_check = [user_id]
+        else:
+            users_to_check = list(self.indices.keys())
+
+        for uid in users_to_check:
+            if uid in self.indices:
+                for filename, data in self.indices[uid].items():
+                    documents.append({
+                        'user_id': uid,
+                        'filename': filename,
+                        'indexed_at': data['metadata']['indexed_at'],
+                        'size': data['metadata']['size']
+                    })
+
+        return documents
+
+    def clear_user_index(self, user_id: str) -> bool:
+        """Clear all indexed documents for a user."""
+        try:
+            if user_id in self.indices:
+                del self.indices[user_id]
+                log("info", f"Cleared index for user {user_id}")
+                return True
+            return True  # Already empty
+        except Exception as e:
+            log("error", f"Failed to clear index for user {user_id}: {str(e)}")
+            return False
+
+    def is_available(self) -> bool:
+        """Simple engine is always available."""
+        return True
+
+    def get_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get engine statistics."""
+        if user_id:
+            count = len(self.indices.get(user_id, {}))
+            return {
+                'documents_indexed': count,
+                'engine_type': self.engine_type
+            }
+        else:
+            total = sum(len(docs) for docs in self.indices.values())
+            return {
+                'total_documents_indexed': total,
+                'users_with_index': len(self.indices),
+                'engine_type': self.engine_type
+            }
+
 
 class RAGManager:
-    """Manages RAG documents storage and operations."""
+    """Manages RAG documents storage and operations with plugin-based engines."""
 
     def __init__(self):
         self.config = get_config()
@@ -23,15 +230,23 @@ class RAGManager:
         self.allowed_extensions = rag_config.get("allowed_extensions", [".txt", ".pdf", ".md"])
         self.max_file_size_mb = rag_config.get("max_file_size_mb", 10)
 
-        # Store config for easy access if needed
+        # RAG engines
+        self.engines = {}
+        self.default_engine = rag_config.get("default_engine", "simple")
+
+        # Store config
         self.rag_config = rag_config
 
-        # Initialize data directory
+        # Initialize
         self._init_data_directory()
-
-        # Load documents metadata
         self.metadata_file = self.data_dir / "metadata.json"
         self.documents = self._load_metadata()
+
+        # Discover and register engines
+        self.discover_engines()
+
+        # Register callback for user deletion
+        user_manager.register_before_delete_callback(self._handle_user_deletion)
 
     def _init_data_directory(self):
         """Initialize the data directory structure."""
@@ -43,11 +258,44 @@ class RAGManager:
             raise
 
     def _load_metadata(self) -> Dict:
-        """Load documents metadata from JSON file."""
+        """Load documents metadata from JSON file, converting old format if needed."""
         if self.metadata_file.exists():
             try:
-                with open(self.metadata_file, 'r') as f:
-                    return json.load(f)
+                with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+
+                # Convert old format to new format if needed
+                updated = False
+                for filename, doc_info in metadata.items():
+                    if "uploaded_by" not in doc_info:
+                        # This is an old format document
+                        # Try to extract user_id from filename pattern: userid_timestamp_filename
+                        parts = filename.split('_', 2)  # Split on first two underscores
+                        if len(parts) >= 3:
+                            # Assume the first part is user_id
+                            doc_info["uploaded_by"] = parts[0]
+                            updated = True
+                        else:
+                            # Can't determine user, skip or use default
+                            log("warning", f"Could not determine user for old document: {filename}")
+                            # Skip this document for user-based operations
+                            continue
+
+                    # Ensure other required fields exist with defaults
+                    if "is_public" not in doc_info:
+                        doc_info["is_public"] = False
+                    if "visible_to" not in doc_info:
+                        doc_info["visible_to"] = []
+                    if "indexed_in" not in doc_info:
+                        doc_info["indexed_in"] = {}
+
+                if updated:
+                    # Save the updated metadata
+                    self._save_metadata()
+                    log("info", "Converted old metadata format to new format")
+
+                return metadata
+
             except Exception as e:
                 log("error", f"Failed to load metadata: {str(e)}")
                 return {}
@@ -56,26 +304,119 @@ class RAGManager:
     def _save_metadata(self):
         """Save documents metadata to JSON file."""
         try:
-            with open(self.metadata_file, 'w') as f:
+            with open(self.metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(self.documents, f, indent=2)
             log("debug", f"Metadata saved: {len(self.documents)} documents")
         except Exception as e:
             log("error", f"Failed to save metadata: {str(e)}")
 
+    def discover_engines(self):
+        """Discover and register RAG engines."""
+        # First register built-in engines
+        self.register_engine(SimpleRAGEngine())
+
+        # Look for engine modules
+        engines_dir = Path(__file__).parent / "rag_engines"
+
+        if engines_dir.exists():
+            log("debug", f"Looking for RAG engines in: {engines_dir}")
+
+            # Ensure the directory is in Python path
+            if str(engines_dir.parent) not in sys.path:
+                sys.path.insert(0, str(engines_dir.parent))
+
+            # Discover modules
+            for _, module_name, is_pkg in pkgutil.iter_modules([str(engines_dir)]):
+                if not is_pkg and module_name.startswith('rag_'):
+                    try:
+                        full_module_name = f"modules.rag_manager.rag_engines.{module_name}"
+                        module = importlib.import_module(full_module_name)
+
+                        # Find engine classes
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if (isinstance(attr, type) and
+                                issubclass(attr, RAGEngine) and
+                                attr != RAGEngine):
+                                try:
+                                    engine = attr()
+                                    self.register_engine(engine)
+                                    log("info", f"Registered RAG engine: {engine.engine_type}")
+                                except Exception as e:
+                                    log("error", f"Failed to instantiate engine {attr_name}: {e}")
+                    except Exception as e:
+                        log("error", f"Failed to load RAG engine module {module_name}: {e}")
+
+        log("info", f"Registered {len(self.engines)} RAG engines: {list(self.engines.keys())}")
+
+    def register_engine(self, engine: RAGEngine):
+        """Register a RAG engine."""
+        self.engines[engine.engine_type] = engine
+
+    def get_engine(self, engine_type: str) -> Optional[RAGEngine]:
+        """Get engine by type."""
+        return self.engines.get(engine_type)
+
+    def get_default_engine(self) -> Optional[RAGEngine]:
+        """Get the default RAG engine."""
+        return self.get_engine(self.default_engine)
+
+    def get_available_engines(self) -> List[Dict[str, Any]]:
+        """Get list of available RAG engines."""
+        engines_list = []
+        for engine_type, engine in self.engines.items():
+            engines_list.append({
+                'type': engine_type,
+                'description': engine.description,
+                'available': engine.is_available(),
+                'default': (engine_type == self.default_engine)
+            })
+        return engines_list
+
     def is_valid_file(self, file_path: str) -> Tuple[bool, str]:
         """Validate if a file can be uploaded."""
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        try:
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
 
-        if file_size_mb > self.max_file_size_mb:
-            return False, f"File too large ({file_size_mb:.2f}MB > {self.max_file_size_mb}MB)"
+            if file_size_mb > self.max_file_size_mb:
+                return False, f"File too large ({file_size_mb:.2f}MB > {self.max_file_size_mb}MB)"
 
-        file_ext = os.path.splitext(file_path)[1].lower()
-        if file_ext not in self.allowed_extensions:
-            return False, f"Unsupported file extension: {file_ext}"
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext not in self.allowed_extensions:
+                return False, f"Unsupported file extension: {file_ext}"
 
-        return True, ""
+            return True, ""
+        except Exception as e:
+            return False, f"Error validating file: {str(e)}"
 
-    def upload_document(self, source_path: str, original_filename: str) -> Optional[str]:
+    def _check_user_permission(self, user_id: str, owner_id: str) -> bool:
+        """Check if user has permission to access document."""
+        if user_id == owner_id:
+            return True
+
+        user_info = user_manager.get_user(user_id)
+        owner_info = user_manager.get_user(owner_id)
+
+        if not user_info or not owner_info:
+            return False
+
+        # Admin can access all documents
+        if user_info['role'] == UserRole.ADMIN:
+            return True
+
+        # Master can access their own and their children's documents
+        if user_info['role'] == UserRole.MASTER:
+            if owner_id == user_id:
+                return True
+            # Check if owner is a child of this master
+            children = user_manager.get_children(user_id)
+            return any(child['id'] == owner_id for child in children)
+
+        # Normal users can only access their own documents
+        return False
+
+    def upload_document(self, source_path: str, original_filename: str,
+                       user_id: str, is_public: bool = False) -> Optional[str]:
         """Upload a document to the RAG storage."""
         try:
             # Validate file
@@ -84,49 +425,127 @@ class RAGManager:
                 log("warning", f"File validation failed: {error_msg}")
                 return None
 
+            # Check user permissions
+            user_info = user_manager.get_user(user_id)
+            if not user_info:
+                log("error", f"User {user_id} not found")
+                return None
+
+            # Normal users cannot upload public documents
+            if is_public and user_info['role'] == UserRole.NORMAL:
+                log("warning", f"Normal user {user_id} cannot upload public documents")
+                return None
+
             # Generate unique filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             file_ext = os.path.splitext(original_filename)[1]
-            unique_filename = f"{timestamp}_{original_filename}"
+            unique_filename = f"{user_id}_{timestamp}_{original_filename}"
             dest_path = self.data_dir / unique_filename
 
             # Copy file
             shutil.copy2(source_path, dest_path)
 
-            # Add to metadata
+            # Determine visibility
+            if is_public:
+                visible_to = ["admin", "master", "normal"]  # All users
+            else:
+                visible_to = [user_info['role']]
+                if user_info['role'] == UserRole.MASTER:
+                    visible_to.append("normal")  # Master's docs visible to their normal users
+
+            # Add to metadata - ensure ALL required fields are present
             file_size = os.path.getsize(dest_path)
             file_size_mb = file_size / (1024 * 1024)
 
             self.documents[unique_filename] = {
                 "original_filename": original_filename,
+                "uploaded_by": user_id,  # This is the critical field
                 "uploaded_at": datetime.now().isoformat(),
                 "file_size": file_size,
                 "file_size_mb": round(file_size_mb, 2),
                 "file_extension": file_ext,
-                "file_path": str(dest_path)
+                "file_path": str(dest_path),
+                "is_public": is_public,
+                "visible_to": visible_to,
+                "indexed_in": {}  # engine_type -> indexed_at
             }
 
             # Save metadata
             self._save_metadata()
 
-            log("info", f"Document uploaded: {original_filename} -> {unique_filename}")
+            log("info", f"Document uploaded: {original_filename} -> {unique_filename} by user {user_id}")
             return unique_filename
 
         except Exception as e:
             log("error", f"Failed to upload document {original_filename}: {str(e)}", exc_info=True)
             return None
 
-    def delete_document(self, filename: str) -> bool:
+    def index_document(self, filename: str, engine_type: str, user_id: str) -> bool:
+        """Index a document with a specific engine."""
+        try:
+            if filename not in self.documents:
+                log("error", f"Document {filename} not found")
+                return False
+
+            doc_info = self.documents[filename]
+
+            # Check permissions
+            if not self._check_user_permission(user_id, doc_info['uploaded_by']):
+                log("warning", f"User {user_id} cannot index document {filename}")
+                return False
+
+            # Get engine
+            engine = self.get_engine(engine_type)
+            if not engine:
+                log("error", f"Engine {engine_type} not found")
+                return False
+
+            # Index document
+            success = engine.index_document(
+                doc_info['uploaded_by'],  # Index under document owner
+                filename,
+                doc_info['file_path']
+            )
+
+            if success:
+                # Update metadata
+                if 'indexed_in' not in doc_info:
+                    doc_info['indexed_in'] = {}
+
+                doc_info['indexed_in'][engine_type] = datetime.now().isoformat()
+                self._save_metadata()
+
+                log("info", f"Document {filename} indexed with engine {engine_type}")
+                return True
+
+            return False
+
+        except Exception as e:
+            log("error", f"Failed to index document {filename}: {str(e)}", exc_info=True)
+            return False
+
+    def delete_document(self, filename: str, user_id: str) -> bool:
         """Delete a document from RAG storage."""
         try:
             if filename not in self.documents:
                 log("warning", f"Document not found in metadata: {filename}")
                 return False
 
-            # Get file path
-            file_path = Path(self.documents[filename]["file_path"])
+            doc_info = self.documents[filename]
+
+            # Check permissions
+            if not self._check_user_permission(user_id, doc_info['uploaded_by']):
+                log("warning", f"User {user_id} cannot delete document {filename}")
+                return False
+
+            # Delete from all engines
+            for engine_type in self.engines:
+                engine = self.get_engine(engine_type)
+                if engine:
+                    engine.delete_document(doc_info['uploaded_by'], filename)
 
             # Delete file
+            file_path = Path(doc_info["file_path"])
             if file_path.exists():
                 file_path.unlink()
                 log("debug", f"File deleted: {file_path}")
@@ -142,77 +561,186 @@ class RAGManager:
             log("error", f"Failed to delete document {filename}: {str(e)}", exc_info=True)
             return False
 
-    def get_document_list(self) -> List[Dict]:
-        """Get list of all documents with metadata."""
+    def get_user_documents(self, user_id: str) -> List[Dict]:
+        """Get documents accessible by a user."""
         result = []
+
         for filename, metadata in self.documents.items():
-            result.append({
-                "filename": filename,
-                "original_filename": metadata["original_filename"],
-                "uploaded_at": metadata["uploaded_at"],
-                "file_size_mb": metadata["file_size_mb"],
-                "file_extension": metadata["file_extension"]
-            })
+            # Handle backward compatibility: documents uploaded before user system
+            uploaded_by = metadata.get("uploaded_by")
+            if uploaded_by is None:
+                # Old format document - skip or handle differently
+                # For now, skip documents without uploaded_by field
+                continue
+
+            if self._check_user_permission(user_id, uploaded_by):
+                result.append({
+                    "filename": filename,
+                    "original_filename": metadata["original_filename"],
+                    "uploaded_by": uploaded_by,
+                    "uploaded_at": metadata["uploaded_at"],
+                    "file_size_mb": metadata["file_size_mb"],
+                    "file_extension": metadata["file_extension"],
+                    "is_public": metadata.get("is_public", False),
+                    "indexed_in": list(metadata.get("indexed_in", {}).keys())
+                })
 
         # Sort by upload date (newest first)
         result.sort(key=lambda x: x["uploaded_at"], reverse=True)
         return result
 
-    def get_document_count(self) -> int:
+    def search(self, user_id: str, query: str, engine_type: Optional[str] = None,
+               limit: int = 5) -> Dict[str, Any]:
+        """Search across RAG engines."""
+        results = {}
+
+        if engine_type:
+            # Search with specific engine
+            engine = self.get_engine(engine_type)
+            if engine:
+                # Get documents this user can access
+                accessible_docs = self.get_user_documents(user_id)
+                user_doc_ids = [doc['filename'] for doc in accessible_docs]
+
+                # Search in engine for each accessible document owner
+                for doc in accessible_docs:
+                    doc_owner = doc['uploaded_by']
+                    engine_results = engine.search(doc_owner, query, limit)
+
+                    # Filter to only include accessible documents
+                    for result in engine_results:
+                        if result['filename'] in user_doc_ids:
+                            if engine_type not in results:
+                                results[engine_type] = []
+                            results[engine_type].append(result)
+        else:
+            # Search with all engines
+            for engine_type, engine in self.engines.items():
+                engine_results = []
+                accessible_docs = self.get_user_documents(user_id)
+                user_doc_ids = [doc['filename'] for doc in accessible_docs]
+
+                for doc in accessible_docs:
+                    doc_owner = doc['uploaded_by']
+                    for result in engine.search(doc_owner, query, limit):
+                        if result['filename'] in user_doc_ids:
+                            engine_results.append(result)
+
+                if engine_results:
+                    results[engine_type] = engine_results
+
+        return results
+
+    def get_rag_context(self, user_id: str, query: str,
+                       engine_type: Optional[str] = None) -> str:
+        """Get RAG context for a query."""
+        if not engine_type:
+            engine_type = self.default_engine
+
+        search_results = self.search(user_id, query, engine_type, limit=3)
+
+        if not search_results or engine_type not in search_results:
+            return ""
+
+        # Format context from search results
+        context_parts = []
+        for result in search_results[engine_type]:
+            context_parts.append(
+                f"From document '{result['filename']}':\n"
+                f"{result['content']}\n"
+            )
+
+        context = "\n".join(context_parts)
+        return f"Relevant context from documents:\n{context}"
+
+    def get_document_count(self, user_id: Optional[str] = None) -> int:
         """Get total number of documents."""
+        if user_id:
+            return len(self.get_user_documents(user_id))
         return len(self.documents)
 
-    def get_total_size_mb(self) -> float:
-        """Get total size of all documents in MB."""
-        total = sum(doc["file_size_mb"] for doc in self.documents.values())
+    def get_total_size_mb(self, user_id: Optional[str] = None) -> float:
+        """Get total size of documents in MB."""
+        total = 0
+        for filename, metadata in self.documents.items():
+            if not user_id or self._check_user_permission(user_id, metadata['uploaded_by']):
+                total += metadata['file_size_mb']
         return round(total, 2)
 
-    def get_document_info(self, filename: str) -> Optional[Dict]:
-        """Get detailed information about a document."""
-        return self.documents.get(filename)
-
-    def clear_all_documents(self) -> bool:
-        """Clear all documents (admin function)."""
+    def clear_all_documents(self, user_id: str) -> bool:
+        """Clear all documents (admin/master function)."""
         try:
-            # Delete all files
+            # Check if user has permission (admin or master)
+            user_info = user_manager.get_user(user_id)
+            if not user_info:
+                return False
+
+            if user_info['role'] not in [UserRole.ADMIN, UserRole.MASTER]:
+                log("warning", f"User {user_id} cannot clear all documents")
+                return False
+
+            # Delete all files accessible by user
+            docs_to_delete = []
             for filename, metadata in self.documents.items():
-                file_path = Path(metadata["file_path"])
-                if file_path.exists():
-                    file_path.unlink()
+                # Skip documents without uploaded_by field (old format)
+                if 'uploaded_by' not in metadata:
+                    continue
 
-            # Clear metadata
-            self.documents = {}
-            self._save_metadata()
+                if self._check_user_permission(user_id, metadata['uploaded_by']):
+                    docs_to_delete.append(filename)
 
-            log("info", "All documents cleared")
+            for filename in docs_to_delete:
+                self.delete_document(filename, user_id)
+
+            log("info", f"Cleared {len(docs_to_delete)} documents by user {user_id}")
             return True
 
         except Exception as e:
             log("error", f"Failed to clear all documents: {str(e)}", exc_info=True)
             return False
 
-    # Ajoutez cette méthode à la classe RAGManager
-    def clear_test_files(self, pattern: str = "*test*") -> bool:
-        """Clear test files from the data directory (for testing only)."""
+    def _handle_user_deletion(self, user_id: str) -> bool:
+        """Handle user deletion by removing their documents."""
         try:
-            # Delete files matching pattern
-            for file_path in self.data_dir.glob(pattern):
-                if file_path.is_file() and file_path != self.metadata_file:
-                    file_path.unlink()
-                    log("debug", f"Test file deleted: {file_path.name}")
+            # Find and delete all documents uploaded by this user
+            docs_to_delete = []
+            for filename, metadata in self.documents.items():
+                if metadata['uploaded_by'] == user_id:
+                    docs_to_delete.append(filename)
 
-            # Also clean up metadata entries for test files
-            test_filenames = [k for k in self.documents.keys() if "test" in k.lower()]
-            for filename in test_filenames:
+            for filename in docs_to_delete:
+                # Delete from storage
+                doc_info = self.documents[filename]
+                file_path = Path(doc_info["file_path"])
+                if file_path.exists():
+                    file_path.unlink()
+
+                # Delete from all engines
+                for engine_type, engine in self.engines.items():
+                    engine.delete_document(user_id, filename)
+
+                # Remove from metadata
                 del self.documents[filename]
 
-            self._save_metadata()
-            log("info", f"Cleaned {len(test_filenames)} test files")
-            return True
+            if docs_to_delete:
+                self._save_metadata()
+                log("info", f"Deleted {len(docs_to_delete)} documents for deleted user {user_id}")
 
+            return True
         except Exception as e:
-            log("error", f"Failed to clear test files: {str(e)}", exc_info=True)
+            log("error", f"Failed to handle user deletion for {user_id}: {str(e)}")
             return False
+
+    def get_engine_stats(self, engine_type: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get statistics for a specific engine."""
+        engine = self.get_engine(engine_type)
+        if not engine:
+            return {}
+
+        stats = engine.get_stats(user_id)
+        stats['engine_type'] = engine_type
+        return stats
+
 
 # Create a singleton instance
 rag_manager = RAGManager()

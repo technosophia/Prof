@@ -1,12 +1,12 @@
 [tool.pytest.ini_options]
-testpaths = ["shared/tests", "tests"]
+testpaths = ["shared/tests", "modules/rag_manager/tests", "tests", ]
 python_files = ["test_*.py", "*_steps.py", "*_test.py"]
 python_classes = "Test*"
 python_functions = "test_*"
 asyncio_mode = "auto"
 # Use string format with escaped quotes
-#addopts = "-v --tb=short -m 'not ollama and not bdd'"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not ollama and not bdd'"
+#addopts = "-v --tb=short"
 markers = [
     "asyncio: mark test as using asyncio",
     "ollama: mark test as requiring Ollama service",

@@ -16,6 +16,9 @@ from shared.conversation import conversation_manager, Message
 from shared.logging import log
 from shared.llm import llm_generate, get_current_llm_info
 from shared.translate import _
+from modules.rag_manager import rag_manager
+from shared.llm import register_rag_callback, unregister_rag_callback
+from typing import List, Dict, Optional, Tuple, Any, Callable
 
 
 def get_conversation_history_for_llm(messages):
@@ -48,11 +51,17 @@ async def generate_llm_response(user_message, conversation_history, current_llm_
         response_placeholder.markdown(st.session_state.stream_buffer)
 
     try:
-        # Use llm_generate with conversation history
+        # Get current user ID for RAG context
+        user_id = None
+        if st.session_state.current_user:
+            user_id = st.session_state.current_user['id']
+
+        # Use llm_generate with conversation history and RAG context
         response = await llm_generate(
             user_message.strip(),
             stream_callback,
-            conversation_history=llm_history
+            conversation_history=llm_history,
+            user_id=user_id if st.session_state.rag_enabled else None
         )
 
         st.session_state.streaming_active = False
@@ -89,6 +98,17 @@ def inject_ui_initialize():
     # Initialize session state for regeneration
     if "regenerating_message_id" not in st.session_state:
         st.session_state.regenerating_message_id = None
+
+    # Initialize session state for RAG
+    if "rag_enabled" not in st.session_state:
+        st.session_state.rag_enabled = True
+
+    # Register RAG callback if not already registered
+    if not hasattr(st.session_state, '_rag_callback'):
+        rag_callback = create_rag_context_callback()
+        register_rag_callback(rag_callback)
+        st.session_state._rag_callback = rag_callback
+        log("debug", "Registered RAG context callback")
 
     return True
 
@@ -321,7 +341,6 @@ def inject_ui_main_content():
 
     return None
 
-# Internal helper functions
 def show_conversation_interface():
     """Display the conversation chat interface."""
     # Get current conversation info
@@ -332,10 +351,18 @@ def show_conversation_interface():
 
     if current_conv:
         # Conversation header
-        col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+        col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])  # Added col5
         with col1:
             st.subheader(f"💬 {current_conv.title}")
         with col2:
+            # RAG toggle
+            rag_enabled = st.toggle("🔍 RAG",
+                                  value=st.session_state.rag_enabled,
+                                  help="Enable/disable RAG context retrieval")
+            if rag_enabled != st.session_state.rag_enabled:
+                st.session_state.rag_enabled = rag_enabled
+                st.rerun()
+        with col3:
             # Refresh button
             if st.button("🔄 Refresh", help="Reload conversation from database"):
                 conversation = conversation_manager.get_conversation(
@@ -345,15 +372,15 @@ def show_conversation_interface():
                 if conversation:
                     st.session_state.conversation_messages = conversation.messages
                 st.rerun()
-        with col3:
+        with col4:
             # Clear button
             if st.button("🗑️ Clear", help="Clear all messages in this conversation"):
                 if conversation_manager.clear_conversation_messages(st.session_state.current_conversation_id):
                     st.session_state.conversation_messages = []
                     st.success("Conversation cleared")
                     st.rerun()
-        with col4:
-            # Regenerate button - only enable if there are messages and the last message is from assistant
+        with col5:
+            # Regenerate button
             has_messages = len(st.session_state.conversation_messages) > 0
             last_is_assistant = has_messages and st.session_state.conversation_messages[-1].role == "assistant"
 
@@ -549,3 +576,28 @@ def show_conversation_interface():
         st.rerun()
 
     return True
+
+def create_rag_context_callback():
+    """Create a callback function that adds RAG context to LLM queries."""
+    def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
+        """Callback to add RAG context from user's documents."""
+        try:
+            # Get the last user message
+            last_user_message = None
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    last_user_message = msg.get("content", "")
+                    break
+
+            if not last_user_message:
+                return ""
+
+            # Get RAG context from default engine
+            context = rag_manager.get_rag_context(user_id, last_user_message)
+            return context
+
+        except Exception as e:
+            log("error", f"RAG context callback failed: {e}")
+            return ""
+
+    return rag_context_callback

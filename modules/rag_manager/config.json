@@ -1,8 +1,13 @@
-{
-  "rag_manager": {
+# Add this to your existing config.json file
+"rag_manager": {
     "data_directory": "./data/rag_documents",
-    "allowed_extensions": [".txt", ".pdf", ".md", ".json", ".csv", ".html"],
-    "max_file_size_mb": 10,
-    "enable_vectorization": false
-  }
+    "allowed_extensions": [".txt", ".pdf", ".md", ".docx", ".csv", ".json"],
+    "max_file_size_mb": 20,
+    "default_engine": "simple",
+    "engines": {
+        "simple": {
+            "enabled": true,
+            "description": "Simple keyword-based search engine"
+        }
+    }
 }

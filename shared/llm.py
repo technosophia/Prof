@@ -310,9 +310,10 @@ class LLMManager:
         return None
 
     async def generate(self,
-                      message: str,
-                      stream_callback: Optional[Callable] = None,
-                      conversation_history: Optional[List[Dict]] = None) -> str:
+                    message: str,
+                    stream_callback: Optional[Callable] = None,
+                    conversation_history: Optional[List[Dict]] = None,
+                    user_id: Optional[str] = None) -> str:  # Added user_id parameter
         """Generate response from current LLM with optional conversation history."""
         if not self.current_llm:
             error_msg = "No LLM selected"
@@ -333,6 +334,10 @@ class LLMManager:
 
         # Add current user message
         messages.append({"role": "user", "content": message})
+
+        # Add RAG context if user_id is provided and callbacks are registered
+        if user_id and _rag_callbacks:
+            messages = _add_rag_context(user_id, messages)
 
         return await self.generate_response(self.current_llm, messages, stream_callback)
 
@@ -402,10 +407,11 @@ def _get_manager():
 # Update public functions with backward compatibility
 async def llm_generate(message: str,
                       stream_callback: Optional[Callable] = None,
-                      conversation_history: Optional[List[Dict]] = None) -> str:
+                      conversation_history: Optional[List[Dict]] = None,
+                      user_id: Optional[str] = None) -> str:  # Added user_id parameter
     """Simple interface to generate response from current LLM with conversation history."""
     manager = _get_manager()
-    return await manager.generate(message, stream_callback, conversation_history)
+    return await manager.generate(message, stream_callback, conversation_history, user_id)
 
 def set_current_llm(llm_id: str) -> bool:
     """Set the current LLM to use."""
@@ -429,3 +435,48 @@ def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
 
 # Alias for backward compatibility - maintains old interface
 llm = llm_generate
+
+_rag_callbacks = []
+
+def register_rag_callback(callback_func: Callable[[str, List[Dict]], str]):
+    """Register a callback to add RAG context to LLM queries."""
+    if callback_func not in _rag_callbacks:
+        _rag_callbacks.append(callback_func)
+        log("debug", f"Registered RAG callback: {callback_func.__name__}")
+
+def unregister_rag_callback(callback_func: Callable[[str, List[Dict]], str]):
+    """Unregister a RAG callback."""
+    if callback_func in _rag_callbacks:
+        _rag_callbacks.remove(callback_func)
+        log("debug", f"Unregistered RAG callback: {callback_func.__name__}")
+
+def _add_rag_context(user_id: str, messages: List[Dict]) -> List[Dict]:
+    """Add RAG context to messages using registered callbacks."""
+    if not _rag_callbacks or not messages:
+        return messages
+
+    # Get the last user message
+    last_user_message = None
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            last_user_message = msg.get("content", "")
+            break
+
+    if not last_user_message:
+        return messages
+
+    # Apply all RAG callbacks
+    for callback in _rag_callbacks:
+        try:
+            context = callback(user_id, messages)
+            if context:
+                # Add context as a system message before the last user message
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": context
+                })
+                log("debug", f"Added RAG context from {callback.__name__}")
+        except Exception as e:
+            log("error", f"RAG callback {callback.__name__} failed: {e}")
+
+    return messages

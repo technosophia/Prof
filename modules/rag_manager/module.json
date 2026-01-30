@@ -1,9 +1,15 @@
 {
-  "name": "rag_manager",
-  "version": "1.0.0",
-  "description": "RAG Manager for document storage and management",
-  "author": "Your Name",
-  "enabled_by_default": true,
-  "category": "rag",
-  "dependencies": []
+  "name": "RAG Manager",
+  "version": "2.0.0",
+  "description": "Document management and RAG (Retrieval-Augmented Generation) system with plugin-based engines",
+  "author": "System",
+  "category": "storage",
+  "dependencies": [],
+  "inject_points": {
+    "admin_tab": "rag_admin_ui.inject_ui_admin_tab",
+    "initialize": "rag_manager_ui.inject_ui_initialize",
+    "main_content": "rag_manager_ui.inject_ui_main_content"
+  },
+  "ui_files": ["rag_manager_ui.py", "rag_admin_ui.py"],
+  "priority": 50
 }
