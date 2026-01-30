@@ -222,18 +222,33 @@ def main():
     with st.sidebar:
         st.title("🌍 " + _("language_select"))
 
-        # Show available languages
-        available_langs = list(translator.translations.keys())
+        # Show available languages - SORTED for consistent, predictable order (en first)
+        available_langs = sorted(translator.translations.keys())
 
         # Log available languages
         log("debug", f"Available languages: {available_langs}")
+
+        # Better mapping for display names (extensible for future languages)
+        lang_names = {
+            "en": "English",
+            "fr": "Français",
+            # Add more here if you add languages later, e.g. "es": "Español"
+        }
+
+        # Compute the correct default index based on current language
+        current_lang = st.session_state.current_language
+        try:
+            default_index = available_langs.index(current_lang)
+        except ValueError:
+            # Fallback if current_lang somehow not available (should never happen)
+            default_index = 0
 
         # Language selector
         lang_option = st.selectbox(
             _("language_select"),
             options=available_langs,
-            format_func=lambda x: "English" if x == "en" else "Français",
-            index=0 if st.session_state.current_language == "en" else 1,
+            format_func=lambda x: lang_names.get(x, x.upper()),
+            index=default_index,
             key="language_selector"
         )
 
