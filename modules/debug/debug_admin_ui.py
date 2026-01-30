@@ -20,7 +20,7 @@ from shared.users import user_manager
 def show_debug_admin_content():
     """Display the Debug Admin content."""
     st.header("🔧 Debug and Testing")
-    st.write("Debug moduel is active")
+    st.write("Debug module is active")
 
     # Section 1: Current User Info
     st.subheader("👤 Current User")

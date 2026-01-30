@@ -20,144 +20,17 @@ scenarios('../../tests/features/conversation.feature')
 
 pytestmark = pytest.mark.bdd
 
+# Re-use fixtures from conversation tests
+from tests.step_defs.common_steps import (
+    enable_debug,
+    streamlit_server,
+    browser_context,
+    page,
+    debug_dir,
+    context,
+    take_screenshot
+)
 
-@pytest.fixture(scope="session")
-def enable_debug():
-    """Fixture to enable debug mode (screenshots, logging)."""
-    debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
-    print(f"Debug mode: {'ENABLED' if debug_enabled else 'DISABLED'}")
-    return debug_enabled
-
-
-@pytest.fixture(scope="session")
-def streamlit_server():
-    """Start Streamlit server for testing - runs once per session."""
-    import atexit
-    import signal
-
-    # Kill any existing Streamlit process
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(1)  # Give time for processes to terminate
-
-    # Create test environment
-    env = os.environ.copy()
-    env["TEST_MODE"] = "true"
-    env["CONFIG_FILE"] = "test_config.json"
-    env["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
-
-    # Start Streamlit server in a separate process with explicit cleanup
-    cmd = [
-        "streamlit", "run", "app.py",
-        "--server.headless", "true",
-        "--server.port", "8502",
-        "--server.runOnSave", "false",
-        "--browser.serverAddress", "localhost",
-        "--logger.level", "info",
-        "--server.fileWatcherType", "none"
-    ]
-
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        preexec_fn=os.setsid  # Create new process group
-    )
-
-    # Register cleanup function
-    def cleanup():
-        if process.poll() is None:  # Still running
-            try:
-                # Kill entire process group
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                process.wait(timeout=5)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-
-    atexit.register(cleanup)
-
-    # Wait for server to start with better detection
-    max_retries = 30
-    for i in range(max_retries):
-        try:
-            response = requests.get("http://localhost:8502/_stcore/health", timeout=2)
-            if response.status_code == 200:
-                print("✓ Streamlit server started successfully")
-                break
-        except:
-            if i == max_retries - 1:
-                cleanup()
-                raise RuntimeError("Failed to start Streamlit server after 30 seconds")
-            time.sleep(1)
-
-    # Additional brief wait to ensure full initialization
-    time.sleep(2)
-
-    yield process
-
-    # Cleanup after tests
-    cleanup()
-
-    # Remove atexit handler to avoid duplicate calls
-    atexit.unregister(cleanup)
-
-    # Clean up any leftover processes
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(1)
-
-
-@pytest.fixture(scope="session")
-def browser_context(playwright, streamlit_server):
-    """Create browser context once per session."""
-    browser = playwright.chromium.launch(headless=True)
-    context = browser.new_context()
-
-    yield context
-
-    # Cleanup
-    context.close()
-    browser.close()
-
-
-@pytest.fixture
-def page(browser_context):
-    """Create a new page for each test."""
-    page = browser_context.new_page()
-    # Set longer timeout for slow Streamlit
-    page.set_default_timeout(30000)
-
-    yield page
-
-    # Close page after test
-    page.close()
-
-
-@pytest.fixture
-def debug_dir(enable_debug):
-    """Create debug directory if debug mode is enabled."""
-    if enable_debug:
-        debug_path = os.path.join("tests", "debug")
-        os.makedirs(debug_path, exist_ok=True)
-        print(f"Debug directory: {os.path.abspath(debug_path)}")
-    return enable_debug
-
-
-@pytest.fixture
-def context():
-    """Test context to store state between steps."""
-    return {}
-
-
-def take_screenshot(page, filename, debug_enabled, full_page=False):
-    """Take screenshot only if debug mode is enabled."""
-    if debug_enabled:
-        debug_path = os.path.join("tests", "debug")
-        filepath = os.path.join(debug_path, filename)
-        page.screenshot(path=filepath, full_page=full_page)
-        print(f"  Screenshot saved: {filename}")
 
 
 def find_element_by_text(page, text, exact=False):

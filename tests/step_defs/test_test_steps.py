@@ -31,89 +31,16 @@ from conftest import (
     playwright
 )
 
-# DO NOT import from test_conversation_steps.py - those fixtures aren't available here
-# Create our own fixtures instead
-
-@pytest.fixture
-def debug_dir():
-    """Create debug directory if debug mode is enabled."""
-    debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
-    if debug_enabled:
-        debug_path = os.path.join("tests", "debug")
-        os.makedirs(debug_path, exist_ok=True)
-        print(f"Debug directory: {os.path.abspath(debug_path)}")
-    return debug_enabled
-
-@pytest.fixture(scope="session")
-def streamlit_server():
-    """Start Streamlit server for testing - runs once per session."""
-    import atexit
-    import signal
-    import subprocess
-    import requests
-
-    # Kill any existing Streamlit process
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(1)
-
-    # Create test environment
-    env = os.environ.copy()
-    env["TEST_MODE"] = "true"
-    env["CONFIG_FILE"] = "test_config.json"
-
-    # Start Streamlit server
-    cmd = [
-        "streamlit", "run", "app.py",
-        "--server.headless", "true",
-        "--server.port", "8502",
-        "--server.runOnSave", "false",
-        "--browser.serverAddress", "localhost",
-        "--logger.level", "info",
-        "--server.fileWatcherType", "none"
-    ]
-
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        preexec_fn=os.setsid
-    )
-
-    # Register cleanup function
-    def cleanup():
-        if process.poll() is None:
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                process.wait(timeout=5)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-
-    atexit.register(cleanup)
-
-    # Wait for server to start
-    max_retries = 30
-    for i in range(max_retries):
-        try:
-            response = requests.get("http://localhost:8502/_stcore/health", timeout=2)
-            if response.status_code == 200:
-                print("✓ Streamlit server started successfully")
-                break
-        except:
-            if i == max_retries - 1:
-                cleanup()
-                raise RuntimeError("Failed to start Streamlit server after 30 seconds")
-            time.sleep(1)
-
-    time.sleep(2)
-    yield process
-    cleanup()
-    atexit.unregister(cleanup)
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(1)
+# Re-use fixtures from conversation tests
+from tests.step_defs.common_steps import (
+    enable_debug,
+    streamlit_server,
+    browser_context,
+    page as conversation_page,
+    debug_dir,
+    context as conversation_context,
+    take_screenshot
+)
 
 # Create a test context that's separate from BrowserContext
 @pytest.fixture
@@ -128,14 +55,6 @@ def find_element_by_text(page, text, exact=False):
         return page.get_by_text(text, exact=True)
     else:
         return page.get_by_text(text)
-
-def take_screenshot(page, filename, debug_enabled, full_page=False):
-    """Take screenshot only if debug mode is enabled."""
-    if debug_enabled:
-        debug_path = os.path.join("tests", "debug")
-        filepath = os.path.join(debug_path, filename)
-        page.screenshot(path=filepath, full_page=full_page)
-        print(f"  Screenshot saved: {filename}")
 
 # ================ BACKGROUND STEPS ================
 

@@ -31,13 +31,14 @@ from conftest import (
 )
 
 # Re-use fixtures from conversation tests
-from tests.step_defs.test_conversation_steps import (
+from tests.step_defs.common_steps import (
     enable_debug,
     streamlit_server,
     browser_context,
     page as conversation_page,
     debug_dir,
-    context as conversation_context
+    context as conversation_context,
+    take_screenshot
 )
 
 # Create a test context that's separate from BrowserContext
@@ -46,14 +47,6 @@ def test_context():
     """Test context to store state between steps."""
     return {}
 
-
-def take_screenshot(page, filename, debug_enabled, full_page=False):
-    """Take screenshot only if debug mode is enabled."""
-    if debug_enabled:
-        debug_path = os.path.join("tests", "debug")
-        filepath = os.path.join(debug_path, filename)
-        page.screenshot(path=filepath, full_page=full_page)
-        print(f"  Screenshot saved: {filename}")
 
 # Now define the missing step that's causing the issue
 @given("the application is running")
