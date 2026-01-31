@@ -15,7 +15,7 @@ from playwright.sync_api import Page, expect
 
 # ============ RE-EXPORT FIXTURES ============
 # Ces imports permettent aux fichiers de steps d'accéder aux fixtures de conftest
-from conftest import (
+from tests.conftest import (
     enable_debug,
     streamlit_server,
     browser_context,
@@ -23,7 +23,8 @@ from conftest import (
     debug_dir,
     context,
     take_screenshot,
-    find_element_by_text
+    find_element_by_text,
+    TEST_PORT
 )
 
 @given("the application is running")
@@ -32,7 +33,7 @@ def app_is_running(context, page: Page, debug_dir, streamlit_server):
     print("\n=== [Test Module] Navigating to application ===")
 
     # Use the page fixture from conftest
-    page.goto("http://localhost:8502/", wait_until="networkidle")
+    page.goto(f"http://localhost:{TEST_PORT}/", wait_until="networkidle")
 
     # Wait for Streamlit to fully load
     page.wait_for_selector("[data-testid='stApp']", timeout=30000)

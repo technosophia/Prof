@@ -16,29 +16,45 @@ from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
 SCOPE = "function"
+TEST_PORT = 8503
 
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
 
-# Add the project root to sys.path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ============ TROUVER LA VRAIE RACINE DU PROJET ============
+# Le fichier conftest.py est dans tests/, donc on remonte d'un niveau
+CONFTEST_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(CONFTEST_DIR)  # Remonter d'un niveau depuis tests/
+
+print(f"Conftest directory: {CONFTEST_DIR}")
+print(f"Project root: {PROJECT_ROOT}")
+print(f"App.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
+
+# Ajouter la racine du projet au chemin Python
+sys.path.insert(0, PROJECT_ROOT)
+
+# FORCER le PYTHONPATH pour Streamlit
+os.environ["PYTHONPATH"] = PROJECT_ROOT
+
+print(f"Python path: {sys.path}")
 
 # ============ CONFIGURATION ============
-TEST_CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "test_config.json"
-)
+# Chercher test_config.json à plusieurs endroits
+possible_config_paths = [
+    os.path.join(CONFTEST_DIR, "test_config.json"),  # Dans tests/
+    os.path.join(PROJECT_ROOT, "tests", "test_config.json"),  # Dans tests/ depuis racine
+    os.path.join(PROJECT_ROOT, "test_config.json"),  # À la racine
+]
 
-print(f"Looking for test config at: {TEST_CONFIG_PATH}")
+TEST_CONFIG_PATH = None
+for path in possible_config_paths:
+    if os.path.exists(path):
+        TEST_CONFIG_PATH = path
+        print(f"Found test config at: {path}")
+        break
 
-if not os.path.exists(TEST_CONFIG_PATH):
-    project_root = os.path.dirname(TEST_CONFIG_PATH)
-    alt_path = os.path.join(project_root, "tests", "test_config.json")
-    print(f"Test config not found at primary location, trying: {alt_path}")
-    if os.path.exists(alt_path):
-        TEST_CONFIG_PATH = alt_path
-    else:
-        raise FileNotFoundError(f"Could not find test_config.json. Tried: {TEST_CONFIG_PATH} and {alt_path}")
+if not TEST_CONFIG_PATH:
+    raise FileNotFoundError(f"Could not find test_config.json. Tried: {possible_config_paths}")
 
 print(f"Loading test config from: {TEST_CONFIG_PATH}")
 
@@ -53,16 +69,35 @@ print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).ke
 def setup_test_environment():
     """Setup test environment before any tests run."""
     os.environ["TEST_MODE"] = "true"
-    os.environ["CONFIG_FILE"] = TEST_CONFIG_PATH
-    os.environ["PLAYWRIGHT_ASYNCIO"] = "0"  # Important pour éviter le conflit
+    os.environ["CONFIG_FILE"] = "tests/test_config.json"  # Relatif depuis la racine
+    os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
 
+    # Important: Définir le répertoire de travail sur la racine du projet
+    original_cwd = os.getcwd()
+
+    # Vérifier où nous sommes
     print(f"\n=== TEST ENVIRONMENT SETUP ===")
-    print(f"TEST_MODE: {os.getenv('TEST_MODE')}")
-    print(f"CONFIG_FILE: {os.getenv('CONFIG_FILE')}")
-    print(f"Mock LLM in config: {'mock' in TEST_CONFIG.get('llms', {})}")
+    print(f"Original CWD: {original_cwd}")
+    print(f"Project root: {PROJECT_ROOT}")
+
+    # Changer de répertoire seulement si nécessaire
+    if original_cwd != PROJECT_ROOT:
+        os.chdir(PROJECT_ROOT)
+        print(f"Changed CWD to: {os.getcwd()}")
+    else:
+        print(f"Already in project root")
+
+    print(f"App.py exists: {os.path.exists('app.py')}")
+    print(f"Config file: {os.path.join(PROJECT_ROOT, os.environ['CONFIG_FILE'])}")
+    print(f"Config exists: {os.path.exists(os.path.join(PROJECT_ROOT, os.environ['CONFIG_FILE']))}")
     print("=" * 30 + "\n")
 
     yield
+
+    # Restaurer le répertoire original
+    if original_cwd != os.getcwd():
+        os.chdir(original_cwd)
+        print(f"Restored CWD to: {original_cwd}")
 
     if "TEST_MODE" in os.environ:
         del os.environ["TEST_MODE"]
@@ -151,34 +186,59 @@ def streamlit_server():
     """Start Streamlit server for testing - runs once per session."""
     # Kill any existing Streamlit process
     subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(1)
+    time.sleep(2)
 
     # Create test environment
     env = os.environ.copy()
     env["TEST_MODE"] = "true"
-    env["CONFIG_FILE"] = "test_config.json"
-    env["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
+    env["CONFIG_FILE"] = "tests/test_config.json"  # Chemin relatif depuis la racine
 
-    # Start Streamlit server
+    # Afficher les variables d'environnement pour debug
+    print(f"\n=== STREAMLIT SERVER CONFIG ===")
+    print(f"Project root: {PROJECT_ROOT}")
+    print(f"App.py at root: {os.path.join(PROJECT_ROOT, 'app.py')}")
+    print(f"Exists: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
+
+    # Créer le répertoire de logs
+    log_dir = os.path.join(PROJECT_ROOT, "tests", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    stdout_path = os.path.join(log_dir, "streamlit_stdout.log")
+    stderr_path = os.path.join(log_dir, "streamlit_stderr.log")
+
+    stdout_file = open(stdout_path, "w")
+    stderr_file = open(stderr_path, "w")
+
+    # Start Streamlit server DEPUIS LA RACINE DU PROJET
     cmd = [
         "streamlit", "run", "app.py",
-        "--server.port", "8502",
+        "--server.port", str(TEST_PORT),
         "--server.runOnSave", "false",
         "--browser.serverAddress", "localhost",
-        "--logger.level", "info",
-        "--server.fileWatcherType", "none"
+        "--logger.level", "debug",
+        "--server.fileWatcherType", "none",
+        "--server.headless", "true"
     ]
+
+    print(f"Launching: {' '.join(cmd)}")
+    print(f"From directory: {PROJECT_ROOT} (app.py exists: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))})")
+    print(f"Logs going to: {log_dir}")
 
     process = subprocess.Popen(
         cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=stdout_file,
+        stderr=stderr_file,
         env=env,
+        cwd=PROJECT_ROOT,  # CRITIQUE: Lancer depuis la racine du projet
         preexec_fn=os.setsid
     )
 
     # Register cleanup function
     def cleanup():
+        print("\n=== Cleaning up Streamlit server ===")
+        stdout_file.close()
+        stderr_file.close()
+
         if process.poll() is None:
             try:
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
@@ -189,30 +249,45 @@ def streamlit_server():
                 except ProcessLookupError:
                     pass
 
+        # Nettoyer les processus restants
+        subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
+        time.sleep(1)
+
     atexit.register(cleanup)
 
     # Wait for server to start
-    max_retries = 30
+    max_retries = 60
     for i in range(max_retries):
         try:
-            response = requests.get("http://localhost:8502/_stcore/health", timeout=2)
+            response = requests.get(f"http://localhost:{TEST_PORT}/_stcore/health", timeout=2)
             if response.status_code == 200:
                 print("✓ Streamlit server started successfully")
+                time.sleep(3)  # Attendre que tout soit initialisé
                 break
-        except:
+        except Exception as e:
+            if i % 10 == 0:
+                print(f"Waiting for Streamlit server... ({i+1}/{max_retries})")
+
             if i == max_retries - 1:
+                print("Failed to start Streamlit server")
+                # Afficher les logs d'erreur
+                try:
+                    stderr_file.flush()
+                    with open(stderr_path, "r") as f:
+                        lines = f.readlines()
+                        print(f"Last 20 lines of stderr:\n{''.join(lines[-20:])}")
+                except:
+                    pass
                 cleanup()
-                raise RuntimeError("Failed to start Streamlit server after 30 seconds")
+                raise RuntimeError(f"Failed to start Streamlit server after {max_retries} seconds")
             time.sleep(1)
 
     time.sleep(2)
     yield process
 
-    # Cleanup after tests
+    # Cleanup
     cleanup()
     atexit.unregister(cleanup)
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(1)
 
 # ============ FUNCTION FIXTURES ============
 

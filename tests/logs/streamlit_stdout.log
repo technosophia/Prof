@@ -1,0 +1,103 @@
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://localhost:8503
+
+[32m[INFO] 2026-01-31 08:41:09 - Initialized in-memory database for testing[0m
+[32m[INFO] 2026-01-31 08:41:09 - Database session factory created successfully[0m
+[32m[INFO] 2026-01-31 08:41:09 - All database tables created successfully[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from: ./modules/rag_manager/translations[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./modules/rag_manager/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 20 translations for language 'fr' from ./modules/rag_manager/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./modules/rag_manager/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 20 translations for language 'en' from ./modules/rag_manager/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from: ./old/translations[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./old/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 25 translations for language 'fr' from ./old/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./old/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 25 translations for language 'en' from ./old/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from: ./shared/translations[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./shared/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 10 translations for language 'fr' from ./shared/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./shared/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 10 translations for language 'en' from ./shared/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from: ./translations[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 19 translations for language 'fr' from ./translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: ./translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 19 translations for language 'en' from ./translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from: shared/translations[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: shared/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 10 translations for language 'fr' from shared/translations/fr.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loading translations from directory: shared/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Loaded 10 translations for language 'en' from shared/translations/en.json[0m
+[32m[INFO] 2026-01-31 08:41:09 - Translator initialized with language 'en' from 5 translation directories[0m
+[32m[INFO] 2026-01-31 08:41:09 - Initializing module handler in session state[0m
+[32m[INFO] 2026-01-31 08:41:09 - Discovering modules in: modules[0m
+[32m[INFO] 2026-01-31 08:41:09 - Discovered 3 modules[0m
+[32m[INFO] 2026-01-31 08:41:09 - Module handler initialized with 3 modules, 3 active[0m
+[32m[INFO] 2026-01-31 08:41:09 - Created 7 default users: 1 admin, 2 masters, 4 normal users[0m
+[32m[INFO] 2026-01-31 08:41:09 - RAG data directory initialized: data/rag_documents[0m
+[33m[WARNING] 2026-01-31 08:41:09 - Could not determine user for old document: old_doc.txt[0m
+[32m[INFO] 2026-01-31 08:41:09 - Registered 1 RAG engines: ['simple'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Registered conversation cleanup callback with UserManager[0m
+[32m[INFO] 2026-01-31 08:41:09 - Initializing UI registry in session state[0m
+[32m[INFO] 2026-01-31 08:41:09 - Module handler set in UI registry[0m
+[32m[INFO] 2026-01-31 08:41:09 - Active modules from handler: {'rag_manager', 'debug', 'test'}[0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: admin_ui from /home/joriel/Code/Prof/shared/admin_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: admin_ui.inject_ui_admin_tab -> admin_tab[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: admin_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: admin_ui with 2 render functions: ['admin_tab', 'initialize'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: conversation_ui from /home/joriel/Code/Prof/shared/conversation_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: conversation_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: conversation_ui.inject_ui_main_before_conversation -> main_before_conversation[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: conversation_ui.inject_ui_main_content -> main_content[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: conversation_ui.inject_ui_sidebar -> sidebar[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: conversation_ui with 4 render functions: ['initialize', 'main_before_conversation', 'main_content', 'sidebar'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: users_admin_ui from /home/joriel/Code/Prof/shared/users_admin_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: users_admin_ui.inject_ui_admin_tab -> admin_tab[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: users_admin_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: users_admin_ui with 2 render functions: ['admin_tab', 'initialize'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: users_ui from /home/joriel/Code/Prof/shared/users_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: users_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: users_ui.inject_ui_main_content -> main_content[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: users_ui.inject_ui_main_header -> main_header[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: users_ui.inject_ui_sidebar -> sidebar[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: users_ui with 4 render functions: ['initialize', 'main_content', 'main_header', 'sidebar'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Module 'test' is ACTIVE, discovering UI files[0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: test_test_ui from /home/joriel/Code/Prof/modules/test/test_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: test_test_ui.inject_ui_main_footer -> main_footer[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: test_test_ui with 1 render functions: ['main_footer'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: test_test_admin_ui from /home/joriel/Code/Prof/modules/test/test_admin_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: test_test_admin_ui.inject_ui_admin_tab -> admin_tab[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: test_test_admin_ui with 1 render functions: ['admin_tab'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Module 'rag_manager' is ACTIVE, discovering UI files[0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: rag_manager_rag_manager_ui from /home/joriel/Code/Prof/modules/rag_manager/rag_manager_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: rag_manager_rag_manager_ui.inject_ui_admin_tab -> admin_tab[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: rag_manager_rag_manager_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: rag_manager_rag_manager_ui.inject_ui_main_content -> main_content[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: rag_manager_rag_manager_ui with 3 render functions: ['admin_tab', 'initialize', 'main_content'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: rag_manager_rag_admin_ui from /home/joriel/Code/Prof/modules/rag_manager/rag_admin_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: rag_manager_rag_admin_ui.inject_ui_admin_tab -> admin_tab[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: rag_manager_rag_admin_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: rag_manager_rag_admin_ui.inject_ui_main_content -> main_content[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: rag_manager_rag_admin_ui with 3 render functions: ['admin_tab', 'initialize', 'main_content'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Module 'debug' is ACTIVE, discovering UI files[0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: debug_debug_admin_ui from /home/joriel/Code/Prof/modules/debug/debug_admin_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: debug_debug_admin_ui.inject_ui_admin_tab -> admin_tab[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: debug_debug_admin_ui.inject_ui_initialize -> initialize[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: debug_debug_admin_ui with 2 render functions: ['admin_tab', 'initialize'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Attempting to register module: debug_debug_ui from /home/joriel/Code/Prof/modules/debug/debug_ui.py[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: debug_debug_ui.inject_ui_main_footer -> main_footer[0m
+[32m[INFO] 2026-01-31 08:41:09 - Found render function: debug_debug_ui.inject_ui_sidebar -> sidebar[0m
+[32m[INFO] 2026-01-31 08:41:09 - Successfully registered UI module: debug_debug_ui with 2 render functions: ['main_footer', 'sidebar'][0m
+[32m[INFO] 2026-01-31 08:41:09 - Total UI modules registered: 10[0m
+[32m[INFO] 2026-01-31 08:41:09 - Registered UI modules: ['admin_ui', 'conversation_ui', 'users_admin_ui', 'users_ui', 'test_test_ui', 'test_test_admin_ui', 'rag_manager_rag_manager_ui', 'rag_manager_rag_admin_ui', 'debug_debug_admin_ui', 'debug_debug_ui'][0m
+[32m[INFO] 2026-01-31 08:41:10 - Loaded LLM engine: gemini from llm_gemni[0m
+[32m[INFO] 2026-01-31 08:41:10 - Loaded LLM engine: groq from llm_groq[0m
+[32m[INFO] 2026-01-31 08:41:10 - Loaded LLM engine: mock from llm_mock[0m
+[32m[INFO] 2026-01-31 08:41:10 - Loaded LLM engine: ollama from llm_ollama[0m
+[32m[INFO] 2026-01-31 08:41:10 - Validated 4 LLM configurations[0m
+[32m[INFO] 2026-01-31 08:41:10 - Current LLM set to: Mock LLM (ID: mock)[0m
+[32m[INFO] 2026-01-31 08:41:11 - Created 7 default users: 1 admin, 2 masters, 4 normal users[0m
+  Stopping...

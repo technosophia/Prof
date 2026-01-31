@@ -1,0 +1,131 @@
+2026-01-31 08:41:03.602 No ASGI app assignments found in /home/joriel/Code/Prof/app.py
+2026-01-31 08:41:03.671 Filtered 111 packages down to 1 candidates for component scanning
+2026-01-31 08:41:03.671 Scanning 1 candidate packages for component manifests using 1 worker threads
+2026-01-31 08:41:03.687 Found 0 component manifests total
+2026-01-31 08:41:03.687 No asset roots to watch
+2026-01-31 08:41:03.687 File watching not started
+2026-01-31 08:41:03.687 Starting new event loop for server
+2026-01-31 08:41:03.687 Starting server...
+2026-01-31 08:41:03.687 Serving static content from /home/joriel/Code/Prof/venv/lib/python3.11/site-packages/streamlit/static
+2026-01-31 08:41:03.688 Server started on port 8503
+2026-01-31 08:41:03.688 Runtime state: RuntimeState.INITIAL -> RuntimeState.NO_SESSIONS_CONNECTED
+2026-01-31 08:41:03.690 Setting up signal handler
+2026-01-31 08:41:09.597 AppSession initialized (id=1f1c4497-913c-428a-aa7f-beda745e4869)
+2026-01-31 08:41:09.597 Created new session for client 133848720245392. Session ID: 1f1c4497-913c-428a-aa7f-beda745e4869
+2026-01-31 08:41:09.597 Runtime state: RuntimeState.NO_SESSIONS_CONNECTED -> RuntimeState.ONE_OR_MORE_SESSIONS_CONNECTED
+2026-01-31 08:41:09.605 Received the following back message:
+rerun_script {
+  widget_states {
+  }
+  context_info {
+    timezone: "Europe/Paris"
+    timezone_offset: -60
+    locale: "fr-FR"
+    url: "http://localhost:8503/"
+    is_embedded: false
+    color_scheme: "light"
+  }
+}
+
+2026-01-31 08:41:09.605 Beginning script thread
+2026-01-31 08:41:09.606 Running script RerunData(widget_states=, context_info=timezone: "Europe/Paris"
+timezone_offset: -60
+locale: "fr-FR"
+url: "http://localhost:8503/"
+is_embedded: false
+color_scheme: "light"
+)
+2026-01-31 08:41:09.606 Disconnecting files for session with ID 1f1c4497-913c-428a-aa7f-beda745e4869
+2026-01-31 08:41:09.606 Sessions still active: dict_keys([])
+2026-01-31 08:41:09.606 Files: 0; Sessions with files: 0
+2026-01-31 08:41:10.409 Removing orphaned files...
+2026-01-31 08:41:10.410 Removing orphaned deferred callables...
+2026-01-31 08:41:11.429 Received the following back message:
+rerun_script {
+  widget_states {
+    widgets {
+      id: "$$ID-93a1569de4c95abab3b3c50830b1fdcb-language_selector"
+      string_value: "English"
+    }
+    widgets {
+      id: "$$ID-da13c6ae2e343cf4db07bd75c2999db3-llm_selector"
+      string_value: "🟢 Mock LLM (mock)"
+    }
+    widgets {
+      id: "$$ID-705638698aeba4c6e86ce6ae623c6489-user_selector"
+      string_value: "Select a user..."
+    }
+    widgets {
+      id: "$$ID-98cf28c0766bb36310ea1c8b8131e60b-debug_toggle"
+      bool_value: false
+    }
+    widgets {
+      id: "$$ID-829731abb6ca33aba67046167b9f3552-None"
+      trigger_value: true
+    }
+  }
+  page_script_hash: "74d0b95d6e916c53baf3561664d291b4"
+  context_info {
+    timezone: "Europe/Paris"
+    timezone_offset: -60
+    locale: "fr-FR"
+    url: "http://localhost:8503/"
+    is_embedded: false
+    color_scheme: "light"
+  }
+}
+
+2026-01-31 08:41:11.430 Beginning script thread
+2026-01-31 08:41:11.430 Running script RerunData(widget_states=widgets {
+  id: "$$ID-93a1569de4c95abab3b3c50830b1fdcb-language_selector"
+  string_value: "English"
+}
+widgets {
+  id: "$$ID-da13c6ae2e343cf4db07bd75c2999db3-llm_selector"
+  string_value: "🟢 Mock LLM (mock)"
+}
+widgets {
+  id: "$$ID-705638698aeba4c6e86ce6ae623c6489-user_selector"
+  string_value: "Select a user..."
+}
+widgets {
+  id: "$$ID-98cf28c0766bb36310ea1c8b8131e60b-debug_toggle"
+  bool_value: false
+}
+widgets {
+  id: "$$ID-829731abb6ca33aba67046167b9f3552-None"
+  trigger_value: true
+}
+, page_script_hash='74d0b95d6e916c53baf3561664d291b4', context_info=timezone: "Europe/Paris"
+timezone_offset: -60
+locale: "fr-FR"
+url: "http://localhost:8503/"
+is_embedded: false
+color_scheme: "light"
+)
+2026-01-31 08:41:11.431 Disconnecting files for session with ID 1f1c4497-913c-428a-aa7f-beda745e4869
+2026-01-31 08:41:11.431 Sessions still active: dict_keys([])
+2026-01-31 08:41:11.432 Files: 0; Sessions with files: 0
+2026-01-31 08:41:11.439 Removing orphaned files...
+2026-01-31 08:41:11.440 Removing orphaned deferred callables...
+2026-01-31 08:41:11.490 Running script RerunData(page_script_hash='74d0b95d6e916c53baf3561664d291b4', context_info=timezone: "Europe/Paris"
+timezone_offset: -60
+locale: "fr-FR"
+url: "http://localhost:8503/"
+is_embedded: false
+color_scheme: "light"
+)
+2026-01-31 08:41:11.490 Disconnecting files for session with ID 1f1c4497-913c-428a-aa7f-beda745e4869
+2026-01-31 08:41:11.490 Sessions still active: dict_keys([])
+2026-01-31 08:41:11.490 Files: 0; Sessions with files: 0
+2026-01-31 08:41:11.511 Removing orphaned files...
+2026-01-31 08:41:11.512 Removing orphaned deferred callables...
+2026-01-31 08:41:11.967 Runtime stopping...
+2026-01-31 08:41:11.967 Runtime state: RuntimeState.ONE_OR_MORE_SESSIONS_CONNECTED -> RuntimeState.STOPPING
+2026-01-31 08:41:11.967 Shutting down (id=1f1c4497-913c-428a-aa7f-beda745e4869)
+2026-01-31 08:41:11.967 Disconnecting files for session with ID 1f1c4497-913c-428a-aa7f-beda745e4869
+2026-01-31 08:41:11.967 Sessions still active: dict_keys([])
+2026-01-31 08:41:11.967 Files: 0; Sessions with files: 0
+2026-01-31 08:41:11.967 Removing orphaned files...
+2026-01-31 08:41:11.967 Removing orphaned deferred callables...
+2026-01-31 08:41:11.967 Runtime state: RuntimeState.STOPPING -> RuntimeState.STOPPED

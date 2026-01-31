@@ -28,6 +28,8 @@ def inject_ui_main_footer():
         current_llm_info = get_current_llm_info()
         available_llms_list = get_available_llms()
 
+        st.write("**DEBUGER**")
+
         st.write(f"**Current language:** {st.session_state.get('current_language', 'en')}")
         st.write(f"**Log level from config:** {config.get('logging.level', 'INFO')}")
         st.write(f"**App name:** {config.get('app.name')}")
@@ -69,6 +71,8 @@ def inject_ui_main_footer():
             st.write(f"- Type: {current_llm_info['type']}")
             st.write(f"- Model: {current_llm_info['model']}")
             st.write(f"- Available: {current_llm_info['available']}")
+        else:
+            st.write("- No LLM info")
 
         # All LLMs info
         st.write("**All LLMs:**")

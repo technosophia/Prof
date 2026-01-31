@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 pytestmark = pytest.mark.bdd
 
 # Import fixtures from conftest.py only
-from conftest import (
+from tests.conftest import (
     setup_test_environment,
     playwright,
     browser,
@@ -31,7 +31,7 @@ from conftest import (
     take_screenshot
 )
 
-from common_steps import *
+from tests.step_defs.common_steps import *
 
 # Load feature files
 scenarios('../../tests/features/test.feature')
