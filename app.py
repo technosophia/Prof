@@ -64,13 +64,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 # Import everything needed - CONFIG FIRST!
 from shared.translate import init_translations_multiple, _
 from shared.config import init_config, get_config
+from shared.logging import log, configure_logging_from_dict
 
 # Determine if we're in test mode
 TEST_MODE = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
 
 # Load appropriate config
 if TEST_MODE:
-    print("🔧 TEST MODE: Loading test configuration")
+    log("debug", "🔧 TEST MODE: Loading test configuration")
 
     # FIXED: Use absolute path to find test_config.json
     # First, get the directory where app.py is located
@@ -81,11 +82,11 @@ if TEST_MODE:
 
     if os.path.exists(test_config_path):
         config_file = test_config_path
-        print(f"Found test config at: {test_config_path}")
+        log("debug", f"Found test config at: {test_config_path}")
     else:
         # Fallback: look in current directory
         config_file = "test_config.json"
-        print(f"Test config not found at {test_config_path}, trying current directory")
+        log("debug", f"Test config not found at {test_config_path}, trying current directory")
 
     # Also set environment variable to ensure test mode is propagated
     os.environ["TEST_MODE"] = "true"
@@ -95,7 +96,6 @@ else:
 # Initialize configuration
 config = init_config(config_file)
 
-from shared.logging import log, configure_logging_from_dict
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
