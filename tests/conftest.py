@@ -15,6 +15,8 @@ import warnings
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
+SCOPE = "function"
+
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
 
@@ -47,7 +49,7 @@ print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).ke
 
 # ============ SESSION FIXTURES ============
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(scope=SCOPE, autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
     os.environ["TEST_MODE"] = "true"
@@ -69,7 +71,7 @@ def setup_test_environment():
     if "PLAYWRIGHT_ASYNCIO" in os.environ:
         del os.environ["PLAYWRIGHT_ASYNCIO"]
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope=SCOPE)
 def playwright():
     """Playwright session fixture."""
     # Désactiver asyncio pour Playwright sync
@@ -85,7 +87,7 @@ def playwright():
 
 # conftest.py - Modifier la fixture browser
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope=SCOPE)
 def browser(playwright, request):
     """Browser session fixture avec support pour --headed."""
     # Vérifier si --headed est spécifié
@@ -114,9 +116,8 @@ def browser(playwright, request):
 
     browser.close()
 
-# conftest.py - Ajouter cette fixture
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope=SCOPE)
 def browser_context(browser, request):
     """Create browser context with video recording for headed mode."""
     # Créer le contexte avec plus d'options de débogage en mode headed
@@ -145,7 +146,7 @@ def browser_context(browser, request):
     # Fermer le contexte
     context.close()
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope=SCOPE)
 def streamlit_server():
     """Start Streamlit server for testing - runs once per session."""
     # Kill any existing Streamlit process
@@ -247,8 +248,14 @@ def browser_context(browser):
 def page(browser_context):
     """Create a new page for each test."""
     page = browser_context.new_page()
-    # Set longer timeout for slow Streamlit
-    page.set_default_timeout(30000)
+
+    # IMPORTANT: Augmenter les timeouts pour le mode headed
+    page.set_default_timeout(60000)  # 60 secondes au lieu de 30
+    page.set_default_navigation_timeout(60000)
+
+    # Forcer une taille de fenêtre spécifique
+    page.set_viewport_size({"width": 1280, "height": 900})
+
     yield page
     page.close()
 
