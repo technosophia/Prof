@@ -397,12 +397,48 @@ def mock_user_manager(mock_db_manager):
 
         yield mock_user_mgr
 
+# file name: conftest.py (updated patch_database fixture)
+
+# file name: conftest.py (FIXED patch_database fixture)
+
 @pytest.fixture(autouse=True)
 def patch_database():
-    """Patch database to use test config."""
-    with patch('app.init_database') as mock_init_db:
-        mock_init_db.return_value = None
-        yield
+    """Patch database to properly initialize for tests."""
+    import os
+    from unittest.mock import patch
+
+    # Ensure TEST_MODE is set
+    os.environ["TEST_MODE"] = "true"
+
+    # Track if we've initialized
+    initialized = False
+
+    def mock_init_database(use_memory=False, db_path=None):
+        nonlocal initialized
+
+        # Import here to avoid circular imports
+        from shared.database import init_database as real_init_database
+        from shared.database import Base
+        from shared.users import UserTable
+        from shared.conversation import ConversationTable, MessageTable
+
+        # Always use in-memory for tests
+        db = real_init_database(use_memory=True, db_path=None)
+
+        # Create tables if not already done
+        if not initialized:
+            Base.metadata.create_all(db._engine)
+            db._tables_created = True
+            initialized = True
+            log("info", "Database tables created for tests")
+
+        return db
+
+    # Patch app.init_database to use our mock
+    with patch('app.init_database', side_effect=mock_init_database):
+        # Also need to patch the database in conversation_ui module
+        with patch('conversation_ui.conversation_manager._ensure_tables_exist', return_value=True):
+            yield
 
 # ============ HELPER FUNCTIONS ============
 

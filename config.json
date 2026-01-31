@@ -16,6 +16,14 @@
     "create_default_users": true
   },
   "llms": {
+    "mock": {
+      "type": "mock",
+      "model": "mock-fast",
+      "name": "Mock LLM",
+      "enabled": true,
+      "description": "Mock LLM for testing",
+      "requires_api_key": false
+    },
     "ollama_qwen": {
       "type": "ollama",
       "model": "qwen3:4b",

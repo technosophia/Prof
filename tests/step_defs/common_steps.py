@@ -600,3 +600,77 @@ def is_module_loaded(context, module_name):
         print(page_text[:1000])
 
     return context
+
+
+# Add this step to your scenario or call it manually
+@when("I debug the current state")
+def debug_current_state(context):
+    """Debug the current application state."""
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
+
+    print("\n" + "="*60)
+    print("DEBUGGING CURRENT STATE")
+    print("="*60)
+
+    # 1. Current URL
+    print(f"Current URL: {page.url}")
+
+    # 2. Page title
+    print(f"Page title: {page.title()}")
+
+    # 3. All text on page
+    all_text = page.locator("body").text_content()
+    print(f"\nAll page text (first 1000 chars):")
+    print(all_text[:1000])
+
+    # 4. Session state (if accessible)
+    print(f"\nSession state from context:")
+    for key, value in context.items():
+        if key != 'page':
+            print(f"  {key}: {value}")
+
+    # 5. Screenshot
+    take_screenshot(page, "debug_state.png", debug_enabled, full_page=True)
+
+    # 6. Check database state
+    if os.getenv("TEST_MODE") == "true":
+        try:
+            from shared.conversation import conversation_manager
+            from shared.users import user_manager
+
+            print(f"\nDatabase state:")
+
+            # Get all users
+            all_users = user_manager.get_all_users()
+            print(f"Total users: {len(all_users)}")
+
+            # Get current user conversations
+            current_user = context.get('current_user')
+            if current_user:
+                user_id = None
+                if isinstance(current_user, dict):
+                    user_id = current_user.get('id')
+                elif isinstance(current_user, str):
+                    user_obj = user_manager.get_user_by_name(current_user)
+                    if user_obj:
+                        user_id = user_obj.get('id')
+
+                if user_id:
+                    conversations = conversation_manager.get_user_conversations(user_id)
+                    print(f"Conversations for user {user_id}: {len(conversations)}")
+                    for conv in conversations:
+                        print(f"  - {conv.get('title')} (ID: {conv.get('id')}, messages: {conv.get('message_count')})")
+
+                        # Get conversation details
+                        conv_obj = conversation_manager.get_conversation(conv.get('id'), include_messages=True)
+                        if conv_obj and conv_obj.messages:
+                            print(f"    Messages:")
+                            for msg in conv_obj.messages:
+                                print(f"      {msg.role}: {msg.content[:50]}...")
+        except Exception as e:
+            print(f"Could not check database: {e}")
+
+    print("="*60 + "\n")
+
+    return context

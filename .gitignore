@@ -7,3 +7,4 @@ old
 data
 tests/debug
 tests/logs/*
+tests/test.db

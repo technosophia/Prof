@@ -16,12 +16,12 @@ class MockEngine(LLMEngine):
         super().__init__("mock")
         self.available = True
         self.responses = [
-            "This is a mock response from the test LLM.",
-            "Hello! I'm a mock AI assistant for testing.",
-            "I can help you test your application without real API calls.",
-            "This response simulates what a real LLM would return.",
-            "Testing, testing, 1, 2, 3... Mock LLM is working!",
-            "I'm here to help with testing. What would you like to test today?"
+            "(Mock) This is a mock response from the test LLM.",
+            "(Mock) Hello! I'm a mock AI assistant for testing.",
+            "(Mock) I can help you test your application without real API calls.",
+            "(Mock) This response simulates what a real LLM would return.",
+            "(Mock) Testing, testing, 1, 2, 3... Mock LLM is working!",
+            "(Mock) I'm here to help with testing. What would you like to test today?"
         ]
 
     def is_available(self) -> bool:

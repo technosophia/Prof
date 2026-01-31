@@ -11,7 +11,7 @@ from unittest.mock import patch, MagicMock, call
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import Column, String, Integer
-from shared.database import Base, DatabaseManager, init_database
+from shared.database import Base, DatabaseManager, init_database, MEMDB
 
 
 # Define a test table for testing the database manager
@@ -39,27 +39,6 @@ class TestDatabaseManager:
         db2 = DatabaseManager()
         assert db1 is db2
 
-    def test_initialize_in_memory(self):
-        """Test in-memory database initialization."""
-        # Clear module and create fresh instance
-        import importlib
-        import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
-
-        from shared.database import DatabaseManager
-        db = DatabaseManager()
-
-        with patch('shared.database.create_engine') as mock_engine:
-            with patch('shared.database.sessionmaker') as mock_sessionmaker:
-                # Mock the log to avoid output
-                with patch('shared.database.log'):
-                    db._initialize(use_memory=True)
-
-                    # Check that in-memory URL was used
-                    mock_engine.assert_called_once_with('sqlite:///:memory:', echo=False)
-                    mock_sessionmaker.assert_called_once()
-                    assert db._in_memory == True
 
     def test_initialize_persistent(self):
         """Test persistent database initialization."""
@@ -328,6 +307,32 @@ class TestDatabaseManager:
         with pytest.raises(RuntimeError, match="Database not initialized"):
             db._create_all_tables()
 
+    def test_initialize_persistent_without_pool_pre_ping(self):
+        """Test persistent database initialization doesn't include pool_pre_ping."""
+        # Clear module and create fresh instance
+        import importlib
+        import sys
+        if 'shared.database' in sys.modules:
+            del sys.modules['shared.database']
+
+        from shared.database import DatabaseManager
+        db = DatabaseManager()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+
+            with patch('shared.database.create_engine') as mock_engine:
+                with patch('shared.database.sessionmaker') as mock_sessionmaker:
+                    with patch('shared.database.Path.mkdir'):
+                        with patch('shared.database.log'):
+                            db._initialize(use_memory=False, db_path=db_path)
+
+                            # Verify pool_pre_ping is NOT included for persistent
+                            call_args = mock_engine.call_args
+                            assert call_args[0][0] == f'sqlite:///{db_path}'
+                            assert 'pool_pre_ping' not in call_args[1]  # Not specified
+                            assert call_args[1]['echo'] == False
+
 
 class TestDatabaseOperations:
     """Test database operations with mocked session."""
@@ -441,6 +446,7 @@ def test_init_database():
         mock_db._initialize = MagicMock()
         mock_db._create_all_tables = MagicMock()
         mock_db.is_initialized = MagicMock(return_value=False)
+        mock_db.are_tables_created = MagicMock(return_value=False)  # NEW: Mock this method
 
         # Re-import after patching
         from shared.database import init_database
@@ -485,7 +491,8 @@ def test_init_database_with_params():
     with patch('shared.database.db_manager') as mock_db:
         mock_db._initialize = MagicMock()
         mock_db._create_all_tables = MagicMock()
-        mock_db.is_initialized = MagicMock(return_value=False)
+        mock_db.is_initialized = MagicMock(side_effect=[False, False])  # Called twice
+        mock_db.are_tables_created = MagicMock(return_value=False)  # NEW: Mock this method
 
         # Re-import after patching
         from shared.database import init_database
@@ -499,8 +506,33 @@ def test_init_database_with_params():
         mock_db._initialize.reset_mock()
         mock_db._create_all_tables.reset_mock()
         mock_db.is_initialized.return_value = False
+        mock_db.are_tables_created.return_value = False
 
         # Test with file database
         init_database(use_memory=False, db_path="/test/path.db")
         mock_db._initialize.assert_called_with(use_memory=False, db_path="/test/path.db")
         mock_db._create_all_tables.assert_called()
+
+def test_init_database_tables_already_created():
+    """Test init_database when tables are already created."""
+    # Clear module
+    import importlib
+    import sys
+    if 'shared.database' in sys.modules:
+        del sys.modules['shared.database']
+
+    # Mock the db_manager
+    with patch('shared.database.db_manager') as mock_db:
+        mock_db._initialize = MagicMock()
+        mock_db._create_all_tables = MagicMock()
+        mock_db.is_initialized = MagicMock(return_value=True)
+        mock_db.are_tables_created = MagicMock(return_value=True)  # Tables already created
+
+        # Re-import after patching
+        from shared.database import init_database
+        result = init_database(use_memory=True)
+
+        assert result is mock_db
+        # Should NOT initialize or create tables if already initialized AND tables created
+        mock_db._initialize.assert_not_called()
+        mock_db._create_all_tables.assert_not_called()

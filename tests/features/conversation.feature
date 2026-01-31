@@ -12,8 +12,11 @@ Feature: Conversation with LLM
     Scenario: Create conversation and send a message
         When I navigate to the chat page
         And I create a new conversation named "First conversation"
-        And I send the message "Hello, can you say hello to me?"
+        And I debug the current state
+        And I send the message "Hello, can you say CODE to me?"
+        And I debug the current state
         Then I should see a response from the mock LLM
+        And I should see a response containing "CODE"
 
     Scenario: Conversation with multiple messages
         Given I have a conversation "Test exchange"

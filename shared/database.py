@@ -31,6 +31,7 @@ from shared.logging import log
 
 Base = declarative_base()
 
+MEMDB = 'sqlite:///tests/test.db'
 
 class DatabaseManager:
     """Manages database connections and operations.
@@ -53,6 +54,7 @@ class DatabaseManager:
     """
 
     _instance = None
+    _shared_engine = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -84,11 +86,19 @@ class DatabaseManager:
         if self._engine is not None:
             return
 
-        if use_memory:
-            # In-memory database for testing
-            self._engine = create_engine('sqlite:///:memory:', echo=False)
+        if use_memory and DatabaseManager._shared_engine is not None:
+            self._engine = DatabaseManager._shared_engine
             self._in_memory = True
-            log("info", "Initialized in-memory database for testing")
+            log("debug", "Reusing shared in-memory database engine")
+            return
+
+        if use_memory:
+            db_url = MEMDB
+            self._engine = create_engine(db_url, echo=False)
+            self._in_memory = True
+            # Store as shared engine
+            DatabaseManager._shared_engine = self._engine
+            log("info", "Initialized and stored shared in-memory database engine")
         else:
             # Persistent database
             if db_path is None:
@@ -217,7 +227,8 @@ def init_database(use_memory: bool = False, db_path: Optional[str] = None):
         return db_manager
 
     db_manager._initialize(use_memory=use_memory, db_path=db_path)
-    db_manager._create_all_tables()
+    if not db_manager.are_tables_created():
+        db_manager._create_all_tables()
     return db_manager
 
 
