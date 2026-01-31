@@ -10,3 +10,6 @@ pydoc-markdown
 playwright
 pytest-bdd
 pytest-playwright
+faiss-cpu
+sentence-transformers
+numpy
