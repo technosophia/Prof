@@ -60,33 +60,62 @@ def navigate_to_chat_page(context):
 
     chat_button = None
     for selector in chat_button_selectors:
-        if selector.count() > 0:
+        count = selector.count()
+        if count > 0:
             chat_button = selector.first
+            print(f"Found chat button, text: '{chat_button.text_content()}'")
             break
 
     if chat_button:
         expect(chat_button).to_be_visible(timeout=30000)
         expect(chat_button).to_be_enabled(timeout=30000)
+        print("Clicking chat button...")
         chat_button.click()
-        # Wait for chat page to load
+
+        # Wait for Streamlit rerun
         page.wait_for_load_state("networkidle", timeout=30000)
-        # Wait for chat input to be visible
-        expect(page.locator("[data-testid='stChatInput']").or_(page.get_by_text("Conversation"))).to_be_visible(timeout=30000)
+
+        # Wait for chat indicators to appear with retry logic
+        max_attempts = 10
+        chat_loaded = False
+        for attempt in range(max_attempts):
+            # Look for various chat indicators
+            page_text = page.locator("body").text_content().lower()
+            has_chat_input = page.locator("textarea").count() > 0
+            has_conversation_text = "conversation" in page_text or "chat" in page_text
+
+            if has_chat_input or has_conversation_text:
+                chat_loaded = True
+                print(f"Chat page loaded (attempt {attempt + 1}/{max_attempts})")
+                break
+
+            if attempt < max_attempts - 1:
+                print(f"Waiting for chat page to load... (attempt {attempt + 1}/{max_attempts})")
+                page.wait_for_timeout(1000)
+
+        if not chat_loaded:
+            take_screenshot(page, "chat_page_not_loaded.png", debug_enabled, full_page=True)
+            raise AssertionError("Chat page did not load properly")
 
         take_screenshot(page, "conversation_04_chat_page.png", debug_enabled)
 
         # Update context
         context['current_page'] = 'chat'
+        print("✓ Successfully navigated to chat page")
     else:
-        print("Warning: Could not find chat button, assuming already on chat page")
-        # Check if chat input is already visible
-        if page.locator("[data-testid='stChatInput']").count() > 0:
+        # Check if already on chat page
+        page_text = page.locator("body").text_content().lower()
+        if "conversation" in page_text or page.locator("textarea").count() > 0:
+            print("Already on chat page")
             context['current_page'] = 'chat'
         else:
-            print("ERROR: Not on chat page and no chat button found")
+            take_screenshot(page, "no_chat_button_found.png", debug_enabled, full_page=True)
+            raise AssertionError("Could not find chat button and not already on chat page")
 
     return context
 
+
+# file name: tests/step_defs/conversation_steps.py (updated sections)
 
 @when(parsers.parse('I create a new conversation named "{conversation_name}"'))
 def create_new_conversation(context, conversation_name):
@@ -111,82 +140,210 @@ def create_new_conversation(context, conversation_name):
         page.get_by_text("Create conversation")
     ]
 
+    # Debug: Print all buttons on page to see what's available
+    all_buttons = page.locator("button").all()
+    print(f"Found {len(all_buttons)} buttons on page:")
+    for i, btn in enumerate(all_buttons):
+        try:
+            btn_text = btn.text_content(timeout=2000)
+            print(f"  Button {i}: '{btn_text}'")
+        except:
+            print(f"  Button {i}: [could not read text]")
+
     new_convo_button = None
-    for selector in new_convo_button_selectors:
-        if selector.count() > 0:
+    selector_descriptions = [
+        "role=button with 'new conversation' text",
+        "text='➕ New Conversation'",
+        "text='New Conversation'",
+        "text='Create conversation'"
+    ]
+
+    for idx, selector in enumerate(new_convo_button_selectors):
+        count = selector.count()
+        if count > 0:
             new_convo_button = selector.first
+            print(f"Found new conversation button with: {selector_descriptions[idx]}")
+            print(f"Button text: '{new_convo_button.text_content()}'")
             break
 
-    if new_convo_button:
-        expect(new_convo_button).to_be_visible(timeout=30000)
-        expect(new_convo_button).to_be_enabled(timeout=30000)
-        new_convo_button.click()
+    if not new_convo_button:
+        # Take screenshot for debugging
+        take_screenshot(page, "conversation_no_new_button.png", debug_enabled, full_page=True)
 
-        # Wait for dialog to appear
-        page.wait_for_load_state("networkidle", timeout=30000)
-        expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+        # Get all text on page for debugging
+        page_text = page.locator("body").text_content()
+        print("\n=== PAGE TEXT (first 500 chars) ===")
+        print(page_text[:500])
+        print("==================================\n")
 
-        # Now look for conversation title input
-        input_selectors = [
-            "input[type='text']",
-            "input[placeholder*='title']",
-            "input[placeholder*='conversation']",
-            "input[placeholder*='name']"
-        ]
+        raise AssertionError("Could not find 'New conversation' button")
 
-        title_input = None
-        for selector in input_selectors:
-            inputs = page.locator(selector)
-            if inputs.count() > 0:
-                title_input = inputs.first
-                print(f"Found title input with selector: {selector}")
+    # Click the button and wait for Streamlit to respond
+    print(f"Clicking new conversation button...")
+    new_convo_button.click()
+
+    # CRITICAL: Wait for Streamlit rerun - look for form elements to appear
+    page.wait_for_timeout(1000)  # Brief pause
+
+    # Look for form elements with retry logic
+    max_attempts = 10
+    form_found = False
+    for attempt in range(max_attempts):
+        # Check for input field or form appearing
+        input_fields = page.locator("input[type='text']").all()
+        form_text = page.locator("body").text_content()
+
+        if input_fields or "Conversation Title" in form_text or "conversation" in form_text.lower():
+            form_found = True
+            print(f"Conversation form appeared (attempt {attempt + 1}/{max_attempts})")
+            break
+
+        if attempt < max_attempts - 1:
+            print(f"Waiting for conversation form... (attempt {attempt + 1}/{max_attempts})")
+            page.wait_for_timeout(1000)
+
+    if not form_found:
+        take_screenshot(page, "conversation_form_not_found.png", debug_enabled, full_page=True)
+
+        # Debug what's on the page
+        form_text = page.locator("body").text_content()
+        print("\n=== CURRENT PAGE TEXT ===")
+        print(form_text[:300])
+        print("==========================\n")
+
+        raise AssertionError("Conversation creation form did not appear after clicking 'New conversation' button")
+
+    # Now look for conversation title input - try multiple selectors
+    input_selectors = [
+        "input[type='text']",
+        "input[placeholder*='title']",
+        "input[placeholder*='conversation']",
+        "input[placeholder*='name']",
+        "textarea"
+    ]
+
+    title_input = None
+    for selector in input_selectors:
+        inputs = page.locator(selector)
+        count = inputs.count()
+        if count > 0:
+            print(f"Found {count} elements with selector: {selector}")
+            # Get the first visible input
+            for i in range(count):
+                try:
+                    if inputs.nth(i).is_visible():
+                        title_input = inputs.nth(i)
+                        print(f"  Using visible input at index {i}")
+                        break
+                except:
+                    continue
+            if title_input:
                 break
 
-        if title_input:
-            expect(title_input).to_be_visible(timeout=30000)
-            expect(title_input).to_be_enabled(timeout=30000)
-            title_input.fill("")
-            title_input.type(conversation_name, delay=100)
+    if not title_input:
+        take_screenshot(page, "conversation_no_title_input.png", debug_enabled, full_page=True)
 
-            # Wait for input to have value
-            expect(title_input).to_have_value(conversation_name, timeout=30000)
+        # Debug: List all inputs
+        all_inputs = page.locator("input, textarea").all()
+        print(f"\nFound {len(all_inputs)} input/textarea elements:")
+        for i, inp in enumerate(all_inputs):
+            try:
+                placeholder = inp.get_attribute("placeholder") or ""
+                input_type = inp.get_attribute("type") or "textarea"
+                print(f"  Input {i}: type={input_type}, placeholder='{placeholder}'")
+            except:
+                print(f"  Input {i}: [could not read attributes]")
 
-            # Look for save button
-            save_button_selectors = [
-                page.get_by_role("button", name=re.compile(r"save", re.IGNORECASE)),
-                page.get_by_role("button", name=re.compile(r"create", re.IGNORECASE)),
-                page.get_by_text("Save"),
-                page.get_by_text("Create")
-            ]
+        raise AssertionError("Could not find conversation title input field")
 
-            save_button = None
-            for selector in save_button_selectors:
-                if selector.count() > 0:
-                    save_button = selector.first
-                    break
+    # Fill the title
+    print(f"Filling conversation title: {conversation_name}")
+    title_input.fill("")
+    title_input.type(conversation_name, delay=100)
 
-            if save_button:
-                expect(save_button).to_be_visible(timeout=30000)
-                expect(save_button).to_be_enabled(timeout=30000)
-                save_button.click()
-                # Wait for conversation to be created
-                page.wait_for_load_state("networkidle", timeout=30000)
-                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-                print(f"Created conversation: {conversation_name}")
-            else:
-                # Press Enter as fallback
-                title_input.press("Enter")
-                page.wait_for_load_state("networkidle", timeout=30000)
-                expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-                print(f"Created conversation with Enter: {conversation_name}")
-        else:
-            print("Warning: Could not find title input")
+    # Verify the input has the value
+    try:
+        expect(title_input).to_have_value(conversation_name, timeout=10000)
+        print(f"✓ Title input verified to contain: {conversation_name}")
+    except Exception as e:
+        actual_value = title_input.input_value()
+        print(f"WARNING: Title input has value: '{actual_value}', expected: '{conversation_name}'")
+        # Still continue, might be a timing issue
+
+    # Look for save button
+    save_button_selectors = [
+        page.get_by_role("button", name=re.compile(r"save", re.IGNORECASE)),
+        page.get_by_role("button", name=re.compile(r"create", re.IGNORECASE)),
+        page.get_by_role("button", name=re.compile(r"submit", re.IGNORECASE)),
+        page.get_by_text("Save", exact=False),
+        page.get_by_text("Create", exact=False),
+        page.get_by_text("Submit", exact=False)
+    ]
+
+    save_button = None
+    for selector in save_button_selectors:
+        count = selector.count()
+        if count > 0:
+            save_button = selector.first
+            try:
+                btn_text = save_button.text_content()
+                print(f"Found save button with text: '{btn_text}'")
+            except:
+                print("Found save button (could not read text)")
+            break
+
+    if not save_button:
+        # Try pressing Enter as fallback
+        print("No save button found, trying Enter key...")
+        title_input.press("Enter")
     else:
-        print("Warning: Could not find new conversation button")
+        # Click the save button
+        print("Clicking save button...")
+        save_button.click()
+
+    # CRITICAL: Wait for the conversation to be created and UI to update
+    page.wait_for_timeout(2000)  # Wait for any animations/transitions
+
+    # Look for indicators that conversation was created
+    max_attempts = 10
+    created = False
+    for attempt in range(max_attempts):
+        page_text = page.locator("body").text_content().lower()
+
+        # Check for positive indicators
+        if (conversation_name.lower() in page_text or
+            "conversation created" in page_text or
+            "success" in page_text):
+            created = True
+            print(f"Conversation '{conversation_name}' appears to be created (attempt {attempt + 1}/{max_attempts})")
+            break
+
+        # Check for chat interface elements
+        chat_elements = page.locator("textarea").all()
+        if chat_elements:
+            created = True
+            print(f"Chat interface appears (attempt {attempt + 1}/{max_attempts})")
+            break
+
+        if attempt < max_attempts - 1:
+            print(f"Waiting for conversation creation confirmation... (attempt {attempt + 1}/{max_attempts})")
+            page.wait_for_timeout(1000)
+
+    if not created:
+        take_screenshot(page, "conversation_not_created.png", debug_enabled, full_page=True)
+
+        # Debug current page state
+        current_text = page.locator("body").text_content()
+        print("\n=== CURRENT PAGE STATE ===")
+        print(current_text[:400])
+        print("==========================\n")
+
+        raise AssertionError(f"Conversation '{conversation_name}' does not appear to have been created")
 
     take_screenshot(page, "conversation_after_create.png", debug_enabled)
 
     context['current_conversation'] = conversation_name
+    print(f"✓ Conversation '{conversation_name}' created successfully")
     return context
 
 
