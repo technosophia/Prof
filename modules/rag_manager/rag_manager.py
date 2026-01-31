@@ -394,40 +394,49 @@ class RAGManager:
         """Search across RAG engines."""
         results = {}
 
+        accessible_docs = self.get_user_documents(user_id)
+        if not accessible_docs:
+            return results
+
+        allowed_filenames = {doc['filename'] for doc in accessible_docs}
+
+        # Group by unique owner to avoid duplicate searches
+        owners = {}
+        for doc in accessible_docs:
+            owner = doc['uploaded_by']
+            owners.setdefault(owner, [])
+
         if engine_type:
-            # Search with specific engine
             engine = self.get_engine(engine_type)
-            if engine:
-                # Get documents this user can access
-                accessible_docs = self.get_user_documents(user_id)
-                user_doc_ids = [doc['filename'] for doc in accessible_docs]
+            if not engine:
+                return results
 
-                # Search in engine for each accessible document owner
-                for doc in accessible_docs:
-                    doc_owner = doc['uploaded_by']
-                    engine_results = engine.search(doc_owner, query, limit)
+            engine_results = []
+            for owner in owners:
+                owner_results = engine.search(owner, query, limit * 5)  # Get more candidates per owner
+                for result in owner_results:
+                    if result['filename'] in allowed_filenames:
+                        engine_results.append(result)
 
-                    # Filter to only include accessible documents
-                    for result in engine_results:
-                        if result['filename'] in user_doc_ids:
-                            if engine_type not in results:
-                                results[engine_type] = []
-                            results[engine_type].append(result)
+            # Optional: sort globally and take top limit (better relevance across owners)
+            engine_results.sort(key=lambda x: x['score'], reverse=True)
+            if engine_type not in results:
+                results[engine_type] = []
+            results[engine_type].extend(engine_results[:limit])
+
         else:
-            # Search with all engines
-            for engine_type, engine in self.engines.items():
+            # All engines branch - same fix
+            for eng_type, engine in self.engines.items():
                 engine_results = []
-                accessible_docs = self.get_user_documents(user_id)
-                user_doc_ids = [doc['filename'] for doc in accessible_docs]
-
-                for doc in accessible_docs:
-                    doc_owner = doc['uploaded_by']
-                    for result in engine.search(doc_owner, query, limit):
-                        if result['filename'] in user_doc_ids:
+                for owner in owners:
+                    owner_results = engine.search(owner, query, limit * 5)
+                    for result in owner_results:
+                        if result['filename'] in allowed_filenames:
                             engine_results.append(result)
 
                 if engine_results:
-                    results[engine_type] = engine_results
+                    engine_results.sort(key=lambda x: x['score'], reverse=True)
+                    results[eng_type] = engine_results[:limit]
 
         return results
 
