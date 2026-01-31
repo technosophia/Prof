@@ -219,8 +219,7 @@ def main():
 
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:
-        st.title("🌍 " + _("language_select"))
-
+        st.title("🧭 Configuration")
         # Show available languages - SORTED for consistent, predictable order (en first)
         available_langs = sorted(translator.translations.keys())
 
@@ -244,7 +243,7 @@ def main():
 
         # Language selector
         lang_option = st.selectbox(
-            _("language_select"),
+            "🌍 " + _("language_select"),
             options=available_langs,
             format_func=lambda x: lang_names.get(x, x.upper()),
             index=default_index,
@@ -259,9 +258,6 @@ def main():
             log("info", f"Language changed from '{old_lang}' to '{lang_option}'")
             st.rerun()
 
-        # Navigation
-        st.title("🧭 Navigation")
-
         # Navigation buttons
         col1, col2 = st.columns(2)
         with col1:
@@ -273,9 +269,6 @@ def main():
             if st.button("🔧 Admin", use_container_width=True):
                 st.session_state.current_page = "admin"
                 st.rerun()
-
-        # LLM Selection
-        st.title("🤖 " + _("llm_selection"))
 
         # Get available LLMs
         available_llms_list = get_available_llms()
@@ -305,7 +298,7 @@ def main():
                     current_index = 0
 
             selected_llm_id = st.selectbox(
-                _("select_llm"),
+                "🤖 " + _("select_llm"),
                 options=llm_options,
                 format_func=lambda x: llm_display_names[llm_options.index(x)],
                 index=current_index,

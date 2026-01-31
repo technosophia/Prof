@@ -83,12 +83,67 @@ def playwright():
     if original_asyncio_mode:
         os.environ["PYTEST_ASYNCIO_MODE"] = original_asyncio_mode
 
+# conftest.py - Modifier la fixture browser
+
 @pytest.fixture(scope="function")
-def browser(playwright):
-    """Browser session fixture."""
-    browser = playwright.chromium.launch()
+def browser(playwright, request):
+    """Browser session fixture avec support pour --headed."""
+    # Vérifier si --headed est spécifié
+    headless = not request.config.getoption("--headed")
+
+    # Configurer les options de lancement
+    launch_options = {
+        "headless": headless,
+        "args": [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process"
+        ]
+    }
+
+    if not headless:
+        print(f"🔍 Launching browser in HEADED mode (headless={headless})")
+        launch_options["slow_mo"] = 100  # Ralentir pour voir ce qui se passe
+    else:
+        print(f"🚀 Launching browser in HEADLESS mode")
+
+    browser = playwright.chromium.launch(**launch_options)
+
     yield browser
+
     browser.close()
+
+# conftest.py - Ajouter cette fixture
+
+@pytest.fixture(scope="function")
+def browser_context(browser, request):
+    """Create browser context with video recording for headed mode."""
+    # Créer le contexte avec plus d'options de débogage en mode headed
+    context_options = {
+        "viewport": {"width": 1280, "height": 720},
+        "ignore_https_errors": True,
+    }
+
+    # Activer l'enregistrement vidéo uniquement en mode headed ou sur demande
+    if request.config.getoption("--headed") or os.getenv("PYTEST_RECORD_VIDEO"):
+        # Créer un répertoire pour les vidéos
+        video_dir = os.path.join("tests", "videos")
+        os.makedirs(video_dir, exist_ok=True)
+
+        # Nom du test pour le fichier vidéo
+        test_name = request.node.name.replace("[", "_").replace("]", "_")
+        video_path = os.path.join(video_dir, f"{test_name}.webm")
+
+        context_options["record_video_dir"] = "tests/videos"
+        context_options["record_video_size"] = {"width": 1280, "height": 720}
+
+    context = browser.new_context(**context_options)
+
+    yield context
+
+    # Fermer le contexte
+    context.close()
 
 @pytest.fixture(scope="function")
 def streamlit_server():

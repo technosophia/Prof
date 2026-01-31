@@ -60,10 +60,11 @@ def inject_ui_sidebar():
         role_emoji = "👑" if role == UserRole.ADMIN.value else "⭐" if role == UserRole.MASTER.value else "👤"
 
         st.info(f"**Current User:** {current_user['name']} {role_emoji}")
-        st.caption(f"Role: {role.capitalize()}")
+        col1, col2 = st.columns(2)
+        col1.caption(f"Role: {role.capitalize()}")
 
         if current_user.get('parent_name'):
-            st.caption(f"Parent: {current_user['parent_name']}")
+            col2.caption(f"Parent: {current_user['parent_name']}")
 
         # Switch user button
         if st.button("Switch User"):
