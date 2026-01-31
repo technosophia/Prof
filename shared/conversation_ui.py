@@ -118,6 +118,7 @@ def inject_ui_sidebar():
     # Only show if user is logged in
     if not st.session_state.current_user:
         log("debug", "No current user, skipping conversation sidebar")
+        st.warning("Please log in to access your conversations.")
         return False
 
     log("debug", f"Current user: {st.session_state.current_user.get('name')} (ID: {st.session_state.current_user.get('id')})")

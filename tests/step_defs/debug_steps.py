@@ -74,8 +74,7 @@ def enter_text_in_textarea(context, text):
 
         context['entered_text'] = text
 
-        if debug_enabled:
-            take_screenshot(page, "debug_text_entered.png")
+        take_screenshot(page, "debug_text_entered.png", debug_enabled)
     else:
         print("Warning: Could not find text area")
 
@@ -108,8 +107,7 @@ def click_display_text_button(context):
     # Wait for Streamlit app container
     expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    if debug_enabled:
-        take_screenshot(page, "debug_display_clicked.png")
+    take_screenshot(page, "debug_display_clicked.png", debug_enabled)
 
     return context
 
@@ -432,7 +430,6 @@ def verify_text_in_header(context, expected_text):
 
     assert found, f"Expected text '{expected_text}' not found in any header"
 
-    if debug_enabled:
-        take_screenshot(page, "debug_header_found.png")
+    take_screenshot(page, "debug_header_found.png", debug_enabled)
 
     return context
