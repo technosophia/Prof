@@ -10,10 +10,10 @@ import sys
 import os
 from playwright.sync_api import Page, expect
 
+pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
+
 # Add the project root to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
-pytestmark = pytest.mark.bdd
 
 # Import fixtures from conftest.py only
 from tests.conftest import (

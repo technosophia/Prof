@@ -114,7 +114,7 @@ def navigate_to_admin_panel_common(context):
         else:
             # Fallback: try direct navigation
             print("WARNING: Could not find admin button, attempting direct navigation...")
-            page.goto("http://localhost:8502/", wait_until="networkidle")
+            page.goto(f"http://localhost:{TEST_PORT}/", wait_until="networkidle")
             page.wait_for_load_state("domcontentloaded", timeout=30000)
 
     # Take screenshot if debug enabled
@@ -413,6 +413,8 @@ def default_user_logged_in(context, username):
     selectbox_count = all_selectboxes.count()
     print(f"Found {selectbox_count} selectboxes total")
 
+    take_screenshot(page, "conversation_login_before_select.png", debug_enabled, full_page=True)
+
     # The user selectbox should be the one with "Choose user" or similar
     # Based on earlier error, it's the 3rd one (index 2)
     if selectbox_count >= 3:
@@ -469,6 +471,7 @@ def default_user_logged_in(context, username):
             # Close dropdown if open
             page.keyboard.press("Escape")
 
+    take_screenshot(page, "conversation_before_login_click.png", debug_enabled, full_page=True)
     # Look for login button - use robust selectors
     login_button_selectors = [
         page.get_by_role("button", name=re.compile(r"login as user", re.IGNORECASE)),
@@ -491,7 +494,9 @@ def default_user_logged_in(context, username):
         expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
         print("Clicked login button")
     else:
+        take_screenshot(page, "conversation_no_log_in_button.png", debug_enabled, full_page=True)
         print("Note: No login button found - maybe login happens automatically")
+        raise AssertionError("Chat page did not load properly")
 
     # Take screenshot after login attempt
     take_screenshot(page, "conversation_02_logged_in.png", debug_enabled, full_page=True)

@@ -16,7 +16,7 @@ from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
 SCOPE = "function"
-TEST_PORT = 8503
+TEST_PORT = 8504
 
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
@@ -120,8 +120,6 @@ def playwright():
     if original_asyncio_mode:
         os.environ["PYTEST_ASYNCIO_MODE"] = original_asyncio_mode
 
-# conftest.py - Modifier la fixture browser
-
 @pytest.fixture(scope=SCOPE)
 def browser(playwright, request):
     """Browser session fixture avec support pour --headed."""
@@ -143,6 +141,7 @@ def browser(playwright, request):
         print(f"🔍 Launching browser in HEADED mode (headless={headless})")
         launch_options["slow_mo"] = 100  # Ralentir pour voir ce qui se passe
     else:
+        launch_options["slow_mo"] = 100
         print(f"🚀 Launching browser in HEADLESS mode")
 
     browser = playwright.chromium.launch(**launch_options)
@@ -150,36 +149,6 @@ def browser(playwright, request):
     yield browser
 
     browser.close()
-
-
-@pytest.fixture(scope=SCOPE)
-def browser_context(browser, request):
-    """Create browser context with video recording for headed mode."""
-    # Créer le contexte avec plus d'options de débogage en mode headed
-    context_options = {
-        "viewport": {"width": 1280, "height": 720},
-        "ignore_https_errors": True,
-    }
-
-    # Activer l'enregistrement vidéo uniquement en mode headed ou sur demande
-    if request.config.getoption("--headed") or os.getenv("PYTEST_RECORD_VIDEO"):
-        # Créer un répertoire pour les vidéos
-        video_dir = os.path.join("tests", "videos")
-        os.makedirs(video_dir, exist_ok=True)
-
-        # Nom du test pour le fichier vidéo
-        test_name = request.node.name.replace("[", "_").replace("]", "_")
-        video_path = os.path.join(video_dir, f"{test_name}.webm")
-
-        context_options["record_video_dir"] = "tests/videos"
-        context_options["record_video_size"] = {"width": 1280, "height": 720}
-
-    context = browser.new_context(**context_options)
-
-    yield context
-
-    # Fermer le contexte
-    context.close()
 
 @pytest.fixture(scope=SCOPE)
 def streamlit_server():
@@ -262,7 +231,7 @@ def streamlit_server():
             response = requests.get(f"http://localhost:{TEST_PORT}/_stcore/health", timeout=2)
             if response.status_code == 200:
                 print("✓ Streamlit server started successfully")
-                time.sleep(3)  # Attendre que tout soit initialisé
+                time.sleep(5)  # Attendre que tout soit initialisé
                 break
         except Exception as e:
             if i % 10 == 0:
@@ -499,4 +468,12 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "unit: Unit tests without UI"
+    )
+    config.addinivalue_line(
+        "markers",
+        "streamlit_testing: Tests using streamlit.testing.v1 (no browser)"
+    )
+    config.addinivalue_line(
+        "markers",
+        "playwright: Tests using Playwright (browser automation)"
     )

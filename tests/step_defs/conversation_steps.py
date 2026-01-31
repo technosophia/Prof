@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 # Load feature files
 scenarios('../../tests/features/conversation.feature')
 
-pytestmark = pytest.mark.bdd
+pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
 # Re-use fixtures from conversation tests
 from tests.conftest import (
