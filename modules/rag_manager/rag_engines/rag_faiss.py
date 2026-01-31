@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import hashlib
 
-from ..rag_engine import RAGEngine
+from ..rag_engine import RAGEngine  # Fixed import
 from shared.logging import log
 from shared.config import get_config
 
@@ -69,7 +69,14 @@ class FaissRAGEngine(RAGEngine):
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
             log("error", "SentenceTransformers is not installed")
             return False
-        return True
+
+        # Check if embedding model can be loaded
+        try:
+            model = self._get_embedding_model()
+            return model is not None
+        except Exception as e:
+            log("error", f"Failed to initialize FAISS engine: {str(e)}")
+            return False
 
     def _load_existing_indices(self):
         """Load existing FAISS indices from disk."""
@@ -78,44 +85,61 @@ class FaissRAGEngine(RAGEngine):
 
         try:
             index_files = list(self.index_path.glob("*_faiss.index"))
-            metadata_files = list(self.index_path.glob("*_metadata.pkl"))
 
             for idx_file in index_files:
                 # Extract user_id from filename
                 user_id = idx_file.name.replace("_faiss.index", "")
 
-                # Load FAISS index
-                index = faiss.read_index(str(idx_file))
-                self.indices[user_id] = index
+                try:
+                    # Load FAISS index
+                    index = faiss.read_index(str(idx_file))
+                    self.indices[user_id] = index
 
-                # Load metadata
-                metadata_file = self.index_path / f"{user_id}_metadata.pkl"
-                if metadata_file.exists():
-                    with open(metadata_file, 'rb') as f:
-                        self.metadata[user_id] = pickle.load(f)
+                    # Load metadata
+                    metadata_file = self.index_path / f"{user_id}_metadata.pkl"
+                    if metadata_file.exists():
+                        with open(metadata_file, 'rb') as f:
+                            self.metadata[user_id] = pickle.load(f)
 
-                log("info", f"Loaded FAISS index for user {user_id} with {index.ntotal} vectors")
+                    log("info", f"Loaded FAISS index for user {user_id} with {index.ntotal} vectors")
+                except Exception as e:
+                    log("error", f"Failed to load FAISS index for user {user_id}: {str(e)}")
 
         except Exception as e:
             log("error", f"Failed to load existing FAISS indices: {str(e)}")
 
     def _get_embedding_model(self):
-        """Get or create embedding model."""
-        if self.embedding_model is None and self.is_available():
+        """Get or create embedding model with CUDA warning suppression."""
+        if self.embedding_model is None:
             try:
-                self.embedding_model = SentenceTransformer(self.embedding_model_name)
+                import torch
+                import os
+
+                # Force CPU usage to avoid CUDA warnings
+                torch.cuda.is_available = lambda: False
+
+                # Import with CPU-only context
+                with torch.no_grad():
+                    self.embedding_model = SentenceTransformer(
+                        self.embedding_model_name,
+                        device='cpu'
+                    )
+
                 # Update dimension based on model
                 test_embedding = self.embedding_model.encode(["test"])
                 self.dimension = test_embedding.shape[1]
                 log("info", f"Loaded embedding model: {self.embedding_model_name}, dimension: {self.dimension}")
             except Exception as e:
-                log("error", f"Failed to load embedding model: {str(e)}")
+                log("error", f"Failed to load embedding model: {str(e)}", exc_info=True)
                 return None
         return self.embedding_model
 
     def _chunk_text(self, text: str) -> List[str]:
         """Split text into overlapping chunks."""
         words = text.split()
+        if not words:
+            return []
+
         chunks = []
 
         for i in range(0, len(words), self.chunk_size - self.chunk_overlap):
@@ -151,13 +175,25 @@ class FaissRAGEngine(RAGEngine):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
-                except:
+                except UnicodeDecodeError:
                     try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
+                        # Try with different encodings
+                        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+                            try:
+                                with open(file_path, 'r', encoding=encoding) as f:
+                                    content = f.read()
+                                break
+                            except:
+                                continue
+                        if content is None:
+                            log("error", f"Cannot decode file {file_path}")
+                            return False
                     except Exception as e:
                         log("error", f"Cannot read file {file_path}: {str(e)}")
                         return False
+                except Exception as e:
+                    log("error", f"Cannot read file {file_path}: {str(e)}")
+                    return False
 
             if not content or len(content.strip()) == 0:
                 log("warning", f"Empty content for file {filename}")
@@ -174,12 +210,12 @@ class FaissRAGEngine(RAGEngine):
                 return False
 
             # Generate embeddings
-            embeddings = model.encode(chunks, show_progress_bar=False)
+            embeddings = model.encode(chunks, show_progress_bar=False, convert_to_numpy=True)
 
             # Initialize or get user's index
             if user_id not in self.indices:
                 # Create new index
-                index = faiss.IndexFlatIP(self.dimension)  # Inner product for cosine similarity
+                index = faiss.IndexFlatL2(self.dimension)  # L2 distance
                 self.indices[user_id] = index
                 self.metadata[user_id] = {}
             else:
@@ -244,7 +280,8 @@ class FaissRAGEngine(RAGEngine):
         """Rebuild FAISS index from metadata."""
         if user_id not in self.metadata or not self.metadata[user_id]:
             # No vectors, create empty index
-            self.indices[user_id] = faiss.IndexFlatIP(self.dimension)
+            self.indices[user_id] = faiss.IndexFlatL2(self.dimension)
+            self._save_user_index(user_id)
             return
 
         # Collect all embeddings
@@ -257,12 +294,13 @@ class FaissRAGEngine(RAGEngine):
                 metadata_items.append((vector_id, meta))
 
         if not embeddings:
-            self.indices[user_id] = faiss.IndexFlatIP(self.dimension)
+            self.indices[user_id] = faiss.IndexFlatL2(self.dimension)
+            self._save_user_index(user_id)
             return
 
         # Create new index
         embeddings_array = np.array(embeddings, dtype='float32')
-        index = faiss.IndexFlatIP(self.dimension)
+        index = faiss.IndexFlatL2(self.dimension)
         index.add(embeddings_array)
         self.indices[user_id] = index
 
@@ -299,25 +337,29 @@ class FaissRAGEngine(RAGEngine):
 
         try:
             if not self.is_available():
+                log("debug", f"FAISS engine not available for user {user_id}")
                 return results
 
-            if user_id not in self.indices or self.indices[user_id].ntotal == 0:
+            if user_id not in self.indices:
+                log("debug", f"No FAISS index found for user {user_id}")
+                return results
+
+            index = self.indices[user_id]
+            if index.ntotal == 0:
+                log("debug", f"Empty FAISS index for user {user_id}")
                 return results
 
             # Get embedding model
             model = self._get_embedding_model()
             if model is None:
+                log("error", f"Cannot get embedding model for search")
                 return results
 
             # Encode query
-            query_embedding = model.encode([query])
+            query_embedding = model.encode([query], show_progress_bar=False, convert_to_numpy=True)
 
             # Search in FAISS index
-            index = self.indices[user_id]
-            k = min(limit * 2, index.ntotal)  # Get more results for filtering
-
-            if k == 0:
-                return results
+            k = min(limit * 2, index.ntotal)
 
             distances, indices = index.search(query_embedding.astype('float32'), k)
 
@@ -329,14 +371,14 @@ class FaissRAGEngine(RAGEngine):
                 if vector_id in self.metadata.get(user_id, {}):
                     meta = self.metadata[user_id][vector_id]
 
-                    # Calculate cosine similarity (from inner product)
-                    # Assuming embeddings are normalized
-                    similarity = float(distance)
+                    # Convert L2 distance to similarity score (inverse)
+                    # Normalize to 0-1 range (closer distance = higher similarity)
+                    similarity = 1.0 / (1.0 + float(distance))
 
                     if similarity >= self.similarity_threshold:
                         results.append({
                             'filename': meta['filename'],
-                            'score': similarity,
+                            'score': round(similarity, 4),
                             'content': meta['text'],
                             'metadata': {
                                 'chunk_index': meta['chunk_index'],
@@ -350,6 +392,8 @@ class FaissRAGEngine(RAGEngine):
 
             # Sort by score descending
             results.sort(key=lambda x: x['score'], reverse=True)
+
+            log("debug", f"FAISS search for '{query}' returned {len(results)} results")
 
         except Exception as e:
             log("error", f"FAISS search error: {str(e)}", exc_info=True)
@@ -411,16 +455,18 @@ class FaissRAGEngine(RAGEngine):
         stats = {
             'engine_type': self.engine_type,
             'embedding_model': self.embedding_model_name,
-            'dimension': self.dimension
+            'dimension': self.dimension,
+            'chunk_size': self.chunk_size
         }
 
         if user_id:
             if user_id in self.indices:
-                stats['documents_indexed'] = len(set(
+                unique_docs = set(
                     meta['filename'] for meta in self.metadata.get(user_id, {}).values()
-                ))
+                )
+                stats['documents_indexed'] = len(unique_docs)
                 stats['total_chunks'] = self.indices[user_id].ntotal
-                stats['index_size_mb'] = self._get_index_size(user_id)
+                stats['index_size_mb'] = round(self._get_index_size(user_id), 2)
             else:
                 stats['documents_indexed'] = 0
                 stats['total_chunks'] = 0
@@ -461,3 +507,20 @@ class FaissRAGEngine(RAGEngine):
             return total_bytes / (1024 * 1024)
         except:
             return 0.0
+
+    def debug_search_info(self, user_id: str, query: str):
+        """Debug method to show search information."""
+        debug_info = {
+            'engine_available': self.is_available(),
+            'user_has_index': user_id in self.indices,
+            'index_size': self.indices[user_id].ntotal if user_id in self.indices else 0,
+            'metadata_count': len(self.metadata.get(user_id, {})),
+            'query': query,
+            'similarity_threshold': self.similarity_threshold
+        }
+
+        if user_id in self.indices:
+            debug_info['index_type'] = type(self.indices[user_id]).__name__
+            debug_info['index_dimension'] = self.indices[user_id].d
+
+        return debug_info

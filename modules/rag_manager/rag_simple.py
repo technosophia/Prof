@@ -5,6 +5,9 @@ Simple RAG Engine Plugin
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from pathlib import Path
+import pickle
+
 from .rag_engine import RAGEngine
 from shared.logging import log
 
@@ -16,6 +19,39 @@ class SimpleRAGEngine(RAGEngine):
         super().__init__("simple")
         self.description = "Simple text-based RAG engine using keyword matching"
         self.indices = {}  # user_id -> {filename: {content, metadata}}
+        self.index_path = Path("data/simple_indices")
+        self.index_path.mkdir(parents=True, exist_ok=True)
+        self._load_indices()
+
+    def _load_indices(self):
+        """Load all persisted simple indices on startup."""
+        for pkl_file in self.index_path.glob("*_simple.pkl"):
+            user_id = pkl_file.stem.replace("_simple", "")
+            try:
+                with open(pkl_file, 'rb') as f:
+                    user_index = pickle.load(f)
+                self.indices[user_id] = user_index
+                log("info", f"Loaded simple index for user {user_id} with {len(user_index)} documents")
+            except Exception as e:
+                log("error", f"Failed to load simple index for user {user_id}: {str(e)}")
+
+    def _save_user_index(self, user_id: str):
+        """Save a user's simple index to disk."""
+        user_data = self.indices.get(user_id)
+        file_path = self.index_path / f"{user_id}_simple.pkl"
+        if user_data:
+            try:
+                with open(file_path, 'wb') as f:
+                    pickle.dump(user_data, f)
+                log("debug", f"Saved simple index for user {user_id}")
+            except Exception as e:
+                log("error", f"Failed to save simple index for user {user_id}: {str(e)}")
+        else:
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                except Exception as e:
+                    log("error", f"Failed to delete empty simple index file for {user_id}: {str(e)}")
 
     def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:
         """Index a document by reading its content."""
@@ -38,6 +74,7 @@ class SimpleRAGEngine(RAGEngine):
             }
 
             log("info", f"Indexed document {filename} for user {user_id} using simple engine")
+            self._save_user_index(user_id)
             return True
 
         except Exception as e:
@@ -49,6 +86,9 @@ class SimpleRAGEngine(RAGEngine):
         try:
             if user_id in self.indices and filename in self.indices[user_id]:
                 del self.indices[user_id][filename]
+                if not self.indices[user_id]:
+                    del self.indices[user_id]
+                self._save_user_index(user_id)
                 log("info", f"Deleted document {filename} from index for user {user_id}")
                 return True
             return False
@@ -140,9 +180,9 @@ class SimpleRAGEngine(RAGEngine):
         try:
             if user_id in self.indices:
                 del self.indices[user_id]
-                log("info", f"Cleared index for user {user_id}")
-                return True
-            return True  # Already empty
+            self._save_user_index(user_id)  # ensures file is deleted if exists
+            log("info", f"Cleared index for user {user_id}")
+            return True
         except Exception as e:
             log("error", f"Failed to clear index for user {user_id}: {str(e)}")
             return False

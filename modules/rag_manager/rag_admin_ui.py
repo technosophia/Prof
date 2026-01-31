@@ -275,18 +275,40 @@ def _show_search_test_tab():
             else:
                 results = rag_manager.search(user_id, query, selected_engine)
 
-            if not results:
-                st.info("No results found")
+            # Always show all available engines, even if empty
+            if selected_engine == "All":
+                all_engines = [e['type'] for e in engines if e['available']]
+                for engine_type in all_engines:
+                    engine_results = results.get(engine_type, [])
+                    with st.expander(f"{engine_type.upper()} Engine ({len(engine_results)} results)", expanded=False):
+                        if engine_results:
+                            for i, result in enumerate(engine_results):
+                                st.write(f"**Document:** {result['filename']}")
+                                st.write(f"**Score:** {result['score']:.4f}")
+                                st.write(f"**Content:**")
+                                st.info(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
+                                if i < len(engine_results) - 1:
+                                    st.divider()
+                        else:
+                            st.info(f"No results found from {engine_type.upper()} engine")
             else:
-                for engine_type, engine_results in results.items():
-                    with st.expander(f"Results from {engine_type.upper()} ({len(engine_results)} found)", expanded=True):
-                        for i, result in enumerate(engine_results[:5]):  # Limit to 5 results per engine
-                            st.write(f"**Document:** {result['filename']}")
-                            st.write(f"**Score:** {result['score']}")
-                            st.write(f"**Content:**")
-                            st.info(result['content'])
-                            if i < len(engine_results) - 1:
-                                st.divider()
+                # Single engine search
+                engine_results = results.get(selected_engine, [])
+                if engine_results:
+                    st.subheader(f"Results from {selected_engine.upper()} ({len(engine_results)} found)")
+                    for i, result in enumerate(engine_results):
+                        st.write(f"**Document:** {result['filename']}")
+                        st.write(f"**Score:** {result['score']:.4f}")
+                        st.write(f"**Content:**")
+                        st.info(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
+                        if i < len(engine_results) - 1:
+                            st.divider()
+                else:
+                    st.info(f"No results found from {selected_engine.upper()} engine")
+
+            # Show raw results for debugging
+            with st.expander("🔧 Debug Info", expanded=False):
+                st.json(results)
 
 
 def _show_stats_tab():
