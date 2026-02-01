@@ -24,15 +24,25 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         super().__init__("faiss_hierarchical")
         self.description = "FAISS vector store with hierarchical markdown parsing (chapter résumé + subsections)"
 
-        # Load config (reuse faiss config path and model, ignore chunk settings)
+        # Load config - get from faiss_hierarchical section
         rag_config = get_config().get("rag_manager", {})
-        faiss_config = rag_config.get("engines", {}).get("faiss", {})  # Reuse faiss settings for compatibility
+        engines_config = rag_config.get("engines", {})
 
-        self.index_path = Path(faiss_config.get("faiss_index_path", "./data/hierarchical_indexes"))
+        # Get hierarchical-specific config
+        hier_config = engines_config.get("faiss_hierarchical", {})
+        if not hier_config:
+            # Fallback to faiss config for compatibility
+            hier_config = engines_config.get("faiss", {})
+            log("warning", "Using faiss config as fallback for faiss_hierarchical engine")
+
+        self.index_path = Path(hier_config.get("faiss_index_path", "./data/hierarchical_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)
 
-        self.embedding_model_name = faiss_config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
-        self.similarity_threshold = faiss_config.get("similarity_threshold", 0.5)
+        self.embedding_model_name = hier_config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
+        self.similarity_threshold = hier_config.get("similarity_threshold", 0.5)
+
+        # Log the actual config being used
+        log("debug", f"Hierarchical RAG config: index_path={self.index_path}, model={self.embedding_model_name}")
 
         # Load embedding model
         try:

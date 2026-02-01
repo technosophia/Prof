@@ -110,6 +110,15 @@ class RAGManager:
         except Exception as e:
             log("error", f"Failed to save metadata: {str(e)}")
 
+    def refresh_config(self):
+        """Refresh configuration from config file."""
+        from shared.config import get_config
+        self.config = get_config()
+        rag_config = self.config.get("rag_manager", {})
+        self.default_engine = rag_config.get("default_engine", "simple")
+        log("debug", f"RAG manager config refreshed, default engine: {self.default_engine}")
+
+
     def discover_engines(self):
         """Discover and register RAG engines."""
         # First register built-in engines
@@ -393,6 +402,10 @@ class RAGManager:
                limit: int = 5) -> Dict[str, Any]:
         """Search across RAG engines."""
         results = {}
+
+        # If no engine specified, use current default
+        if not engine_type:
+            engine_type = self.default_engine
 
         accessible_docs = self.get_user_documents(user_id)
         if not accessible_docs:

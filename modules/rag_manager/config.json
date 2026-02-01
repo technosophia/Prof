@@ -1,9 +1,16 @@
 {
   "rag_manager": {
     "data_directory": "./data/rag_documents",
-    "allowed_extensions": [".txt", ".pdf", ".md", ".docx", ".csv", ".json"],
+    "allowed_extensions": [
+      ".txt",
+      ".pdf",
+      ".md",
+      ".docx",
+      ".csv",
+      ".json"
+    ],
     "max_file_size_mb": 20,
-    "default_engine": "simple",
+    "default_engine": "faiss_hierarchical",
     "engines": {
       "simple": {
         "enabled": true,
@@ -16,6 +23,13 @@
         "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "chunk_size": 500,
         "chunk_overlap": 50,
+        "similarity_threshold": 0.5
+      },
+      "faiss_hierarchical": {
+        "enabled": true,
+        "description": "FAISS vector store with hierarchical markdown parsing",
+        "faiss_index_path": "./data/hierarchical_indexes",
+        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "similarity_threshold": 0.5
       }
     }

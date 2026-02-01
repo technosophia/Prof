@@ -26,7 +26,13 @@ class ClassicRAGEngine(RAGEngine):
 
         # Load FAISS-specific config
         rag_config = get_config().get("rag_manager", {})
-        faiss_config = rag_config.get("engines", {}).get("faiss", {})
+        engines_config = rag_config.get("engines", {})
+
+        # Try to get from "faiss" config first, then fallback to general
+        faiss_config = engines_config.get("faiss", {})
+        if not faiss_config:
+            # Fallback: try to get from "classic" or use defaults
+            faiss_config = engines_config.get("classic", {})
 
         self.index_path = Path(faiss_config.get("faiss_index_path", "./data/classic_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)
@@ -35,6 +41,9 @@ class ClassicRAGEngine(RAGEngine):
         self.chunk_size = faiss_config.get("chunk_size", 500)
         self.chunk_overlap = faiss_config.get("chunk_overlap", 50)
         self.similarity_threshold = faiss_config.get("similarity_threshold", 0.5)
+
+        # Log the actual config being used
+        log("debug", f"Classic RAG config: index_path={self.index_path}, model={self.embedding_model_name}")
 
         # Load embedding model
         try:
