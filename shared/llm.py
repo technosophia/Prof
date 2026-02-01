@@ -335,9 +335,9 @@ class LLMManager:
         # Add current user message
         messages.append({"role": "user", "content": message})
 
-        # Add RAG context if user_id is provided and callbacks are registered
-        if user_id and _rag_callbacks:
-            messages = _add_rag_context(user_id, messages)
+        # Add LLM context if user_id is provided and callbacks are registered
+        if user_id and _llm_callbacks:
+            messages = _add_llm_context(user_id, messages)
 
         return await self.generate_response(self.current_llm, messages, stream_callback)
 
@@ -436,23 +436,23 @@ def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
 # Alias for backward compatibility - maintains old interface
 llm = llm_generate
 
-_rag_callbacks = []
+_llm_callbacks = []
 
-def register_rag_callback(callback_func: Callable[[str, List[Dict]], str]):
-    """Register a callback to add RAG context to LLM queries."""
-    if callback_func not in _rag_callbacks:
-        _rag_callbacks.append(callback_func)
-        log("debug", f"Registered RAG callback: {callback_func.__name__}")
+def register_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
+    """Register a callback to add LLM context to LLM queries."""
+    if callback_func not in _llm_callbacks:
+        _llm_callbacks.append(callback_func)
+        log("debug", f"Registered LLM callback: {callback_func.__name__}")
 
-def unregister_rag_callback(callback_func: Callable[[str, List[Dict]], str]):
-    """Unregister a RAG callback."""
-    if callback_func in _rag_callbacks:
-        _rag_callbacks.remove(callback_func)
-        log("debug", f"Unregistered RAG callback: {callback_func.__name__}")
+def unregister_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
+    """Unregister a LLM callback."""
+    if callback_func in _llm_callbacks:
+        _llm_callbacks.remove(callback_func)
+        log("debug", f"Unregistered LLM callback: {callback_func.__name__}")
 
-def _add_rag_context(user_id: str, messages: List[Dict]) -> List[Dict]:
-    """Add RAG context to messages using registered callbacks."""
-    if not _rag_callbacks or not messages:
+def _add_llm_context(user_id: str, messages: List[Dict]) -> List[Dict]:
+    """Add LLM context to messages using registered callbacks."""
+    if not _llm_callbacks or not messages:
         return messages
 
     # Get the last user message
@@ -465,8 +465,8 @@ def _add_rag_context(user_id: str, messages: List[Dict]) -> List[Dict]:
     if not last_user_message:
         return messages
 
-    # Apply all RAG callbacks
-    for callback in _rag_callbacks:
+    # Apply all LLM callbacks
+    for callback in _llm_callbacks:
         try:
             context = callback(user_id, messages)
             if context:
@@ -475,8 +475,8 @@ def _add_rag_context(user_id: str, messages: List[Dict]) -> List[Dict]:
                     "role": "system",
                     "content": context
                 })
-                log("debug", f"Added RAG context from {callback.__name__}")
+                log("debug", f"Added LLM context from {callback.__name__}")
         except Exception as e:
-            log("error", f"RAG callback {callback.__name__} failed: {e}")
+            log("error", f"LLM callback {callback.__name__} failed: {e}")
 
     return messages

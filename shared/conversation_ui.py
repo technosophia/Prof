@@ -17,7 +17,7 @@ from shared.logging import log
 from shared.llm import llm_generate, get_current_llm_info
 from shared.translate import _
 from modules.rag_manager import rag_manager
-from shared.llm import register_rag_callback, unregister_rag_callback
+from shared.llm import register_llm_callback
 from typing import List, Dict, Optional, Tuple, Any, Callable
 
 
@@ -106,7 +106,7 @@ def inject_ui_initialize():
     # Register RAG callback if not already registered
     if not hasattr(st.session_state, '_rag_callback'):
         rag_callback = create_rag_context_callback()
-        register_rag_callback(rag_callback)
+        register_llm_callback(rag_callback)
         st.session_state._rag_callback = rag_callback
         log("debug", "Registered RAG context callback")
 
