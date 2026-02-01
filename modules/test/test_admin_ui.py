@@ -1,7 +1,7 @@
 import streamlit as st
 import asyncio
 from shared.logging import log
-from shared.translate import _
+from shared.common import _
 from shared.llm import llm_generate, get_current_llm_info
 from shared.users import user_manager
 

@@ -1,7 +1,7 @@
 
 import streamlit as st
 import os
-from shared.translate import _
+from shared.common import _
 from shared.logging import log
 from shared.config import get_config
 from shared.database import db_manager

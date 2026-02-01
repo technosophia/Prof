@@ -62,7 +62,7 @@ load_dotenv()
 sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
-from shared.translate import init_translations_multiple, _
+from shared.common import _, get_available_languages
 from shared.config import init_config, get_config
 from shared.logging import log, configure_logging_from_dict
 
@@ -120,9 +120,6 @@ else:
     db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
     init_database(use_memory=False, db_path=db_path)
 
-# Initialize translator with Streamlit session support
-translator = init_translations_multiple("en")
-
 # Initialize Module Handler - store in session state
 if 'module_handler' not in st.session_state:
     log("info", "Initializing module handler in session state")
@@ -179,6 +176,8 @@ if "user_manually_logged_out" not in st.session_state:
 if "admin_current_tab" not in st.session_state:
     st.session_state.admin_current_tab = "System"
 
+if "current_language" not in st.session_state:
+    st.session_state.current_language = "en"
 
 def main():
     # Log main function entry
@@ -220,26 +219,25 @@ def main():
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:
         st.title("🧭 Configuration")
-        # Show available languages - SORTED for consistent, predictable order (en first)
-        available_langs = sorted(translator.translations.keys())
+        # Show available languages - sorted (en will naturally be first)
+        available_langs = get_available_languages()
 
         # Log available languages
         log("debug", f"Available languages: {available_langs}")
 
-        # Better mapping for display names (extensible for future languages)
+        # Better mapping for display names (extensible)
         lang_names = {
             "en": "English",
             "fr": "Français",
-            # Add more here if you add languages later, e.g. "es": "Español"
+            # Add more here later
         }
 
-        # Compute the correct default index based on current language
+        # Compute default index
         current_lang = st.session_state.current_language
         try:
             default_index = available_langs.index(current_lang)
         except ValueError:
-            # Fallback if current_lang somehow not available (should never happen)
-            default_index = 0
+            default_index = 0  # fallback to first
 
         # Language selector
         lang_option = st.selectbox(
@@ -250,11 +248,10 @@ def main():
             key="language_selector"
         )
 
-        # Check if language changed
+        # Handle language change
         if lang_option != st.session_state.current_language:
             old_lang = st.session_state.current_language
             st.session_state.current_language = lang_option
-            translator.set_language(lang_option)
             log("info", f"Language changed from '{old_lang}' to '{lang_option}'")
             st.rerun()
 

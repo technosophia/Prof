@@ -2,240 +2,149 @@ import os
 import sys
 import json
 import tempfile
-import shutil
+import pytest
 
-# Add parent directory to path for imports
+# Adjust path to import from project root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shared.translate import Translator, get_translator, init_translations
+from shared.translate import load_all_translations
+from shared.common import _, get_available_languages
+from shared.common import _load_translations  # Private, but needed to clear cache in tests
 
-def test_direct_translation_addition():
-    """Test adding translations directly via dictionary"""
-    translator = Translator()
 
-    translator.add_module_translations("test_module", {
-        "en": {
-            "test_key": "Test value in English",
-            "another_key": "Another test value"
-        },
-        "fr": {
-            "test_key": "Valeur de test en Français",
-            "another_key": "Une autre valeur de test"
-        }
-    })
+@pytest.fixture(autouse=True)
+def clear_translation_cache():
+    """Clear the Streamlit cache before each test to prevent leakage between tests"""
+    _load_translations.clear()
+    yield
 
-    translator.set_language("en")
-    assert translator("test_key") == "Test value in English"
-    assert translator("another_key") == "Another test value"
 
-    translator.set_language("fr")
-    assert translator("test_key") == "Valeur de test en Français"
-    assert translator("another_key") == "Une autre valeur de test"
+@pytest.fixture(scope="function")
+def project_structure():
+    """Create a temporary project structure mimicking the real app layout"""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        old_cwd = os.getcwd()
+        os.chdir(tmp_dir)
 
-def test_file_based_translation():
-    """Test loading translations from JSON files"""
-    temp_dir = tempfile.mkdtemp()
+        try:
+            # Create base directories
+            os.makedirs("translations", exist_ok=True)
+            os.makedirs(os.path.join("shared", "translations"), exist_ok=True)
+            os.makedirs(os.path.join("modules", "rag", "translations"), exist_ok=True)
+            os.makedirs(os.path.join("modules", "admin", "deep", "translations"), exist_ok=True)
 
-    try:
-        en_file = os.path.join(temp_dir, "en.json")
-        fr_file = os.path.join(temp_dir, "fr.json")
+            # Root translations
+            with open("translations/en.json", "w", encoding="utf-8") as f:
+                json.dump({
+                    "root_key": "Root English",
+                    "overlap": "Final root override",
+                    "common_key": "Root common"
+                }, f, indent=2)
+            with open("translations/fr.json", "w", encoding="utf-8") as f:
+                json.dump({
+                    "root_key": "Root Français",
+                    "only_fr": "Seulement en français"
+                }, f, indent=2)
 
-        en_data = {"file_key": "Value from file in English"}
-        fr_data = {"file_key": "Valeur du fichier en Français"}
+            # Shared translations
+            with open(os.path.join("shared", "translations", "en.json"), "w", encoding="utf-8") as f:
+                json.dump({
+                    "shared_key": "Shared English",
+                    "overlap": "Shared override"
+                }, f, indent=2)
+            with open(os.path.join("shared", "translations", "fr.json"), "w", encoding="utf-8") as f:
+                json.dump({
+                    "shared_key": "Shared Français"
+                }, f, indent=2)
 
-        with open(en_file, "w", encoding="utf-8") as f:
-            json.dump(en_data, f, ensure_ascii=False, indent=2)
+            # Module: rag
+            with open(os.path.join("modules", "rag", "translations", "en.json"), "w", encoding="utf-8") as f:
+                json.dump({
+                    "rag_key": "RAG English",
+                    "overlap": "RAG override"
+                }, f, indent=2)
+            # No fr.json for rag → tests fallback
 
-        with open(fr_file, "w", encoding="utf-8") as f:
-            json.dump(fr_data, f, ensure_ascii=False, indent=2)
+            # Module: admin (deeply nested)
+            with open(os.path.join("modules", "admin", "deep", "translations", "en.json"), "w", encoding="utf-8") as f:
+                json.dump({
+                    "admin_key": "Admin English (deep)"
+                }, f, indent=2)
+            with open(os.path.join("modules", "admin", "deep", "translations", "fr.json"), "w", encoding="utf-8") as f:
+                json.dump({
+                    "admin_key": "Admin Français (deep)"
+                }, f, indent=2)
 
-        translator = Translator()
+            yield tmp_dir
+        finally:
+            os.chdir(old_cwd)
 
-        assert translator.load_language_file("en", en_file)
-        assert translator.load_language_file("fr", fr_file)
 
-        translator.set_language("en")
-        assert translator("file_key") == "Value from file in English"
+def test_load_all_translations_basic(project_structure):
+    translations = load_all_translations()
 
-        translator.set_language("fr")
-        assert translator("file_key") == "Valeur du fichier en Français"
+    # Languages present
+    assert set(translations.keys()) == {"en", "fr"}
 
-    finally:
-        shutil.rmtree(temp_dir)
+    # Specific keys from different locations
+    assert translations["en"]["root_key"] == "Root English"
+    assert translations["en"]["shared_key"] == "Shared English"
+    assert translations["en"]["rag_key"] == "RAG English"
+    assert translations["en"]["admin_key"] == "Admin English (deep)"
 
-def test_load_app_translations():
-    """Test the new one-line app translation loading"""
-    temp_dir = tempfile.mkdtemp()
+    assert translations["fr"]["root_key"] == "Root Français"
+    assert translations["fr"]["shared_key"] == "Shared Français"
+    assert translations["fr"]["admin_key"] == "Admin Français (deep)"
+    assert translations["fr"]["only_fr"] == "Seulement en français"
 
-    try:
-        # Create translation files
-        en_file = os.path.join(temp_dir, "en.json")
-        fr_file = os.path.join(temp_dir, "fr.json")
+    # No rag_key in French (fallback test in next function)
+    assert "rag_key" not in translations["fr"]
 
-        en_data = {
-            "app_title": "My Application",
-            "app_description": "This is my app"
-        }
 
-        fr_data = {
-            "app_title": "Mon Application",
-            "app_description": "Ceci est mon application"
-        }
+def test_translation_function(project_structure):
+    # Primary language match
+    assert _("root_key", lang="en") == "Root English"
+    assert _("root_key", lang="fr") == "Root Français"
 
-        with open(en_file, "w", encoding="utf-8") as f:
-            json.dump(en_data, f, ensure_ascii=False, indent=2)
+    # Fallback to other languages
+    assert _("rag_key", lang="fr") == "RAG English"  # only exists in en
+    assert _("only_fr", lang="en") == "Seulement en français"  # only exists in fr
 
-        with open(fr_file, "w", encoding="utf-8") as f:
-            json.dump(fr_data, f, ensure_ascii=False, indent=2)
+    # Deep module key
+    assert _("admin_key", lang="fr") == "Admin Français (deep)"
 
-        # Test load_app_translations method
-        translator = Translator()
-        translator.load_app_translations(temp_dir)
+    # Missing key
+    assert _("non_existent_key", lang="en") == "[non_existent_key]"
 
-        translator.set_language("en")
-        assert translator("app_title") == "My Application"
-        assert translator("app_description") == "This is my app"
 
-        translator.set_language("fr")
-        assert translator("app_title") == "Mon Application"
-        assert translator("app_description") == "Ceci est mon application"
+def test_key_overrides(project_structure):
+    """
+    Test that later-loaded files override earlier ones.
+    Also indirectly tests duplicate key warnings (they are logged to console
+    but not captured by caplog because the logger likely uses direct print).
+    """
+    translations = load_all_translations()
 
-    finally:
-        shutil.rmtree(temp_dir)
+    # Final value comes from the last-loaded directory (root overrides all previous)
+    assert translations["en"]["overlap"] == "Final root override"
 
-def test_init_translations_one_line():
-    """Test the ultimate one-line initialization"""
-    temp_dir = tempfile.mkdtemp()
 
-    try:
-        # Create translation files
-        en_file = os.path.join(temp_dir, "en.json")
-        fr_file = os.path.join(temp_dir, "fr.json")
+def test_available_languages(project_structure):
+    available = get_available_languages()
+    assert available == ["en", "fr"]  # sorted
 
-        en_data = {"test_init": "Initialization test in English"}
-        fr_data = {"test_init": "Test d'initialisation en Français"}
 
-        with open(en_file, "w", encoding="utf-8") as f:
-            json.dump(en_data, f, ensure_ascii=False, indent=2)
+def test_no_translation_directories():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        old_cwd = os.getcwd()
+        os.chdir(tmp_dir)
+        try:
+            translations = load_all_translations()
+            assert translations == {}
 
-        with open(fr_file, "w", encoding="utf-8") as f:
-            json.dump(fr_data, f, ensure_ascii=False, indent=2)
+            available = get_available_languages()
+            assert available == []
 
-        # Clear any existing instance
-        import shared.translate
-        shared.translate._translator_instance = None
-
-        # One-line initialization
-        translator = init_translations("fr", temp_dir)
-
-        # Should be in French by default
-        assert translator.get_current_language() == "fr"
-        assert translator("test_init") == "Test d'initialisation en Français"
-
-        # Switch to English
-        translator.set_language("en")
-        assert translator("test_init") == "Initialization test in English"
-
-    finally:
-        shutil.rmtree(temp_dir)
-
-def test_singleton_pattern():
-    """Test that get_translator returns the same instance"""
-    import shared.translate
-    shared.translate._translator_instance = None
-
-    translator1 = get_translator()
-    translator2 = get_translator()
-
-    assert translator1 is translator2
-
-    translator1.add_module_translations("singleton_test", {
-        "en": {"test": "Singleton test"}
-    })
-
-    translator2.set_language("en")
-    assert translator2("test") == "Singleton test"
-
-def test_language_fallback():
-    """Test fallback behavior when translation key is missing"""
-    translator = Translator()
-
-    translator.add_module_translations("fallback_test", {
-        "en": {
-            "common_key": "Common in English",
-            "english_only": "Only in English"
-        },
-        "fr": {
-            "common_key": "Commun en Français"
-        }
-    })
-
-    translator.set_language("en")
-    assert translator("common_key") == "Common in English"
-
-    translator.set_language("fr")
-    assert translator("common_key") == "Commun en Français"
-    assert translator("english_only") == "Only in English"
-    assert translator("non_existent_key") == "[non_existent_key]"
-
-def test_multiple_modules():
-    """Test that multiple modules can coexist without conflicts"""
-    translator = Translator()
-
-    translator.add_module_translations("auth", {
-        "en": {"login": "Login", "logout": "Logout"},
-        "fr": {"login": "Connexion", "logout": "Déconnexion"}
-    })
-
-    translator.add_module_translations("dashboard", {
-        "en": {"welcome": "Welcome to Dashboard", "stats": "Statistics"},
-        "fr": {"welcome": "Bienvenue au Tableau de Bord", "stats": "Statistiques"}
-    })
-
-    translator.set_language("en")
-    assert translator("login") == "Login"
-    assert translator("welcome") == "Welcome to Dashboard"
-
-    translator.set_language("fr")
-    assert translator("login") == "Connexion"
-    assert translator("welcome") == "Bienvenue au Tableau de Bord"
-
-def test_combined_approach():
-    """Test combining multiple translation loading methods"""
-    translator = Translator()
-
-    # Method 1: Direct addition
-    translator.add_module_translations("module1", {
-        "en": {"key1": "Value 1"},
-        "fr": {"key1": "Valeur 1"}
-    })
-
-    # Method 2: Load from files
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        en_file = os.path.join(temp_dir, "en.json")
-        fr_file = os.path.join(temp_dir, "fr.json")
-
-        en_data = {"key2": "Value 2 from file"}
-        fr_data = {"key2": "Valeur 2 du fichier"}
-
-        with open(en_file, "w", encoding="utf-8") as f:
-            json.dump(en_data, f, ensure_ascii=False, indent=2)
-
-        with open(fr_file, "w", encoding="utf-8") as f:
-            json.dump(fr_data, f, ensure_ascii=False, indent=2)
-
-        translator.load_app_translations(temp_dir)
-
-        # Test all translations work together
-        translator.set_language("en")
-        assert translator("key1") == "Value 1"
-        assert translator("key2") == "Value 2 from file"
-
-        translator.set_language("fr")
-        assert translator("key1") == "Valeur 1"
-        assert translator("key2") == "Valeur 2 du fichier"
-
-    finally:
-        shutil.rmtree(temp_dir)
+            assert _("any_key", lang="en") == "[any_key]"
+        finally:
+            os.chdir(old_cwd)

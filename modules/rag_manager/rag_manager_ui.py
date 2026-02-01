@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 import tempfile
 from shared.logging import log
-from shared.translate import _
+from shared.common import _
 from shared.config import get_config
 from shared.llm import register_llm_callback, unregister_llm_callback
 from typing import List, Dict, Optional

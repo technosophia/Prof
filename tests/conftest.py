@@ -139,9 +139,9 @@ def browser(playwright, request):
 
     if not headless:
         print(f"🔍 Launching browser in HEADED mode (headless={headless})")
-        launch_options["slow_mo"] = 2000  # Ralentir pour voir ce qui se passe
+        launch_options["slow_mo"] = 1000  # Ralentir pour voir ce qui se passe
     else:
-        launch_options["slow_mo"] = 2000
+        launch_options["slow_mo"] = 1000
         print(f"🚀 Launching browser in HEADLESS mode")
 
     browser = playwright.chromium.launch(**launch_options)

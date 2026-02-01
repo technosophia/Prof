@@ -15,7 +15,7 @@ import streamlit as st
 import asyncio
 import json
 from shared.logging import log
-from shared.translate import _
+from shared.common import _
 from shared.llm import llm_generate, get_current_llm_info
 from shared.users import user_manager
 from shared.config import get_config, inject_module_config
@@ -191,7 +191,6 @@ def show_config_tab():
     st.header("⚙️ Configuration Inspection")
 
     config = get_config()
-    inject_module_config("modules/debug")
 
     # Check for debug module configuration
     debug_config = config.get("debug", {})

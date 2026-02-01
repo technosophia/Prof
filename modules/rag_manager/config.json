@@ -10,7 +10,7 @@
       ".json"
     ],
     "max_file_size_mb": 20,
-    "default_engine": "faiss_hierarchical",
+    "default_engine": "simple",
     "engines": {
       "simple": {
         "enabled": true,

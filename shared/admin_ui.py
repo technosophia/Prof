@@ -12,7 +12,7 @@ import os
 from shared.logging import log
 from shared.database import db_manager
 from shared.config import get_config
-from shared.translate import _
+from shared.common import _
 
 def show_system_admin_content():
     """Display the System Admin content (for the System tab)."""

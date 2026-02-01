@@ -78,7 +78,7 @@ This application provides four core utilities that all modules can use: **config
 # Most common imports
 from shared.config import get_config
 from shared.logging import log
-from shared.translate import _
+from shared.common import _
 from shared.llm import llm_generate, set_current_llm
 
 # Most common patterns
@@ -242,7 +242,7 @@ Translation System (`shared/translate.py`)
 Multilingual support with module-specific translations. Uses simple `_()` function for translation lookups.
 
 ```python
-from shared.translate import _
+from shared.common import _
 
 title = _("module_title")
 description = _("module_description")
@@ -449,4 +449,3 @@ Module JSON Structure:
     "dependencies": []
 }
 ```
-
