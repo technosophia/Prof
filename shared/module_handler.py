@@ -145,7 +145,6 @@ class ModuleHandler:
                     log("debug", f"Module '{module_name}' already discovered, preserving state")
 
         # Save after discovery
-        self._save_modules_file()
         log("info", f"Discovered {len(self.modules)} modules")
 
     def refresh_modules(self):
