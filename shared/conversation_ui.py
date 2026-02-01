@@ -334,7 +334,7 @@ def show_conversation_interface():
 
     if current_conv:
         # Conversation header
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 1, 1])  # Added col5
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])  # Added col5
         with col1:
             st.subheader(f"💬 {current_conv.title}")
         with col2:
