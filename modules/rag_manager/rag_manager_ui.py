@@ -1,6 +1,6 @@
-# [file name]: rag_manager_ui.py (updated - add indexing section)
+# [file name]: rag_manager_ui.py (updated - add debug switch)
 """
-RAG Manager UI Module - Updated with indexing functionality
+RAG Manager UI Module - Updated with debug switch
 """
 
 import streamlit as st
@@ -12,6 +12,7 @@ import tempfile
 from shared.logging import log
 from shared.translate import _
 from shared.config import get_config
+from shared.llm import register_llm_callback
 
 # Import the RAG manager
 try:
@@ -299,6 +300,7 @@ def show_rag_admin_content():
         st.subheader("Configuration")
         st.json(rag_config)
 
+
 def inject_ui_sidebar():
     """Inject RAG settings into the sidebar."""
 
@@ -335,6 +337,22 @@ def inject_ui_sidebar():
             index=current_index,
             help="Select the default engine for searches and indexing"
         )
+
+        # RAG Debug switch
+        st.divider()
+        st.subheader("Debug")
+
+        rag_debug_enabled = st.toggle(
+            "Show RAG Context",
+            value=st.session_state.get('rag_debug_enabled', False),
+            help="When enabled, shows the RAG context used for LLM queries in an expander"
+        )
+
+        if rag_debug_enabled != st.session_state.get('rag_debug_enabled'):
+            st.session_state.rag_debug_enabled = rag_debug_enabled
+            st.rerun()
+
+        st.caption("Displays retrieved document context in chat")
 
         # Update button
         if st.button("Apply Changes", type="secondary", use_container_width=True):
@@ -386,6 +404,7 @@ def inject_ui_sidebar():
             default_icon = "⭐" if engine['type'] == current_default else ""
             st.caption(f"{status_icon} {default_icon} {engine['type']}")
 
+
 def inject_ui_admin_tab():
     """Register the RAG Manager admin tab."""
     return ("RAG Manager", show_rag_admin_content)
@@ -393,11 +412,44 @@ def inject_ui_admin_tab():
 
 def inject_ui_initialize():
     """Initialize RAG manager module."""
+    # Initialize session state for debug mode
+    if 'rag_debug_enabled' not in st.session_state:
+        st.session_state.rag_debug_enabled = False
     return True
 
 
 def inject_ui_main_content():
     """Render RAG manager content in main area."""
+    return None
+
+
+def inject_ui_inside_conversation():
+    """Render RAG debug context after conversation."""
+    # Only show if debug is enabled and we have context to show
+    st.write("Rag context goes here")
+    if (st.session_state.get('rag_debug_enabled', False) and
+        'last_rag_context' in st.session_state and
+        st.session_state.last_rag_context):
+
+        with st.expander("🔍 RAG Debug Context", expanded=False):
+            st.write("**Last RAG context injected into LLM:**")
+            st.text_area(
+                "Context",
+                st.session_state.last_rag_context,
+                height=200,
+                key="rag_debug_context_display",
+                label_visibility="collapsed"
+            )
+
+            # Add some metadata if available
+            if 'last_rag_query' in st.session_state:
+                st.caption(f"Query: {st.session_state.last_rag_query}")
+
+            if 'last_rag_timestamp' in st.session_state:
+                from datetime import datetime
+                timestamp = datetime.fromtimestamp(st.session_state.last_rag_timestamp)
+                st.caption(f"Retrieved: {timestamp.strftime('%H:%M:%S')}")
+
     return None
 
 
