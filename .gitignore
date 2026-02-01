@@ -6,5 +6,6 @@ old
 .pytest_cache
 data
 tests/debug
-tests/logs/*
+tests/logs
 tests/test.db
+tests/data

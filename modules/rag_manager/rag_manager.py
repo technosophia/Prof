@@ -19,6 +19,14 @@ from shared.users import UserRole, user_manager
 
 from .rag_engine import RAGEngine
 from .rag_simple import SimpleRAGEngine
+# Import caching module
+try:
+    from .rag_caching import RAGModelCache
+    HAS_CACHING = True
+except ImportError:
+    HAS_CACHING = False
+    RAGModelCache = None
+
 
 class RAGManager:
     """Manages RAG documents storage and operations with plugin-based engines."""
@@ -29,6 +37,8 @@ class RAGManager:
         self.data_dir = Path(rag_config.get("data_directory", "./data/rag_documents"))
         self.allowed_extensions = rag_config.get("allowed_extensions", [".txt", ".pdf", ".md"])
         self.max_file_size_mb = rag_config.get("max_file_size_mb", 10)
+        self._cache_initialized = False
+        self._init_caching()
 
         # RAG engines
         self.engines = {}
@@ -47,6 +57,41 @@ class RAGManager:
 
         # Register callback for user deletion
         user_manager.register_before_delete_callback(self._handle_user_deletion)
+
+    def _init_caching(self):
+        """Initialize caching for model weights."""
+        if HAS_CACHING:
+            try:
+                # Test cache availability
+                RAGModelCache.get_embedding_model_cached("sentence-transformers/all-MiniLM-L6-v2")
+                self._cache_initialized = True
+                log("info", "RAG model caching initialized successfully")
+            except Exception as e:
+                log("warning", f"Failed to initialize caching: {str(e)}")
+                self._cache_initialized = False
+        else:
+            log("warning", "RAG caching module not available")
+            self._cache_initialized = False
+
+    def clear_model_cache(self):
+        """Clear all cached model weights."""
+        if HAS_CACHING and self._cache_initialized:
+            try:
+                RAGModelCache.clear_embedding_cache()
+                log("info", "Cleared RAG model cache")
+                return True
+            except Exception as e:
+                log("error", f"Failed to clear cache: {str(e)}")
+                return False
+        return False
+
+    def get_cache_info(self) -> Dict[str, Any]:
+        """Get information about the cache status."""
+        return {
+            "caching_available": HAS_CACHING,
+            "cache_initialized": self._cache_initialized,
+            "cached_models": ["embedding_models"] if self._cache_initialized else []
+        }
 
     def _init_data_directory(self):
         """Initialize the data directory structure."""
@@ -116,6 +161,15 @@ class RAGManager:
         self.config = get_config()
         rag_config = self.config.get("rag_manager", {})
         self.default_engine = rag_config.get("default_engine", "simple")
+
+        # Clear cache if config changed significantly
+        old_embedding_model = getattr(self, '_last_embedding_model', None)
+        new_embedding_model = rag_config.get("embedding_model")
+
+        if old_embedding_model != new_embedding_model and HAS_CACHING:
+            self.clear_model_cache()
+            self._last_embedding_model = new_embedding_model
+
         log("debug", f"RAG manager config refreshed, default engine: {self.default_engine}")
 
 

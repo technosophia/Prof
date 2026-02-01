@@ -15,7 +15,12 @@ from sentence_transformers import SentenceTransformer
 from ..rag_engine import RAGEngine
 from shared.logging import log
 from shared.config import get_config
-
+# Import the caching module
+try:
+    from ..rag_caching import RAGModelCache
+except ImportError:
+    # Fallback if caching module not available
+    RAGModelCache = None
 
 class FaissHierarchicalRAGEngine(RAGEngine):
     """FAISS-based RAG engine with hierarchical chunking for structured markdown documents (chapter summary + subsections)."""
@@ -44,10 +49,17 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         # Log the actual config being used
         log("debug", f"Hierarchical RAG config: index_path={self.index_path}, model={self.embedding_model_name}")
 
-        # Load embedding model
+        # Load embedding model WITH CACHING
         try:
-            self.model = SentenceTransformer(self.embedding_model_name)
-            self.dimension = self.model.get_sentence_embedding_dimension()
+            if RAGModelCache:
+                # Use cached model loading
+                self.model = RAGModelCache.get_embedding_model_cached(self.embedding_model_name)
+                self.dimension = RAGModelCache.get_model_dimension(self.embedding_model_name)
+            else:
+                # Fallback to direct loading
+                self.model = SentenceTransformer(self.embedding_model_name)
+                self.dimension = self.model.get_sentence_embedding_dimension()
+
             log("info", f"Loaded embedding model: {self.embedding_model_name} (dim: {self.dimension})")
         except Exception as e:
             log("error", f"Failed to load embedding model {self.embedding_model_name}: {str(e)}")

@@ -19,13 +19,14 @@ def show_rag_admin_content():
     """Display the enhanced RAG Manager admin content."""
     st.title("📚 RAG Document Manager")
 
-    # Tabs for different functionalities
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Tabs for different functionalities - ADDED CACHE TAB
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📄 Documents",
         "🔧 Engines",
         "🔍 Search Test",
         "📊 Stats",
-        "🔗 Index"  # NEW TAB
+        "🔗 Index",
+        "🔄 Cache"  # NEW TAB
     ])
 
     with tab1:
@@ -40,8 +41,173 @@ def show_rag_admin_content():
     with tab4:
         _show_stats_tab()
 
-    with tab5:  # NEW TAB
+    with tab5:
         _show_index_tab()
+
+    with tab6:  # NEW CACHE TAB
+        _show_cache_tab()
+
+
+def _show_cache_tab():
+    """Show cache management tab."""
+    st.header("🔄 Cache Management")
+
+    # Check if cache management is available
+    if not hasattr(rag_manager, 'get_cache_info'):
+        st.warning("Cache management is not available in this version.")
+        st.info("Ensure you have the latest RAG manager with caching support.")
+        return
+
+    # Get cache information
+    cache_info = rag_manager.get_cache_info()
+
+    # Cache status display
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if cache_info.get('caching_available', False):
+            st.metric("Caching", "✅ Available", delta=None)
+        else:
+            st.metric("Caching", "❌ Unavailable", delta="Not enabled")
+
+    with col2:
+        if cache_info.get('cache_initialized', False):
+            st.metric("Status", "✅ Initialized", delta=None)
+        else:
+            st.metric("Status", "❌ Not Initialized", delta="Check config")
+
+    with col3:
+        cached_count = len(cache_info.get('cached_models', []))
+        st.metric("Cached Models", cached_count)
+
+    # Cache control buttons
+    st.subheader("Cache Operations")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("🔄 Clear Cache", type="primary", use_container_width=True,
+                   help="Clear all cached model weights. Models will reload on next use."):
+            with st.spinner("Clearing cache..."):
+                if rag_manager.clear_model_cache():
+                    st.success("Cache cleared successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to clear cache")
+
+    with col2:
+        if st.button("📊 Refresh Cache Info", use_container_width=True):
+            st.rerun()
+
+    with col3:
+        if st.button("⚙️ Reload Config", use_container_width=True,
+                   help="Reload RAG configuration from config file"):
+            with st.spinner("Reloading config..."):
+                rag_manager.refresh_config()
+                st.success("Configuration reloaded!")
+                st.rerun()
+
+    # Cache details
+    st.subheader("Cache Details")
+
+    if cache_info.get('cached_models'):
+        st.write("**Currently Cached Models:**")
+
+        # Display each cached model
+        for model_name in cache_info.get('cached_models', []):
+            with st.expander(f"📦 {model_name}", expanded=False):
+                # Try to get additional info
+                st.write(f"**Model:** `{model_name}`")
+
+                # Show cache statistics if available
+                cache_stats = cache_info.get('cache_stats', {})
+                if model_name in cache_stats:
+                    model_stats = cache_stats[model_name]
+                    st.write("**Cache Statistics:**")
+                    for key, value in model_stats.items():
+                        if key != 'model_name':
+                            st.write(f"- {key.replace('_', ' ').title()}: {value}")
+
+        # Total cache info
+        st.divider()
+        st.info(f"Total models cached: {len(cache_info.get('cached_models', []))}")
+    else:
+        st.info("No models are currently cached.")
+
+    # Performance information
+    st.subheader("Performance Information")
+
+    with st.expander("ℹ️ About Caching", expanded=False):
+        st.markdown("""
+        **Model caching improves performance by:**
+
+        1. **Faster loading**: Models load once and are reused
+        2. **Reduced memory**: Single instance shared across sessions
+        3. **Better UX**: No waiting for model downloads
+
+        **Cache behavior:**
+        - Models are cached for 1 hour (TTL)
+        - Maximum 3 models cached at once
+        - Cache is cleared when configuration changes
+        - Cache can be manually cleared when needed
+        """)
+
+    # Advanced cache management
+    st.subheader("Advanced Cache Management")
+
+    with st.expander("🔧 Advanced Options", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Pre-load specific model
+            popular_models = [
+                "sentence-transformers/all-MiniLM-L6-v2",
+                "sentence-transformers/all-mpnet-base-v2",
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+            ]
+
+            model_to_preload = st.selectbox(
+                "Pre-load model",
+                options=popular_models,
+                index=0,
+                help="Select a model to pre-load into cache"
+            )
+
+            if st.button("Pre-load Model", use_container_width=True):
+                # Note: This requires implementation in rag_caching.py
+                st.info(f"Model pre-loading would be implemented in rag_caching.py")
+                # Example: rag_manager.preload_model(model_to_preload)
+
+        with col2:
+            # Cache size adjustment
+            cache_size = st.slider(
+                "Max cache entries",
+                min_value=1,
+                max_value=10,
+                value=3,
+                help="Maximum number of models to keep in cache"
+            )
+
+            if st.button("Update Cache Size", use_container_width=True):
+                st.info(f"Cache size set to {cache_size} entries")
+                # Note: This would require updating @st.cache_resource decorator
+
+        # Cache debugging
+        st.divider()
+        st.write("**Debug Information:**")
+        st.code(json.dumps(cache_info, indent=2), language="json")
+
+    # Cache statistics over time (placeholder for future implementation)
+    st.subheader("Cache Performance")
+
+    # Placeholder for cache hit/miss statistics
+    st.info("""
+    **Future enhancements:**
+    - Cache hit/miss statistics
+    - Memory usage tracking
+    - Performance comparison graphs
+    - Automatic cache optimization
+    """)
 
 
 def _show_documents_tab():

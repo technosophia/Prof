@@ -496,12 +496,17 @@ def test_public_private_documents(temp_rag_manager):
     assert callable(temp_rag_manager._check_user_permission)
 
 # Test SimpleRAGEngine directly
+# Test SimpleRAGEngine directly
 def test_simple_rag_engine():
     """Test the SimpleRAGEngine class directly."""
     # Create engine instance directly
     from modules.rag_manager.rag_manager import SimpleRAGEngine
 
     engine = SimpleRAGEngine()
+
+    # CLEAR EXISTING DATA FIRST - IMPORTANT FOR ISOLATION
+    engine.indices.clear()
+    engine._save_user_index("test_user")  # This will delete the persisted file
 
     assert engine.engine_type == "simple"
     assert engine.description != ""
@@ -520,6 +525,7 @@ def test_simple_rag_engine():
 
         # Test get_indexed_documents
         docs = engine.get_indexed_documents("test_user")
+        # ONLY check for the document we just indexed, not previous ones
         assert len(docs) == 1
         assert docs[0]['filename'] == "engine_test.txt"
 
