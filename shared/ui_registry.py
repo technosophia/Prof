@@ -38,7 +38,7 @@ import os
 import sys
 import importlib.util
 import inspect
-from typing import Dict, List, Callable, Any
+from typing import Dict, List, Callable, Any, Set
 import streamlit as st
 from shared.logging import log
 
@@ -47,16 +47,8 @@ class UIRegistry:
 
     def __init__(self):
         self.modules: Dict[str, Dict] = {}
-        self.injection_points = {
-            'initialize',  # For initialization code
-            'sidebar',
-            'main_header',
-            'main_before_conversation',
-            'main_content',
-            'main_after_conversation',
-            'main_footer',
-            'admin_tab',  # NEW: For admin tab content
-        }
+        # Use a set to track all injection points discovered (dynamic)
+        self.injection_points: Set[str] = set()
         self._initialized = False
         self.module_handler = None  # Will be set externally
 
@@ -129,6 +121,9 @@ class UIRegistry:
         log("info", f"Total UI modules registered: {len(self.modules)}")
         log("info", f"Registered UI modules: {list(self.modules.keys())}")
 
+        # Log all discovered injection points
+        log("debug", f"Discovered injection points: {sorted(self.get_all_injection_points())}")
+
     def _discover_ui_files_recursive(self, directory: str, is_shared: bool, base_name: str):
         """Recursively discover _ui.py files in a directory and its subdirectories."""
         log("debug", f"Discovering UI files in {directory} (base: {base_name}, shared: {is_shared})")
@@ -198,11 +193,11 @@ class UIRegistry:
                     if name.startswith(PREFIX):
                         injection_point = name[len(PREFIX):]  # Remove "inject_ui_" prefix
 
-                        if injection_point in self.injection_points:
-                            render_functions[injection_point] = obj
-                            log("info", f"Found render function: {module_key}.{name} -> {injection_point}")
-                        else:
-                            log("warning", f"Function {name} has correct prefix but unknown injection point: {injection_point}")
+                        # Automatically register new injection points
+                        self.injection_points.add(injection_point)
+
+                        render_functions[injection_point] = obj
+                        log("info", f"Found render function: {module_key}.{name} -> {injection_point}")
 
             if render_functions:
                 self.modules[module_key] = {
@@ -221,9 +216,8 @@ class UIRegistry:
 
     def render_all(self, injection_point: str) -> List[Any]:
         """Call all render functions for a specific injection point."""
-        if injection_point not in self.injection_points:
-            log("error", f"Unknown injection point: {injection_point}")
-            return []
+        # No verification if injection point exists - just render if there are functions for it
+        # New injection points are automatically registered when modules are discovered
 
         results = []
 
@@ -259,6 +253,7 @@ class UIRegistry:
         return results
 
     def render_admin_tabs(self) -> Dict[str, Any]:
+        """Render all admin tabs from registered modules."""
         log("debug", "=== START COLLECTING ADMIN TABS ===")
         admin_tabs = {}
         active_modules = set(self.module_handler.get_active_modules() if self.module_handler else [])
@@ -285,6 +280,21 @@ class UIRegistry:
         log("debug", f"=== FINAL ADMIN TABS: {list(admin_tabs.keys())} ===")
         return admin_tabs
 
+    def get_all_injection_points(self) -> List[str]:
+        """Get all registered injection points, sorted alphabetically."""
+        return sorted(self.injection_points)
+
+    def get_injection_point_stats(self) -> Dict[str, int]:
+        """Get statistics about injection point usage across all modules."""
+        stats = {}
+        for injection_point in self.injection_points:
+            count = 0
+            for module_info in self.modules.values():
+                if injection_point in module_info['render_functions']:
+                    count += 1
+            stats[injection_point] = count
+        return stats
+
     def get_module(self, module_key: str) -> Dict:
         """Get information about a registered module."""
         return self.modules.get(module_key)
@@ -309,4 +319,9 @@ def register_ui_module(module_name: str, render_functions: Dict[str, Callable]):
         'is_shared': False,
         'base_name': module_name.split('_')[0] if '_' in module_name else module_name
     }
+
+    # Register any new injection points from the render functions
+    for injection_point in render_functions.keys():
+        ui_registry.injection_points.add(injection_point)
+
     log("info", f"Directly registered UI module: {module_name}")
