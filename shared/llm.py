@@ -313,17 +313,7 @@ class LLMManager:
                     message: str,
                     stream_callback: Optional[Callable] = None,
                     conversation_history: Optional[List[Dict]] = None,
-                    user_id: Optional[str] = None) -> str:  # Added user_id parameter
-        """Generate response from current LLM with optional conversation history."""
-        if not self.current_llm:
-            error_msg = "No LLM selected"
-            log("error", error_msg)
-            return error_msg
-
-        log("info", f"Generating response with current LLM: {self.current_llm}")
-        log("debug", f"Message: {message[:100]}...")
-        if conversation_history:
-            log("debug", f"Conversation history: {len(conversation_history)} messages")
+                    user_id: Optional[str] = None) -> str:
 
         # Prepare messages for the LLM
         messages = []
@@ -332,8 +322,19 @@ class LLMManager:
         if conversation_history:
             messages.extend(conversation_history)
 
-        # Add current user message
-        messages.append({"role": "user", "content": message})
+        # Check if the last message in history is already from the user
+        # If so, we shouldn't add another user message
+        if conversation_history and messages:
+            last_message = messages[-1]
+            if last_message.get("role") == "user" and last_message.get("content") == message.strip():
+                # The user message is already in history, don't duplicate it
+                pass
+            else:
+                # Add current user message (it's not in history yet)
+                messages.append({"role": "user", "content": message})
+        else:
+            # No history or empty history, add the user message
+            messages.append({"role": "user", "content": message})
 
         # Add LLM context if user_id is provided and callbacks are registered
         if user_id and _llm_callbacks:
