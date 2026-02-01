@@ -6,6 +6,7 @@ Provides a simple debug/testing interface in the admin panel for:
 - Text input and display
 - LLM testing with current LLM
 - Display current user info
+- UI Registry injection points inspection
 
 This module adds a "Debug" tab to the admin interface.
 """
@@ -16,6 +17,14 @@ from shared.logging import log
 from shared.translate import _
 from shared.llm import llm_generate, get_current_llm_info
 from shared.users import user_manager
+
+# Try to import ui_registry for injection point debugging
+try:
+    from shared.ui_registry import UIRegistry
+    UI_REGISTRY_AVAILABLE = True
+except ImportError:
+    UI_REGISTRY_AVAILABLE = False
+    log("warning", "UI registry not available for import")
 
 def show_debug_admin_content():
     """Display the Debug Admin content."""
@@ -40,6 +49,108 @@ def show_debug_admin_content():
         st.warning("No user currently logged in")
 
     st.divider()
+
+    # NEW SECTION: UI Registry Injection Points
+    if UI_REGISTRY_AVAILABLE:
+        st.subheader("🎯 UI Registry Injection Points")
+
+        # Get injection point data
+        ui_registry = st.session_state.ui_registry
+        all_points = ui_registry.get_all_injection_points()
+        stats = ui_registry.get_injection_point_stats()
+
+        # Summary
+        st.write(f"**Total injection points:** {len(all_points)}")
+        st.write(f"**Active modules with UI:** {len(ui_registry.modules)}")
+
+        # Create two columns for better display
+        col_stats, col_list = st.columns(2)
+
+        with col_stats:
+            st.markdown("##### 📊 Statistics")
+            if stats:
+                # Create a simple table
+                st.markdown("| Injection Point | Modules |")
+                st.markdown("|----------------|---------|")
+                for point, count in sorted(stats.items()):
+                    st.markdown(f"| `{point}` | {count} |")
+            else:
+                st.info("No statistics available")
+
+        with col_list:
+            st.markdown("##### 📝 All Points")
+            if all_points:
+                # List all injection points
+                st.markdown("<ul>", unsafe_allow_html=True)
+                for point in sorted(all_points):
+                    st.markdown(f"<li><code>{point}</code></li>", unsafe_allow_html=True)
+                st.markdown("</ul>", unsafe_allow_html=True)
+            else:
+                st.info("No injection points registered")
+
+        # Detailed module information in an expander
+        with st.expander("🔍 Module Details", expanded=False):
+            if ui_registry.modules:
+                # Get active modules from module handler
+                active_modules = set()
+                if ui_registry.module_handler:
+                    active_modules = set(ui_registry.module_handler.get_active_modules())
+
+                for module_key, module_info in ui_registry.modules.items():
+                    is_shared = module_info.get('is_shared', False)
+                    base_name = module_info.get('base_name', 'unknown')
+                    render_funcs = module_info.get('render_functions', {})
+
+                    # Determine if module should be active
+                    if is_shared:
+                        status = "🟢 SHARED"
+                    elif base_name in active_modules:
+                        status = "🟢 ACTIVE"
+                    else:
+                        status = "🔴 INACTIVE"
+
+                    st.markdown(f"**{module_key}** {status}")
+                    st.caption(f"Path: {module_info.get('path', 'N/A')}")
+
+                    if render_funcs:
+                        st.write(f"Injection points: {', '.join(sorted(render_funcs.keys()))}")
+                    else:
+                        st.write("No render functions")
+                    st.divider()
+            else:
+                st.info("No UI modules registered")
+
+        # Test new injection point creation
+        with st.expander("🧪 Test New Injection Point", expanded=False):
+            st.markdown("Test creating a new injection point dynamically.")
+
+            test_point_name = st.text_input(
+                "Test injection point name:",
+                value="test_custom_point",
+                help="Enter a name for a test injection point (will be prefixed with 'inject_ui_')"
+            )
+
+            col_test1, col_test2 = st.columns(2)
+
+            with col_test1:
+                if st.button("Register Test Point", use_container_width=True):
+                    # This simulates what would happen when a module registers a new point
+                    # In reality, modules would define functions like inject_ui_test_custom_point
+                    st.info(f"To create injection point '{test_point_name}', a module should define a function named:")
+                    st.code(f"def inject_ui_{test_point_name}():")
+                    st.code(f"    # Implementation")
+                    st.code(f"    return 'Content for {test_point_name}'")
+
+            with col_test2:
+                if st.button("Check Current Points", use_container_width=True):
+                    # Refresh and show updated list
+                    current_points = ui_registry.get_all_injection_points()
+                    st.info(f"Currently have {len(current_points)} injection points")
+                    st.write("First 5:", current_points[:5] if len(current_points) > 5 else current_points)
+
+        st.divider()
+    else:
+        st.warning("UI Registry not available for debugging")
 
     # Section 2: Text Input Test
     st.subheader("📝 Text Input Test")
