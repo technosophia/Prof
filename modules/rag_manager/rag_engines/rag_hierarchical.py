@@ -9,8 +9,6 @@ import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
 from sentence_transformers import SentenceTransformer
 
 from ..rag_engine import RAGEngine

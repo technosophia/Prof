@@ -7,6 +7,21 @@ import streamlit as st
 from typing import Optional, Dict, Any
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
+warnings.filterwarnings(
+    "ignore",
+    message="builtin type SwigPyPacked has no __module__ attribute",
+    category=DeprecationWarning
+)
+warnings.filterwarnings(
+    "ignore",
+    message="builtin type SwigPyObject has no __module__ attribute",
+    category=DeprecationWarning
+)
+warnings.filterwarnings(
+    "ignore",
+    message="builtin type swigvarlink has no __module__ attribute",
+    category=DeprecationWarning
+)
 from sentence_transformers import SentenceTransformer
 from shared.logging import log
 
