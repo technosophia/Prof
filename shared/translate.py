@@ -332,7 +332,7 @@ def init_translations_multiple(lang: str = "en"):
         translator = Translator()
 
         # List of base directories to search from
-        base_dirs = [".", "shared"]  # root and shared directories
+        base_dirs = [".", "shared", "modules"]  # root and shared directories
 
         # Find all translation directories
         translation_dirs = set()
