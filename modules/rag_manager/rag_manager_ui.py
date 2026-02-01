@@ -1,6 +1,6 @@
-# [file name]: rag_manager_ui.py (updated - add debug switch)
+# [file name]: rag_manager_ui.py (updated - add debug switch and RAG context injection)
 """
-RAG Manager UI Module - Updated with debug switch
+RAG Manager UI Module - Updated with debug switch and RAG context injection
 """
 
 import streamlit as st
@@ -12,7 +12,8 @@ import tempfile
 from shared.logging import log
 from shared.translate import _
 from shared.config import get_config
-from shared.llm import register_llm_callback
+from shared.llm import register_llm_callback, unregister_llm_callback
+from typing import List, Dict, Optional
 
 # Import the RAG manager
 try:
@@ -20,6 +21,103 @@ try:
 except ImportError:
     # Fallback for direct execution
     from .rag_manager import rag_manager
+
+
+def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
+    """
+    RAG context callback function that retrieves relevant documents
+    based on the last user message and returns formatted context.
+
+    Args:
+        user_id: The user's ID for document access control
+        messages: List of chat messages from the conversation
+
+    Returns:
+        Formatted context string to augment the LLM prompt
+    """
+    # Get the last user message
+    user_messages = [msg for msg in messages if msg.get("role") == "user"]
+    if not user_messages:
+        log("warning", "No user messages found for RAG context")
+        return ""
+
+    last_user_message = user_messages[-1].get("content", "")
+    if not last_user_message:
+        log("warning", "Empty user message for RAG context")
+        return ""
+
+    #log("info", f"RAG debug Last User Message:{last_user_message}")
+
+    # Initialize session state for RAG context
+    if "last_rag_context" not in st.session_state:
+        st.session_state.last_rag_context = ""
+
+    # Reset previous context
+    st.session_state.last_rag_context = ""
+    st.session_state.last_rag_query = last_user_message
+    st.session_state.last_rag_timestamp = datetime.now().timestamp()
+
+    try:
+        # Search for relevant documents using RAG manager
+        search_results = rag_manager.search(user_id, last_user_message)
+        #log("info", f"RAG debug Search Results:{search_results}")
+
+        # Check if we have any results
+        # search_results is a dict with engine names as keys
+        if not search_results or all(len(results) == 0 for results in search_results.values()):
+            log("warning", "No RAG results found for query")
+            st.session_state.last_rag_context = "No relevant documents found in knowledge base."
+            return ""
+
+        # Build context from search results
+        context_parts = []
+        context_parts.append("CONTEXT FROM KNOWLEDGE BASE:")
+        context_parts.append("=" * 50)
+
+        # Process results from each engine
+        engine_counter = 0
+        for engine_name, results in search_results.items():
+            if results:  # Only process engines with results
+                engine_counter += 1
+                context_parts.append(f"\n--- Engine: {engine_name.upper()} ---")
+
+                # Add each document from this engine
+                for i, result in enumerate(results):
+                    filename = result.get('filename', 'Unknown')
+                    content = result.get('content', '')
+                    score = result.get('score', 0)
+
+                    context_parts.append(f"\nDocument {i+1}: {filename}")
+                    context_parts.append(f"Relevance Score: {score:.3f}")
+                    context_parts.append(f"Content: {content}")
+
+        # Add instructions for the LLM
+        context_parts.append("\n" + "=" * 50)
+        context_parts.append("INSTRUCTIONS:")
+        context_parts.append("- Use the above context to inform your response")
+        context_parts.append("- If the context is relevant, incorporate it naturally into your answer")
+        context_parts.append("- If the context doesn't contain relevant information, respond based on your own knowledge")
+        context_parts.append("- Do not mention that you are using a knowledge base or external context")
+        context_parts.append("- Cite specific information from the context when applicable")
+        context_parts.append("")
+
+        # Join all parts into final context
+        context_text = "\n".join(context_parts)
+
+        # Log and store the context
+        log("debug", f"RAG debug Context length:{len(context_text)} chars")
+        log("debug", f"RAG debug Context preview:{context_text[:100]}...")
+
+        # Store in session state for UI display
+        st.session_state.last_rag_context = context_text
+
+        return context_text
+
+    except Exception as e:
+        log("error", f"RAG search failed: {str(e)}", exc_info=True)
+        error_msg = f"Error retrieving context: {str(e)}"
+        st.session_state.last_rag_context = error_msg
+        return ""
 
 
 def show_rag_admin_content():
@@ -348,11 +446,29 @@ def inject_ui_sidebar():
             help="When enabled, shows the RAG context used for LLM queries in an expander"
         )
 
-        if rag_debug_enabled != st.session_state.get('rag_debug_enabled'):
+        if rag_debug_enabled != st.session_state.get('rag_debug_enabled', True):
             st.session_state.rag_debug_enabled = rag_debug_enabled
             st.rerun()
 
         st.caption("Displays retrieved document context in chat")
+
+        # Enable/Disable RAG context injection
+        rag_injection_enabled = st.toggle(
+            "Enable RAG Context Injection",
+            value=st.session_state.get('rag_injection_enabled', True),
+            help="When enabled, RAG context will be automatically injected into LLM queries"
+        )
+
+        if rag_injection_enabled != st.session_state.get('rag_injection_enabled'):
+            st.session_state.rag_injection_enabled = rag_injection_enabled
+            # Register or unregister the callback based on toggle state
+            if rag_injection_enabled:
+                register_llm_callback(rag_context_callback)
+                st.sidebar.success("RAG context injection enabled")
+            else:
+                unregister_llm_callback(rag_context_callback)
+                st.sidebar.info("RAG context injection disabled")
+            st.rerun()
 
         # Update button
         if st.button("Apply Changes", type="secondary", use_container_width=True):
@@ -415,6 +531,23 @@ def inject_ui_initialize():
     # Initialize session state for debug mode
     if 'rag_debug_enabled' not in st.session_state:
         st.session_state.rag_debug_enabled = False
+
+    # Initialize session state for injection toggle
+    if 'rag_injection_enabled' not in st.session_state:
+        st.session_state.rag_injection_enabled = True
+
+    # Initialize session state for storing RAG context
+    if 'last_rag_context' not in st.session_state:
+        st.session_state.last_rag_context = ""
+    if 'last_rag_query' not in st.session_state:
+        st.session_state.last_rag_query = ""
+    if 'last_rag_timestamp' not in st.session_state:
+        st.session_state.last_rag_timestamp = 0
+
+    # Register the RAG context callback if injection is enabled
+    if st.session_state.rag_injection_enabled:
+        register_llm_callback(rag_context_callback)
+
     return True
 
 
@@ -426,29 +559,44 @@ def inject_ui_main_content():
 def inject_ui_inside_conversation():
     """Render RAG debug context after conversation."""
     # Only show if debug is enabled and we have context to show
-    st.write("Rag context goes here")
     if (st.session_state.get('rag_debug_enabled', False) and
         'last_rag_context' in st.session_state and
         st.session_state.last_rag_context):
 
         with st.expander("🔍 RAG Debug Context", expanded=False):
             st.write("**Last RAG context injected into LLM:**")
+
+            # Display context with syntax highlighting for better readability
+            context_text = st.session_state.last_rag_context
+
+            # Format the context text
+            formatted_context = context_text.replace("---", "\n---")
+
             st.text_area(
                 "Context",
-                st.session_state.last_rag_context,
+                formatted_context,
                 height=200,
                 key="rag_debug_context_display",
                 label_visibility="collapsed"
             )
 
             # Add some metadata if available
-            if 'last_rag_query' in st.session_state:
-                st.caption(f"Query: {st.session_state.last_rag_query}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if 'last_rag_query' in st.session_state and st.session_state.last_rag_query:
+                    st.caption(f"**Query:** {st.session_state.last_rag_query}")
 
-            if 'last_rag_timestamp' in st.session_state:
-                from datetime import datetime
-                timestamp = datetime.fromtimestamp(st.session_state.last_rag_timestamp)
-                st.caption(f"Retrieved: {timestamp.strftime('%H:%M:%S')}")
+            with col2:
+                if 'last_rag_timestamp' in st.session_state and st.session_state.last_rag_timestamp:
+                    timestamp = datetime.fromtimestamp(st.session_state.last_rag_timestamp)
+                    st.caption(f"**Retrieved:** {timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            # Clear button
+            if st.button("Clear RAG Context History", type="secondary"):
+                st.session_state.last_rag_context = ""
+                st.session_state.last_rag_query = ""
+                st.session_state.last_rag_timestamp = 0
+                st.rerun()
 
     return None
 
@@ -464,6 +612,12 @@ def test_rag_manager():
         # Test document list
         documents = rag_manager.get_document_list()
         log("info", f"Test: Found {len(documents)} documents")
+
+        # Test search functionality
+        if documents:
+            test_query = "test search"
+            search_results = rag_manager.search(query=test_query, top_k=2)
+            log("info", f"Test: Search returned {search_results.get('count', 0)} results for query '{test_query}'")
 
         return True
     except Exception as e:
