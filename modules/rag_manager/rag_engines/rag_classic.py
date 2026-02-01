@@ -9,7 +9,8 @@ import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
 from sentence_transformers import SentenceTransformer
 
 from ..rag_engine import RAGEngine
@@ -59,7 +60,7 @@ class ClassicRAGEngine(RAGEngine):
                 self.dimension = RAGModelCache.get_model_dimension(self.embedding_model_name)
             else:
                 # Fallback to direct loading
-                self.model = SentenceTransformer(self.embedding_model_name)
+                self.model = SentenceTransformer(self.embedding_model_name, device='cpu')
                 self.dimension = self.model.get_sentence_embedding_dimension()
 
             log("info", f"Loaded embedding model: {self.embedding_model_name} (dim: {self.dimension})")

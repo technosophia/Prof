@@ -5,6 +5,8 @@ Strategic caching for RAG models
 
 import streamlit as st
 from typing import Optional, Dict, Any
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
 from sentence_transformers import SentenceTransformer
 from shared.logging import log
 
@@ -20,7 +22,7 @@ class RAGModelCache:
         """
         log("info", f"Loading embedding model (cached): {model_name}")
         try:
-            model = SentenceTransformer(model_name)
+            model = SentenceTransformer(model_name, device="cpu")
             log("info", f"Model loaded successfully: {model_name}")
             return model
         except Exception as e:
