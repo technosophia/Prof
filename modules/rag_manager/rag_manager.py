@@ -33,16 +33,48 @@ class RAGManager:
 
     def __init__(self):
         self.config = get_config()
+
+        # FIRST, check if rag_manager config exists
+        if "rag_manager" not in self.config:
+            # If not, try to inject the module config
+            from shared.config import inject_module_config
+            try:
+                # Inject the module's config
+                inject_module_config("modules/rag_manager")
+                # Refresh the config
+                self.config = get_config()
+            except Exception as e:
+                log("warning", f"Could not inject rag_manager config: {e}")
+
+        # NOW get the rag config
         rag_config = self.config.get("rag_manager", {})
+
+        # Set defaults with proper fallback chain
         self.data_dir = Path(rag_config.get("data_directory", "./data/rag_documents"))
         self.allowed_extensions = rag_config.get("allowed_extensions", [".txt", ".pdf", ".md"])
         self.max_file_size_mb = rag_config.get("max_file_size_mb", 10)
+
+        # CRITICAL FIX: Get default_engine from nested structure
+        default_engine = rag_config.get("default_engine", "simple")
+
+        # Check if it's in the engines config
+        engines_config = rag_config.get("engines", {})
+        if default_engine not in engines_config:
+            # Fallback: check if "faiss_hierarchical" exists
+            if "faiss_hierarchical" in engines_config:
+                default_engine = "faiss_hierarchical"
+            elif "faiss" in engines_config:
+                default_engine = "faiss"
+            else:
+                default_engine = "simple"
+
+        self.default_engine = default_engine
+
         self._cache_initialized = False
         self._init_caching()
 
         # RAG engines
         self.engines = {}
-        self.default_engine = rag_config.get("default_engine", "simple")
 
         # Store config
         self.rag_config = rag_config
@@ -57,6 +89,8 @@ class RAGManager:
 
         # Register callback for user deletion
         user_manager.register_before_delete_callback(self._handle_user_deletion)
+
+        log("info", f"RAG Manager initialized with default engine: {self.default_engine}")
 
     def _init_caching(self):
         """Initialize caching for model weights."""
