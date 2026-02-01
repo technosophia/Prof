@@ -44,6 +44,7 @@ def app_is_running(context, page: Page, debug_dir, streamlit_server):
     # Store the page reference in context
     context['page'] = page
     context['debug_enabled'] = debug_dir
+    time.sleep(10)
 
     print("✓ Application is running and loaded")
     return context

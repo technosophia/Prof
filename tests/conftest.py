@@ -16,7 +16,7 @@ from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
 SCOPE = "function"
-TEST_PORT = 8504
+TEST_PORT = 8505
 
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
@@ -139,9 +139,9 @@ def browser(playwright, request):
 
     if not headless:
         print(f"🔍 Launching browser in HEADED mode (headless={headless})")
-        launch_options["slow_mo"] = 100  # Ralentir pour voir ce qui se passe
+        launch_options["slow_mo"] = 2000  # Ralentir pour voir ce qui se passe
     else:
-        launch_options["slow_mo"] = 100
+        launch_options["slow_mo"] = 2000
         print(f"🚀 Launching browser in HEADLESS mode")
 
     browser = playwright.chromium.launch(**launch_options)
@@ -198,7 +198,7 @@ def streamlit_server():
         stdout=stdout_file,
         stderr=stderr_file,
         env=env,
-        cwd=PROJECT_ROOT,  # CRITIQUE: Lancer depuis la racine du projet
+        cwd=PROJECT_ROOT,  # CRITIQUE: laucnh from the root
         preexec_fn=os.setsid
     )
 
@@ -251,7 +251,8 @@ def streamlit_server():
                 raise RuntimeError(f"Failed to start Streamlit server after {max_retries} seconds")
             time.sleep(1)
 
-    time.sleep(2)
+    print("Streamlit server started...")
+    time.sleep(5)
     yield process
 
     # Cleanup
