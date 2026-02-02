@@ -1,7 +1,7 @@
 """Common shared resources (Streamlit-aware)"""
 
 import streamlit as st
-from shared.logging import log
+from shared.logging import log as _log
 from shared.translate import load_all_translations, get_translation
 
 
@@ -30,3 +30,5 @@ def _(key: str, lang: str | None = None) -> str:
 
     translations = _load_translations()
     return get_translation(key, lang, translations)
+
+log = _log
