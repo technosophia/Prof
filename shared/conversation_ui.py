@@ -306,6 +306,11 @@ def inject_ui_main_content():
         st.info("👤 Please log in to start chatting.")
         return True
 
+    # Check if we need to show the new conversation form
+    if st.session_state.current_user and st.session_state.show_new_conversation_form:
+        render_conversation_form()
+        return True
+
     # If user is logged in but no conversation is selected
     if (st.session_state.get('current_user') and
         not st.session_state.get('current_conversation_id')):
@@ -313,12 +318,7 @@ def inject_ui_main_content():
         st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
         return True
 
-    st.write(f"Current User: {st.session_state.current_user} and {st.session_state.show_new_conversation_form}")
-    if st.session_state.current_user and st.session_state.show_new_conversation_form:
-        render_conversation_form()
-        return True
-
-    # Only render if we're on chat page and user is logged in
+    # Only render if we're on chat page and user is logged in with a conversation
     if (st.session_state.get('current_page') == 'chat' and
         st.session_state.get('current_user') and
         st.session_state.get('current_conversation_id')):
