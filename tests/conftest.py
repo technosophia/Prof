@@ -152,9 +152,9 @@ def browser(playwright, request):
 
     if not headless:
         print(f"🔍 Launching browser in HEADED mode (headless={headless})")
-        launch_options["slow_mo"] = 1000  # Ralentir pour voir ce qui se passe
+        launch_options["slow_mo"] = 200  # Ralentir pour voir ce qui se passe
     else:
-        launch_options["slow_mo"] = 1000
+        launch_options["slow_mo"] = 200
         print(f"🚀 Launching browser in HEADLESS mode")
 
     browser = playwright.chromium.launch(**launch_options)
@@ -265,7 +265,7 @@ def streamlit_server():
             time.sleep(1)
 
     print("Streamlit server started...")
-    time.sleep(5)
+    time.sleep(2)
     yield process
 
     # Cleanup
