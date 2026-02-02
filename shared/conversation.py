@@ -12,10 +12,8 @@ from dataclasses import dataclass, asdict
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import Session, relationship
 
+from shared.common import _, log, get_config
 from shared.database import Base, db_manager
-from shared.logging import log
-
-# Import user_manager to register callback
 from shared.users import user_manager
 
 

@@ -9,10 +9,9 @@ Uses the new UI injection mechanism with admin_tab injection point.
 
 import streamlit as st
 import os
-from shared.logging import log
 from shared.database import db_manager
-from shared.common import get_config
-from shared.common import _
+from shared.common import _, log, get_config
+
 
 def show_system_admin_content():
     """Display the System Admin content (for the System tab)."""

@@ -4,7 +4,6 @@ Base LLM Engine Interface
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Callable
-from shared.logging import log
 
 
 class LLMEngine(ABC):

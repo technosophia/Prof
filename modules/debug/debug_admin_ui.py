@@ -14,11 +14,10 @@ This module adds a "Debug" tab to the admin interface.
 import streamlit as st
 import asyncio
 import json
-from shared.logging import log
-from shared.common import _
+from shared.common import _, log, get_config
 from shared.llm import llm_generate, get_current_llm_info
 from shared.users import user_manager
-from shared.common import get_config
+
 
 # Try to import ui_registry for injection point debugging
 try:

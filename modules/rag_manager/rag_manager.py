@@ -13,8 +13,7 @@ import importlib
 import pkgutil
 import sys
 
-from shared.logging import log
-from shared.common import get_config
+from shared.common import _, log, get_config
 from shared.users import UserRole, user_manager
 
 from .rag_engine import RAGEngine

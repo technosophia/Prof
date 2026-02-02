@@ -5,7 +5,8 @@ User Management UI Module
 
 import streamlit as st
 from shared.users import user_manager, UserRole
-from shared.logging import log
+from shared.common import _, log, get_config
+
 
 def auto_login_first_user():
     """Automatically log in the first available user if none is logged in."""

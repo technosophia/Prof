@@ -9,7 +9,8 @@ from pathlib import Path
 import pickle
 
 from .rag_engine import RAGEngine
-from shared.logging import log
+from shared.common import _, log, get_config
+
 
 
 class SimpleRAGEngine(RAGEngine):

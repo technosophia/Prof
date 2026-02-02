@@ -40,12 +40,7 @@ import importlib
 import pkgutil
 from typing import Dict, Any, List, Optional, Callable
 import asyncio
-
-# Import shared systems
-from shared.common import get_config
-from shared.logging import log
-
-# Import base engine
+from shared.common import _, log, get_config
 from shared.llm_engine import LLMEngine
 
 

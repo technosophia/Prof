@@ -14,9 +14,8 @@ import streamlit as st
 import asyncio
 from datetime import datetime
 from shared.conversation import conversation_manager, Message
-from shared.logging import log
+from shared.common import _, log, get_config
 from shared.llm import llm_generate, get_current_llm_info
-from shared.common import _
 from shared.llm import register_llm_callback
 from typing import List, Dict, Optional, Tuple, Any, Callable
 from shared.ui_registry import UIRegistry

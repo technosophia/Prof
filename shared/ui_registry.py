@@ -40,7 +40,7 @@ import importlib.util
 import inspect
 from typing import Dict, List, Callable, Any, Set, Tuple
 import streamlit as st
-from shared.logging import log
+from shared.common import _, log, get_config
 
 @st.cache_resource
 def _discover_ui_modules(active_modules_tuple: Tuple[str, ...]) -> Tuple[Dict[str, Dict], Set[str]]:

@@ -23,7 +23,8 @@ warnings.filterwarnings(
     category=DeprecationWarning
 )
 from sentence_transformers import SentenceTransformer
-from shared.logging import log
+from shared.common import _, log, get_config
+
 
 class RAGModelCache:
     """Manages caching of heavy model weights for RAG engines."""

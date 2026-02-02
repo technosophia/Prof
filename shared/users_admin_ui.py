@@ -12,7 +12,8 @@ import streamlit as st
 from datetime import datetime
 from typing import Dict, Any, List
 from shared.users import user_manager, UserRole
-from shared.logging import log
+from shared.common import _, log, get_config
+
 
 
 def can_access_admin_tab(user: Dict[str, Any]) -> bool:

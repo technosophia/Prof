@@ -10,7 +10,8 @@ from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, f
 from sqlalchemy.orm import Session, relationship, joinedload
 
 from shared.database import Base, db_manager
-from shared.logging import log
+from shared.common import _, log, get_config
+
 
 
 class UserRole(Enum):
