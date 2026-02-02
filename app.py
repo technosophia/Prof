@@ -195,9 +195,6 @@ def main():
         st.session_state.app_initialized = True
         log("debug", "App initialization complete")
 
-    # Get config inside main function
-    current_config = get_config()
-
     # NEW: Call UI module initialization functions
     # INJECTION POINT: Initialize - for setting up session state variables
     log("debug", "Calling UI module initialization functions")
@@ -205,7 +202,7 @@ def main():
 
     # NEW: Auto-login after UI components are initialized
     # This ensures user manager is available and session state is ready
-    if not TEST_MODE:
+    if get_config().get("app.auto_login", False):
         from shared.users_ui import auto_login_first_user
         auto_login_first_user()
 
