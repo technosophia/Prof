@@ -110,15 +110,9 @@ from shared.module_handler import ModuleHandler, get_active_modules, toggle_modu
 # Configure logging from config (one line)
 configure_logging_from_dict(config.get("logging", {}))
 
-# Initialize database
-db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
-if TEST_MODE:
-    # Force in-memory database for tests
-    init_database(use_memory=True, db_path=None)
-else:
-    # Normal database setup
-    db_path = os.path.join("data", "app.db") if os.path.exists("data") else None
-    init_database(use_memory=False, db_path=db_path)
+db_path = config.get("database", {}).get("path", ".") + "/app.db"
+log("info", f"Initializing database at path: {db_path}")
+init_database(use_memory=False, db_path=db_path)
 
 # Initialize Module Handler - store in session state
 if 'module_handler' not in st.session_state:

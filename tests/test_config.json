@@ -11,7 +11,7 @@
     "test_default_llm": "Mock LLM"
   },
   "database": {
-    "path": "tests/data",
+    "path": "data/tests",
     "auto_create_tables": true,
     "create_default_users": true
   },

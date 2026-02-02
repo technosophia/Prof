@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.sql import text
 from contextlib import contextmanager
 
 from shared.config import get_config
@@ -31,7 +32,7 @@ from shared.logging import log
 
 Base = declarative_base()
 
-MEMDB = 'sqlite:///tests/test.db'
+MEMDB = 'sqlite:///:memory:'  # Changed to true in-memory database
 
 class DatabaseManager:
     """Manages database connections and operations.
@@ -43,6 +44,7 @@ class DatabaseManager:
     Public methods:
     - get_session(): Primary method for database access
     - is_initialized(): Check if database is ready
+    - empty_all_tables(): Remove all records from all tables (preserves table structure)
 
     Usage:
         # In another module like users.py
@@ -202,6 +204,76 @@ class DatabaseManager:
     def are_tables_created(self):
         """Check if tables have been created."""
         return self._tables_created
+
+    def empty_all_tables(self):
+        """Remove all records from all tables while preserving table structure.
+
+        [agent]
+        Useful for testing or resetting application state. This method deletes all
+        data from every table but keeps the tables themselves intact.
+
+        Warning: This is a destructive operation and should be used with caution.
+        Not recommended for production use unless absolutely necessary.
+
+        Returns:
+            bool: True if successful, False otherwise
+
+        Example:
+            # Reset database for testing
+            db_manager.empty_all_tables()
+        """
+        if not self.is_initialized():
+            log("error", "Database not initialized. Cannot empty tables.")
+            return False
+
+        try:
+            with self.get_session() as session:
+                # Get all table names
+                result = session.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+                )
+                table_names = [row[0] for row in result.fetchall()]
+
+                if not table_names:
+                    log("debug", "No tables found to empty")
+                    return True
+
+                # Disable foreign key constraints for SQLite
+                if self._in_memory or 'sqlite' in str(self._engine.url):
+                    session.execute(text("PRAGMA foreign_keys = OFF"))
+
+                # Delete all records from each table
+                deleted_counts = {}
+                for table_name in table_names:
+                    try:
+                        result = session.execute(text(f"DELETE FROM {table_name}"))
+                        deleted_counts[table_name] = result.rowcount
+                        log("debug", f"Deleted {result.rowcount} records from table: {table_name}")
+                    except Exception as e:
+                        log("warning", f"Failed to delete from table {table_name}: {e}")
+
+                # Re-enable foreign key constraints for SQLite
+                if self._in_memory or 'sqlite' in str(self._engine.url):
+                    session.execute(text("PRAGMA foreign_keys = ON"))
+
+                session.commit()
+
+                total_deleted = sum(deleted_counts.values())
+                log("info", f"Successfully emptied all tables. Total records deleted: {total_deleted}")
+                log("debug", f"Details: {deleted_counts}")
+
+                return True
+
+        except Exception as e:
+            log("error", f"Failed to empty all tables: {e}", exc_info=True)
+            # Try to re-enable foreign key constraints in case of error
+            try:
+                if self._in_memory or 'sqlite' in str(self._engine.url):
+                    with self._engine.connect() as conn:
+                        conn.execute(text("PRAGMA foreign_keys = ON"))
+            except:
+                pass
+            return False
 
 
 # Global database manager instance

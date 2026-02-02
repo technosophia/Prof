@@ -68,14 +68,27 @@ print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).ke
 @pytest.fixture(scope=SCOPE, autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
+    # Set environment variables
     os.environ["TEST_MODE"] = "true"
     os.environ["CONFIG_FILE"] = "tests/test_config.json"  # Relatif depuis la racine
     os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
 
-    # Important: Définir le répertoire de travail sur la racine du projet
     original_cwd = os.getcwd()
 
-    # Vérifier où nous sommes
+    print(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
+    # Import database modules
+    from shared.database import db_manager, init_database
+
+    if db_manager.is_initialized():
+        print("Cleaning database before test...")
+        success = db_manager.empty_all_tables()
+        if success:
+            print("✓ Database cleaned before test")
+        else:
+            print("⚠ Could not clean database (might be empty)")
+    else:
+        print("Database not initialized")
+
     print(f"\n=== TEST ENVIRONMENT SETUP ===")
     print(f"Original CWD: {original_cwd}")
     print(f"Project root: {PROJECT_ROOT}")
