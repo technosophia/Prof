@@ -2,7 +2,7 @@
 
 import streamlit as st
 from shared.logging import log
-from shared.translate import load_all_translations
+from shared.translate import load_all_translations, get_translation
 
 
 @st.cache_resource
@@ -29,17 +29,4 @@ def _(key: str, lang: str | None = None) -> str:
         lang = st.session_state.current_language
 
     translations = _load_translations()
-
-    # Primary lookup
-    if lang in translations and key in translations[lang]:
-        return translations[lang][key]
-
-    # Fallback: search in any other loaded language
-    for l, t in translations.items():
-        if key in t:
-            log("debug", f"Translation key '{key}' not in '{lang}', found in '{l}'")
-            return t[key]
-
-    # Missing key
-    log("warning", f"Missing translation key: '{key}' (language: {lang})")
-    return f"[{key}]"
+    return get_translation(key, lang, translations)

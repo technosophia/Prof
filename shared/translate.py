@@ -77,3 +77,22 @@ def load_all_translations() -> Dict[str, Dict[str, str]]:
     total = sum(len(t) for t in translations.values())
     log("info", f"Finished loading translations: {total} keys across {len(translations)} languages")
     return translations
+
+def get_translation(key: str, lang: str, translations: Dict[str, Dict[str, str]]) -> str:
+    """
+    Get translation for a key in specified language.
+    Falls back to other languages if key not found.
+    """
+    # Primary lookup
+    if lang in translations and key in translations[lang]:
+        return translations[lang][key]
+
+    # Fallback: search in any other loaded language
+    for l, t in translations.items():
+        if key in t:
+            log("debug", f"Translation key '{key}' not in '{lang}', found in '{l}'")
+            return t[key]
+
+    # Missing key
+    log("warning", f"Missing translation key: '{key}' (language: {lang})")
+    return f"[{key}]"
