@@ -110,9 +110,6 @@ for module_name in active_modules:
 if 'ui_registry' not in st.session_state:
     log("info", "Initializing UI registry in session state")
     st.session_state.ui_registry = UIRegistry()
-    # Pass the module handler to the registry
-    st.session_state.ui_registry.set_module_handler(module_handler)
-    st.session_state.ui_registry.initialize()
 
 # Get the registry from session state
 ui_registry = st.session_state.ui_registry
@@ -301,15 +298,9 @@ def main():
 
         # INJECTION POINT 6: Main Content after conversation interface
         main_contents_after = ui_registry.render_all("main_after_conversation")
-        for content in main_contents_after:
-            if content:
-                st.divider()
 
         # INJECTION POINT 7: Main Footer Content
         main_footer = ui_registry.render_all("main_footer")
-        for content in main_footer:
-            if content:
-                st.divider()
 
     elif st.session_state.current_page == "admin":
         # Admin page content - using the new injection mechanism

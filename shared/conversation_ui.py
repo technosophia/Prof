@@ -117,6 +117,7 @@ def inject_ui_sidebar():
 
     # Button to create new conversation
     if st.button("➕ New Conversation", type="primary", use_container_width=True):
+        log("info", "Creating new conversation")
         st.session_state.show_new_conversation_form = True
         st.session_state.editing_conversation_id = None
         st.rerun()
@@ -312,6 +313,7 @@ def inject_ui_main_content():
         st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
         return True
 
+    st.write(f"Current User: {st.session_state.current_user} and {st.session_state.show_new_conversation_form}")
     if st.session_state.current_user and st.session_state.show_new_conversation_form:
         render_conversation_form()
         return True
