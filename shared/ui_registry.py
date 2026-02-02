@@ -305,23 +305,3 @@ class UIRegistry:
 
 # Create a singleton instance
 ui_registry = UIRegistry()
-
-# Helper function for modules to register themselves
-def register_ui_module(module_name: str, render_functions: Dict[str, Callable]):
-    """Register a UI module directly with render functions."""
-    if module_name in ui_registry.modules:
-        log("warning", f"UI module {module_name} already registered, updating")
-
-    ui_registry.modules[module_name] = {
-        'module': None,
-        'render_functions': render_functions,
-        'path': None,
-        'is_shared': False,
-        'base_name': module_name.split('_')[0] if '_' in module_name else module_name
-    }
-
-    # Register any new injection points from the render functions
-    for injection_point in render_functions.keys():
-        ui_registry.injection_points.add(injection_point)
-
-    log("info", f"Directly registered UI module: {module_name}")

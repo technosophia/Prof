@@ -73,7 +73,7 @@ from shared.llm import llm_generate, set_current_llm, get_available_llms, get_cu
 from shared.database import init_database, db_manager
 
 # Import UI registry system
-from shared.ui_registry import UIRegistry, register_ui_module
+from shared.ui_registry import UIRegistry
 # Import module handler
 from shared.module_handler import ModuleHandler, get_active_modules, toggle_module
 
