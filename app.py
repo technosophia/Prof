@@ -63,38 +63,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
 from shared.common import _, get_available_languages
-from shared.config import init_config, get_config
-from shared.logging import log, configure_logging_from_dict
-
-# Determine if we're in test mode
-TEST_MODE = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
-
-# Load appropriate config
-if TEST_MODE:
-    log("debug", "🔧 TEST MODE: Loading test configuration")
-
-    # FIXED: Use absolute path to find test_config.json
-    # First, get the directory where app.py is located
-    app_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Look for test config in the tests directory
-    test_config_path = os.path.join(app_dir, "tests", "test_config.json")
-
-    if os.path.exists(test_config_path):
-        config_file = test_config_path
-        log("debug", f"Found test config at: {test_config_path}")
-    else:
-        # Fallback: look in current directory
-        config_file = "test_config.json"
-        log("debug", f"Test config not found at {test_config_path}, trying current directory")
-
-    # Also set environment variable to ensure test mode is propagated
-    os.environ["TEST_MODE"] = "true"
-else:
-    config_file = "config.json"
-
-# Initialize configuration
-config = init_config(config_file)
+from shared.common import get_config
+from shared.common import log, configure_logging_from_dict
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
@@ -108,10 +78,9 @@ from shared.ui_registry import UIRegistry, register_ui_module
 from shared.module_handler import ModuleHandler, get_active_modules, toggle_module
 
 # Configure logging from config (one line)
-configure_logging_from_dict(config.get("logging", {}))
+configure_logging_from_dict(get_config().get("logging", {}))
 
-db_path = config.get("database", {}).get("path", ".") + "/app.db"
-log("info", f"Initializing database at path: {db_path}")
+db_path = get_config().get("database", {}).get("path", ".") + "/app.db"
 init_database(use_memory=False, db_path=db_path)
 
 # Initialize Module Handler - store in session state

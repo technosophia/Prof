@@ -18,7 +18,7 @@ from shared.logging import log
 from shared.common import _
 from shared.llm import llm_generate, get_current_llm_info
 from shared.users import user_manager
-from shared.config import get_config, inject_module_config
+from shared.common import get_config
 
 # Try to import ui_registry for injection point debugging
 try:
@@ -193,7 +193,7 @@ def show_config_tab():
     config = get_config()
 
     # Check for debug module configuration
-    debug_config = config.get("debug", {})
+    debug_config = config.get("modules.debug", {})
 
     if not debug_config:
         st.warning("⚠️ Debug configuration not found! The 'debug' section is missing from the configuration.")

@@ -1,0 +1,20 @@
+{
+  "rag_manager": {
+    "data_directory": "tests/data/rag_documents",
+    "default_engine": "simple",
+    "engines": {
+      "simple": {
+        "enabled": true,
+        "description": "Simple keyword-based search engine"
+      },
+      "faiss": {
+        "enabled": true,
+        "faiss_index_path": "tests/data/faiss_indexes"
+      },
+      "faiss_hierarchical": {
+        "enabled": true,
+        "faiss_index_path": "tests/data/hierarchical_indexes"
+      }
+    }
+  }
+}

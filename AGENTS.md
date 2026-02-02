@@ -76,7 +76,7 @@ This application provides four core utilities that all modules can use: **config
 
 ```python
 # Most common imports
-from shared.config import get_config
+from shared.common import get_config
 from shared.logging import log
 from shared.common import _
 from shared.llm import llm_generate, set_current_llm
@@ -145,7 +145,7 @@ debug("Detailed debug info: %s", data)
 
 #### Connecting to Configuration
 ```python
-from shared.config import get_config
+from shared.common import get_config
 from shared.logging import configure_logging_from_dict
 
 # Configure logging from config
@@ -187,18 +187,16 @@ Centralized configuration management with module injection support. Loads from J
 
 #### Initialization (in your module)
 ```python
-from shared.config import init_config, inject_module_config, get_config
+from shared.config import get_config
 
 # Initialize main config (usually done once in app.py)
 config = init_config("config.json")
 
-# Inject module-specific config (one line)
-inject_module_config("your_module_name", "path/to/your/config.json")
 ```
 
 #### Using Configuration
 ```python
-from shared.config import get_config
+from shared.common import get_config
 
 config = get_config()
 

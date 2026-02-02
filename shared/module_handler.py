@@ -40,7 +40,7 @@ import sys
 from typing import Dict, List, Optional, Set
 from pathlib import Path
 from shared.logging import log
-from shared.config import get_config
+from shared.common import get_config
 
 class ModuleHandler:
     """Handles module discovery, activation, and management."""

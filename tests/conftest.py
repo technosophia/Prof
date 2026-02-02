@@ -319,15 +319,6 @@ def page(browser_context):
 
 # ============ MOCK FIXTURES ============
 
-@pytest.fixture(autouse=True)
-def patch_config():
-    """Patch the get_config function for all tests."""
-    os.environ["TEST_MODE"] = "true"
-
-    with patch('shared.config.get_config', return_value=TEST_CONFIG):
-        with patch('shared.config.init_config', return_value=TEST_CONFIG):
-            yield
-
 @pytest.fixture
 def mock_db_manager():
     """Mock database manager for testing."""

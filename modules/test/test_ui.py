@@ -3,7 +3,7 @@ import streamlit as st
 import os
 from shared.common import _
 from shared.logging import log
-from shared.config import get_config
+from shared.common import get_config
 from shared.database import db_manager
 from shared.llm import get_available_llms, get_current_llm_info
 from shared.users import user_manager

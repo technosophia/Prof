@@ -42,7 +42,7 @@ from typing import Dict, Any, List, Optional, Callable
 import asyncio
 
 # Import shared systems
-from shared.config import get_config
+from shared.common import get_config
 from shared.logging import log
 
 # Import base engine

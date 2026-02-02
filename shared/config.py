@@ -1,302 +1,196 @@
+# file name: shared/config.py
 """
-Configuration manager with module injection support.
+New centralized configuration system.
 
-[agent]
-## Configuration System (`shared/config.py`)
-
-### Purpose
-Centralized configuration management with module injection support. Loads from JSON files and supports nested configurations with duplicate checking.
-
-### Key Functions
-
-#### Initialization (in your module)
-```python
-from shared.config import init_config, inject_module_config, get_config
-
-# Initialize main config (usually done once in app.py)
-config = init_config("config.json")
-
-# Inject module-specific config (one line)
-inject_module_config("your_module_name", "path/to/your/config.json")
-```
-
-#### Using Configuration
-```python
-from shared.config import get_config
-
-config = get_config()
-
-# Get values with dot notation
-log_level = config.get("logging.level", "INFO")
-app_name = config.get("app.name")
-
-# Set values
-config.set("your_module.some_key", "value")
-
-# Check if key exists
-if "your_module.enabled" in config:
-    # Do something
-```
-
-### Module Configuration File Example
-Create `your_module/config.json`:
-```json
-{
-    "your_module": {
-        "enabled": true,
-        "api_key": "your_key_here",
-        "endpoint": "https://api.example.com"
-    },
-    "logging": {
-        "your_module_level": "DEBUG"
-    }
-}
-```
+Key changes:
+- No Streamlit dependencies.
+- Automatic discovery and hierarchical merge of ALL config.json files.
+- Prefixes based on directory structure (e.g., modules/rag/config.json → prefix "modules.rag").
+- Root config.json has no prefix (top-level keys).
+- In TEST_MODE, all */tests/test_config.json files are automatically loaded as partial overrides on the corresponding section.
+- Duplicate keys are impossible by design (hierarchical prefixes).
+- Added get_section() and save_section() for module-specific read/write.
+- Removed singleton, duplicate checking, reload.
 """
 
 import json
 import os
-from typing import Dict, Any, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
+from typing import Any, Dict
 
-@dataclass
+
 class Config:
-    """Configuration manager with module injection support."""
-
-    # Default configuration
-    defaults: Dict[str, Any] = field(default_factory=lambda: {
-        "logging": {
-            "level": "INFO",
-            "format": "[{level}] {timestamp} - {message}",
-            "file": None,
-            "console": True
-        },
-        "app": {
-            "name": "Default App",
-            "version": "1.0.0",
-            "debug": False
-        }
-    })
-
     def __init__(self):
-        self._config: Dict[str, Any] = {}
-        self._modules: Dict[str, Dict[str, Any]] = {}
-        self._loaded_files: Dict[str, datetime] = {}
+        self._config: dict[str, Any] = {}
+        self._source_files: dict[tuple[str, ...], str] = {}
 
-    def load_config_file(self, filepath: str) -> bool:
-        """
-        Load configuration from a JSON file.
+        # Optional built-in defaults (kept from your original code)
+        defaults = {
+            "logging": {
+                "level": "INFO",
+                "format": "[{level}] {timestamp} - {message}",
+                "include_traceback": True,
+                "file": None,
+                "console": True
+            },
+            "app": {
+                "name": "Default App",
+                "version": "1.0.0",
+                "debug": False
+            }
+        }
+        self._deep_merge(self._config, defaults)
 
-        Args:
-            filepath: Path to JSON configuration file
-
-        Returns:
-            bool: True if loaded successfully, False otherwise
-        """
-        try:
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    config_data = json.load(f)
-
-                # Track when this file was loaded
-                self._loaded_files[filepath] = datetime.now()
-
-                # Deep merge configuration
-                self._deep_merge(self._config, config_data)
-                return True
-        except Exception as e:
-            print(f"Error loading config file {filepath}: {e}")
-
-        return False
-
-    def _deep_merge(self, target: Dict[str, Any], source: Dict[str, Any]):
-        """
-        Deep merge source dictionary into target dictionary.
-
-        Args:
-            target: Target dictionary to merge into
-            source: Source dictionary to merge from
-        """
+    def _deep_merge(self, target: dict, source: dict):
+        """Deep merge that always overrides leaf values."""
         for key, value in source.items():
-            if key in target and isinstance(target[key], dict) and isinstance(value, dict):
+            if isinstance(value, dict) and key in target and isinstance(target[key], dict):
                 self._deep_merge(target[key], value)
             else:
                 target[key] = value
 
-    def inject_module_config(self, module_name: str, config_path: Optional[str] = None):
-        """
-        Inject module configuration.
-
-        Args:
-            module_name: Name of the module
-            config_path: Path to module's config.json (default: module_name/config.json)
-        """
-        if config_path is None:
-            config_path = f"{module_name}/config.json"
-
-        if not os.path.exists(config_path):
-            print(f"Warning: Config file not found for module '{module_name}': {config_path}")
-            return
-
+    def load_file(self, file_path: str, prefix_parts: list[str]):
+        """Load a single JSON file and merge it under the given prefix."""
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                module_config = json.load(f)
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-            # Check for duplicates
-            self._check_duplicates(module_name, module_config)
+            # === NEW: Optional auto-flattening for legacy wrapped module configs ===
+            # If the config is wrapped under a single key matching the last prefix part
+            # (e.g., {"rag_manager": { ... }} in modules/rag_manager/config.json),
+            # flatten it so the settings end up directly under "modules.rag_manager"
+            if prefix_parts:
+                last_part = prefix_parts[-1]
+                if len(data) == 1 and last_part in data and isinstance(data[last_part], dict):
+                    print(f"Auto-flattening wrapped config: {file_path} (using inner '{last_part}')")
+                    data = data[last_part]
 
-            # Store module configuration
-            self._modules[module_name] = module_config
+            current = self._config
+            for part in prefix_parts:
+                current = current.setdefault(part, {})
 
-            # Merge into global config
-            self._deep_merge(self._config, module_config)
+            self._deep_merge(current, data)
+            self._source_files[tuple(prefix_parts)] = file_path
 
-            self._loaded_files[config_path] = datetime.now()
-            print(f"Loaded config for module '{module_name}' from {config_path}")
-
+            prefix_str = ".".join(prefix_parts) if prefix_parts else "root"
+            print(f"Loaded config from {file_path} (prefix: {prefix_str})")
         except Exception as e:
-            print(f"Error loading config for module '{module_name}': {e}")
-
-    def _check_duplicates(self, module_name: str, module_config: Dict[str, Any]):
-        """
-        Check for duplicate configuration keys.
-
-        Args:
-            module_name: Name of the module
-            module_config: Module configuration dictionary
-        """
-        duplicates = []
-
-        def find_duplicates(base_dict: Dict[str, Any], new_dict: Dict[str, Any], path: str = ""):
-            for key, value in new_dict.items():
-                full_path = f"{path}.{key}" if path else key
-
-                if key in base_dict:
-                    if isinstance(value, dict) and isinstance(base_dict[key], dict):
-                        find_duplicates(base_dict[key], value, full_path)
-                    else:
-                        duplicates.append(full_path)
-
-        find_duplicates(self._config, module_config)
-
-        if duplicates:
-            print(f"Warning: Module '{module_name}' has duplicate configuration keys: {', '.join(duplicates)}")
+            print(f"Error loading config file {file_path}: {e}")
 
     def get(self, key: str, default: Any = None) -> Any:
-        """
-        Get configuration value by dot notation key.
-
-        Args:
-            key: Dot notation key (e.g., "logging.level")
-            default: Default value if key not found
-
-        Returns:
-            Any: Configuration value
-        """
+        """Dot-notation access (e.g., 'database.path' or 'modules.rag.enabled')."""
         keys = key.split(".")
         value = self._config
-
         for k in keys:
             if isinstance(value, dict) and k in value:
                 value = value[k]
             else:
                 return default
-
         return value
 
     def set(self, key: str, value: Any):
-        """
-        Set configuration value by dot notation key.
-
-        Args:
-            key: Dot notation key (e.g., "logging.level")
-            value: Value to set
-        """
+        """Dot-notation set."""
         keys = key.split(".")
         config = self._config
-
-        for i, k in enumerate(keys[:-1]):
-            if k not in config:
-                config[k] = {}
-            config = config[k]
-
+        for k in keys[:-1]:
+            config = config.setdefault(k, {})
         config[keys[-1]] = value
 
-    def get_module_config(self, module_name: str) -> Dict[str, Any]:
-        """
-        Get configuration for a specific module.
-
-        Args:
-            module_name: Name of the module
-
-        Returns:
-            Dict[str, Any]: Module configuration
-        """
-        return self._modules.get(module_name, {}).copy()
-
-    def reload(self, filepath: str) -> bool:
-        """
-        Reload configuration from a file.
-
-        Args:
-            filepath: Path to configuration file
-
-        Returns:
-            bool: True if reloaded successfully
-        """
-        if filepath in self._loaded_files:
-            # Clear the file from loaded files
-            del self._loaded_files[filepath]
-
-            # Reload the file
-            return self.load_config_file(filepath)
-
-        return False
-
-    def __getitem__(self, key: str) -> Any:
-        """Allow dictionary-like access."""
-        return self.get(key)
-
-    def __setitem__(self, key: str, value: Any):
-        """Allow dictionary-like assignment."""
-        self.set(key, value)
-
     def __contains__(self, key: str) -> bool:
-        """Check if key exists in configuration."""
+        """Support: if "some.nested.key" in config"""
         return self.get(key) is not None
 
-# Global configuration instance
-_config_instance = None
+    def __getitem__(self, key: str) -> Any:
+        """Support: config["some.nested.key"]  (returns None if missing, like original)"""
+        return self.get(key)
 
-def get_config() -> Config:
-    """Get the singleton configuration instance."""
-    global _config_instance
-    if _config_instance is None:
-        _config_instance = Config()
-    return _config_instance
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Support: config["some.nested.key"] = value"""
+        self.set(key, value)
 
-def init_config(config_file: str = "config.json") -> Config:
-    """
-    Initialize configuration from a file.
+    def __iter__(self):
+        """Support: for key in config:  (iterates over top-level keys only)"""
+        return iter(self._config)
 
-    Args:
-        config_file: Path to configuration file
+    def __len__(self) -> int:
+        """Support: len(config)  (top-level keys count)"""
+        return len(self._config)
 
-    Returns:
-        Config: Initialized configuration instance
-    """
-    config = get_config()
-    config.load_config_file(config_file)
+    # Optional but recommended for full dict-like feel
+    def keys(self):
+        """config.keys() → top-level keys"""
+        return self._config.keys()
+
+    def items(self):
+        """config.items() → top-level items"""
+        return self._config.items()
+
+    def values(self):
+        """config.values() → top-level values"""
+        return self._config.values()
+
+    def get_section(self, prefix: str = "") -> dict:
+        """Return a copy of an entire section (e.g., prefix='modules.rag')."""
+        parts = prefix.split(".") if prefix else []
+        current = self._config
+        for p in parts:
+            if isinstance(current, dict) and p in current and isinstance(current[p], dict):
+                current = current[p]
+            else:
+                return {}
+        return current.copy()
+
+    def save_section(self, prefix: str, data: dict) -> bool:
+        """Save a full section back to its original config.json file and update runtime config."""
+        parts = prefix.split(".") if prefix else []
+        tuple_parts = tuple(parts)
+
+        if tuple_parts not in self._source_files:
+            print(f"No source file mapped for prefix '{prefix}' – cannot save.")
+            return False
+
+        file_path = self._source_files[tuple_parts]
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, sort_keys=True)
+
+            # Update in-memory config
+            current = self._config
+            for p in parts[:-1]:
+                current = current[p]
+            if parts:
+                current[parts[-1]] = data.copy()
+            else:
+                self._config = data.copy()
+
+            print(f"Saved config section '{prefix or 'root'}' to {file_path}")
+            return True
+        except Exception as e:
+            print(f"Error saving config to {file_path}: {e}")
+            return False
+
+
+def load_all_configs(root_dir: str, test_mode: bool = False) -> Config:
+    """Discover and load all configs automatically."""
+    config = Config()
+
+    # 1. Load normal config.json files (skip tests directories)
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        if "tests" in dirnames:
+            dirnames.remove("tests")  # prevent recursion into tests/
+        if "config.json" in filenames:
+            rel_path = os.path.relpath(dirpath, root_dir)
+            prefix_parts = rel_path.split(os.sep) if rel_path != "." else []
+            file_path = os.path.join(dirpath, "config.json")
+            config.load_file(file_path, prefix_parts)
+
+    # 2. In TEST_MODE: load */tests/test_config.json as partial overrides
+    if test_mode:
+        for dirpath, dirnames, filenames in os.walk(root_dir):
+            if os.path.basename(dirpath) == "tests" and "test_config.json" in filenames:
+                parent_dir = os.path.dirname(dirpath)
+                rel_path = os.path.relpath(parent_dir, root_dir)
+                prefix_parts = rel_path.split(os.sep) if rel_path != "." else []
+                file_path = os.path.join(dirpath, "test_config.json")
+                config.load_file(file_path, prefix_parts)
+
     return config
-
-def inject_module_config(module_name: str, config_path: Optional[str] = None):
-    """
-    Inject module configuration (one-line solution).
-
-    Args:
-        module_name: Name of the module
-        config_path: Path to module's config.json
-    """
-    config = get_config()
-    config.inject_module_config(module_name, config_path)

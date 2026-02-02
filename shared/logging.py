@@ -33,7 +33,7 @@ debug("Detailed debug info: %s", data)
 
 #### Connecting to Configuration
 ```python
-from shared.config import get_config
+from shared.common import get_config
 from shared.logging import configure_logging_from_dict
 
 # Configure logging from config

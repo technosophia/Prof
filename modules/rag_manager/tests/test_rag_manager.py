@@ -23,8 +23,7 @@ sys.path.insert(0, str(project_root))
 from modules.rag_manager import RAGManager
 
 # Import shared modules first
-import shared.config
-import shared.logging
+import shared.common
 
 # Create a comprehensive mock for the entire users module
 mock_user_info = {
@@ -54,7 +53,6 @@ mock_user_manager.register_before_delete_callback = Mock()
 def temp_rag_manager():
     """Create a temporary RAG manager for testing with isolated environment."""
     import tempfile
-    import shared.config
 
     # Create a temporary directory for this specific test
     temp_dir = tempfile.mkdtemp()
@@ -69,7 +67,7 @@ def temp_rag_manager():
         json.dump({}, f)
 
     # Store original function
-    original_get_config = shared.config.get_config
+    original_get_config = shared.common.get_config
 
     # Create test config
     def mock_get_config():
@@ -83,7 +81,7 @@ def temp_rag_manager():
         }
 
     # Temporarily replace get_config
-    shared.config.get_config = mock_get_config
+    shared.common.get_config = mock_get_config
 
     # Mock the user imports
     with patch('modules.rag_manager.rag_manager.user_manager', mock_user_manager):
@@ -112,7 +110,7 @@ def temp_rag_manager():
         print(f"Warning during cleanup: {e}")
 
     # Restore original function
-    shared.config.get_config = original_get_config
+    shared.common.get_config = original_get_config
 
 @pytest.fixture
 def test_user_id():
@@ -259,7 +257,6 @@ def test_metadata_persistence(test_user_id):
     """Test metadata is saved and loaded correctly."""
     # Create a completely fresh manager for this test
     import tempfile
-    import shared.config
 
     temp_dir = tempfile.mkdtemp()
     test_data_dir = Path(temp_dir) / "test_rag_persistence"
@@ -273,7 +270,7 @@ def test_metadata_persistence(test_user_id):
         json.dump({}, f)
 
     # Store original function
-    original_get_config = shared.config.get_config
+    original_get_config = shared.common.get_config
 
     # Create test config
     def mock_get_config():
@@ -287,7 +284,7 @@ def test_metadata_persistence(test_user_id):
         }
 
     # Temporarily replace get_config
-    shared.config.get_config = mock_get_config
+    shared.common.get_config = mock_get_config
 
     try:
         # Mock the user imports
@@ -341,7 +338,7 @@ def test_metadata_persistence(test_user_id):
             print(f"Warning during cleanup: {e}")
 
         # Restore original function
-        shared.config.get_config = original_get_config
+        shared.common.get_config = original_get_config
 
 def test_rag_engine_functionality(temp_rag_manager, test_user_id):
     """Test RAG engine indexing and searching."""
@@ -578,10 +575,9 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
 
     # Force reload metadata by recreating manager
     # We need to create a new manager to test loading
-    import shared.config
 
     # Store original function
-    original_get_config = shared.config.get_config
+    original_get_config = shared.common.get_config
 
     # Create test config with same directory
     def mock_get_config():
@@ -595,7 +591,7 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
         }
 
     # Temporarily replace get_config
-    shared.config.get_config = mock_get_config
+    shared.common.get_config = mock_get_config
 
     try:
         # Mock the user imports
@@ -617,7 +613,7 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
 
     finally:
         # Restore original function
-        shared.config.get_config = original_get_config
+        shared.common.get_config = original_get_config
 
         # Clean up old file
         if old_file_path.exists():
@@ -627,7 +623,6 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
 def test_basic_rag_operations():
     """Test basic RAG operations without complex fixtures."""
     import tempfile
-    import shared.config
 
     # Create temporary directory
     temp_dir = tempfile.mkdtemp()
@@ -640,7 +635,7 @@ def test_basic_rag_operations():
         json.dump({}, f)
 
     # Store original function
-    original_get_config = shared.config.get_config
+    original_get_config = shared.common.get_config
 
     # Create test config
     def mock_get_config():
@@ -654,7 +649,7 @@ def test_basic_rag_operations():
         }
 
     # Temporarily replace get_config
-    shared.config.get_config = mock_get_config
+    shared.common.get_config = mock_get_config
 
     try:
         # Mock the user imports
@@ -701,7 +696,7 @@ def test_basic_rag_operations():
             print(f"Warning during cleanup: {e}")
 
         # Restore original function
-        shared.config.get_config = original_get_config
+        shared.common.get_config = original_get_config
 
 if __name__ == "__main__":
     # Run tests manually if needed

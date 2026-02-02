@@ -22,8 +22,8 @@ This application provides four core utilities that all modules can use: **config
 
 ```python
 # Most common imports
-from shared.config import get_config
-from shared.logging import log
+from shared.common import get_config
+from shared.common import log
 from shared.common import _
 from shared.llm import llm_generate, set_current_llm
 

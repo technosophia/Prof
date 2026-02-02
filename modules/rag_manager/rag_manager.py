@@ -14,7 +14,7 @@ import pkgutil
 import sys
 
 from shared.logging import log
-from shared.config import get_config
+from shared.common import get_config
 from shared.users import UserRole, user_manager
 
 from .rag_engine import RAGEngine
@@ -33,18 +33,6 @@ class RAGManager:
 
     def __init__(self):
         self.config = get_config()
-
-        # FIRST, check if rag_manager config exists
-        if "rag_manager" not in self.config:
-            # If not, try to inject the module config
-            from shared.config import inject_module_config
-            try:
-                # Inject the module's config
-                inject_module_config("modules/rag_manager")
-                # Refresh the config
-                self.config = get_config()
-            except Exception as e:
-                log("warning", f"Could not inject rag_manager config: {e}")
 
         # NOW get the rag config
         rag_config = self.config.get("rag_manager", {})
@@ -191,7 +179,7 @@ class RAGManager:
 
     def refresh_config(self):
         """Refresh configuration from config file."""
-        from shared.config import get_config
+        from shared.common import get_config
         self.config = get_config()
         rag_config = self.config.get("rag_manager", {})
         self.default_engine = rag_config.get("default_engine", "simple")

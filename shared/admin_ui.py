@@ -11,7 +11,7 @@ import streamlit as st
 import os
 from shared.logging import log
 from shared.database import db_manager
-from shared.config import get_config
+from shared.common import get_config
 from shared.common import _
 
 def show_system_admin_content():

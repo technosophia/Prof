@@ -27,7 +27,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import text
 from contextlib import contextmanager
 
-from shared.config import get_config
+from shared.common import get_config
 from shared.logging import log
 
 Base = declarative_base()
