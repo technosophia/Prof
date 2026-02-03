@@ -113,6 +113,7 @@ if 'ui_registry' not in st.session_state:
 
 # Get the registry from session state
 ui_registry = st.session_state.ui_registry
+ui_registry.set_module_handler(module_handler)
 
 # Page configuration
 st.set_page_config(
