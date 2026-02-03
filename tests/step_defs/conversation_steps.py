@@ -39,6 +39,7 @@ from tests.step_defs.common_steps import *
 from tests.step_defs.app_start_steps import *
 from tests.step_defs.user_steps import *
 from tests.step_defs.common_steps import _wait_for_app_stable, _click_button_by_texts, _robust_header_verification
+from tests.step_defs.llm_steps import *
 
 @when("I navigate to the chat page")
 def navigate_to_chat_page(context):
@@ -696,130 +697,6 @@ def send_message(context, message):
     check_conversation_persists(context)
 
     return context
-
-
-@then("I should see a response from the mock LLM")
-def verify_mock_response(context):
-    """Verify the mock LLM response appears."""
-    page = context['page']
-    debug_enabled = context.get('debug_enabled', False)
-
-    print("\n=== Verifying mock LLM response ===")
-
-    # Wait for response to appear (longer wait for RAG)
-    page.wait_for_load_state("networkidle", timeout=30000)
-    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
-
-    # Additional wait for LLM processing with RAG
-    page.wait_for_timeout(3000)
-
-    # Look for assistant messages with retry logic - MORE SPECIFIC
-    max_attempts = 15  # Increased attempts for slower RAG responses
-    found_response = False
-    response_text = ""
-
-    for attempt in range(max_attempts):
-        # Method 1: Look for chat messages specifically in the main content area
-        # Avoid sidebar content
-        main_content = page.locator("[data-testid='stApp']").or_(
-            page.locator(".main").or_(
-                page.locator(".block-container")
-            )
-        ).first
-
-        if main_content.count() > 0:
-            # Look for chat messages within main content
-            chat_messages = main_content.locator("[data-testid='stChatMessage']").all()
-
-            # Also look for any div that might contain chat messages
-            if not chat_messages:
-                # Look for any elements that might be message containers
-                potential_messages = main_content.locator("div").all()
-                for elem in potential_messages:
-                    try:
-                        elem_text = elem.text_content()
-                        # Check if this looks like a chat message (not sidebar, not header)
-                        if len(elem_text) > 20 and "user" not in elem_text.lower()[:100]:
-                            # Might be an assistant message
-                            chat_messages.append(elem)
-                    except:
-                        continue
-
-            if chat_messages:
-                print(f"Found {len(chat_messages)} potential chat messages in main content")
-                # The last one should be the assistant response
-                if len(chat_messages) > 0:
-                    last_message = chat_messages[-1]
-                    response_text = last_message.text_content()
-                    print(f"Last chat message: {response_text[:100]}...")
-
-                    # Check for mock indicators (more flexible matching)
-                    if any(indicator in response_text.lower() for indicator in ["mock", "test", "hello", "response", "assistant", "ai", "i am"]):
-                        found_response = True
-                        print(f"✓ Found mock response indicator in: {response_text[:50]}...")
-                        break
-
-        # Method 2: Look for any text in main content that looks like a response
-        main_text = page.locator("[data-testid='stApp']").text_content()
-        response_patterns = [
-            r"mock.*response",
-            r"test.*llm",
-            r"hello.*assistant",
-            r"i.*m.*ai",
-            r"user.*said",
-            r"thank.*you",
-            r"how.*can.*help"
-        ]
-
-        for pattern in response_patterns:
-            match = re.search(pattern, main_text, re.IGNORECASE)
-            if match:
-                found_response = True
-                response_text = match.group(0)
-                print(f"Found response pattern in main content: {pattern}")
-                break
-
-        if found_response:
-            break
-
-        if attempt < max_attempts - 1:
-            print(f"Response not found yet, waiting... (attempt {attempt + 1}/{max_attempts})")
-            page.wait_for_timeout(2000)  # Longer wait between attempts
-
-    if not found_response:
-        take_screenshot(page, "conversation_response_debug.png", debug_enabled, full_page=True)
-        # Check if there's any text at all in main content
-        main_text = page.locator("[data-testid='stApp']").text_content()
-        print(f"Main content text preview: {main_text[:500]}")
-
-        # Also check what's in the sidebar
-        sidebar = page.locator("[data-testid='stSidebar']")
-        if sidebar.count() > 0:
-            sidebar_text = sidebar.text_content()
-            print(f"Sidebar text preview: {sidebar_text[:200]}")
-
-        # Be more lenient - if there's any substantial text that's not sidebar, accept it
-        main_text_without_sidebar = main_text
-        if sidebar.count() > 0:
-            # Try to remove sidebar text from main text
-            sidebar_text = sidebar.text_content()
-            main_text_without_sidebar = main_text.replace(sidebar_text, "")
-
-        if len(main_text_without_sidebar.strip()) > 100:  # If there's substantial text in main area
-            print("No clear mock response found, but main area has content. Checking for 'CODE'...")
-            # Store what we found for the next step
-            context['last_response'] = main_text_without_sidebar
-            found_response = True
-        else:
-            assert found_response, "No mock LLM response found on page"
-
-    take_screenshot(page, "conversation_08_response_received.png", debug_enabled)
-    context['last_response'] = response_text
-
-    return context
-
-
-# file name: tests/step_defs/conversation_steps.py (updated verify_response_contains function)
 
 @then(parsers.parse('I should see a response containing "{expected_text}"'))
 def verify_response_contains(context, expected_text):
