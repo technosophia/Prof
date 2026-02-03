@@ -341,5 +341,14 @@ def main():
                         st.error(f"Error loading {tab_name} admin page: {str(e)}")
                         log("error", f"Error loading {tab_name} admin page: {str(e)}", exc_info=True)
 
+    # === TEST READINESS MARKER ===
+    # Invisible div rendered only after full script execution.
+    # Used by pytest-bdd + Playwright to reliably detect when the app is fully loaded,
+    # even with heavy synchronous initializations (transformers, DB, modules, etc.).
+    st.markdown(
+        '<div data-testid="app-fully-loaded"></div>',
+        unsafe_allow_html=True
+    )
+
 if __name__ == "__main__":
     main()

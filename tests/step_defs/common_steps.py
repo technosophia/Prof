@@ -27,6 +27,7 @@ from tests.conftest import (
     TEST_PORT
 )
 
+APP_FULLY_LOADED_SELECTOR = '[data-testid="app-fully-loaded"]'
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -126,21 +127,36 @@ def app_is_running(context, page: Page, debug_dir, streamlit_server):
     """Verify the application is running and navigate to it."""
     print("\n=== [Test Module] Navigating to application ===")
 
-    # Use the page fixture from conftest
-    page.goto(f"http://localhost:{TEST_PORT}/", wait_until="networkidle")
+    # Navigate - use "load" instead of "networkidle" for initial page (more reliable for local Streamlit)
+    page.goto(f"http://localhost:{TEST_PORT}/", wait_until="load")
 
-    # Wait for Streamlit to fully load
-    page.wait_for_selector("[data-testid='stApp']", timeout=30000)
+    # Basic Streamlit container check (fast, confirms the app responded)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Take initial screenshot if debug mode
+    # CRITICAL: Wait for the explicit readiness marker added to app.py
+    # This marker is rendered at the very end of main(), after all sidebar, content,
+    # module injections, and any potential initial reruns/auto-logins.
+    # Using "attached" (not "visible") because the div is intentionally empty/invisible.
+    readiness_locator = page.locator(APP_FULLY_LOADED_SELECTOR)
+    expect(readiness_locator).to_be_attached(timeout=180000)  # 3 minutes max for heavy init (transformers, etc.)
+
+    # Final stability check - ensures no pending rerun/network activity
+    _wait_for_app_stable(page)
+
+    # Optional: fallback wait for sidebar if marker somehow missing (defensive)
+    try:
+        expect(page.locator("[data-testid='stSidebar']")).to_be_visible(timeout=10000)
+    except:
+        print("Warning: Sidebar not detected - relying solely on readiness marker")
+
+    # Screenshot now that we know everything is rendered
     take_screenshot(page, "test_app_running.png", debug_dir, full_page=True)
 
-    # Store the page reference in context
+    # Store context
     context['page'] = page
     context['debug_enabled'] = debug_dir
-    time.sleep(10)
 
-    print("✓ Application is running and loaded")
+    print("✓ Application is running and FULLY loaded (including heavy init)")
     return context
 
 
