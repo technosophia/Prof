@@ -144,7 +144,6 @@ class UIRegistry:
     def set_module_handler(self, handler):
         """Set the module handler instance."""
         self.module_handler = handler
-        log("info", "Module handler set in UI registry")
 
     def ensure_initialized(self):
         """Ensure the registry is initialized and refreshed if active modules changed."""
