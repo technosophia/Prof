@@ -27,6 +27,100 @@ from tests.conftest import (
     TEST_PORT
 )
 
+
+# ==================== HELPER FUNCTIONS ====================
+
+def _wait_for_app_stable(page: Page, timeout: int = 30000) -> None:
+    """Consistent wait for Streamlit app stability after reruns."""
+    page.wait_for_load_state("networkidle", timeout=timeout)
+    expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=timeout)
+
+
+def _click_button_by_texts(page: Page, texts: list[str], debug_enabled: bool = False, screenshot_name: str | None = None) -> None:
+    """Robust button click using multiple possible labels (with emojis or variations)."""
+    print(f'\n=== Clicking button with possible texts: {texts} ===')
+
+    # Build chained locator with role fallback
+    locator = None
+    for text in texts:
+        new_loc = page.get_by_text(text, exact=False)
+        locator = new_loc if locator is None else locator.or_(new_loc)
+
+    # Fallback to role-based search
+    if locator is None or locator.count() == 0:
+        pattern = "|".join(re.escape(t) for t in texts)
+        locator = page.get_by_role("button", name=re.compile(pattern, re.IGNORECASE))
+
+    button = locator.first
+    expect(button).to_be_visible(timeout=30000)
+    expect(button).to_be_enabled(timeout=30000)
+    button.click()
+
+    _wait_for_app_stable(page)
+
+    if screenshot_name and debug_enabled:
+        take_screenshot(page, screenshot_name, debug_enabled)
+
+
+def _robust_header_verification(page: Page, expected_text: str, debug_enabled: bool = False) -> None:
+    """Robust header text verification (aligned with test_steps.py logic)."""
+    print(f'\n=== Verifying header contains: "{expected_text}" ===')
+
+    _wait_for_app_stable(page)
+
+    found = False
+    max_retries = 3
+
+    for retry in range(max_retries):
+        if retry > 0:
+            print(f"Retry {retry}/{max_retries} for header check...")
+            page.wait_for_timeout(1000)
+
+        # Check standard header tags
+        for tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+            headers = page.locator(tag)
+            for i in range(headers.count()):
+                header = headers.nth(i)
+                if header.is_visible():
+                    header_text = header.text_content().strip()
+                    if expected_text in header_text:
+                        print(f"✓ Found '{expected_text}' in {tag}: '{header_text}'")
+                        found = True
+                        break
+            if found:
+                break
+
+        if found:
+            break
+
+    # Fallback 1: anywhere on page
+    if not found:
+        page_text = page.locator("body").text_content(timeout=10000)
+        if expected_text in page_text:
+            print(f"✓ Found '{expected_text}' in page text")
+            found = True
+
+    # Fallback 2: :has-text locator
+    if not found:
+        matching = page.locator(f':has-text("{expected_text}")')
+        if matching.count() > 0:
+            for i in range(matching.count()):
+                elem = matching.nth(i)
+                if elem.is_visible() and expected_text in elem.text_content():
+                    print(f"✓ Found '{expected_text}' via :has-text")
+                    found = True
+                    break
+
+    if not found:
+        if debug_enabled:
+            take_screenshot(page, "debug_header_not_found.png", debug_enabled)
+        raise AssertionError(f"Expected header text '{expected_text}' not found")
+
+    if debug_enabled:
+        take_screenshot(page, "debug_header_found.png", debug_enabled)
+
+# ==================== STEPS ====================
+
 @given("the application is running")
 def app_is_running(context, page: Page, debug_dir, streamlit_server):
     """Verify the application is running and navigate to it."""
