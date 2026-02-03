@@ -326,6 +326,14 @@ def mock_db_manager():
         # Setup mock database with test users
         mock_users = [
             {
+                "id": "admin",
+                "name": "System Administrator",
+                "email": "admin@example.com",
+                "is_active": True,
+                "profile": {"role": "admin", "rights": ["read", "write", "delete"]},
+                "metadata": {"is_default": True}
+            },
+            {
                 "id": "test1",
                 "name": "Test User 1",
                 "email": "test1@example.com",
