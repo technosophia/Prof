@@ -30,7 +30,7 @@ class ClassicRAGEngine(RAGEngine):
         self.description = "Classic vector store with embeddings"
 
         # Load FAISS-specific config
-        rag_config = get_config().get("rag_manager", {})
+        rag_config = get_config().get("modules.rag_manager", {})
         engines_config = rag_config.get("engines", {})
 
         # Try to get from "faiss" config first, then fallback to general

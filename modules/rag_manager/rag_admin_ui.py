@@ -227,7 +227,7 @@ def _show_documents_tab():
 
     # Get configuration
     config = get_config()
-    rag_config = config.get("rag_manager", {})
+    rag_config = config.get("modules.rag_manager", {})
     allowed_extensions = rag_config.get("allowed_extensions", [".txt", ".pdf", ".md"])
     allowed_types = [ext.lstrip('.') for ext in allowed_extensions]
 

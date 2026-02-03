@@ -19,8 +19,9 @@ class SimpleRAGEngine(RAGEngine):
     def __init__(self):
         super().__init__("simple")
         self.description = "Simple text-based RAG engine using keyword matching"
+        rag_config = get_config().get("modules.rag_manager", {})
+        self.index_path = Path(rag_config.get("simple_index_path", "./data/classic_indexes"))
         self.indices = {}  # user_id -> {filename: {content, metadata}}
-        self.index_path = Path("data/simple_indices")
         self.index_path.mkdir(parents=True, exist_ok=True)
         self._load_indices()
 

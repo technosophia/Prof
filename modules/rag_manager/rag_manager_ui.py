@@ -124,7 +124,7 @@ def show_rag_admin_content():
 
     # Get configuration
     config = get_config()
-    rag_config = config.get("rag_manager", {})
+    rag_config = config.get("modules.rag_manager", {})
 
     # Display stats
     col1, col2, col3, col4 = st.columns(4)
@@ -421,7 +421,7 @@ def inject_ui_sidebar():
 
         # Get current default engine
         config = get_config()
-        current_default = config.get("rag_manager.default_engine", "simple")
+        current_default = config.get("modules.rag_manager.default_engine", "simple")
 
         # Create engine selector
         engine_options = [e['type'] for e in available_engines]

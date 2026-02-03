@@ -34,10 +34,11 @@ class RAGManager:
         self.config = get_config()
 
         # NOW get the rag config
-        rag_config = self.config.get("rag_manager", {})
+        rag_config = self.config.get("modules.rag_manager", {})
 
         # Set defaults with proper fallback chain
-        self.data_dir = Path(rag_config.get("data_directory", "./data/rag_documents"))
+        self.data_dir = Path(rag_config.get("data_directory", "data/rag_documents"))
+        log("info", f"Initializing RAG Manager in {self.data_dir}")
         self.allowed_extensions = rag_config.get("allowed_extensions", [".txt", ".pdf", ".md"])
         self.max_file_size_mb = rag_config.get("max_file_size_mb", 10)
 

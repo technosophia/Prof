@@ -5,7 +5,8 @@
     "engines": {
       "simple": {
         "enabled": true,
-        "description": "Simple keyword-based search engine"
+        "description": "Simple keyword-based search engine",
+        "faiss_index_path": "tests/data/simple_indexes"
       },
       "faiss": {
         "enabled": true,

@@ -29,7 +29,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         self.description = "FAISS vector store with hierarchical markdown parsing (chapter résumé + subsections)"
 
         # Load config - get from faiss_hierarchical section
-        rag_config = get_config().get("rag_manager", {})
+        rag_config = get_config().get("modules.rag_manager", {})
         engines_config = rag_config.get("engines", {})
 
         # Get hierarchical-specific config
