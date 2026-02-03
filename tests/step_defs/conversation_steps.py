@@ -36,7 +36,9 @@ from tests.conftest import (
 )
 
 from tests.step_defs.common_steps import *
-
+from tests.step_defs.app_start_steps import *
+from tests.step_defs.user_steps import *
+from tests.step_defs.common_steps import _wait_for_app_stable, _click_button_by_texts, _robust_header_verification
 
 @when("I navigate to the chat page")
 def navigate_to_chat_page(context):

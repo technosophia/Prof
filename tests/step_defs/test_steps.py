@@ -31,6 +31,9 @@ from tests.conftest import (
 )
 
 from tests.step_defs.common_steps import *
+from tests.step_defs.app_start_steps import *
+from tests.step_defs.user_steps import *
+
 
 # Load feature files
 scenarios('../../tests/features/test.feature')

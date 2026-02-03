@@ -27,6 +27,8 @@ from tests.conftest import (
     take_screenshot,
 )
 from tests.step_defs.common_steps import *
+from tests.step_defs.app_start_steps import *
+from tests.step_defs.user_steps import *
 from tests.step_defs.common_steps import _robust_header_verification, _wait_for_app_stable, _click_button_by_texts
 
 # Load feature file
