@@ -152,6 +152,7 @@ His phone number is +33 1 23 45 67 89."""
         if os.path.exists(temp_path):
             os.unlink(temp_path)
 
+        import shutil
         for item in os.listdir(db_full_path):
             item_path = os.path.join(db_full_path, item)
             try:
@@ -217,7 +218,7 @@ def browser(playwright, request):
     browser.close()
 
 @pytest.fixture(scope=SCOPE)
-def streamlit_server():
+def streamlit_server(setup_test_environment):
     """Start Streamlit server for testing - runs once per session."""
     # Kill any existing Streamlit process
     subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
@@ -319,7 +320,12 @@ def streamlit_server():
     print("Streamlit server started...")
     time.sleep(2)
     yield process
-
+    # process.terminate()
+    # try:
+    #     process.wait(timeout=5) # Wait up to 5 seconds for it to release file handles
+    # except subprocess.TimeoutExpired:
+    #     print("[WARNING] Streamlit didn't stop, killing it...")
+    #     process.kill()
     # Cleanup
     cleanup()
     atexit.unregister(cleanup)
