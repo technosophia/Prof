@@ -184,12 +184,12 @@ def toggle_rag_injection(page: Page, enable: bool, debug_enabled: bool = False):
         max_retries = 3
         for retry in range(max_retries):
             try:
-                expect(checkbox).to_be_visible(timeout=5000)
+                expect(checkbox).to_be_visible(timeout=500)
                 break
             except:
                 if retry < max_retries - 1:
                     print(f"Checkbox not visible, retrying... ({retry + 1}/{max_retries})")
-                    page.wait_for_timeout(1000)
+                    page.wait_for_timeout(100)
                 else:
                     # Force it to be visible by scrolling
                     checkbox.scroll_into_view_if_needed()
