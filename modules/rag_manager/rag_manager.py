@@ -16,8 +16,8 @@ import sys
 from shared.common import _, log, get_config
 from shared.users import UserRole, user_manager
 
-from .rag_engine import RAGEngine
-from .rag_simple import SimpleRAGEngine
+from modules.rag_manager.rag_engine import RAGEngine
+from modules.rag_manager.rag_simple import SimpleRAGEngine
 # Import caching module
 try:
     from .rag_caching import RAGModelCache

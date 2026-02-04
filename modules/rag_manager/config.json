@@ -7,13 +7,13 @@
     "engines": {
       "simple": {
         "enabled": true,
-        "faiss_index_path": "data/simple_indexes",
+        "index_path": "data/simple_indexes",
         "description": "Simple keyword-based search engine"
       },
-      "faiss": {
+      "classic": {
         "enabled": true,
         "description": "FAISS vector store with embeddings",
-        "faiss_index_path": "data/faiss_indexes",
+        "index_path": "data/classic_indexes",
         "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "chunk_size": 500,
         "chunk_overlap": 50,
@@ -22,7 +22,7 @@
       "faiss_hierarchical": {
         "enabled": true,
         "description": "FAISS vector store with hierarchical markdown parsing",
-        "faiss_index_path": "data/hierarchical_indexes",
+        "index_path": "data/hierarchical_indexes",
         "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "similarity_threshold": 0.5
       }

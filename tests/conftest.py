@@ -68,16 +68,25 @@ print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).ke
 @pytest.fixture(scope=SCOPE, autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
+    from shared.database import db_manager, init_database
+    from shared.users import user_manager
+    from shared.common import get_config
+    import tempfile
+    from modules.rag_manager import rag_manager
     # Set environment variables
     os.environ["TEST_MODE"] = "true"
-    os.environ["CONFIG_FILE"] = "tests/test_config.json"  # Relatif depuis la racine
+    os.environ["CONFIG_FILE"] = "tests/test_config.json"
     os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
 
     original_cwd = os.getcwd()
 
     print(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
-    # Import database modules
-    from shared.database import db_manager, init_database
+    # 1. Initialize the database
+    db_config_path = get_config().get("database", {}).get("path", ".")
+    db_full_path = os.path.abspath(db_config_path)
+    db_path = db_config_path + "/app.db"
+    print(f"Initializing database...{db_path}")
+    init_database(use_memory=False, db_path=db_path)
 
     if db_manager.is_initialized():
         print("Cleaning database before test...")
@@ -88,6 +97,10 @@ def setup_test_environment():
             print("⚠ Could not clean database (might be empty)")
     else:
         print("Database not initialized")
+
+    # 2. Create default users (WITH TEST_MODE still set)
+    user_manager.create_default_users()
+    print("✓ Default users created before test")
 
     print(f"\n=== TEST ENVIRONMENT SETUP ===")
     print(f"Original CWD: {original_cwd}")
@@ -105,19 +118,59 @@ def setup_test_environment():
     print(f"Config exists: {os.path.exists(os.path.join(PROJECT_ROOT, os.environ['CONFIG_FILE']))}")
     print("=" * 30 + "\n")
 
-    yield
+    # 3. Setup RAG test data (WITH TEST_MODE still set)
+    test_content = """The address of Kevin is 1 place du Louvre, Paris.
+Kevin works as a software engineer at TechCorp.
+His phone number is +33 1 23 45 67 89."""
 
-    # Restaurer le répertoire original
-    if original_cwd != os.getcwd():
-        os.chdir(original_cwd)
-        print(f"Restored CWD to: {original_cwd}")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write(test_content)
+        temp_path = f.name
 
-    if "TEST_MODE" in os.environ:
-        del os.environ["TEST_MODE"]
-    if "CONFIG_FILE" in os.environ:
-        del os.environ["CONFIG_FILE"]
-    if "PLAYWRIGHT_ASYNCIO" in os.environ:
-        del os.environ["PLAYWRIGHT_ASYNCIO"]
+    try:
+        admin_id = "admin"
+        filename = rag_manager.upload_document(
+            source_path=temp_path,
+            original_filename="kevin_info.txt",
+            user_id=admin_id,
+            is_public=False
+        )
+
+        default_engine = rag_manager.get_default_engine().engine_type
+
+        rag_manager.index_document(filename, default_engine, admin_id)
+
+        print(f"[SETUP] RAG Test Data Initialized with {default_engine}: {filename}")
+
+        # Restaurer le répertoire original
+        if original_cwd != os.getcwd():
+            os.chdir(original_cwd)
+            print(f"Restored CWD to: {original_cwd}")
+
+        yield filename
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+        for item in os.listdir(db_full_path):
+            item_path = os.path.join(db_full_path, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                    print(f"  Deleted file: {item}")
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                    print(f"  Deleted directory: {item}")
+            except Exception as e:
+                print(f"  Failed to delete {item_path}: {e}")
+
+        if "TEST_MODE" in os.environ:
+            del os.environ["TEST_MODE"]
+        if "CONFIG_FILE" in os.environ:
+            del os.environ["CONFIG_FILE"]
+        if "PLAYWRIGHT_ASYNCIO" in os.environ:
+            del os.environ["PLAYWRIGHT_ASYNCIO"]
+
 
 @pytest.fixture(scope=SCOPE)
 def playwright():
@@ -173,7 +226,6 @@ def streamlit_server():
     # Create test environment
     env = os.environ.copy()
     env["TEST_MODE"] = "true"
-    env["CONFIG_FILE"] = "tests/test_config.json"  # Chemin relatif depuis la racine
 
     # Afficher les variables d'environnement pour debug
     print(f"\n=== STREAMLIT SERVER CONFIG ===")
@@ -317,110 +369,7 @@ def page(browser_context):
     yield page
     page.close()
 
-# ============ MOCK FIXTURES ============
 
-@pytest.fixture
-def mock_db_manager():
-    """Mock database manager for testing."""
-    with patch('shared.database.db_manager') as mock_db:
-        # Setup mock database with test users
-        mock_users = [
-            {
-                "id": "admin",
-                "name": "System Administrator",
-                "email": "admin@example.com",
-                "is_active": True,
-                "profile": {"role": "admin", "rights": ["read", "write", "delete"]},
-                "metadata": {"is_default": True}
-            },
-            {
-                "id": "test1",
-                "name": "Test User 1",
-                "email": "test1@example.com",
-                "is_active": True,
-                "profile": {"role": "user", "rights": ["read", "write"]},
-                "metadata": {"is_default": True}
-            },
-            {
-                "id": "test2",
-                "name": "Test User 2",
-                "email": "test2@example.com",
-                "is_active": True,
-                "profile": {"role": "admin", "rights": ["read", "write", "delete"]},
-                "metadata": {"is_default": True}
-            }
-        ]
-
-        mock_db.get_user.side_effect = lambda user_id: next(
-            (user for user in mock_users if user["id"] == user_id), None
-        )
-        mock_db.get_all_users.return_value = mock_users
-        mock_db.create_user.return_value = "new_user_id"
-        mock_db.update_user.return_value = True
-        mock_db.delete_user.return_value = True
-        mock_db.update_last_login.return_value = None
-
-        yield mock_db
-
-@pytest.fixture
-def mock_user_manager(mock_db_manager):
-    """Mock user manager for testing."""
-    with patch('shared.users.user_manager') as mock_user_mgr:
-        mock_user_mgr.db = mock_db_manager
-
-        mock_user_mgr.get_user.side_effect = mock_db_manager.get_user
-        mock_user_mgr.get_all_users.return_value = {
-            user["id"]: user for user in mock_db_manager.get_all_users()
-        }
-        mock_user_mgr.create_user.return_value = "new_user_id"
-        mock_user_mgr.delete_user.return_value = True
-        mock_user_mgr.update_user.return_value = True
-        mock_user_mgr.update_last_login.return_value = None
-
-        yield mock_user_mgr
-
-# file name: conftest.py (updated patch_database fixture)
-
-# file name: conftest.py (FIXED patch_database fixture)
-
-@pytest.fixture(autouse=True)
-def patch_database():
-    """Patch database to properly initialize for tests."""
-    import os
-    from unittest.mock import patch
-
-    # Ensure TEST_MODE is set
-    os.environ["TEST_MODE"] = "true"
-
-    # Track if we've initialized
-    initialized = False
-
-    def mock_init_database(use_memory=False, db_path=None):
-        nonlocal initialized
-
-        # Import here to avoid circular imports
-        from shared.database import init_database as real_init_database
-        from shared.database import Base
-        from shared.users import UserTable
-        from shared.conversation import ConversationTable, MessageTable
-
-        # Always use in-memory for tests
-        db = real_init_database(use_memory=True, db_path=None)
-
-        # Create tables if not already done
-        if not initialized:
-            Base.metadata.create_all(db._engine)
-            db._tables_created = True
-            initialized = True
-            log("info", "Database tables created for tests")
-
-        return db
-
-    # Patch app.init_database to use our mock
-    with patch('app.init_database', side_effect=mock_init_database):
-        # Also need to patch the database in conversation_ui module
-        with patch('conversation_ui.conversation_manager._ensure_tables_exist', return_value=True):
-            yield
 
 # ============ HELPER FUNCTIONS ============
 
@@ -489,4 +438,8 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "playwright: Tests using Playwright (browser automation)"
+    )
+    config.addinivalue_line(
+        "markers",
+        "rag: Tests using RAG (browser automation)"
     )

@@ -8,10 +8,8 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 import pickle
 
-from .rag_engine import RAGEngine
+from modules.rag_manager.rag_engine import RAGEngine
 from shared.common import _, log, get_config
-
-
 
 class SimpleRAGEngine(RAGEngine):
     """Simple RAG engine using basic text matching."""
@@ -20,7 +18,10 @@ class SimpleRAGEngine(RAGEngine):
         super().__init__("simple")
         self.description = "Simple text-based RAG engine using keyword matching"
         rag_config = get_config().get("modules.rag_manager", {})
-        self.index_path = Path(rag_config.get("simple_index_path", "./data/classic_indexes"))
+        engines_config = rag_config.get("engines", {})
+        # Try to get from "faiss" config first, then fallback to general
+        simple_config = engines_config.get("simple", {})
+        self.index_path = Path(simple_config.get("index_path", "data/simple_indexes"))
         self.indices = {}  # user_id -> {filename: {content, metadata}}
         self.index_path.mkdir(parents=True, exist_ok=True)
         self._load_indices()

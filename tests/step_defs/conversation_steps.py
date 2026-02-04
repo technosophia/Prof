@@ -24,9 +24,7 @@ from tests.conftest import (
     setup_test_environment,
     playwright,
     browser,
-    mock_db_manager,
-    mock_user_manager,
-    patch_database,
+
     enable_debug,
     streamlit_server,
     browser_context,

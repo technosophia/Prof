@@ -26,53 +26,6 @@ from tests.conftest import (
     find_element_by_text,
 )
 
-@given(parsers.parse('"{username}" exists in the user database'))
-def user_exists_in_database(context, username, mock_db_manager):
-    """Verify that a user exists in the database by checking the mock directly."""
-    print(f"\n=== Verifying user exists in database: {username} ===")
-
-    # Get all users from the mock database
-    mock_users = mock_db_manager.get_all_users()
-    print(f"Mock database has {len(mock_users)} users:")
-
-    user_found = False
-    for user in mock_users:
-        print(f"  - {user.get('name')} (id: {user.get('id')})")
-        if user.get('name') == username:
-            print(f"✓ Found user '{username}' in mock database")
-            user_found = True
-            context['user_id'] = user['id']
-            context['user_info'] = user
-            break
-
-    if not user_found:
-        # Try case-insensitive
-        for user in mock_users:
-            if user.get('name', '').lower() == username.lower():
-                print(f"✓ Found user '{username}' (case-insensitive) in mock database")
-                user_found = True
-                context['user_id'] = user['id']
-                context['user_info'] = user
-                break
-
-    # Final assertion
-    assert user_found, f"User '{username}' does not exist in database and could not be added"
-
-    # Also verify through user_manager for consistency
-    try:
-        from shared.users import user_manager
-        user_from_manager = user_manager.get_user_by_name(username)
-        if user_from_manager:
-            print(f"✓ Verified through user_manager.get_user_by_name: {username}")
-        else:
-            print(f"⚠ user_manager.get_user_by_name didn't find {username}")
-    except Exception as e:
-        print(f"⚠ Could not verify through user_manager: {e}")
-
-    return context
-
-
-
 @given(parsers.parse('the default user "{username}" is logged in'))
 def default_user_logged_in(context, username):
     """Log in as the default test user."""

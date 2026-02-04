@@ -11,6 +11,7 @@ markers = [
     "asyncio: mark test as using asyncio",
     "ollama: mark test as requiring Ollama service",
     "bdd: BDD tests (slow, requires browser)",
+    "rag: RAG UI Tests (slow, requires browser)",
     "slow: mark test as slow and should be skipped in fast runs",
     "unit: Unit tests",
     "integration: Integration tests"

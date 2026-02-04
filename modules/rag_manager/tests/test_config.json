@@ -6,15 +6,15 @@
       "simple": {
         "enabled": true,
         "description": "Simple keyword-based search engine",
-        "faiss_index_path": "tests/data/simple_indexes"
+        "index_path": "tests/data/simple_indexes"
       },
-      "faiss": {
+      "classic": {
         "enabled": true,
-        "faiss_index_path": "tests/data/faiss_indexes"
+        "index_path": "tests/data/classic_indexes"
       },
       "faiss_hierarchical": {
         "enabled": true,
-        "faiss_index_path": "tests/data/hierarchical_indexes"
+        "index_path": "tests/data/hierarchical_indexes"
       }
     }
   }

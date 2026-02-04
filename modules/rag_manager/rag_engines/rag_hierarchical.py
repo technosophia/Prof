@@ -39,7 +39,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
             hier_config = engines_config.get("faiss", {})
             log("warning", "Using faiss config as fallback for faiss_hierarchical engine")
 
-        self.index_path = Path(hier_config.get("faiss_index_path", "./data/hierarchical_indexes"))
+        self.index_path = Path(hier_config.get("index_path", "./data/hierarchical_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)
 
         self.embedding_model_name = hier_config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")

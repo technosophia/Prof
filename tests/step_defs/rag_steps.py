@@ -12,89 +12,24 @@ from playwright.sync_api import Page, expect
 
 # Import common steps
 from tests.step_defs.common_steps import *
-from tests.step_defs.conversation_steps import *
 from tests.step_defs.user_steps import *
 from tests.step_defs.conversation_common_steps import *
-
+from tests.conftest import (
+    enable_debug,
+    streamlit_server,
+    browser_context,
+    page,
+    debug_dir,
+    context,
+    take_screenshot,
+    find_element_by_text,
+)
 # Load feature files
 scenarios('../../tests/features/rag.feature')
 
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright, pytest.mark.rag]
 
 # ==================== RAG-SPECIFIC HELPER FUNCTIONS ====================
-
-def setup_rag_test_documents():
-    """Setup test documents for RAG testing."""
-    try:
-        from modules.rag_manager.rag_manager import rag_manager
-        from shared.users import user_manager
-
-        # Get System Administrator user
-        admin_user = user_manager.get_user_by_name("System Administrator")
-        if not admin_user:
-            raise ValueError("System Administrator not found in database")
-
-        admin_id = admin_user.get('id')
-
-        # Create test document content
-        test_content = """The address of Kevin is 1 place du Louvre, Paris.
-Kevin works as a software engineer at TechCorp.
-He enjoys hiking and reading science fiction novels.
-His phone number is +33 1 23 45 67 89.
-Kevin was born on March 15, 1990."""
-
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write(test_content)
-            temp_path = f.name
-
-        try:
-            # Upload document
-            filename = rag_manager.upload_document(
-                source_path=temp_path,
-                original_filename="kevin_info.txt",
-                user_id=admin_id,
-                is_public=False
-            )
-
-            if not filename:
-                raise ValueError("Failed to upload test document")
-
-            # Index in all available engines
-            engines = rag_manager.get_available_engines()
-            for engine in engines:
-                if engine['available']:
-                    rag_manager.index_document(filename, engine['type'], admin_id)
-
-            return filename
-
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-
-    except Exception as e:
-        pytest.fail(f"Failed to setup RAG test documents: {str(e)}")
-
-def cleanup_rag_test_documents():
-    """Cleanup test documents after RAG testing."""
-    try:
-        from modules.rag_manager.rag_manager import rag_manager
-        from shared.users import user_manager
-
-        # Get System Administrator user
-        admin_user = user_manager.get_user_by_name("System Administrator")
-        if admin_user:
-            admin_id = admin_user.get('id')
-
-            # Get all documents and delete test ones
-            documents = rag_manager.get_user_documents(admin_id)
-            for doc in documents:
-                if "kevin" in doc['original_filename'].lower():
-                    rag_manager.delete_document(doc['filename'], admin_id)
-
-    except Exception as e:
-        print(f"Warning: Failed to cleanup RAG test documents: {str(e)}")
 
 def select_qwen_llm(page: Page, debug_enabled: bool = False):
     """Select Qwen 3 4B as the LLM engine."""
@@ -177,138 +112,136 @@ def select_qwen_llm(page: Page, debug_enabled: bool = False):
     return True
 
 def toggle_rag_injection(page: Page, enable: bool, debug_enabled: bool = False):
-    """Toggle RAG context injection in the sidebar."""
+    """Toggle RAG context injection in the sidebar - minimal robust version."""
     print(f"\n=== {'Enabling' if enable else 'Disabling'} RAG context injection ===")
 
-    # Wait for page to be ready
+    # Wait for sidebar to be ready
     page.wait_for_load_state("networkidle", timeout=30000)
-    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # Find and expand the RAG Settings sidebar expander
-    sidebar = page.locator("[data-testid='stSidebar']")
+    # Find and expand the RAG Settings expander using a single robust selector
+    rag_expander = page.locator("[data-testid='stSidebar']").get_by_text(
+        re.compile(r"⚙️\s*RAG Settings|RAG Settings", re.IGNORECASE)
+    )
 
-    # Look for RAG Settings expander
-    rag_expander = None
+    if rag_expander.count() > 0:
+        # Check if expander is collapsed by looking for the expander icon or state
+        expander_icon = rag_expander.locator("svg").first
+        is_collapsed = True  # Assume collapsed by default
 
-    # Try different ways to find the expander
-    expander_selectors = [
-        sidebar.locator("div").filter(has_text=re.compile(r"rag.*settings", re.IGNORECASE)),
-        sidebar.get_by_text(re.compile(r"rag.*settings", re.IGNORECASE)),
-        sidebar.locator("summary").filter(has_text=re.compile(r"rag", re.IGNORECASE))
-    ]
+        # Try to determine if expander is collapsed by checking parent element
+        try:
+            parent = rag_expander.locator("..")
+            is_collapsed = not ("expanded" in parent.get_attribute("class", timeout=1000) or
+                               parent.get_attribute("open", timeout=1000))
+        except:
+            pass  # If we can't determine, assume collapsed
 
-    for selector in expander_selectors:
-        if selector.count() > 0:
-            rag_expander = selector.first
-            break
-
-    if rag_expander and rag_expander.count() > 0:
-        # Check if expander is already expanded
-        is_expanded = rag_expander.get_attribute("open") or rag_expander.get_attribute("aria-expanded")
-
-        if not is_expanded:
-            print("Expanding RAG Settings...")
+        if is_collapsed:
+            print("Expanding RAG Settings expander...")
             rag_expander.click()
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(500)  # Wait for animation
 
-    # Look for the RAG injection toggle
-    toggle_selectors = [
-        sidebar.locator("label").filter(has_text=re.compile(r"enable.*rag.*context.*injection", re.IGNORECASE)),
-        sidebar.get_by_text(re.compile(r"enable.*rag", re.IGNORECASE)),
-        sidebar.locator("input[type='checkbox']").nth(-1)  # Last checkbox might be our toggle
-    ]
+    # Now find the checkbox directly using its aria-label (most reliable)
+    # From the error log, we see: aria-label="Enable RAG Context Injection"
+    checkbox = page.locator("[data-testid='stSidebar']").locator(
+        f"input[type='checkbox'][aria-label*='RAG'][aria-label*='Context'][aria-label*='Injection']"
+    )
 
-    rag_toggle = None
-    for selector in toggle_selectors:
-        if selector.count() > 0:
-            rag_toggle = selector
-            break
+    # Fallback: try any checkbox with RAG in aria-label
+    if checkbox.count() == 0:
+        checkbox = page.locator("[data-testid='stSidebar']").locator(
+            "input[type='checkbox'][aria-label*='RAG']"
+        )
 
-    if rag_toggle and rag_toggle.count() > 0:
-        # Get the actual checkbox input
-        if rag_toggle.evaluate("el => el.tagName.toLowerCase()") == "label":
-            # Find the associated checkbox
-            checkbox_id = rag_toggle.get_attribute("for")
-            if checkbox_id:
-                checkbox = page.locator(f"#{checkbox_id}")
-            else:
-                # Try to find checkbox near the label
-                checkbox = rag_toggle.locator("input[type='checkbox']").first
-        else:
-            checkbox = rag_toggle
+    # Fallback: try checkbox near RAG text
+    if checkbox.count() == 0:
+        rag_text = page.locator("[data-testid='stSidebar']").get_by_text(
+            re.compile(r"Enable.*RAG.*Context.*Injection", re.IGNORECASE)
+        )
+        if rag_text.count() > 0:
+            # Get the nearest checkbox to this text
+            checkbox = rag_text.locator("..").locator("..").locator("input[type='checkbox']").first
 
-        if checkbox.count() > 0:
-            # Check current state
-            is_checked = checkbox.is_checked()
+    if checkbox.count() == 0:
+        # Last resort: try to find any checkbox in sidebar that might be RAG toggle
+        all_checkboxes = page.locator("[data-testid='stSidebar']").locator("input[type='checkbox']")
+        print(f"Found {all_checkboxes.count()} checkboxes in sidebar")
 
-            if enable and not is_checked:
-                print("Enabling RAG context injection...")
-                checkbox.check()
-                page.wait_for_timeout(500)
-                print("✓ RAG context injection enabled")
-            elif not enable and is_checked:
-                print("Disabling RAG context injection...")
-                checkbox.uncheck()
-                page.wait_for_timeout(500)
-                print("✓ RAG context injection disabled")
-            else:
-                print(f"RAG context injection already {'enabled' if enable else 'disabled'}")
+        # Take screenshot for debugging
+        if debug_enabled:
+            take_screenshot(page, "rag_sidebar_debug.png", debug_enabled, full_page=False)
 
-            # Wait for UI to update
-            page.wait_for_load_state("networkidle", timeout=10000)
-
+        if all_checkboxes.count() > 0:
+            # Use the last checkbox (most likely to be our toggle)
+            checkbox = all_checkboxes.last
         else:
             print("Warning: Could not find RAG toggle checkbox")
-    else:
-        print("Warning: Could not find RAG injection toggle in sidebar")
+            return False
 
-        # Alternative: try to find any toggle in sidebar
-        all_toggles = sidebar.locator("input[type='checkbox']")
-        print(f"Found {all_toggles.count()} checkboxes in sidebar")
-
-        if all_toggles.count() > 0:
-            # Try toggling the last one (most likely to be our toggle)
-            last_toggle = all_toggles.last
-            if enable:
-                last_toggle.check()
-            else:
-                last_toggle.uncheck()
-            page.wait_for_timeout(500)
-            print("Toggled last checkbox in sidebar (assuming it's RAG toggle)")
-
-    return True
-
-# ==================== RAG-SPECIFIC STEPS ====================
-
-@given("the RAG system is set up with test documents")
-def rag_system_setup(context, mock_db_manager):
-    """Set up the RAG system with test documents."""
-    print("\n=== Setting up RAG test documents ===")
-
-    # Setup test documents
-    test_filename = setup_rag_test_documents()
-    context['rag_test_filename'] = test_filename
-
-    print(f"✓ RAG test document created: {test_filename}")
-
-    # Verify document was created
+    # Now toggle the checkbox
     try:
-        from modules.rag_manager.rag_manager import rag_manager
-        from shared.users import user_manager
+        # First ensure it's visible with retry logic
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                expect(checkbox).to_be_visible(timeout=5000)
+                break
+            except:
+                if retry < max_retries - 1:
+                    print(f"Checkbox not visible, retrying... ({retry + 1}/{max_retries})")
+                    page.wait_for_timeout(1000)
+                else:
+                    # Force it to be visible by scrolling
+                    checkbox.scroll_into_view_if_needed()
 
-        admin_user = user_manager.get_user_by_name("System Administrator")
-        admin_id = admin_user.get('id')
+        # Get current state
+        is_checked = checkbox.is_checked()
+        print(f"Checkbox is currently {'checked' if is_checked else 'unchecked'}")
 
-        documents = rag_manager.get_user_documents(admin_id)
-        print(f"Admin has {len(documents)} documents")
+        # Only toggle if needed
+        if (enable and not is_checked) or (not enable and is_checked):
+            print(f"{'Checking' if enable else 'Unchecking'} checkbox...")
 
-        for doc in documents:
-            print(f"  - {doc['original_filename']} (indexed in: {doc.get('indexed_in', [])})")
+            # Use JavaScript click for reliability
+            page.evaluate("""(checkbox) => {
+                checkbox.click();
+            }""", checkbox.element_handle())
+
+            page.wait_for_timeout(300)  # Wait for state change
+
+            # Verify the change
+            new_state = checkbox.is_checked()
+            if (enable and new_state) or (not enable and not new_state):
+                print(f"✓ RAG context injection {'enabled' if enable else 'disabled'}")
+            else:
+                print(f"⚠ Checkbox state not changed as expected")
+        else:
+            print(f"RAG context injection already {'enabled' if enable else 'disabled'}")
+
+        # Wait for any UI updates
+        page.wait_for_timeout(200)
+        return True
 
     except Exception as e:
-        print(f"Warning: Could not verify RAG setup: {str(e)}")
+        print(f"Error toggling RAG checkbox: {str(e)}")
 
-    return context
+        # Fallback: try a different approach
+        try:
+            # Find the label and click it instead
+            label = page.locator("[data-testid='stSidebar']").get_by_text(
+                re.compile(r"Enable.*RAG.*Context.*Injection", re.IGNORECASE)
+            )
+            if label.count() > 0:
+                print("Trying to click label instead...")
+                label.click()
+                page.wait_for_timeout(300)
+                return True
+        except:
+            pass
+
+        return False
+
+# ==================== RAG-SPECIFIC STEPS ====================
 
 @given("I enable RAG context injection")
 def enable_rag_injection(context):
@@ -420,6 +353,37 @@ def verify_rag_enhanced_response(context):
     print("✓ RAG-enhanced response verified")
     return context
 
+def wait_for_response_stable(page: Page, min_length: int = 50, timeout_ms: int = 120000):
+    """Wait until response text stabilizes (stops changing)."""
+    print(f"Waiting for response to stabilize...")
+
+    start_time = time.time()
+    last_text = ""
+    stable_count = 0
+
+    while (time.time() - start_time) * 1000 < timeout_ms:
+        # Get latest message text
+        chat_messages = page.locator("[data-testid='stChatMessage']").all()
+        if chat_messages:
+            current_text = chat_messages[-1].text_content()
+
+            if current_text == last_text:
+                stable_count += 1
+                if stable_count >= 3:  # Same text 3 times in a row
+                    if len(current_text.strip()) >= min_length:
+                        print(f"Response stabilized: {len(current_text)} chars")
+                        return current_text
+            else:
+                last_text = current_text
+                stable_count = 0
+                print(f"Text changed: {len(current_text)} chars")
+
+        page.wait_for_timeout(1000)
+
+    print(f"Timeout after {timeout_ms/1000}s")
+    return last_text  # Return whatever we have
+
+
 @then("I should see a generic response without address information")
 def verify_generic_response(context):
     """Verify the response is generic without specific address information."""
@@ -428,41 +392,47 @@ def verify_generic_response(context):
 
     print("\n=== Verifying generic response (no RAG) ===")
 
-    # Wait for response
-    page.wait_for_load_state("networkidle", timeout=30000)
-    expect(page.locator("[data-testid='stApp']")).to_be_visible(timeout=30000)
+    # Wait for LLM response to complete
+    response_complete = wait_for_response_stable(page, min_length=30, timeout_ms=180000)
 
-    # Look for response
-    max_attempts = 10
+    if not response_complete:
+        print("⚠ LLM response may not have completed fully")
+
+    # Get response text
     response_text = ""
+    chat_messages = page.locator("[data-testid='stChatMessage']").all()
 
-    for attempt in range(max_attempts):
-        chat_messages = page.locator("[data-testid='stChatMessage']").all()
-        if chat_messages:
-            last_message = chat_messages[-1]
-            response_text = last_message.text_content()
-            print(f"Response text (attempt {attempt + 1}): {response_text[:100]}...")
-            break
-        page.wait_for_timeout(1000)
+    if chat_messages:
+        last_message = chat_messages[-1]
+        response_text = last_message.text_content()
+        print(f"Response: {response_text[:150]}...")
 
-    if not response_text:
+    if not response_text or len(response_text.strip()) < 10:
         take_screenshot(page, "no_response_received.png", debug_enabled, full_page=True)
         assert False, "No response received from LLM"
 
-    # Check that address information is NOT present
-    address_indicators = [
+    # Check that specific address information is NOT present
+    specific_address_indicators = [
         "1 place du Louvre",
         "place du Louvre",
-        "Paris (in context of address)",
-        "Louvre (in context of address)"
+        "1 place du Louvre, Paris",
+        "Louvre, Paris"
     ]
 
-    for indicator in address_indicators:
+    leaked_info = []
+    for indicator in specific_address_indicators:
         if indicator.lower() in response_text.lower():
-            take_screenshot(page, "rag_leakage_detected.png", debug_enabled, full_page=True)
-            assert False, f"RAG information leakage detected: '{indicator}' found in response when RAG was disabled"
+            leaked_info.append(indicator)
 
-    # Positive check: response should be generic
+    if leaked_info:
+        take_screenshot(page, "rag_leakage_detected.png", debug_enabled, full_page=True)
+        assert False, f"RAG information leakage detected: '{', '.join(leaked_info)}' found when RAG was disabled"
+
+    # Positive check: response should be generic/non-specific
+    # But don't be too strict - LLM might still make something up
+    print("✓ Verified no specific address information leaked")
+
+    # Optional: Check for generic indicators (but don't fail if absent)
     generic_indicators = [
         "don't know",
         "I don't have",
@@ -475,24 +445,9 @@ def verify_generic_response(context):
         "sorry"
     ]
 
-    has_generic_response = False
     for indicator in generic_indicators:
         if indicator.lower() in response_text.lower():
-            has_generic_response = True
             print(f"✓ Found generic indicator: '{indicator}'")
             break
 
-    if not has_generic_response:
-        print(f"Note: No generic indicators found. Response: {response_text[:200]}")
-        # Don't fail - the LLM might give a creative response without RAG context
-
-    print("✓ Verified response is generic (no RAG information)")
     return context
-
-# ==================== CLEANUP ====================
-
-def pytest_bdd_after_scenario(request, feature, scenario):
-    """Cleanup after each RAG scenario."""
-    if "rag" in scenario.name.lower() or "rag" in feature.name.lower():
-        print("\n=== Cleaning up RAG test documents ===")
-        cleanup_rag_test_documents()

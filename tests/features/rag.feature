@@ -5,10 +5,8 @@ Feature: RAG System Functionality
 
     Background:
         Given the application is running
-        And "System Administrator" exists in the user database
         And the default user "System Administrator" is logged in
         And the mock LLM is configured and available
-        And the RAG system is set up with test documents
 
     Scenario: RAG enabled conversation
         When I navigate to the chat page

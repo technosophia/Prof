@@ -12,7 +12,7 @@
     "auto_login": false
   },
   "database": {
-    "path": "data/tests",
+    "path": "tests/data",
     "auto_create_tables": true,
     "create_default_users": true
   },

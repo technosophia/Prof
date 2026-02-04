@@ -34,12 +34,9 @@ class ClassicRAGEngine(RAGEngine):
         engines_config = rag_config.get("engines", {})
 
         # Try to get from "faiss" config first, then fallback to general
-        faiss_config = engines_config.get("faiss", {})
-        if not faiss_config:
-            # Fallback: try to get from "classic" or use defaults
-            faiss_config = engines_config.get("classic", {})
+        faiss_config = engines_config.get("classic", {})
 
-        self.index_path = Path(faiss_config.get("faiss_index_path", "./data/classic_indexes"))
+        self.index_path = Path(faiss_config.get("index_path", "data/classic_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)
 
         self.embedding_model_name = faiss_config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
