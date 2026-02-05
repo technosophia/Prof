@@ -17,10 +17,8 @@ pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
 # Re-use fixtures from conversation tests
 from tests.conftest import (
-    page as conversation_page,
-    take_screenshot
-)
-
+    page as conversation_page)
+from tests.step_defs.common_steps import take_screenshot
 from tests.step_defs.common_steps import *
 from tests.step_defs.app_start_steps import *
 from tests.step_defs.user_steps import *

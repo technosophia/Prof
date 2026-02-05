@@ -19,15 +19,13 @@ from tests.conftest import (
     page,
     debug_dir,
     context,
-    take_screenshot,
-    find_element_by_text,
     TEST_PORT
 )
 
 APP_FULLY_LOADED_SELECTOR = '[data-testid="app-fully-loaded"]'
 
 from tests.step_defs.common_steps import _wait_for_app_stable, _click_button_by_texts, _robust_header_verification
-
+from tests.step_defs.common_steps import take_screenshot
 
 # ==================== STEPS ====================
 

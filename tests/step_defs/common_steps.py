@@ -17,8 +17,15 @@ from playwright.sync_api import Page, expect
 from tests.conftest import (
     page,
     context,
-    take_screenshot,
 )
+
+def take_screenshot(page, filename, debug_enabled, full_page=False):
+    """Take screenshot only if debug mode is enabled."""
+    if debug_enabled:
+        debug_path = os.path.join("tests", "debug")
+        filepath = os.path.join(debug_path, filename)
+        page.screenshot(path=filepath, full_page=full_page)
+        print(f"  Screenshot saved: {filename}")
 
 # ==================== HELPER FUNCTIONS ====================
 

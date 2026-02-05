@@ -14,10 +14,10 @@ from playwright.sync_api import Page, expect
 from tests.step_defs.common_steps import *
 from tests.step_defs.user_steps import *
 from tests.step_defs.conversation_common_steps import *
+from tests.step_defs.common_steps import take_screenshot
 from tests.conftest import (
     page,
     context,
-    take_screenshot,
 )
 # Load feature files
 scenarios('../../tests/features/rag.feature')

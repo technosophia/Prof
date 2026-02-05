@@ -15,11 +15,7 @@ pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 # Add the project root to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# Import fixtures from conftest.py only
-from tests.conftest import (
-    take_screenshot
-)
-
+from tests.step_defs.common_steps import take_screenshot
 from tests.step_defs.common_steps import *
 from tests.step_defs.app_start_steps import *
 from tests.step_defs.user_steps import *
