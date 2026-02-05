@@ -15,6 +15,10 @@ import warnings
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
+os.environ["TEST_MODE"] = "true"
+from shared.common import get_config
+
+
 SCOPE = "function"
 TEST_PORT = 8505
 
@@ -63,22 +67,26 @@ with open(TEST_CONFIG_PATH, 'r') as f:
 
 print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).keys())}")
 
-# ============ SESSION FIXTURES ============
 
-@pytest.fixture(scope=SCOPE, autouse=True)
-def setup_test_environment():
-    """Setup test environment before any tests run."""
+def cleanup_directory(directory):
+    import shutil
+    if os.path.exists(directory):
+        print(f"Cleaning up directory: {directory}")
+        for item in os.listdir(directory):
+            item_path = os.path.join(directory, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                    print(f"  ✓ Deleted file: {item}")
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                    print(f"  ✓ Deleted directory: {item}")
+            except Exception as e:
+                print(f"  ⚠ Failed to delete {item_path}: {e}")
+
+def setup_database():
     from shared.database import db_manager, init_database
     from shared.users import user_manager
-    from shared.common import get_config
-    import tempfile
-    from modules.rag_manager import rag_manager
-    # Set environment variables
-    os.environ["TEST_MODE"] = "true"
-    os.environ["CONFIG_FILE"] = "tests/test_config.json"
-    os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
-
-    original_cwd = os.getcwd()
 
     print(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
     # 1. Initialize the database
@@ -86,6 +94,14 @@ def setup_test_environment():
     db_full_path = os.path.abspath(db_config_path)
     db_path = db_config_path + "/app.db"
     print(f"Initializing database...{db_path}")
+    # CRITICAL: Dispose of any existing database connections from previous test
+    # After dispose(), is_initialized() will return False, so init_database() will work
+    if db_manager.is_initialized():
+        print("Disposing of existing database connections from previous test...")
+        db_manager.dispose()
+        # Extra delay to ensure SQLite releases the file lock
+        time.sleep(0.5)
+        print("✓ Database connections disposed")
     init_database(use_memory=False, db_path=db_path)
 
     if db_manager.is_initialized():
@@ -101,6 +117,46 @@ def setup_test_environment():
     # 2. Create default users (WITH TEST_MODE still set)
     user_manager.create_default_users()
     print("✓ Default users created before test")
+    return db_full_path
+
+def setup_rag_test_data():
+    import tempfile
+    from modules.rag_manager import rag_manager
+
+    test_content = """The address of Kevin is 1 place du Louvre, Paris.
+    Kevin works as a software engineer at TechCorp.
+    His phone number is +33 1 23 45 67 89."""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write(test_content)
+        temp_path = f.name
+
+    admin_id = "admin"
+    filename = rag_manager.upload_document(
+        source_path=temp_path,
+        original_filename="kevin_info.txt",
+        user_id=admin_id,
+        is_public=False
+    )
+
+    default_engine = rag_manager.get_default_engine().engine_type
+
+    rag_manager.index_document(filename, default_engine, admin_id)
+
+    print(f"[SETUP] RAG Test Data Initialized with {default_engine}: {filename}")
+    return temp_path
+
+@pytest.fixture(scope=SCOPE, autouse=True)
+def setup_test_environment():
+    """Setup test environment before any tests run."""
+    os.environ["TEST_MODE"] = "true"
+    # Set environment variables
+    os.environ["CONFIG_FILE"] = "tests/test_config.json"
+    os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
+    original_cwd = os.getcwd()
+    time.sleep(1)
+
+    db_full_path = setup_database()
 
     print(f"\n=== TEST ENVIRONMENT SETUP ===")
     print(f"Original CWD: {original_cwd}")
@@ -118,63 +174,43 @@ def setup_test_environment():
     print(f"Config exists: {os.path.exists(os.path.join(PROJECT_ROOT, os.environ['CONFIG_FILE']))}")
     print("=" * 30 + "\n")
 
-    # 3. Setup RAG test data (WITH TEST_MODE still set)
-    test_content = """The address of Kevin is 1 place du Louvre, Paris.
-Kevin works as a software engineer at TechCorp.
-His phone number is +33 1 23 45 67 89."""
+    temp_path = setup_rag_test_data()
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(test_content)
-        temp_path = f.name
-
+    # Restaurer le répertoire original
+    if original_cwd != os.getcwd():
+        os.chdir(original_cwd)
+        print(f"Restored CWD to: {original_cwd}")
     try:
-        admin_id = "admin"
-        filename = rag_manager.upload_document(
-            source_path=temp_path,
-            original_filename="kevin_info.txt",
-            user_id=admin_id,
-            is_public=False
-        )
-
-        default_engine = rag_manager.get_default_engine().engine_type
-
-        rag_manager.index_document(filename, default_engine, admin_id)
-
-        print(f"[SETUP] RAG Test Data Initialized with {default_engine}: {filename}")
-
-        # Restaurer le répertoire original
-        if original_cwd != os.getcwd():
-            os.chdir(original_cwd)
-            print(f"Restored CWD to: {original_cwd}")
-
-        yield filename
+        yield
     finally:
+        # CLEANUP AFTER TEST COMPLETES
+        print("\n=== TEST ENVIRONMENT CLEANUP ===")
+
+        from shared.database import db_manager, init_database
+        if db_manager.is_initialized():
+            db_manager.dispose()
+            time.sleep(0.5)
+        # Clean up temp file
         if os.path.exists(temp_path):
-            os.unlink(temp_path)
-
-        import shutil
-        for item in os.listdir(db_full_path):
-            item_path = os.path.join(db_full_path, item)
             try:
-                if os.path.isfile(item_path) or os.path.islink(item_path):
-                    os.unlink(item_path)
-                    print(f"  Deleted file: {item}")
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                    print(f"  Deleted directory: {item}")
+                os.unlink(temp_path)
+                print(f"✓ Deleted temp file: {temp_path}")
             except Exception as e:
-                print(f"  Failed to delete {item_path}: {e}")
+                print(f"⚠ Could not delete temp file: {e}")
 
-        if "TEST_MODE" in os.environ:
-            del os.environ["TEST_MODE"]
-        if "CONFIG_FILE" in os.environ:
-            del os.environ["CONFIG_FILE"]
-        if "PLAYWRIGHT_ASYNCIO" in os.environ:
-            del os.environ["PLAYWRIGHT_ASYNCIO"]
+        cleanup_directory(db_full_path)
+
+        # Clean up environment variables
+        for var in ["TEST_MODE", "CONFIG_FILE", "PLAYWRIGHT_ASYNCIO"]:
+            if var in os.environ:
+                del os.environ[var]
+
+        time.sleep(0.5)
+        print("✓ Test environment cleanup complete")
 
 
 @pytest.fixture(scope=SCOPE)
-def playwright():
+def playwright(setup_test_environment):
     """Playwright session fixture."""
     # Désactiver asyncio pour Playwright sync
     original_asyncio_mode = os.environ.get("PYTEST_ASYNCIO_MODE")
@@ -217,118 +253,70 @@ def browser(playwright, request):
 
     browser.close()
 
+# Change at the top of the file
+import pty # For better process control if needed, but os.setsid is key
+
 @pytest.fixture(scope=SCOPE)
 def streamlit_server(setup_test_environment):
-    """Start Streamlit server for testing - runs once per session."""
-    # Kill any existing Streamlit process
-    subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-    time.sleep(2)
+    """Start Streamlit server for testing."""
+    # 1. Kill any stray processes using a more robust selector
+    subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True, capture_output=True)
+    time.sleep(1)
 
-    # Create test environment
     env = os.environ.copy()
     env["TEST_MODE"] = "true"
+    env["PYTHONPATH"] = PROJECT_ROOT
 
-    # Afficher les variables d'environnement pour debug
-    print(f"\n=== STREAMLIT SERVER CONFIG ===")
-    print(f"Project root: {PROJECT_ROOT}")
-    print(f"App.py at root: {os.path.join(PROJECT_ROOT, 'app.py')}")
-    print(f"Exists: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
-
-    # Créer le répertoire de logs
     log_dir = os.path.join(PROJECT_ROOT, "tests", "logs")
     os.makedirs(log_dir, exist_ok=True)
 
-    stdout_path = os.path.join(log_dir, "streamlit_stdout.log")
-    stderr_path = os.path.join(log_dir, "streamlit_stderr.log")
+    stdout_file = open(os.path.join(log_dir, "streamlit_stdout.log"), "w")
+    stderr_file = open(os.path.join(log_dir, "streamlit_stderr.log"), "w")
 
-    stdout_file = open(stdout_path, "w")
-    stderr_file = open(stderr_path, "w")
-
-    # Start Streamlit server DEPUIS LA RACINE DU PROJET
     cmd = [
         "streamlit", "run", "app.py",
         "--server.port", str(TEST_PORT),
-        "--server.runOnSave", "false",
-        "--browser.serverAddress", "localhost",
-        "--logger.level", "debug",
-        "--server.fileWatcherType", "none",
-        "--server.headless", "true"
+        "--server.headless", "true",
+        "--server.fileWatcherType", "none"
     ]
 
-    print(f"Launching: {' '.join(cmd)}")
-    print(f"From directory: {PROJECT_ROOT} (app.py exists: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))})")
-    print(f"Logs going to: {log_dir}")
-
+    # Use start_new_session=True to create a process group
     process = subprocess.Popen(
         cmd,
         stdout=stdout_file,
         stderr=stderr_file,
         env=env,
-        cwd=PROJECT_ROOT,  # CRITIQUE: laucnh from the root
-        preexec_fn=os.setsid
+        cwd=PROJECT_ROOT,
+        preexec_fn=os.setsid  # Creates a process group
     )
 
-    # Register cleanup function
-    def cleanup():
-        print("\n=== Cleaning up Streamlit server ===")
-        stdout_file.close()
-        stderr_file.close()
-
-        if process.poll() is None:
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                process.wait(timeout=5)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-
-        # Nettoyer les processus restants
-        subprocess.run(["pkill", "-f", "streamlit"], capture_output=True, shell=True)
-        time.sleep(1)
-
-    atexit.register(cleanup)
-
-    # Wait for server to start
-    max_retries = 60
-    for i in range(max_retries):
+    # Health check
+    start_time = time.time()
+    success = False
+    while time.time() - start_time < 30:
         try:
-            response = requests.get(f"http://localhost:{TEST_PORT}/_stcore/health", timeout=2)
-            if response.status_code == 200:
-                print("✓ Streamlit server started successfully")
-                time.sleep(5)  # Attendre que tout soit initialisé
+            if requests.get(f"http://localhost:{TEST_PORT}/_stcore/health").status_code == 200:
+                success = True
                 break
-        except Exception as e:
-            if i % 10 == 0:
-                print(f"Waiting for Streamlit server... ({i+1}/{max_retries})")
+        except:
+            time.sleep(0.5)
 
-            if i == max_retries - 1:
-                print("Failed to start Streamlit server")
-                # Afficher les logs d'erreur
-                try:
-                    stderr_file.flush()
-                    with open(stderr_path, "r") as f:
-                        lines = f.readlines()
-                        print(f"Last 20 lines of stderr:\n{''.join(lines[-20:])}")
-                except:
-                    pass
-                cleanup()
-                raise RuntimeError(f"Failed to start Streamlit server after {max_retries} seconds")
-            time.sleep(1)
+    if not success:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        raise RuntimeError("Streamlit failed to start")
 
-    print("Streamlit server started...")
-    time.sleep(2)
     yield process
-    # process.terminate()
-    # try:
-    #     process.wait(timeout=5) # Wait up to 5 seconds for it to release file handles
-    # except subprocess.TimeoutExpired:
-    #     print("[WARNING] Streamlit didn't stop, killing it...")
-    #     process.kill()
-    # Cleanup
-    cleanup()
-    atexit.unregister(cleanup)
+
+    # CLEANUP: Kill the entire process group
+    print("\n=== Shutting down Streamlit Process Group ===")
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        process.wait(timeout=5)
+    except:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+
+    stdout_file.close()
+    stderr_file.close()
 
 # ============ FUNCTION FIXTURES ============
 

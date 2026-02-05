@@ -82,6 +82,33 @@ class DatabaseManager:
         """
         return self._engine is not None
 
+    def dispose(self):
+        """Dispose of database connections and reset manager state.
+
+        [agent]
+        Properly closes all database connections and resets the manager.
+        Critical for test isolation - call between tests to prevent file locks.
+
+        Usage:
+            # Between tests
+            if db_manager.is_initialized():
+                db_manager.dispose()
+        """
+        if self._engine is not None:
+            try:
+                # Close all connections in the pool
+                self._engine.dispose()
+                log("info", "Database connections disposed")
+            except Exception as e:
+                log("error", f"Error disposing database engine: {e}")
+
+            # CRITICAL: Reset all state so is_initialized() returns False
+            self._engine = None
+            self._session_factory = None
+            self._tables_created = False
+            self._in_memory = False
+            # Note: _initialized is derived from _engine, so no need to set it
+
     def _initialize(self, use_memory: bool = False, db_path: Optional[str] = None):
         """Initialize the database connection. Called by init_database()."""
         if self._engine is not None:
