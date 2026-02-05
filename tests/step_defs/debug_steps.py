@@ -20,10 +20,6 @@ pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
 # Re-use fixtures and common steps
 from tests.conftest import (
-    enable_debug,
-    streamlit_server,
-    browser_context,
-    debug_dir,
     take_screenshot,
 )
 from tests.step_defs.common_steps import *

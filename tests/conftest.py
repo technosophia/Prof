@@ -26,6 +26,7 @@ def pytest_sessionfinish(session, exitstatus):
                    capture_output=True, timeout=5)
 
 os.environ["TEST_MODE"] = "true"
+os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
 from shared.common import get_config
 from shared.database import db_manager, init_database
 from shared.users import user_manager
@@ -33,54 +34,22 @@ import tempfile
 from modules.rag_manager import rag_manager
 
 
-SCOPE = "function"
+SCOPE = "module"
 TEST_PORT = 8505
 
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
 
-# ============ TROUVER LA VRAIE RACINE DU PROJET ============
-# Le fichier conftest.py est dans tests/, donc on remonte d'un niveau
 CONFTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CONFTEST_DIR)  # Remonter d'un niveau depuis tests/
+sys.path.insert(0, PROJECT_ROOT)
+os.environ["PYTHONPATH"] = PROJECT_ROOT
+print(f"Python path: {sys.path}")
+
 
 print(f"Conftest directory: {CONFTEST_DIR}")
 print(f"Project root: {PROJECT_ROOT}")
 print(f"App.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
-
-# Ajouter la racine du projet au chemin Python
-sys.path.insert(0, PROJECT_ROOT)
-
-# FORCER le PYTHONPATH pour Streamlit
-os.environ["PYTHONPATH"] = PROJECT_ROOT
-
-print(f"Python path: {sys.path}")
-
-# ============ CONFIGURATION ============
-# Chercher test_config.json à plusieurs endroits
-possible_config_paths = [
-    os.path.join(CONFTEST_DIR, "test_config.json"),  # Dans tests/
-    os.path.join(PROJECT_ROOT, "tests", "test_config.json"),  # Dans tests/ depuis racine
-    os.path.join(PROJECT_ROOT, "test_config.json"),  # À la racine
-]
-
-TEST_CONFIG_PATH = None
-for path in possible_config_paths:
-    if os.path.exists(path):
-        TEST_CONFIG_PATH = path
-        print(f"Found test config at: {path}")
-        break
-
-if not TEST_CONFIG_PATH:
-    raise FileNotFoundError(f"Could not find test_config.json. Tried: {possible_config_paths}")
-
-print(f"Loading test config from: {TEST_CONFIG_PATH}")
-
-with open(TEST_CONFIG_PATH, 'r') as f:
-    TEST_CONFIG = json.load(f)
-
-print(f"Test config loaded. Available LLMs: {list(TEST_CONFIG.get('llms', {}).keys())}")
-
 
 def cleanup_directory(directory):
     import shutil
@@ -101,10 +70,6 @@ def cleanup_directory(directory):
 def setup_database():
 
     print(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
-
-    # Force environment variable for test mode
-    os.environ["TEST_MODE"] = "true"
-
     # Get database path from config
     db_config_path = get_config().get("database", {}).get("path", ".")
     db_full_path = os.path.abspath(db_config_path)
@@ -117,7 +82,6 @@ def setup_database():
     if db_manager.is_initialized():
         print("Disposing of existing database connections...")
         db_manager.dispose()
-        time.sleep(0.5)  # Give SQLite time to release locks
         print("✓ Database connections disposed")
 
     # Initialize database
@@ -129,7 +93,6 @@ def setup_database():
         print(f"⚠ Error initializing database: {e}")
         # Try one more time
         db_manager.dispose()
-        time.sleep(0.5)
         init_database(use_memory=False, db_path=db_path)
 
     # Clean database
@@ -156,8 +119,6 @@ def setup_database():
 def setup_rag_test_data():
 
     # Wait a bit for database to be fully ready
-    time.sleep(0.5)
-
     test_content = """The address of Kevin is 1 place du Louvre, Paris.
     Kevin works as a software engineer at TechCorp.
     His phone number is +33 1 23 45 67 89."""
@@ -187,7 +148,6 @@ def setup_rag_test_data():
                 return temp_path
             else:
                 print(f"Database not initialized, attempt {attempt + 1}/{max_attempts}")
-                time.sleep(0.5)
         except Exception as e:
             print(f"Error setting up RAG data (attempt {attempt + 1}): {e}")
             time.sleep(0.5)
@@ -199,10 +159,6 @@ def setup_rag_test_data():
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
-    os.environ["TEST_MODE"] = "true"
-    os.environ["CONFIG_FILE"] = "tests/test_config.json"
-    os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
-
     print(f"\n=== TEST ENVIRONMENT SETUP ===")
     print(f"Project root: {PROJECT_ROOT}")
 
@@ -235,15 +191,6 @@ def setup_test_environment():
         # Change back to original directory for cleanup
         if os.getcwd() != original_cwd:
             os.chdir(original_cwd)
-
-        # Get cleanup data from yield if available
-        cleanup_data = {}
-        try:
-            # This ensures we get the yielded data
-            pass
-        except:
-            pass
-
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         cleanup_directory(db_full_path)
@@ -306,13 +253,8 @@ def streamlit_server(setup_test_environment):
 
     # 1. Kill any stray processes
     subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True, capture_output=True)
-    time.sleep(2)  # Increased wait time
 
     env = os.environ.copy()
-    env["TEST_MODE"] = "true"
-    env["PYTHONPATH"] = PROJECT_ROOT
-    env["CONFIG_FILE"] = "tests/test_config.json"
-
     log_dir = os.path.join(PROJECT_ROOT, "tests", "logs")
     os.makedirs(log_dir, exist_ok=True)
 
@@ -355,6 +297,9 @@ def streamlit_server(setup_test_environment):
                     success = True
                     print(f"✓ Streamlit server is ready after {int(time.time() - start_time)} seconds")
                     break
+                time.sleep(1)
+            except TimeoutError:
+                pass
             except requests.RequestException as e:
                 if time.time() - start_time > 10:
                     print(f"Waiting for Streamlit... ({int(time.time() - start_time)}s)")
@@ -393,7 +338,6 @@ def streamlit_server(setup_test_environment):
 
         # Final cleanup of any remaining processes
         subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True, capture_output=True)
-        time.sleep(1)
 
 # ============ FUNCTION FIXTURES ============
 

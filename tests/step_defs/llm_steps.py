@@ -9,7 +9,6 @@ import sys
 import os
 import subprocess
 import requests
-from playwright.sync_api import Page, expect, BrowserContext
 
 # Add the project root to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -18,14 +17,7 @@ pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
 # Re-use fixtures from conversation tests
 from tests.conftest import (
-    setup_test_environment,
-    playwright,
-    browser,
-    enable_debug,
-    streamlit_server,
-    browser_context,
     page as conversation_page,
-    debug_dir,
     take_screenshot
 )
 

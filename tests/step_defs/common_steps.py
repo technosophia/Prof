@@ -15,14 +15,9 @@ from playwright.sync_api import Page, expect
 
 # ============ RE-EXPORT FIXTURES ============
 from tests.conftest import (
-    enable_debug,
-    streamlit_server,
-    browser_context,
     page,
-    debug_dir,
     context,
     take_screenshot,
-    find_element_by_text,
 )
 
 # ==================== HELPER FUNCTIONS ====================

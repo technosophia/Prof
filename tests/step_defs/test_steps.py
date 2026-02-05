@@ -17,13 +17,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # Import fixtures from conftest.py only
 from tests.conftest import (
-    setup_test_environment,
-    playwright,
-    browser,
-    enable_debug,
-    streamlit_server,
-    browser_context,
-    debug_dir,
     take_screenshot
 )
 

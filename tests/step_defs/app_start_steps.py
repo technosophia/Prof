@@ -16,9 +16,6 @@ from playwright.sync_api import Page, expect
 # ============ RE-EXPORT FIXTURES ============
 # Ces imports permettent aux fichiers de steps d'accéder aux fixtures de conftest
 from tests.conftest import (
-    enable_debug,
-    streamlit_server,
-    browser_context,
     page,
     debug_dir,
     context,

@@ -15,14 +15,9 @@ from tests.step_defs.common_steps import *
 from tests.step_defs.user_steps import *
 from tests.step_defs.conversation_common_steps import *
 from tests.conftest import (
-    enable_debug,
-    streamlit_server,
-    browser_context,
     page,
-    debug_dir,
     context,
     take_screenshot,
-    find_element_by_text,
 )
 # Load feature files
 scenarios('../../tests/features/rag.feature')
