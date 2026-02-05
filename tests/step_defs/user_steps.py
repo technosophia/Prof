@@ -13,13 +13,7 @@ import signal
 from pytest_bdd import given, when, then, parsers
 from playwright.sync_api import Page, expect
 
-# ============ RE-EXPORT FIXTURES ============
-# Ces imports permettent aux fichiers de steps d'accéder aux fixtures de conftest
-from tests.conftest import (
-    page,
-    context,
-    take_screenshot,
-)
+from tests.step_defs.common_steps import take_screenshot
 
 @given(parsers.parse('the default user "{username}" is logged in'))
 def default_user_logged_in(context, username):

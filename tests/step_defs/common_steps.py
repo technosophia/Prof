@@ -13,12 +13,6 @@ import signal
 from pytest_bdd import given, when, then, parsers
 from playwright.sync_api import Page, expect
 
-# ============ RE-EXPORT FIXTURES ============
-from tests.conftest import (
-    page,
-    context,
-)
-
 def take_screenshot(page, filename, debug_enabled, full_page=False):
     """Take screenshot only if debug mode is enabled."""
     if debug_enabled:
@@ -26,6 +20,14 @@ def take_screenshot(page, filename, debug_enabled, full_page=False):
         filepath = os.path.join(debug_path, filename)
         page.screenshot(path=filepath, full_page=full_page)
         print(f"  Screenshot saved: {filename}")
+
+
+def find_element_by_text(page, text, exact=False):
+    """Find an element containing specific text."""
+    if exact:
+        return page.get_by_text(text, exact=True)
+    else:
+        return page.get_by_text(text)
 
 # ==================== HELPER FUNCTIONS ====================
 

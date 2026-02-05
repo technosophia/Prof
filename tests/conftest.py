@@ -26,7 +26,7 @@ def _log(message, level="INFO"):
 
 def pytest_sessionfinish(session, exitstatus):
     """Clean up after all tests are done."""
-    _log("="*50)
+    _log('\n'+"="*50)
     _log("PYTEST SESSION FINISHED - FINAL CLEANUP")
     _log("="*50)
 
@@ -286,8 +286,10 @@ def streamlit_server(setup_test_environment):
     try:
         process = subprocess.Popen(
             cmd,
-            stdout=stdout_file,
-            stderr=stderr_file,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            #stdout=stdout_file, # Can cause interference BUG
+            #stderr=stderr_file, # Can cause interference BUG
             env=env,
             cwd=PROJECT_ROOT,
             preexec_fn=os.setsid
@@ -359,7 +361,7 @@ def context():
 def enable_debug():
     """Fixture to enable debug mode (screenshots, logging)."""
     debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
-    print(f"Debug mode: {'ENABLED' if debug_enabled else 'DISABLED'}")
+    #print(f"Debug mode: {'ENABLED' if debug_enabled else 'DISABLED'}") # Can cause interference BUG
     return debug_enabled
 
 @pytest.fixture
@@ -368,7 +370,7 @@ def debug_dir(enable_debug):
     if enable_debug:
         debug_path = os.path.join("tests", "debug")
         os.makedirs(debug_path, exist_ok=True)
-        print(f"Debug directory: {os.path.abspath(debug_path)}")
+        #print(f"Debug directory: {os.path.abspath(debug_path)}") # Can cause interference BUG
     return enable_debug
 
 @pytest.fixture
@@ -394,23 +396,6 @@ def page(browser_context):
     page.close()
 
 
-
-# ============ HELPER FUNCTIONS ============
-
-def take_screenshot(page, filename, debug_enabled, full_page=False):
-    """Take screenshot only if debug mode is enabled."""
-    if debug_enabled:
-        debug_path = os.path.join("tests", "debug")
-        filepath = os.path.join(debug_path, filename)
-        page.screenshot(path=filepath, full_page=full_page)
-        print(f"  Screenshot saved: {filename}")
-
-def find_element_by_text(page, text, exact=False):
-    """Find an element containing specific text."""
-    if exact:
-        return page.get_by_text(text, exact=True)
-    else:
-        return page.get_by_text(text)
 
 # ============ MARKS ============
 

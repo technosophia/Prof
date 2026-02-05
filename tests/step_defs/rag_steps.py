@@ -15,11 +15,7 @@ from tests.step_defs.common_steps import *
 from tests.step_defs.user_steps import *
 from tests.step_defs.conversation_common_steps import *
 from tests.step_defs.common_steps import take_screenshot
-from tests.conftest import (
-    page,
-    context,
-)
-# Load feature files
+
 scenarios('../../tests/features/rag.feature')
 
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright, pytest.mark.rag]
