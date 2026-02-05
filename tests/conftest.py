@@ -15,11 +15,20 @@ import warnings
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
+def _log(message, level="INFO"):
+    """Log message with process ID and timestamp."""
+    #pid = os.getpid()
+    #timestamp = time.strftime("%H:%M:%S")
+    #formatted_message = f"[{timestamp}][PID:{pid}][{level}] {message}"
+    formatted_message = f"[{level}] {message}"
+    print(formatted_message)
+    return formatted_message
+
 def pytest_sessionfinish(session, exitstatus):
     """Clean up after all tests are done."""
-    print("\n" + "="*50)
-    print("PYTEST SESSION FINISHED - FINAL CLEANUP")
-    print("="*50)
+    _log("="*50)
+    _log("PYTEST SESSION FINISHED - FINAL CLEANUP")
+    _log("="*50)
 
     # Kill any remaining Streamlit processes
     subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True,
@@ -44,75 +53,75 @@ CONFTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CONFTEST_DIR)  # Remonter d'un niveau depuis tests/
 sys.path.insert(0, PROJECT_ROOT)
 os.environ["PYTHONPATH"] = PROJECT_ROOT
-print(f"Python path: {sys.path}")
+_log(f"Python path: {sys.path}")
 
 
-print(f"Conftest directory: {CONFTEST_DIR}")
-print(f"Project root: {PROJECT_ROOT}")
-print(f"App.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
+_log(f"Conftest directory: {CONFTEST_DIR}")
+_log(f"Project root: {PROJECT_ROOT}")
+_log(f"App.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
 
 def cleanup_directory(directory):
     import shutil
     if os.path.exists(directory):
-        print(f"Cleaning up directory: {directory}")
+        _log(f"Cleaning up directory: {directory}")
         for item in os.listdir(directory):
             item_path = os.path.join(directory, item)
             try:
                 if os.path.isfile(item_path) or os.path.islink(item_path):
                     os.unlink(item_path)
-                    print(f"  ✓ Deleted file: {item}")
+                    _log(f"  ✓ Deleted file: {item}")
                 elif os.path.isdir(item_path):
                     shutil.rmtree(item_path)
-                    print(f"  ✓ Deleted directory: {item}")
+                    _log(f"  ✓ Deleted directory: {item}")
             except Exception as e:
-                print(f"  ⚠ Failed to delete {item_path}: {e}")
+                _log(f"  ⚠ Failed to delete {item_path}: {e}", level="WARNING")
 
 def setup_database():
 
-    print(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
+    _log(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
     # Get database path from config
     db_config_path = get_config().get("database", {}).get("path", ".")
     db_full_path = os.path.abspath(db_config_path)
     db_path = os.path.join(db_config_path, "app.db")
 
-    print(f"Database path: {db_path}")
-    print(f"Database exists: {os.path.exists(db_path)}")
+    _log(f"Database path: {db_path}")
+    _log(f"Database exists: {os.path.exists(db_path)}")
 
     # CRITICAL: Dispose of any existing database connections
     if db_manager.is_initialized():
-        print("Disposing of existing database connections...")
+        _log("Disposing of existing database connections...")
         db_manager.dispose()
-        print("✓ Database connections disposed")
+        _log("✓ Database connections disposed")
 
     # Initialize database
-    print(f"Initializing database at {db_path}...")
+    _log(f"Initializing database at {db_path}...")
     try:
         init_database(use_memory=False, db_path=db_path)
-        print("✓ Database initialized")
+        _log("✓ Database initialized")
     except Exception as e:
-        print(f"⚠ Error initializing database: {e}")
+        _log(f"⚠ Error initializing database: {e}", level="ERROR")
         # Try one more time
         db_manager.dispose()
         init_database(use_memory=False, db_path=db_path)
 
     # Clean database
     if db_manager.is_initialized():
-        print("Cleaning database...")
+        _log("Cleaning database...")
         success = db_manager.empty_all_tables()
         if success:
-            print("✓ Database cleaned")
+            _log("✓ Database cleaned")
         else:
-            print("⚠ Could not clean database")
+            _log("⚠ Could not clean database", level="WARNING")
     else:
-        print("❌ Database not initialized after init_database() call!")
+        _log("❌ Database not initialized after init_database() call!", level="ERROR")
 
     # Create default users
-    print("Creating default users...")
+    _log("Creating default users...")
     try:
         user_manager.create_default_users()
-        print("✓ Default users created")
+        _log("✓ Default users created")
     except Exception as e:
-        print(f"⚠ Error creating default users: {e}")
+        _log(f"⚠ Error creating default users: {e}", level="ERROR")
 
     return db_full_path
 
@@ -144,23 +153,23 @@ def setup_rag_test_data():
                 default_engine = rag_manager.get_default_engine().engine_type
                 rag_manager.index_document(filename, default_engine, admin_id)
 
-                print(f"[SETUP] RAG Test Data Initialized with {default_engine}: {filename}")
+                _log(f"[SETUP] RAG Test Data Initialized with {default_engine}: {filename}")
                 return temp_path
             else:
-                print(f"Database not initialized, attempt {attempt + 1}/{max_attempts}")
+                _log(f"Database not initialized, attempt {attempt + 1}/{max_attempts}")
         except Exception as e:
-            print(f"Error setting up RAG data (attempt {attempt + 1}): {e}")
+            _log(f"Error setting up RAG data (attempt {attempt + 1}): {e}", level="ERROR")
             time.sleep(0.5)
 
-    print("❌ Failed to setup RAG test data after multiple attempts")
+    _log("❌ Failed to setup RAG test data after multiple attempts", level="ERROR")
     return temp_path  # Return temp path anyway for cleanup
 
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Setup test environment before any tests run."""
-    print(f"\n=== TEST ENVIRONMENT SETUP ===")
-    print(f"Project root: {PROJECT_ROOT}")
+    _log(f"\n=== TEST ENVIRONMENT SETUP ===")
+    _log(f"Project root: {PROJECT_ROOT}")
 
     # Store original CWD
     original_cwd = os.getcwd()
@@ -168,15 +177,15 @@ def setup_test_environment():
     # Change to project root if needed
     if original_cwd != PROJECT_ROOT:
         os.chdir(PROJECT_ROOT)
-        print(f"Changed CWD to: {PROJECT_ROOT}")
+        _log(f"Changed CWD to: {PROJECT_ROOT}")
 
     try:
         # Setup database FIRST
-        print("\n=== DATABASE INITIALIZATION ===")
+        _log("\n=== DATABASE INITIALIZATION ===")
         db_full_path = setup_database()
 
         # Setup RAG data AFTER database is ready
-        print("\n=== RAG DATA INITIALIZATION ===")
+        _log("\n=== RAG DATA INITIALIZATION ===")
         temp_path = setup_rag_test_data()
 
         yield {
@@ -186,7 +195,7 @@ def setup_test_environment():
 
     finally:
         # CLEANUP AFTER TEST COMPLETES
-        print("\n=== TEST ENVIRONMENT CLEANUP ===")
+        _log("\n=== TEST ENVIRONMENT CLEANUP ===")
 
         # Change back to original directory for cleanup
         if os.getcwd() != original_cwd:
@@ -199,7 +208,7 @@ def setup_test_environment():
             if var in os.environ:
                 del os.environ[var]
 
-        print("✓ Test environment cleanup complete")
+        _log("✓ Test environment cleanup complete")
 
 
 @pytest.fixture(scope=SCOPE)
@@ -234,11 +243,11 @@ def browser(playwright, request):
     }
 
     if not headless:
-        print(f"🔍 Launching browser in HEADED mode (headless={headless})")
+        _log(f"🔍 Launching browser in HEADED mode (headless={headless})")
         launch_options["slow_mo"] = 200  # Ralentir pour voir ce qui se passe
     else:
         launch_options["slow_mo"] = 200
-        print(f"🚀 Launching browser in HEADLESS mode")
+        _log(f"🚀 Launching browser in HEADLESS mode")
 
     browser = playwright.chromium.launch(**launch_options)
 
@@ -249,7 +258,7 @@ def browser(playwright, request):
 @pytest.fixture(scope="session")
 def streamlit_server(setup_test_environment):
     """Start Streamlit server for testing."""
-    print("\n=== STARTING STREAMLIT SERVER ===")
+    _log("\n=== STARTING STREAMLIT SERVER ===")
 
     # 1. Kill any stray processes
     subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True, capture_output=True)
@@ -270,8 +279,8 @@ def streamlit_server(setup_test_environment):
         "--server.enableXsrfProtection", "false"
     ]
 
-    print(f"Launching Streamlit with command: {' '.join(cmd)}")
-    print(f"Working directory: {PROJECT_ROOT}")
+    _log(f"Launching Streamlit with command: {' '.join(cmd)}")
+    _log(f"Working directory: {PROJECT_ROOT}")
 
     process = None
     try:
@@ -284,7 +293,7 @@ def streamlit_server(setup_test_environment):
             preexec_fn=os.setsid
         )
 
-        print(f"Streamlit process started with PID: {process.pid}")
+        _log(f"Streamlit process started with PID: {process.pid}")
 
         # Health check with retries
         start_time = time.time()
@@ -295,18 +304,18 @@ def streamlit_server(setup_test_environment):
                 response = requests.get(f"http://localhost:{TEST_PORT}/_stcore/health", timeout=5)
                 if response.status_code == 200:
                     success = True
-                    print(f"✓ Streamlit server is ready after {int(time.time() - start_time)} seconds")
+                    _log(f"✓ Streamlit server is ready after {int(time.time() - start_time)} seconds")
                     break
                 time.sleep(1)
             except TimeoutError:
                 pass
             except requests.RequestException as e:
                 if time.time() - start_time > 10:
-                    print(f"Waiting for Streamlit... ({int(time.time() - start_time)}s)")
+                    _log(f"Waiting for Streamlit... ({int(time.time() - start_time)}s)")
                 time.sleep(1)
 
         if not success:
-            print("❌ Streamlit failed to start within timeout")
+            _log("❌ Streamlit failed to start within timeout", level="ERROR")
             if process:
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 process.wait(timeout=5)
@@ -316,22 +325,22 @@ def streamlit_server(setup_test_environment):
 
     finally:
         # CLEANUP: Kill the entire process group
-        print("\n=== SHUTTING DOWN STREAMLIT SERVER ===")
+        _log("\n=== SHUTTING DOWN STREAMLIT SERVER ===")
         if process:
             try:
-                print(f"Terminating process group for PID: {process.pid}")
+                _log(f"Terminating process group for PID: {process.pid}")
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                 process.wait(timeout=5)
-                print("✓ Streamlit server terminated gracefully")
+                _log("✓ Streamlit server terminated gracefully")
             except subprocess.TimeoutExpired:
-                print("Process didn't terminate, forcing kill...")
+                _log("Process didn't terminate, forcing kill...", level="WARNING")
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 process.wait(timeout=2)
-                print("✓ Streamlit server killed")
+                _log("✓ Streamlit server killed")
             except ProcessLookupError:
-                print("Process already terminated")
+                _log("Process already terminated")
             except Exception as e:
-                print(f"Error during shutdown: {e}")
+                _log(f"Error during shutdown: {e}", level="ERROR")
 
         stdout_file.close()
         stderr_file.close()
