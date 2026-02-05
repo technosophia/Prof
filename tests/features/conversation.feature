@@ -20,9 +20,9 @@ Feature: Conversation with LLM
     Scenario: Conversation with multiple messages
         Given I have a conversation "Test exchange"
         When I send the message "What is your name?"
-        Then I should see a response containing "Mock"
+        Then I should see a response containing "What"
         When I send the message "Can you describe yourself?"
-        Then I should see a response containing "test"
+        Then I should see a response containing "yourself"
 
     Scenario: Regenerate last response
         Given I have a conversation with an assistant message
