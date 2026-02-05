@@ -244,6 +244,9 @@ def setup_test_environment():
         except:
             pass
 
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        cleanup_directory(db_full_path)
         # Clean up environment variables
         for var in ["TEST_MODE", "CONFIG_FILE", "PLAYWRIGHT_ASYNCIO"]:
             if var in os.environ:
