@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+    <body>
+        <input
+            id="message_input"
+            style="width: 100%; padding: 8px; margin: 10px 0"
+        />
+        <div id="status">Ready</div>
+
+        <script>
+            // Show init alert
+            console.log("JS Component Ready");
+
+            // Streamlit communication
+            function sendToStreamlit(type, data) {
+                window.parent.postMessage(
+                    {
+                        isStreamlitMessage: true,
+                        type: type,
+                        ...data,
+                    },
+                    "*",
+                );
+            }
+
+            // Handle messages from Python
+            function onMessage(event) {
+                if (event.data.type === "streamlit:render") {
+                    const args = event.data.args;
+
+                    // Show received alert
+                    console.log("JS: Received data from Python!");
+
+                    // Update input
+                    document.getElementById("message_input").value =
+                        args.input_value;
+                    document.getElementById("status").textContent =
+                        "Received: " + args.input_value;
+
+                    // If button was clicked, process and send back
+                    if (args.button_clicked) {
+                        const processed = args.input_value + "... received";
+                        setTimeout(() => {
+                            sendToStreamlit("streamlit:setComponentValue", {
+                                value: processed,
+                            });
+                        }, 100);
+                    }
+                }
+            }
+
+            // Initialize
+            window.addEventListener("message", onMessage);
+            sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+        </script>
+    </body>
+</html>
