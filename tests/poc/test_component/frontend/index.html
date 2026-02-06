@@ -1,36 +1,54 @@
 <!doctype html>
 <html>
     <body>
-        <div style="margin-bottom: 10px">
-            <label for="component_input">Component Input:</label>
+        <div style="margin-bottom: 15px">
+            <label for="api_key"><strong>Groq API Key:</strong></label>
             <input
-                id="component_input"
-                type="text"
-                placeholder="Enter text in component..."
-                style="width: 100%; padding: 8px; margin: 5px 0"
+                id="api_key"
+                type="password"
+                placeholder="Enter your Groq API key (hidden)"
+                style="
+                    width: 100%;
+                    padding: 8px;
+                    margin: 5px 0;
+                    box-sizing: border-box;
+                "
             />
+        </div>
+
+        <div style="margin-bottom: 15px">
+            <strong>Received Prompt:</strong>
+            <span id="python_value">Waiting...</span>
         </div>
 
         <div
             style="
                 margin: 10px 0;
-                padding: 8px;
+                padding: 12px;
                 background-color: #f0f0f0;
                 border-radius: 4px;
             "
         >
-            <div>
-                <strong>Received from Python:</strong>
-                <span id="python_value">Waiting...</span>
-            </div>
             <div><strong>Status:</strong> <span id="status">Ready</span></div>
+            <div style="margin-top: 10px">
+                <strong>Response:</strong>
+                <pre
+                    id="response"
+                    style="
+                        white-space: pre-wrap;
+                        margin: 8px 0;
+                        max-height: 400px;
+                        overflow-y: auto;
+                    "
+                >
+None yet</pre
+                >
+            </div>
         </div>
 
         <script>
-            // Show init alert
             console.log("JS Component Ready");
 
-            // Streamlit communication
             function sendToStreamlit(type, data) {
                 window.parent.postMessage(
                     {
@@ -42,115 +60,149 @@
                 );
             }
 
-            // NEW: Function to set the iframe height dynamically
             function setFrameHeight() {
-                // scrollHeight captures the full content height even if there is overflow
-                let height = document.body.scrollHeight;
-                // Add a small buffer to avoid cutting off borders/padding
-                height += 30;
+                let height = document.body.scrollHeight + 40; // Buffer for padding/margins
                 sendToStreamlit("streamlit:setFrameHeight", { height: height });
                 console.log("JS: Set frame height to", height);
             }
 
-            // Handle messages from Python
+            let isProcessing = false;
+
             function onMessage(event) {
                 const data = event.data;
-
-                // Handle Streamlit render events
                 if (data.type === "streamlit:render") {
                     const args = data.args;
 
                     console.log(
-                        "JS: Received data from Python:",
+                        "JS: Received from Python - prompt:",
                         args.input_value,
+                        "clicked:",
+                        args.button_clicked,
                     );
 
-                    // Update the display of Python value
+                    // Update prompt display
                     const pythonValueEl =
                         document.getElementById("python_value");
                     if (pythonValueEl) {
-                        pythonValueEl.textContent =
-                            args.input_value || "Waiting...";
+                        pythonValueEl.textContent = args.input_value || "None";
                     }
 
-                    // Update component input with the value from Python
-                    const componentInput =
-                        document.getElementById("component_input");
-                    if (componentInput && args.input_value) {
-                        // Only set if empty (preserves user edits in the component)
-                        if (!componentInput.value) {
-                            componentInput.value = args.input_value;
-                        }
-                    }
-
-                    // Update status
+                    // Reset status/response on new render (unless processing)
                     const statusEl = document.getElementById("status");
-                    if (statusEl) {
-                        statusEl.textContent =
-                            "Received: " + (args.input_value || "none");
+                    const responseEl = document.getElementById("response");
+                    if (!isProcessing) {
+                        if (statusEl) statusEl.textContent = "Ready";
+                        if (responseEl) responseEl.textContent = "None yet";
                     }
 
-                    // If button was clicked, process and send back
-                    if (args.button_clicked) {
-                        // Get current value from component input
-                        const componentValue = componentInput
-                            ? componentInput.value
+                    // Process if button clicked
+                    if (args.button_clicked && !isProcessing) {
+                        isProcessing = true;
+
+                        const apiKeyInput = document.getElementById("api_key");
+                        const apiKey = apiKeyInput
+                            ? apiKeyInput.value.trim()
                             : "";
-                        const processed =
-                            args.input_value + " + [" + componentValue + "]";
 
-                        console.log("JS: Sending back to Python:", processed);
-
-                        if (statusEl) {
-                            statusEl.textContent = "Processing...";
+                        if (!apiKey) {
+                            const err = "Error: Please enter your Groq API key";
+                            sendToStreamlit("streamlit:setComponentValue", {
+                                value: err,
+                            });
+                            if (statusEl) statusEl.textContent = err;
+                            if (responseEl) responseEl.textContent = "";
+                            isProcessing = false;
+                            setFrameHeight();
+                            return;
                         }
 
-                        // Send back to Streamlit
-                        setTimeout(() => {
+                        const prompt = args.input_value?.trim();
+                        if (!prompt) {
+                            const err = "Error: No prompt provided";
                             sendToStreamlit("streamlit:setComponentValue", {
-                                value: processed,
+                                value: err,
                             });
-                            if (statusEl) {
-                                statusEl.textContent = "Sent: " + processed;
-                            }
-                            // Update height after sending (in case status text grows)
+                            if (statusEl) statusEl.textContent = err;
+                            if (responseEl) responseEl.textContent = "";
+                            isProcessing = false;
                             setFrameHeight();
-                        }, 100);
+                            return;
+                        }
+
+                        if (statusEl)
+                            statusEl.textContent = "Calling Groq API...";
+                        if (responseEl)
+                            responseEl.textContent = "Generating response...";
+                        setFrameHeight();
+
+                        fetch(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: "Bearer " + apiKey,
+                                },
+                                body: JSON.stringify({
+                                    model: "llama-3.3-70b-versatile",
+                                    messages: [
+                                        { role: "user", content: prompt },
+                                    ],
+                                    temperature: 0.7,
+                                    max_tokens: 2048,
+                                }),
+                            },
+                        )
+                            .then(async (res) => {
+                                if (!res.ok) {
+                                    const errData = await res.json();
+                                    throw new Error(
+                                        errData.error?.message ||
+                                            `HTTP error ${res.status}`,
+                                    );
+                                }
+                                return res.json();
+                            })
+                            .then((data) => {
+                                const content =
+                                    data.choices?.[0]?.message?.content?.trim() ||
+                                    "No content received";
+                                sendToStreamlit("streamlit:setComponentValue", {
+                                    value: content,
+                                });
+                                if (responseEl)
+                                    responseEl.textContent = content;
+                                if (statusEl) statusEl.textContent = "Success";
+                            })
+                            .catch((err) => {
+                                console.error("Groq API error:", err);
+                                const errMsg =
+                                    "API Error: " +
+                                    (err.message || "Unknown error");
+                                sendToStreamlit("streamlit:setComponentValue", {
+                                    value: errMsg,
+                                });
+                                if (responseEl) responseEl.textContent = "";
+                                if (statusEl) statusEl.textContent = errMsg;
+                            })
+                            .finally(() => {
+                                isProcessing = false;
+                                setFrameHeight();
+                            });
                     }
 
-                    // IMPORTANT: Update height after any DOM changes
+                    // Always adjust height after render
                     setFrameHeight();
                 }
             }
 
-            // Initialize - wait for DOM to be ready
             document.addEventListener("DOMContentLoaded", function () {
-                console.log(
-                    "JS: DOM loaded, component input exists:",
-                    !!document.getElementById("component_input"),
-                );
+                console.log("JS: DOM loaded");
 
-                // Add input event listener to component input
-                const componentInput =
-                    document.getElementById("component_input");
-                if (componentInput) {
-                    componentInput.addEventListener("input", function (e) {
-                        console.log(
-                            "JS: Component input changed to:",
-                            e.target.value,
-                        );
-                        // Optional: update height if input grows (multiline would need this)
-                        setFrameHeight();
-                    });
-                }
-
-                // Listen for messages
                 window.addEventListener("message", onMessage);
 
-                // Tell Streamlit component is ready
                 sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
 
-                // IMPORTANT: Set initial height immediately after ready
                 setFrameHeight();
             });
         </script>
