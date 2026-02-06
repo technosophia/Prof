@@ -189,11 +189,16 @@ class UIRegistry:
             log("error", f"Error rendering {injection_point} from {module_key}: {str(e)}", exc_info=True)
             return None
 
-    def render_all(self, injection_point: str) -> List[Any]:
-        """Call all render functions for a specific injection point."""
+    def render(self, injection_point: str) -> Dict[str, Any]:
+        """Render all functions for a specific injection point.
+
+        Returns a dictionary where:
+        - For admin_tab: keys are tab names, values are content functions
+        - For other injection points: keys are module keys, values are results (usually None)
+        """
         self.ensure_initialized()
 
-        results = []
+        results = {}
         active_modules = set(self.module_handler.get_active_modules())
 
         for module_key, module_info in self.modules.items():
@@ -207,35 +212,36 @@ class UIRegistry:
             render_func = module_info['render_functions'].get(injection_point)
             if render_func:
                 result = self._execute_render(injection_point, module_key, render_func)
-                results.append(result)
+
+                if result is not None:
+                    if injection_point == 'admin_tab':
+                        # For admin tabs, expect (tab_name, content_func) tuple
+                        if isinstance(result, tuple) and len(result) == 2:
+                            tab_name, content_func = result
+                            results[tab_name] = content_func
+                            log("debug", f"ADDED TAB '{tab_name}' from {module_key}")
+                        else:
+                            log("warning", f"Module {module_key} returned invalid format for admin_tab. Expected (tab_name, content_func) tuple.")
+                    else:
+                        # For other injection points, store by module key
+                        results[module_key] = result
 
         return results
 
+    def render_all(self, injection_point: str) -> List[Any]:
+        """Legacy method: Call all render functions for a specific injection point.
+
+        Returns a list of results (for backward compatibility).
+        """
+        results_dict = self.render(injection_point)
+        return list(results_dict.values())
+
     def render_admin_tabs(self) -> Dict[str, Any]:
-        """Render all admin tabs from registered modules."""
-        self.ensure_initialized()
+        """Render all admin tabs from registered modules.
 
-        log("debug", "=== START COLLECTING ADMIN TABS ===")
-        admin_tabs = {}
-        active_modules = set(self.module_handler.get_active_modules())
-
-        for module_key, module_info in self.modules.items():
-            is_shared = module_info['is_shared']
-            base_name = module_info['base_name']
-            should_render = is_shared or (base_name in active_modules)
-
-            log("debug", f"Processing module {module_key} | shared: {is_shared} | base: {base_name} | render: {should_render}")
-
-            render_func = module_info['render_functions'].get('admin_tab')
-            if render_func and should_render:
-                result = self._execute_render('admin_tab', module_key, render_func)
-                log("debug", f"admin_tab result from {module_key}: {result}")
-                if result and isinstance(result, tuple) and len(result) == 2:
-                    tab_name, content_func = result
-                    admin_tabs[tab_name] = content_func
-                    log("debug", f"ADDED TAB '{tab_name}' from {module_key}")
-
-        log("debug", f"=== FINAL ADMIN TABS: {list(admin_tabs.keys())} ===")
+        Returns a dictionary of {tab_name: content_function}
+        """
+        admin_tabs = self.render("admin_tab")
         return admin_tabs
 
     def get_all_injection_points(self) -> List[str]:
