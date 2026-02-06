@@ -46,10 +46,6 @@ result = test_component(
 # Store and display result
 if result is not None:
     st.session_state.result = result
-    st.write(f"**[DEBUG] Received from JS:** `{result}`")
-
-# Display result
-if st.session_state.result:
     st.success(f"**Result:** {st.session_state.result}")
 else:
     st.info("Enter text above and click 'Test' to start communication")

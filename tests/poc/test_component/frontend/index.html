@@ -17,6 +17,65 @@
         </div>
 
         <div style="margin-bottom: 15px">
+            <label for="api_url"><strong>API URL:</strong></label>
+            <input
+                id="api_url"
+                type="text"
+                placeholder="Enter API URL"
+                style="
+                    width: 100%;
+                    padding: 8px;
+                    margin: 5px 0;
+                    box-sizing: border-box;
+                "
+            />
+        </div>
+
+        <div style="margin-bottom: 15px">
+            <label for="model"><strong>Model:</strong></label>
+            <input
+                id="model"
+                type="text"
+                placeholder="Enter model name"
+                style="
+                    width: 100%;
+                    padding: 8px;
+                    margin: 5px 0;
+                    box-sizing: border-box;
+                "
+            />
+        </div>
+
+        <div style="margin-bottom: 15px; display: flex; gap: 10px">
+            <button
+                id="save_config"
+                style="
+                    padding: 8px 16px;
+                    background-color: #4caf50;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                "
+            >
+                Save Config
+            </button>
+            <button
+                id="clear_config"
+                style="
+                    padding: 8px 16px;
+                    background-color: #f44336;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                "
+            >
+                Clear Config
+            </button>
+        </div>
+
+        <div style="margin-bottom: 15px">
             <strong>Received Prompt:</strong>
             <span id="python_value">Waiting...</span>
         </div>
@@ -30,24 +89,27 @@
             "
         >
             <div><strong>Status:</strong> <span id="status">Ready</span></div>
-            <div style="margin-top: 10px">
-                <strong>Response:</strong>
-                <pre
-                    id="response"
-                    style="
-                        white-space: pre-wrap;
-                        margin: 8px 0;
-                        max-height: 400px;
-                        overflow-y: auto;
-                    "
-                >
-None yet</pre
-                >
-            </div>
         </div>
 
         <script>
             console.log("JS Component Ready");
+
+            // Configuration storage keys
+            const STORAGE_KEYS = {
+                API_KEY: "groq_api_key",
+                API_URL: "groq_api_url",
+                MODEL: "groq_model",
+            };
+
+            // Default values
+            const DEFAULT_CONFIG = {
+                [STORAGE_KEYS.API_URL]:
+                    "https://api.groq.com/openai/v1/chat/completions",
+                [STORAGE_KEYS.MODEL]: "llama-3.3-70b-versatile",
+            };
+
+            // DOM Elements cache
+            const elements = {};
 
             function sendToStreamlit(type, data) {
                 window.parent.postMessage(
@@ -61,148 +123,288 @@ None yet</pre
             }
 
             function setFrameHeight() {
-                let height = document.body.scrollHeight + 40; // Buffer for padding/margins
+                const height = document.body.scrollHeight + 40;
                 sendToStreamlit("streamlit:setFrameHeight", { height: height });
                 console.log("JS: Set frame height to", height);
+            }
+
+            // DOM helper
+            function getElement(id) {
+                if (!elements[id]) {
+                    elements[id] = document.getElementById(id);
+                }
+                return elements[id];
+            }
+
+            // Update UI helper
+            function updateUI(elementId, content, color = "") {
+                const element = getElement(elementId);
+                if (element) {
+                    element.textContent = content;
+                    if (color) element.style.color = color;
+                }
+            }
+
+            // Load configuration from local storage
+            function loadConfig() {
+                const config = {
+                    apiKey: localStorage.getItem(STORAGE_KEYS.API_KEY) || "",
+                    apiUrl:
+                        localStorage.getItem(STORAGE_KEYS.API_URL) ||
+                        DEFAULT_CONFIG[STORAGE_KEYS.API_URL],
+                    model:
+                        localStorage.getItem(STORAGE_KEYS.MODEL) ||
+                        DEFAULT_CONFIG[STORAGE_KEYS.MODEL],
+                };
+
+                const apiKeyInput = getElement("api_key");
+                const apiUrlInput = getElement("api_url");
+                const modelInput = getElement("model");
+
+                if (apiKeyInput) apiKeyInput.value = config.apiKey;
+                if (apiUrlInput) apiUrlInput.value = config.apiUrl;
+                if (modelInput) modelInput.value = config.model;
+
+                console.log("Loaded config from localStorage:", config);
+                return config;
+            }
+
+            // Save configuration to local storage
+            function saveConfig() {
+                const config = getCurrentConfig();
+
+                if (config.apiKey) {
+                    localStorage.setItem(STORAGE_KEYS.API_KEY, config.apiKey);
+                } else {
+                    localStorage.removeItem(STORAGE_KEYS.API_KEY);
+                }
+
+                localStorage.setItem(STORAGE_KEYS.API_URL, config.apiUrl);
+                localStorage.setItem(STORAGE_KEYS.MODEL, config.model);
+
+                console.log("Configuration saved:", config);
+                showStatusMessage("Configuration saved!", "#4CAF50");
+                setFrameHeight();
+            }
+
+            // Clear configuration from local storage
+            function clearConfig() {
+                localStorage.removeItem(STORAGE_KEYS.API_KEY);
+                localStorage.removeItem(STORAGE_KEYS.API_URL);
+                localStorage.removeItem(STORAGE_KEYS.MODEL);
+
+                const config = loadConfig(); // This will reset to defaults
+                console.log("Configuration cleared");
+                showStatusMessage("Configuration cleared!", "#f44336");
+                setFrameHeight();
+            }
+
+            // Get current configuration from form inputs
+            function getCurrentConfig() {
+                const apiKeyInput = getElement("api_key");
+                const apiUrlInput = getElement("api_url");
+                const modelInput = getElement("model");
+
+                return {
+                    apiKey: apiKeyInput ? apiKeyInput.value.trim() : "",
+                    apiUrl: apiUrlInput
+                        ? apiUrlInput.value.trim() ||
+                          DEFAULT_CONFIG[STORAGE_KEYS.API_URL]
+                        : DEFAULT_CONFIG[STORAGE_KEYS.API_URL],
+                    model: modelInput
+                        ? modelInput.value.trim() ||
+                          DEFAULT_CONFIG[STORAGE_KEYS.MODEL]
+                        : DEFAULT_CONFIG[STORAGE_KEYS.MODEL],
+                };
+            }
+
+            // Show temporary status message
+            function showStatusMessage(message, color = "") {
+                updateUI("status", message, color);
+                setTimeout(() => {
+                    updateUI("status", "Ready");
+                }, 2000);
+            }
+
+            // Update response display
+            function updateResponse(content) {
+                const responseEl = getElement("response");
+                if (responseEl) {
+                    responseEl.innerHTML = content
+                        ? `<pre style="margin: 0;">${content}</pre>`
+                        : "<em>No response yet</em>";
+                }
+            }
+
+            // Validate inputs
+            function validateInputs(prompt, apiKey) {
+                if (!apiKey) {
+                    return "Error: Please enter your Groq API key";
+                }
+                if (!prompt) {
+                    return "Error: No prompt provided";
+                }
+                return null;
+            }
+
+            // Call API
+            async function callAPI(prompt, config) {
+                try {
+                    updateUI("status", "Calling API...");
+                    updateResponse("Generating response...");
+
+                    const response = await fetch(config.apiUrl, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: "Bearer " + config.apiKey,
+                        },
+                        body: JSON.stringify({
+                            model: config.model,
+                            messages: [{ role: "user", content: prompt }],
+                            temperature: 0.7,
+                            max_tokens: 2048,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        throw new Error(
+                            errData.error?.message ||
+                                `HTTP error ${response.status}`,
+                        );
+                    }
+
+                    const data = await response.json();
+                    return (
+                        data.choices?.[0]?.message?.content?.trim() ||
+                        "No content received"
+                    );
+                } catch (error) {
+                    console.error("API error:", error);
+                    throw new Error(
+                        "API Error: " + (error.message || "Unknown error"),
+                    );
+                }
             }
 
             let isProcessing = false;
 
             function onMessage(event) {
                 const data = event.data;
-                if (data.type === "streamlit:render") {
-                    const args = data.args;
+                if (data.type !== "streamlit:render") return;
 
-                    console.log(
-                        "JS: Received from Python - prompt:",
-                        args.input_value,
-                        "clicked:",
-                        args.button_clicked,
-                    );
+                const args = data.args;
 
-                    // Update prompt display
-                    const pythonValueEl =
-                        document.getElementById("python_value");
-                    if (pythonValueEl) {
-                        pythonValueEl.textContent = args.input_value || "None";
-                    }
+                console.log(
+                    "JS: Received from Python - prompt:",
+                    args.input_value,
+                    "clicked:",
+                    args.button_clicked,
+                );
 
-                    // Reset status/response on new render (unless processing)
-                    const statusEl = document.getElementById("status");
-                    const responseEl = document.getElementById("response");
-                    if (!isProcessing) {
-                        if (statusEl) statusEl.textContent = "Ready";
-                        if (responseEl) responseEl.textContent = "None yet";
-                    }
+                // Update prompt display
+                updateUI("python_value", args.input_value || "None");
 
-                    // Process if button clicked
-                    if (args.button_clicked && !isProcessing) {
-                        isProcessing = true;
-
-                        const apiKeyInput = document.getElementById("api_key");
-                        const apiKey = apiKeyInput
-                            ? apiKeyInput.value.trim()
-                            : "";
-
-                        if (!apiKey) {
-                            const err = "Error: Please enter your Groq API key";
-                            sendToStreamlit("streamlit:setComponentValue", {
-                                value: err,
-                            });
-                            if (statusEl) statusEl.textContent = err;
-                            if (responseEl) responseEl.textContent = "";
-                            isProcessing = false;
-                            setFrameHeight();
-                            return;
-                        }
-
-                        const prompt = args.input_value?.trim();
-                        if (!prompt) {
-                            const err = "Error: No prompt provided";
-                            sendToStreamlit("streamlit:setComponentValue", {
-                                value: err,
-                            });
-                            if (statusEl) statusEl.textContent = err;
-                            if (responseEl) responseEl.textContent = "";
-                            isProcessing = false;
-                            setFrameHeight();
-                            return;
-                        }
-
-                        if (statusEl)
-                            statusEl.textContent = "Calling Groq API...";
-                        if (responseEl)
-                            responseEl.textContent = "Generating response...";
-                        setFrameHeight();
-
-                        fetch(
-                            "https://api.groq.com/openai/v1/chat/completions",
-                            {
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json",
-                                    Authorization: "Bearer " + apiKey,
-                                },
-                                body: JSON.stringify({
-                                    model: "llama-3.3-70b-versatile",
-                                    messages: [
-                                        { role: "user", content: prompt },
-                                    ],
-                                    temperature: 0.7,
-                                    max_tokens: 2048,
-                                }),
-                            },
-                        )
-                            .then(async (res) => {
-                                if (!res.ok) {
-                                    const errData = await res.json();
-                                    throw new Error(
-                                        errData.error?.message ||
-                                            `HTTP error ${res.status}`,
-                                    );
-                                }
-                                return res.json();
-                            })
-                            .then((data) => {
-                                const content =
-                                    data.choices?.[0]?.message?.content?.trim() ||
-                                    "No content received";
-                                sendToStreamlit("streamlit:setComponentValue", {
-                                    value: content,
-                                });
-                                if (responseEl)
-                                    responseEl.textContent = content;
-                                if (statusEl) statusEl.textContent = "Success";
-                            })
-                            .catch((err) => {
-                                console.error("Groq API error:", err);
-                                const errMsg =
-                                    "API Error: " +
-                                    (err.message || "Unknown error");
-                                sendToStreamlit("streamlit:setComponentValue", {
-                                    value: errMsg,
-                                });
-                                if (responseEl) responseEl.textContent = "";
-                                if (statusEl) statusEl.textContent = errMsg;
-                            })
-                            .finally(() => {
-                                isProcessing = false;
-                                setFrameHeight();
-                            });
-                    }
-
-                    // Always adjust height after render
-                    setFrameHeight();
+                // Reset UI on new render (unless processing)
+                if (!isProcessing) {
+                    updateUI("status", "Ready");
+                    updateResponse("");
                 }
+
+                // Process if button clicked
+                if (args.button_clicked && !isProcessing) {
+                    isProcessing = true;
+
+                    const prompt = args.input_value?.trim();
+                    const config = getCurrentConfig();
+
+                    // Validate inputs
+                    const error = validateInputs(prompt, config.apiKey);
+                    if (error) {
+                        sendToStreamlit("streamlit:setComponentValue", {
+                            value: error,
+                        });
+                        updateUI("status", error, "#f44336");
+                        updateResponse("");
+                        isProcessing = false;
+                        setFrameHeight();
+                        return;
+                    }
+
+                    // Call API
+                    callAPI(prompt, config)
+                        .then((content) => {
+                            sendToStreamlit("streamlit:setComponentValue", {
+                                value: content,
+                            });
+                            updateResponse(content);
+                            updateUI("status", "Success", "#4CAF50");
+                        })
+                        .catch((error) => {
+                            const errorMsg = error.message;
+                            sendToStreamlit("streamlit:setComponentValue", {
+                                value: errorMsg,
+                            });
+                            updateUI("status", errorMsg, "#f44336");
+                            updateResponse("");
+                        })
+                        .finally(() => {
+                            isProcessing = false;
+                            setFrameHeight();
+                        });
+                }
+
+                // Always adjust height after render
+                setFrameHeight();
             }
 
+            // Initialize the component
             document.addEventListener("DOMContentLoaded", function () {
                 console.log("JS: DOM loaded");
 
+                // Load saved configuration
+                loadConfig();
+
+                // Set up button event listeners
+                getElement("save_config")?.addEventListener(
+                    "click",
+                    saveConfig,
+                );
+                getElement("clear_config")?.addEventListener(
+                    "click",
+                    clearConfig,
+                );
+
+                // Auto-save API URL and model on blur
+                ["api_url", "model"].forEach((inputId) => {
+                    const input = getElement(inputId);
+                    if (input) {
+                        input.addEventListener("blur", () => {
+                            const value = input.value.trim();
+                            const storageKey =
+                                inputId === "api_url"
+                                    ? STORAGE_KEYS.API_URL
+                                    : STORAGE_KEYS.MODEL;
+                            const defaultValue =
+                                inputId === "api_url"
+                                    ? DEFAULT_CONFIG[STORAGE_KEYS.API_URL]
+                                    : DEFAULT_CONFIG[STORAGE_KEYS.MODEL];
+
+                            localStorage.setItem(
+                                storageKey,
+                                value || defaultValue,
+                            );
+                            console.log(`${inputId} auto-saved`);
+                        });
+                    }
+                });
+
+                // Set up message listener
                 window.addEventListener("message", onMessage);
 
+                // Notify Streamlit
                 sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
-
                 setFrameHeight();
             });
         </script>
