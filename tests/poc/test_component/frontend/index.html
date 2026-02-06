@@ -1,11 +1,30 @@
 <!doctype html>
 <html>
     <body>
-        <input
-            id="message_input"
-            style="width: 100%; padding: 8px; margin: 10px 0"
-        />
-        <div id="status">Ready</div>
+        <div style="margin-bottom: 10px">
+            <label for="component_input">Component Input:</label>
+            <input
+                id="component_input"
+                type="text"
+                placeholder="Enter text in component..."
+                style="width: 100%; padding: 8px; margin: 5px 0"
+            />
+        </div>
+
+        <div
+            style="
+                margin: 10px 0;
+                padding: 8px;
+                background-color: #f0f0f0;
+                border-radius: 4px;
+            "
+        >
+            <div>
+                <strong>Received from Python:</strong>
+                <span id="python_value">Waiting...</span>
+            </div>
+            <div><strong>Status:</strong> <span id="status">Ready</span></div>
+        </div>
 
         <script>
             // Show init alert
@@ -23,35 +42,117 @@
                 );
             }
 
+            // NEW: Function to set the iframe height dynamically
+            function setFrameHeight() {
+                // scrollHeight captures the full content height even if there is overflow
+                let height = document.body.scrollHeight;
+                // Add a small buffer to avoid cutting off borders/padding
+                height += 30;
+                sendToStreamlit("streamlit:setFrameHeight", { height: height });
+                console.log("JS: Set frame height to", height);
+            }
+
             // Handle messages from Python
             function onMessage(event) {
-                if (event.data.type === "streamlit:render") {
-                    const args = event.data.args;
+                const data = event.data;
 
-                    // Show received alert
-                    console.log("JS: Received data from Python!");
+                // Handle Streamlit render events
+                if (data.type === "streamlit:render") {
+                    const args = data.args;
 
-                    // Update input
-                    document.getElementById("message_input").value =
-                        args.input_value;
-                    document.getElementById("status").textContent =
-                        "Received: " + args.input_value;
+                    console.log(
+                        "JS: Received data from Python:",
+                        args.input_value,
+                    );
+
+                    // Update the display of Python value
+                    const pythonValueEl =
+                        document.getElementById("python_value");
+                    if (pythonValueEl) {
+                        pythonValueEl.textContent =
+                            args.input_value || "Waiting...";
+                    }
+
+                    // Update component input with the value from Python
+                    const componentInput =
+                        document.getElementById("component_input");
+                    if (componentInput && args.input_value) {
+                        // Only set if empty (preserves user edits in the component)
+                        if (!componentInput.value) {
+                            componentInput.value = args.input_value;
+                        }
+                    }
+
+                    // Update status
+                    const statusEl = document.getElementById("status");
+                    if (statusEl) {
+                        statusEl.textContent =
+                            "Received: " + (args.input_value || "none");
+                    }
 
                     // If button was clicked, process and send back
                     if (args.button_clicked) {
-                        const processed = args.input_value + "... received";
+                        // Get current value from component input
+                        const componentValue = componentInput
+                            ? componentInput.value
+                            : "";
+                        const processed =
+                            args.input_value + " + [" + componentValue + "]";
+
+                        console.log("JS: Sending back to Python:", processed);
+
+                        if (statusEl) {
+                            statusEl.textContent = "Processing...";
+                        }
+
+                        // Send back to Streamlit
                         setTimeout(() => {
                             sendToStreamlit("streamlit:setComponentValue", {
                                 value: processed,
                             });
+                            if (statusEl) {
+                                statusEl.textContent = "Sent: " + processed;
+                            }
+                            // Update height after sending (in case status text grows)
+                            setFrameHeight();
                         }, 100);
                     }
+
+                    // IMPORTANT: Update height after any DOM changes
+                    setFrameHeight();
                 }
             }
 
-            // Initialize
-            window.addEventListener("message", onMessage);
-            sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+            // Initialize - wait for DOM to be ready
+            document.addEventListener("DOMContentLoaded", function () {
+                console.log(
+                    "JS: DOM loaded, component input exists:",
+                    !!document.getElementById("component_input"),
+                );
+
+                // Add input event listener to component input
+                const componentInput =
+                    document.getElementById("component_input");
+                if (componentInput) {
+                    componentInput.addEventListener("input", function (e) {
+                        console.log(
+                            "JS: Component input changed to:",
+                            e.target.value,
+                        );
+                        // Optional: update height if input grows (multiline would need this)
+                        setFrameHeight();
+                    });
+                }
+
+                // Listen for messages
+                window.addEventListener("message", onMessage);
+
+                // Tell Streamlit component is ready
+                sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+
+                // IMPORTANT: Set initial height immediately after ready
+                setFrameHeight();
+            });
         </script>
     </body>
 </html>
