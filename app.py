@@ -147,78 +147,6 @@ def can_access_admin(current_user):
     from shared.common import UserRole
     return current_user.get("role") in [UserRole.ADMIN.value, UserRole.MASTER.value]
 
-def get_user_preferred_language(user):
-    """Get user's preferred language from their profile settings."""
-    if not user:
-        return None
-
-    # Check if user has profile settings
-    profile = user.get("profile", {})
-
-    # First check new settings structure
-    if "settings" in profile:
-        settings = profile.get("settings", {})
-        if "language" in settings:
-            return settings.get("language")
-
-    # Fall back to old profile language field
-    if "language" in profile:
-        return profile.get("language")
-
-    return None
-
-def get_user_preferred_llm(user):
-    """Get user's preferred LLM from their profile settings."""
-    if not user:
-        return None
-
-    # Check if user has profile settings
-    profile = user.get("profile", {})
-
-    # Check new settings structure
-    if "settings" in profile:
-        settings = profile.get("settings", {})
-        if "default_llm" in settings:
-            llm_id = settings.get("default_llm")
-            # Check if this LLM is still available
-            if llm_id:
-                available_llms = get_available_llms()
-                for llm in available_llms:
-                    if llm.get("id") == llm_id and llm.get("available", False):
-                        return llm_id
-    return None
-
-def apply_user_preferences(user):
-    """Apply user's saved preferences to the current session."""
-    if not user:
-        return False
-
-    applied = False
-
-    # Apply language preference
-    preferred_lang = get_user_preferred_language(user)
-    if preferred_lang and preferred_lang != st.session_state.current_language:
-        available_langs = get_available_languages()
-        if preferred_lang in available_langs:
-            st.session_state.current_language = preferred_lang
-            log("info", f"Applied user's preferred language: {preferred_lang}")
-            applied = True
-
-    # Apply LLM preference
-    preferred_llm = get_user_preferred_llm(user)
-    if preferred_llm:
-        current_llm_info = get_current_llm_info()
-        current_llm_id = current_llm_info.get("id") if current_llm_info else None
-
-        if preferred_llm != current_llm_id:
-            if set_current_llm(preferred_llm):
-                log("info", f"Applied user's preferred LLM: {preferred_llm}")
-                applied = True
-            else:
-                log("warning", f"Failed to apply user's preferred LLM: {preferred_llm}")
-
-    return applied
-
 def main():
     # Log main function entry
     log("debug", "Entering main function")
@@ -254,119 +182,9 @@ def main():
 
     # NEW: Apply user preferences if a user is logged in
     current_user = st.session_state.get("current_user")
-    if current_user and "user_preferences_applied" not in st.session_state:
-        if apply_user_preferences(current_user):
-            # If preferences were applied, we need to rerun to update the UI
-            st.session_state.user_preferences_applied = True
-            st.rerun()
-        else:
-            st.session_state.user_preferences_applied = True
 
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:
-        st.title("🧭 Configuration")
-
-        col1, col2 = st.columns([2,3])
-
-        # Show available languages - sorted (en will naturally be first)
-        available_langs = get_available_languages()
-
-        # Log available languages
-        log("debug", f"Available languages: {available_langs}")
-
-        # Better mapping for display names (extensible)
-        lang_names = {
-            "en": "English",
-            "fr": "Français",
-            # Add more here later
-        }
-
-        # Compute default index based on current user's preference
-        current_lang = st.session_state.current_language
-
-        # Get user's preferred language if logged in
-        if current_user:
-            user_preferred_lang = get_user_preferred_language(current_user)
-            if user_preferred_lang and user_preferred_lang in available_langs:
-                current_lang = user_preferred_lang
-
-        try:
-            default_index = available_langs.index(current_lang)
-        except ValueError:
-            default_index = 0  # fallback to first
-
-        # Language selector
-        lang_option = col1.selectbox(
-            "🌍 " + _("language_select"),
-            options=available_langs,
-            format_func=lambda x: lang_names.get(x, x.upper()),
-            index=default_index,
-            key="language_selector"
-        )
-
-        # Handle language change
-        if lang_option != st.session_state.current_language:
-            old_lang = st.session_state.current_language
-            st.session_state.current_language = lang_option
-
-            log("info", f"Language changed from '{old_lang}' to '{lang_option}'")
-            st.rerun()
-
-        # Get available LLMs
-        available_llms_list = get_available_llms()
-
-        # Get current LLM info
-        current_llm_info = get_current_llm_info()
-
-        # Get user's preferred LLM if logged in
-        user_preferred_llm = None
-        if current_user:
-            user_preferred_llm = get_user_preferred_llm(current_user)
-
-        # Create list of available LLMs for dropdown
-        llm_options = []
-        llm_display_names = []
-
-        for llm_item in available_llms_list:
-            if llm_item["available"]:
-                status_icon = "🟢" if llm_item["enabled"] else "🔴"
-                display_name = f"{status_icon} {llm_item['name']} ({llm_item['type']})"
-                llm_options.append(llm_item["id"])
-                llm_display_names.append(display_name)
-
-        # LLM selector
-        if llm_options:
-            # Find current LLM index
-            current_index = 0
-            current_llm_id = current_llm_info.get("id") if current_llm_info else None
-
-            # Use user's preferred LLM as default if available
-            if user_preferred_llm and user_preferred_llm in llm_options:
-                try:
-                    current_index = llm_options.index(user_preferred_llm)
-                except ValueError:
-                    pass
-            elif current_llm_id and current_llm_id in llm_options:
-                try:
-                    current_index = llm_options.index(current_llm_id)
-                except ValueError:
-                    pass
-
-            selected_llm_id = col2.selectbox(
-                "🤖 " + _("select_llm"),
-                options=llm_options,
-                format_func=lambda x: llm_display_names[llm_options.index(x)],
-                index=current_index,
-                key="llm_selector"
-            )
-
-            # Check if LLM changed
-            if selected_llm_id != (current_llm_info.get("id") if current_llm_info else None):
-                if set_current_llm(selected_llm_id):
-                    log("info", f"LLM changed to: {selected_llm_id}")
-                    st.rerun()
-                else:
-                    st.error(f"Failed to switch to LLM: {selected_llm_id}")
 
         # Navigation buttons
         col1, col2, col3 = st.columns(3)
@@ -398,27 +216,6 @@ def main():
 
         # Show current language and LLM info
         st.caption(_("current_language"))
-
-        # Show current user's preferences if available
-        if current_user:
-            user_lang = get_user_preferred_language(current_user)
-            user_llm = get_user_preferred_llm(current_user)
-
-            if user_lang:
-                lang_display = lang_names.get(user_lang, user_lang.upper())
-                st.caption(f"👤 User pref: 🌍 {lang_display}")
-
-            if user_llm and current_llm_info:
-                # Find the LLM name
-                llm_name = current_llm_info.get("name", "Unknown")
-                st.caption(f"👤 User pref: 🤖 {llm_name}")
-
-        # Show current LLM info in sidebar
-        if current_llm_info:
-            st.info(f"**Current LLM:** {current_llm_info['name']}")
-            st.caption(f"Type: {current_llm_info['type']}")
-            st.caption(f"Model: {current_llm_info['model']}")
-            st.caption(f"Status: {'✅ Available' if current_llm_info['available'] else '❌ Unavailable'}")
 
     # Main content - Page Router
     if st.session_state.current_page == "chat":

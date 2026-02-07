@@ -6,7 +6,56 @@ User Management UI Module
 import streamlit as st
 from shared.common import get_user_manager, UserRole
 from shared.common import _, log, get_config
+from shared.llm import set_current_llm, get_current_llm_info
 
+
+def apply_user_preferences(user):
+    """Apply user's saved preferences to the current session.
+
+    Args:
+        user: User dictionary from user manager
+
+    Returns:
+        bool: True if any preferences were applied, False otherwise
+    """
+    if not user:
+        return False
+
+    # Import settings manager
+    try:
+        from settings_ui import get_user_settings_manager
+        settings_manager = get_user_settings_manager()
+    except ImportError:
+        log("warning", "Settings UI module not available for applying preferences")
+        return False
+
+    applied = False
+
+    # Get user preferences
+    preferred_lang, preferred_llm = settings_manager.get_user_preferences(user)
+
+    # Apply language preference
+    if preferred_lang and preferred_lang != st.session_state.current_language:
+        from shared.common import get_available_languages
+        available_langs = get_available_languages()
+        if preferred_lang in available_langs:
+            st.session_state.current_language = preferred_lang
+            log("info", f"Applied user's preferred language: {preferred_lang}")
+            applied = True
+
+    # Apply LLM preference
+    if preferred_llm:
+        current_llm_info = get_current_llm_info()
+        current_llm_id = current_llm_info.get("id") if current_llm_info else None
+
+        if preferred_llm != current_llm_id:
+            if set_current_llm(preferred_llm):
+                log("info", f"Applied user's preferred LLM: {preferred_llm}")
+                applied = True
+            else:
+                log("warning", f"Failed to apply user's preferred LLM: {preferred_llm}")
+
+    return applied
 
 def auto_login_first_user():
     """Automatically log in the first available user if none is logged in."""
@@ -33,6 +82,9 @@ def auto_login_first_user():
 
                 # Set as current user
                 st.session_state.current_user = first_user
+
+                # Apply user preferences
+                apply_user_preferences(first_user)
 
                 # Update last login
                 get_user_manager().update_last_login(first_user['id'])
@@ -100,6 +152,9 @@ def inject_ui_sidebar():
                 if st.button("Login as User"):
                     st.session_state.user_manually_logged_out = False
                     st.session_state.current_user = filtered_users[selected_user]
+
+                    # Apply user preferences when logging in
+                    apply_user_preferences(st.session_state.current_user)
 
                     # Update last login
                     get_user_manager().update_last_login(selected_user)
@@ -288,6 +343,8 @@ def render_user_form():
                                 updated_user = get_user_manager().get_user(st.session_state.edit_user_id)
                                 if updated_user:
                                     st.session_state.current_user = updated_user
+                                    # Apply updated preferences
+                                    apply_user_preferences(updated_user)
                             log("info", f"User profile updated: {name}")
                         else:
                             st.error("❌ Failed to update user (permission denied)")
@@ -309,6 +366,8 @@ def render_user_form():
                             new_user = get_user_manager().get_user(user_id)
                             if new_user:
                                 st.session_state.current_user = new_user
+                                # Apply preferences for new user
+                                apply_user_preferences(new_user)
                                 st.session_state.just_auto_logged_in = True
                                 log("info", f"Auto-logged in newly created user: {name}")
 

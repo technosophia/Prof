@@ -10,7 +10,7 @@ Provides user settings interface where users can customize:
 """
 
 import streamlit as st
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from shared.common import _, log, get_config, get_user_manager, UserRole
 from shared.llm import get_available_llms, set_current_llm, get_current_llm_info
 
@@ -111,6 +111,53 @@ class UserSettingsManager:
                 })
 
         return options
+
+    def get_user_preferences(self, user: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Get user's preferred language and LLM from their profile settings.
+
+        Args:
+            user: User dictionary from user manager
+
+        Returns:
+            Tuple of (preferred_language, preferred_llm_id) or (None, None) if not found
+        """
+        if not user:
+            return None, None
+
+        # Check if user has profile settings
+        profile = user.get("profile", {})
+        preferred_lang = None
+        preferred_llm = None
+
+        # Check new settings structure
+        if "settings" in profile:
+            settings = profile.get("settings", {})
+
+            # Get language preference
+            if "language" in settings:
+                preferred_lang = settings.get("language")
+            else:
+                # Fall back to old profile language field
+                if "language" in profile:
+                    preferred_lang = profile.get("language")
+
+            # Get LLM preference
+            if "default_llm" in settings:
+                llm_id = settings.get("default_llm")
+                # Check if this LLM is still available
+                if llm_id:
+                    available_llms = get_available_llms()
+                    for llm in available_llms:
+                        if llm.get("id") == llm_id and llm.get("available", False):
+                            preferred_llm = llm_id
+                            break
+        else:
+            # Old structure: language might be directly in profile
+            if "language" in profile:
+                preferred_lang = profile.get("language")
+
+        return preferred_lang, preferred_llm
 
 def show_settings_content():
     """Display the settings page content."""
@@ -405,8 +452,121 @@ def inject_ui_settings_content():
     return show_settings_content()
 
 def inject_ui_sidebar():
-    """Add settings button to sidebar (optional)."""
-    # Settings button is already in main navigation
+    """Add language and LLM selectors to sidebar that reflect user preferences."""
+    from shared.common import get_available_languages
+    from shared.llm import get_available_llms, set_current_llm, get_current_llm_info
+
+    # Get current user
+    current_user = st.session_state.get("current_user")
+    if not current_user:
+        return None
+
+    # Get settings manager
+    settings_manager = get_user_settings_manager()
+
+    # Get user preferences
+    preferred_lang, preferred_llm = settings_manager.get_user_preferences(current_user)
+
+    # Show available languages
+    available_langs = get_available_languages()
+
+    # Better mapping for display names
+    lang_names = {
+        "en": "English",
+        "fr": "Français",
+        # Add more here later
+    }
+
+    # Compute default index based on user preference or current session
+    current_lang = preferred_lang if preferred_lang else st.session_state.current_language
+
+    try:
+        default_index = available_langs.index(current_lang)
+    except ValueError:
+        default_index = 0  # fallback to first
+
+    # Language selector - in a container to control layout
+    with st.container():
+        col1, col2 = st.columns([2, 3])
+
+        # Language selector
+        lang_option = col1.selectbox(
+            "🌍 " + _("language_select"),
+            options=available_langs,
+            format_func=lambda x: lang_names.get(x, x.upper()),
+            index=default_index,
+            key="language_selector"
+        )
+
+        # Handle language change
+        if lang_option != st.session_state.current_language:
+            old_lang = st.session_state.current_language
+            st.session_state.current_language = lang_option
+
+            log("info", f"Language changed from '{old_lang}' to '{lang_option}' (via sidebar)")
+            st.rerun()
+
+    # Get available LLMs
+    available_llms_list = get_available_llms()
+
+    # Get current LLM info
+    current_llm_info = get_current_llm_info()
+
+    # Create list of available LLMs for dropdown
+    llm_options = []
+    llm_display_names = []
+
+    for llm_item in available_llms_list:
+        if llm_item["available"]:
+            status_icon = "🟢" if llm_item["enabled"] else "🔴"
+            display_name = f"{status_icon} {llm_item['name']} ({llm_item['type']})"
+            llm_options.append(llm_item["id"])
+            llm_display_names.append(display_name)
+
+    # LLM selector
+    if llm_options:
+        # Find current LLM index
+        current_index = 0
+        current_llm_id = current_llm_info.get("id") if current_llm_info else None
+
+        # Use user's preferred LLM as default if available
+        if preferred_llm and preferred_llm in llm_options:
+            try:
+                current_index = llm_options.index(preferred_llm)
+            except ValueError:
+                pass
+        elif current_llm_id and current_llm_id in llm_options:
+            try:
+                current_index = llm_options.index(current_llm_id)
+            except ValueError:
+                pass
+
+        selected_llm_id = col2.selectbox(
+            "🤖 " + _("select_llm"),
+            options=llm_options,
+            format_func=lambda x: llm_display_names[llm_options.index(x)],
+            index=current_index,
+            key="llm_selector"
+        )
+
+        # Check if LLM changed
+        if selected_llm_id != (current_llm_info.get("id") if current_llm_info else None):
+            if set_current_llm(selected_llm_id):
+                log("info", f"LLM changed to: {selected_llm_id} (via sidebar)")
+                st.rerun()
+            else:
+                st.error(f"Failed to switch to LLM: {selected_llm_id}")
+
+    # Show current preferences info
+    if preferred_lang:
+        lang_display = lang_names.get(preferred_lang, preferred_lang.upper())
+        st.caption(f"👤 User pref: 🌍 {lang_display}")
+
+    if preferred_llm and current_llm_info:
+        # Find the LLM name
+        llm_name = current_llm_info.get("name", "Unknown")
+        st.caption(f"👤 User pref: 🤖 {llm_name}")
+
     return None
 
 def inject_ui_initialize():
