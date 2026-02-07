@@ -1,7 +1,7 @@
 {
   "hello_world": "Bonjour le monde!",
   "welcome_message": "Bienvenue dans notre application multilingue!",
-  "language_select": "Sélectionnez votre langue:",
+  "language_select": "Langue:",
   "current_language": "Langue actuelle: Français",
   "description": "Ceci est un exemple simple d'application Streamlit multilingue.",
   "button_text": "Cliquez-moi!",
@@ -11,7 +11,7 @@
   "button_text": "Cliquez-moi",
   "button_clicked": "Bouton cliqué!",
   "llm_selection": "Sélection LLM",
-  "select_llm": "Sélectionner le modèle IA",
+  "select_llm": "Modèle IA",
   "llm_chat": "Chat IA",
   "enter_message": "Entrez votre message",
   "default_prompt": "Bonjour! Comment pouvez-vous m'aider aujourd'hui?",

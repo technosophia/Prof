@@ -149,11 +149,8 @@ def inject_ui_main_header():
                 st.session_state.show_user_form = True
                 st.rerun()
         with col2:
-            if st.button("🔄 Switch User", key="switch_header_btn"):
-                st.session_state.user_manually_logged_out = True
-                st.session_state.current_user = None
-                st.session_state.current_conversation_id = None
-                st.session_state.conversation_messages = []
+            if st.button("⚙️ Settings", key="settings_header_btn"):
+                st.session_state.current_page = "settings"
                 st.rerun()
         with col3:
             if st.button("🚪 Logout", key="logout_header_btn"):

@@ -138,6 +138,15 @@ if "admin_current_tab" not in st.session_state:
 if "current_language" not in st.session_state:
     st.session_state.current_language = "en"
 
+def can_access_admin(current_user):
+    """Check if current user can access admin panel."""
+    if not current_user:
+        return False
+
+    # Only admin and master users can access admin
+    from shared.common import UserRole
+    return current_user.get("role") in [UserRole.ADMIN.value, UserRole.MASTER.value]
+
 def main():
     # Log main function entry
     log("debug", "Entering main function")
@@ -175,6 +184,9 @@ def main():
     # Sidebar for language, LLM, navigation, and injected UI modules
     with st.sidebar:
         st.title("🧭 Configuration")
+
+        col1, col2 = st.columns([2,3])
+
         # Show available languages - sorted (en will naturally be first)
         available_langs = get_available_languages()
 
@@ -196,7 +208,7 @@ def main():
             default_index = 0  # fallback to first
 
         # Language selector
-        lang_option = st.selectbox(
+        lang_option = col1.selectbox(
             "🌍 " + _("language_select"),
             options=available_langs,
             format_func=lambda x: lang_names.get(x, x.upper()),
@@ -210,18 +222,6 @@ def main():
             st.session_state.current_language = lang_option
             log("info", f"Language changed from '{old_lang}' to '{lang_option}'")
             st.rerun()
-
-        # Navigation buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("💬 Chat", use_container_width=True):
-                st.session_state.current_page = "chat"
-                st.rerun()
-
-        with col2:
-            if st.button("🔧 Admin", use_container_width=True):
-                st.session_state.current_page = "admin"
-                st.rerun()
 
         # Get available LLMs
         available_llms_list = get_available_llms()
@@ -250,7 +250,7 @@ def main():
                 except ValueError:
                     current_index = 0
 
-            selected_llm_id = st.selectbox(
+            selected_llm_id = col2.selectbox(
                 "🤖 " + _("select_llm"),
                 options=llm_options,
                 format_func=lambda x: llm_display_names[llm_options.index(x)],
@@ -265,6 +265,32 @@ def main():
                     st.rerun()
                 else:
                     st.error(f"Failed to switch to LLM: {selected_llm_id}")
+
+        # Navigation buttons
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("💬 Chat", use_container_width=True):
+                st.session_state.current_page = "chat"
+                st.rerun()
+
+        with col2:
+            if st.button("⚙️ Settings", use_container_width=True):
+                st.session_state.current_page = "settings"
+                st.rerun()
+
+        with col3:
+            # Only show Admin button for users who can access it
+            current_user = st.session_state.get("current_user")
+            if can_access_admin(current_user):
+                if st.button("🔧 Admin", use_container_width=True):
+                    st.session_state.current_page = "admin"
+                    st.rerun()
+            else:
+                # Disabled button for normal users
+                st.button("🔧 Admin", use_container_width=True, disabled=True,
+                         help="Admin access requires Master or Admin role")
+
 
         # INJECTION POINT 2: Sidebar Content from UI Modules
         # Call all registered sidebar render functions
@@ -301,8 +327,41 @@ def main():
         # INJECTION POINT 7: Main Footer Content
         main_footer = ui_registry.render_all("main_footer")
 
+    elif st.session_state.current_page == "settings":
+        # Settings page content
+        st.title("⚙️ User Settings")
+
+        current_user = st.session_state.get("current_user")
+
+        if not current_user:
+            st.warning("Please log in to access settings.")
+            st.info("Use the sidebar to select or create a user.")
+
+            if st.button("Back to Chat"):
+                st.session_state.current_page = "chat"
+                st.rerun()
+        else:
+            # INJECTION POINT: Settings Content from UI Modules
+            settings_contents = ui_registry.render_all("settings_content")
+
+            # Add a back button
+            if st.button("← Back to Chat"):
+                st.session_state.current_page = "chat"
+                st.rerun()
+
     elif st.session_state.current_page == "admin":
         # Admin page content - using the new injection mechanism
+        # Check if user can access admin
+        current_user = st.session_state.get("current_user")
+        if not can_access_admin(current_user):
+            st.error("❌ Access Denied")
+            st.warning("You need Master or Admin role to access the Admin panel.")
+
+            if st.button("← Back to Chat"):
+                st.session_state.current_page = "chat"
+                st.rerun()
+            return
+
         st.title("🔧 Admin Panel")
 
         # Get all admin tabs from UI modules

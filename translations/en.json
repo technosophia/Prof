@@ -1,7 +1,7 @@
 {
   "hello_world": "Hello World!",
   "welcome_message": "Welcome to our multilingual app!",
-  "language_select": "Select your language:",
+  "language_select": "Language:",
   "current_language": "Current language: English",
   "description": "This is a simple multilingual Streamlit app example.",
   "button_text": "Click me!",
@@ -11,7 +11,7 @@
   "button_text": "Click Me",
   "button_clicked": "Button clicked!",
   "llm_selection": "LLM Selection",
-  "select_llm": "Select AI Model",
+  "select_llm": "AI Model",
   "llm_chat": "AI Chat",
   "enter_message": "Enter your message",
   "default_prompt": "Hello! How can you help me today?",
