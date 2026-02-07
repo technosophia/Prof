@@ -5,7 +5,7 @@ Feature: Debug Admin UI Testing
 
     Background:
         Given the application is running
-        And I am logged in as an admin user
+        And the default user "System Administrator" is logged in
         And I navigate to the admin panel
         And the debug module is loaded
         And I select the "Debug" tab

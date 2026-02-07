@@ -428,19 +428,6 @@ def is_module_loaded(context, module_name):
 
     return context
 
-
-@given("I am logged in as an admin user")
-def logged_in_as_admin(context):
-    """Ensure we are logged in as an admin (reuses common login logic if available)."""
-    # Assuming user_steps has a generic login; fallback to specific if needed
-    # Here we reuse the pattern seen in conversation tests
-    if 'current_user' not in context:
-        # Use admin user from mock data
-        context['current_user'] = {'name': 'Test User 2', 'role': 'admin'}
-        print("✓ Using admin user: Test User 2")
-    return context
-
-
 @when("I navigate to the chat page")
 def navigate_to_chat_page(context):
     """Navigate to the chat page."""

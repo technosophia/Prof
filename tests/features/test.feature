@@ -5,6 +5,7 @@ Feature: Test Admin UI Verification
 
     Background:
         Given the application is running
+        And the default user "System Administrator" is logged in
         And I navigate to the admin panel
 
     Scenario: Verify Test module loads in admin panel

@@ -34,6 +34,11 @@ def pytest_sessionfinish(session, exitstatus):
     subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True,
                    capture_output=True, timeout=5)
 
+def pytest_bdd_before_step(request, feature, scenario, step, step_func):
+    """Log step before execution."""
+    _log(f"\n[STEP START] Feature: {feature.name} - Scenario: {scenario.name}")
+    _log(f"           Step:@{step.type} {step.name}")
+
 os.environ["TEST_MODE"] = "true"
 os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
 from shared.common import get_config
