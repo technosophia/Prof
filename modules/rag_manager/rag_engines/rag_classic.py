@@ -12,8 +12,8 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 from ..rag_engine import RAGEngine
-from shared.logging import log
-from shared.common import get_config
+from shared.common import log, get_config
+
 # Import the caching module
 try:
     from ..rag_caching import RAGModelCache

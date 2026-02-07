@@ -2,9 +2,14 @@
 
 import streamlit as st
 import os, sys
+from typing import Optional, Dict, List, Tuple, Any
 from .logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict
 from .translate import load_all_translations, get_translation
 from .config import load_all_configs, Config
+from .database import Base as _Base, get_db_manager as _get_db_manager, init_database as _init_database
+from .users import UserRole as _UserRole, get_user_manager as _get_user_manager
+from .conversation import Message as _Message, get_conversation_manager as _get_conversation_manager
+
 
 # Translation
 
@@ -67,3 +72,64 @@ def save_config(prefix: str = "", data: dict | None = None) -> bool:
     if data is None:
         raise ValueError("save_config requires the data dict to save")
     return get_config().save_section(prefix, data)
+
+
+# Database
+
+Base = _Base
+UserRole = _UserRole
+init_database = _init_database
+
+@st.cache_resource
+def get_db_manager():
+    return _get_db_manager()
+
+# Users
+
+@st.cache_resource
+def get_user_manager():
+    return _get_user_manager()
+
+def init_user_manager(create_default_users: bool = True):
+    """Initialize the user manager."""
+    if create_default_users and get_user_manager().db.is_initialized():
+        get_user_manager().init_default_users()
+    return get_user_manager()
+
+
+def get_all_users() -> Dict[str, Dict[str, Any]]:
+    """Backward compatibility alias."""
+    return get_user_manager().get_all_users_dict()
+
+# Conversations
+
+Message = _Message
+
+@st.cache_resource
+def get_conversation_manager():
+    return _get_conversation_manager()
+
+def cleanup_user_conversations(user_id: str) -> bool:
+    """Cleanup all conversations for a user before deletion."""
+    try:
+        # Get all conversations for this user
+        with get_conversation_manager().db.get_session() as session:
+            # Delete all messages from user's conversations
+            conversations = session.query(ConversationTable).filter_by(user_id=user_id).all()
+
+            for conv in conversations:
+                # Delete all messages in this conversation
+                session.query(MessageTable).filter_by(conversation_id=conv.id).delete()
+
+            # Delete all conversations for this user
+            session.query(ConversationTable).filter_by(user_id=user_id).delete()
+
+            log("info", f"Cleaned up conversations for user {user_id}: "
+                       f"{len(conversations)} conversations deleted")
+            return True
+    except Exception as e:
+        log("error", f"Failed to cleanup conversations for user {user_id}: {e}")
+        return False
+
+# Register the cleanup callback with user_manager
+get_user_manager().register_before_delete_callback(cleanup_user_conversations)

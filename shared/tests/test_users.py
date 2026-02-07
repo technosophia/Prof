@@ -925,31 +925,17 @@ def test_user_to_dict_with_none_values():
 
 def test_init_user_manager():
     """Test the init_user_manager function."""
-    from shared.users import user_manager, init_user_manager
+    from shared.common import get_user_manager, init_user_manager
 
     # Mock the database to avoid initialization issues during tests
-    with patch.object(user_manager.db, 'is_initialized', return_value=False):
+    with patch.object(get_user_manager().db, 'is_initialized', return_value=False):
         # init_user_manager should return the singleton without trying to create default users
         result = init_user_manager(create_default_users=False)
-        assert result is user_manager
+        assert result is get_user_manager()
 
     # Test with database "initialized" (mocked)
-    with patch.object(user_manager.db, 'is_initialized', return_value=True):
-        with patch.object(user_manager, 'init_default_users') as mock_init:
+    with patch.object(get_user_manager().db, 'is_initialized', return_value=True):
+        with patch.object(get_user_manager(), 'init_default_users') as mock_init:
             result = init_user_manager(create_default_users=True)
-            assert result is user_manager
+            assert result is get_user_manager()
             mock_init.assert_called_once()
-
-
-def test_backward_compatibility_get_all_users():
-    """Test backward compatibility function."""
-    from shared.users import get_all_users
-
-    # Mock user_manager.get_all_users_dict
-    with patch('shared.users.user_manager.get_all_users_dict') as mock_get_dict:
-        mock_get_dict.return_value = {"test1": {"name": "User 1", "role": "admin"}}
-
-        result = get_all_users()
-
-        assert result == {"test1": {"name": "User 1", "role": "admin"}}
-        mock_get_dict.assert_called_once()

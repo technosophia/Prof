@@ -7,7 +7,6 @@ import tempfile
 import os
 from pathlib import Path
 from modules.rag_manager.rag_manager import RAGManager, SimpleRAGEngine
-from shared.users import user_manager
 
 
 def test_rag_engine_initialization():

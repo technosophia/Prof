@@ -65,12 +65,11 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 from shared.common import _, get_available_languages
 from shared.common import get_config
 from shared.common import log, configure_logging_from_dict
+from shared.common import init_database, get_db_manager
+from shared.common import init_user_manager
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
-
-# Import user management
-from shared.database import init_database, db_manager
 
 # Import UI registry system
 from shared.ui_registry import UIRegistry
@@ -92,7 +91,6 @@ if 'module_handler' not in st.session_state:
 # Use the session state module handler
 module_handler = st.session_state.module_handler
 
-from shared.users import init_user_manager
 # Initialize user manager with default users
 init_user_manager(create_default_users=True)
 

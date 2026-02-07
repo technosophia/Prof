@@ -14,9 +14,8 @@ This module adds a "Debug" tab to the admin interface.
 import streamlit as st
 import asyncio
 import json
-from shared.common import _, log, get_config
+from shared.common import _, log, get_config, get_user_manager
 from shared.llm import llm_generate, get_current_llm_info
-from shared.users import user_manager
 
 
 # Try to import ui_registry for injection point debugging
@@ -474,7 +473,7 @@ def show_quick_tests_tab():
     with col5:
         if st.button("Test User Count", use_container_width=True):
             try:
-                user_count = user_manager.get_user_count()
+                user_count = get_user_manager().get_user_count()
                 st.session_state.debug_test_result = f"Total users in system: {user_count}"
                 st.success(f"✅ User count: {user_count}")
                 log("info", f"User count test: {user_count} users")

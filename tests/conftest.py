@@ -37,8 +37,8 @@ def pytest_sessionfinish(session, exitstatus):
 os.environ["TEST_MODE"] = "true"
 os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
 from shared.common import get_config
-from shared.database import db_manager, init_database
-from shared.users import user_manager
+from shared.common import get_db_manager, init_database
+from shared.common import get_user_manager
 import tempfile
 from modules.rag_manager import rag_manager
 
@@ -88,9 +88,9 @@ def setup_database():
     _log(f"Database exists: {os.path.exists(db_path)}")
 
     # CRITICAL: Dispose of any existing database connections
-    if db_manager.is_initialized():
+    if get_db_manager().is_initialized():
         _log("Disposing of existing database connections...")
-        db_manager.dispose()
+        get_db_manager().dispose()
         _log("✓ Database connections disposed")
 
     # Initialize database
@@ -101,13 +101,13 @@ def setup_database():
     except Exception as e:
         _log(f"⚠ Error initializing database: {e}", level="ERROR")
         # Try one more time
-        db_manager.dispose()
+        get_db_manager().dispose()
         init_database(use_memory=False, db_path=db_path)
 
     # Clean database
-    if db_manager.is_initialized():
+    if get_db_manager().is_initialized():
         _log("Cleaning database...")
-        success = db_manager.empty_all_tables()
+        success = get_db_manager().empty_all_tables()
         if success:
             _log("✓ Database cleaned")
         else:
@@ -118,7 +118,7 @@ def setup_database():
     # Create default users
     _log("Creating default users...")
     try:
-        user_manager.create_default_users()
+        get_user_manager().create_default_users()
         _log("✓ Default users created")
     except Exception as e:
         _log(f"⚠ Error creating default users: {e}", level="ERROR")
@@ -142,7 +142,7 @@ def setup_rag_test_data():
     max_attempts = 5
     for attempt in range(max_attempts):
         try:
-            if db_manager.is_initialized():
+            if get_db_manager().is_initialized():
                 filename = rag_manager.upload_document(
                     source_path=temp_path,
                     original_filename="kevin_info.txt",

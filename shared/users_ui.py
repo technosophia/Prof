@@ -4,7 +4,7 @@ User Management UI Module
 """
 
 import streamlit as st
-from shared.users import user_manager, UserRole
+from shared.common import get_user_manager, UserRole
 from shared.common import _, log, get_config
 
 
@@ -17,7 +17,7 @@ def auto_login_first_user():
     if not st.session_state.current_user:
         try:
             # Get all users
-            all_users = user_manager.get_all_users_dict()
+            all_users = get_user_manager().get_all_users_dict()
 
             if all_users:
                 # Try to find an admin first, then master, then any user
@@ -35,7 +35,7 @@ def auto_login_first_user():
                 st.session_state.current_user = first_user
 
                 # Update last login
-                user_manager.update_last_login(first_user['id'])
+                get_user_manager().update_last_login(first_user['id'])
 
                 # Set the flag to show this was an auto-login
                 st.session_state.just_auto_logged_in = True
@@ -78,7 +78,7 @@ def inject_ui_sidebar():
         st.warning("No user selected")
 
         # User selector
-        all_users = user_manager.get_all_users_dict()
+        all_users = get_user_manager().get_all_users_dict()
         if all_users:
             # Filter users based on hierarchy if needed
             filtered_users = all_users
@@ -102,7 +102,7 @@ def inject_ui_sidebar():
                     st.session_state.current_user = filtered_users[selected_user]
 
                     # Update last login
-                    user_manager.update_last_login(selected_user)
+                    get_user_manager().update_last_login(selected_user)
 
                     log("info", f"User logged in: {st.session_state.current_user['name']}")
                     st.rerun()
@@ -190,7 +190,7 @@ def render_user_form():
 
     with st.form("user_form"):
         if is_editing:
-            user = user_manager.get_user(st.session_state.edit_user_id)
+            user = get_user_manager().get_user(st.session_state.edit_user_id)
             if not user:
                 st.error("User not found")
                 return
@@ -217,7 +217,7 @@ def render_user_form():
         if role == UserRole.NORMAL.value:
             if current_user:
                 if current_user.get('role') == UserRole.ADMIN.value:
-                    masters = user_manager.get_users_by_role(UserRole.MASTER.value)
+                    masters = get_user_manager().get_users_by_role(UserRole.MASTER.value)
                     parent_options = [("", "Select a master...")] + [(m["id"], m["name"]) for m in masters]
                 else:  # Master
                     parent_options = [(current_user["id"], current_user["name"])]
@@ -236,7 +236,7 @@ def render_user_form():
 
         # Profile preferences
         st.subheader("Profile Preferences")
-        preference_schema = user_manager.get_profile_preferences_schema()
+        preference_schema = get_user_manager().get_profile_preferences_schema()
 
         # Language
         current_profile = user.get('profile', {}) if is_editing else {}
@@ -278,7 +278,7 @@ def render_user_form():
                             if role == UserRole.NORMAL.value:
                                 updates["parent_id"] = selected_parent
 
-                        success = user_manager.update_user(
+                        success = get_user_manager().update_user(
                             st.session_state.edit_user_id,
                             current_user['id'] if current_user else None,
                             **updates
@@ -288,7 +288,7 @@ def render_user_form():
                             st.success("✅ Profile updated successfully!")
                             # Update current user if editing self
                             if current_user and current_user['id'] == st.session_state.edit_user_id:
-                                updated_user = user_manager.get_user(st.session_state.edit_user_id)
+                                updated_user = get_user_manager().get_user(st.session_state.edit_user_id)
                                 if updated_user:
                                     st.session_state.current_user = updated_user
                             log("info", f"User profile updated: {name}")
@@ -296,7 +296,7 @@ def render_user_form():
                             st.error("❌ Failed to update user (permission denied)")
                     else:
                         # Create new user
-                        user_id = user_manager.create_user(
+                        user_id = get_user_manager().create_user(
                             name=name.strip(),
                             role=role,
                             email=email.strip() if email else None,
@@ -309,7 +309,7 @@ def render_user_form():
                         # Auto-login the newly created user if no user is logged in
                         if not st.session_state.current_user:
                             st.session_state.user_manually_logged_out = False
-                            new_user = user_manager.get_user(user_id)
+                            new_user = get_user_manager().get_user(user_id)
                             if new_user:
                                 st.session_state.current_user = new_user
                                 st.session_state.just_auto_logged_in = True

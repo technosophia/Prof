@@ -9,8 +9,8 @@ from enum import Enum
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey
 from sqlalchemy.orm import Session, relationship, joinedload
 
-from shared.database import Base, db_manager
-from shared.common import _, log, get_config
+from shared.logging import log
+from shared.database import get_db_manager, Base
 
 
 
@@ -54,7 +54,7 @@ class UserManager:
     def __init__(self):
         # Initialize only once
         if not hasattr(self, '_initialized'):
-            self.db = db_manager  # Use the global database manager
+            self.db = get_db_manager()  # Use the global database manager
             self._initialized = True
             # Initialize callback registry
             self._before_delete_callbacks = []
@@ -576,18 +576,5 @@ class UserManager:
         users = self.get_all_users(current_user_id)
         return len(users)
 
-
-# Global user manager instance
-user_manager = UserManager()
-
-
-def init_user_manager(create_default_users: bool = True):
-    """Initialize the user manager."""
-    if create_default_users and user_manager.db.is_initialized():
-        user_manager.init_default_users()
-    return user_manager
-
-
-def get_all_users() -> Dict[str, Dict[str, Any]]:
-    """Backward compatibility alias."""
-    return user_manager.get_all_users_dict()
+def get_user_manager():
+    return UserManager()

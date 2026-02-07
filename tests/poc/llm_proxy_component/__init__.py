@@ -6,7 +6,7 @@ _COMPONENT_PATH = os.path.dirname(os.path.abspath(__file__))
 _FRONTEND_PATH = os.path.join(_COMPONENT_PATH, "frontend")
 
 # Simple component declaration
-test_component = components.declare_component(
-    "test_component",
+llm_proxy_component = components.declare_component(
+    "llm_proxy_component",
     path=_FRONTEND_PATH
 )

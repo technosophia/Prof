@@ -11,8 +11,7 @@ Provides admin interface for user management with hierarchical roles:
 import streamlit as st
 from datetime import datetime
 from typing import Dict, Any, List
-from shared.users import user_manager, UserRole
-from shared.common import _, log, get_config
+from shared.common import _, log, get_config, get_user_manager, UserRole
 
 
 
@@ -42,7 +41,7 @@ def show_users_admin_content():
     st.caption(f"Role: {user_role.capitalize()} | Viewing users you can manage")
 
     # Get manageable users based on role
-    manageable_users = user_manager.get_manageable_users(user_id)
+    manageable_users = get_user_manager().get_manageable_users(user_id)
 
     # Section 1: Create New User (only for admin and master)
     if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
@@ -77,7 +76,7 @@ def show_users_admin_content():
                 if new_role == UserRole.NORMAL.value:
                     # For admin: all masters, for master: only themselves
                     if user_role == UserRole.ADMIN.value:
-                        masters = user_manager.get_users_by_role(UserRole.MASTER.value)
+                        masters = get_user_manager().get_users_by_role(UserRole.MASTER.value)
                         parent_options = [("", "Select a master...")] + [(m["id"], m["name"]) for m in masters]
                     else:  # Master
                         parent_options = [(user_id, current_user["name"])]
@@ -102,7 +101,7 @@ def show_users_admin_content():
             st.subheader("Profile Configuration", help="User profile settings")
 
             # Get preference schema
-            preference_schema = user_manager.get_profile_preferences_schema()
+            preference_schema = get_user_manager().get_profile_preferences_schema()
 
             # Language preference (always available)
             language = st.selectbox(
@@ -162,7 +161,7 @@ def show_users_admin_content():
                     st.error("Normal users must have a parent!")
                 else:
                     try:
-                        user_id = user_manager.create_user(
+                        user_id = get_user_manager().create_user(
                             name=new_name.strip(),
                             role=new_role,
                             email=new_email.strip() if new_email else None,
@@ -275,7 +274,7 @@ def show_users_admin_content():
                         st.caption(f"📧 {current_user['email']}")
 
                     # Children count
-                    children = user_manager.get_children(user_id)
+                    children = get_user_manager().get_children(user_id)
                     if children:
                         child_names = ", ".join([c['name'] for c in children])
                         st.caption(f"👨‍👦 Children: {len(children)} ({child_names})")
@@ -295,7 +294,7 @@ def show_users_admin_content():
             st.error(f"Are you sure you want to delete user **{user_to_delete['name']}**?")
 
             if user_to_delete.get('role') == UserRole.MASTER.value:
-                children = user_manager.get_children(user_to_delete['id'])
+                children = get_user_manager().get_children(user_to_delete['id'])
                 if children:
                     st.warning(f"This will also delete {len(children)} child users!")
 
@@ -303,7 +302,7 @@ def show_users_admin_content():
             with col_confirm1:
                 if st.button("✅ Yes, Delete", type="primary", use_container_width=True):
                     try:
-                        success = user_manager.delete_user(user_to_delete['id'], current_user['id'])
+                        success = get_user_manager().delete_user(user_to_delete['id'], current_user['id'])
                         if success:
                             st.success(f"✅ User '{user_to_delete['name']}' deleted successfully!")
                             log("info", f"Deleted user: {user_to_delete['name']}")
@@ -326,7 +325,7 @@ def show_users_admin_content():
         # View user details
         if st.session_state.get('viewing_user_id'):
             user_id_to_view = st.session_state.viewing_user_id
-            user_to_view = user_manager.get_user(user_id_to_view, include_children=True)
+            user_to_view = get_user_manager().get_user(user_id_to_view, include_children=True)
 
             if user_to_view:
                 st.divider()
@@ -359,7 +358,7 @@ def show_users_admin_content():
 
                 # Show children if any
                 if user_to_view.get('role') in [UserRole.MASTER.value, UserRole.ADMIN.value]:
-                    children = user_manager.get_children(user_id_to_view)
+                    children = get_user_manager().get_children(user_id_to_view)
                     if children:
                         st.write("**Child Users:**")
                         for child in children:
@@ -372,7 +371,7 @@ def show_users_admin_content():
         # Edit user form
         if st.session_state.get('editing_user_id'):
             user_id_to_edit = st.session_state.editing_user_id
-            user_to_edit = user_manager.get_user(user_id_to_edit)
+            user_to_edit = get_user_manager().get_user(user_id_to_edit)
 
             if user_to_edit:
                 st.divider()
@@ -402,7 +401,7 @@ def show_users_admin_content():
 
                         with col_parent:
                             if edit_role == UserRole.NORMAL.value:
-                                masters = user_manager.get_users_by_role(UserRole.MASTER.value)
+                                masters = get_user_manager().get_users_by_role(UserRole.MASTER.value)
                                 # Filter out the user being edited if they're a master
                                 masters = [m for m in masters if m['id'] != user_id_to_edit]
                                 parent_options = [("", "Select a master...")] + [(m["id"], m["name"]) for m in masters]
@@ -422,13 +421,13 @@ def show_users_admin_content():
                         selected_parent = user_to_edit.get('parent_id')
                         st.caption(f"**Role:** {edit_role}")
                         if selected_parent:
-                            parent_user = user_manager.get_user(selected_parent)
+                            parent_user = get_user_manager().get_user(selected_parent)
                             if parent_user:
                                 st.caption(f"**Parent:** {parent_user['name']}")
 
                     # Profile preferences
                     st.subheader("Profile Preferences")
-                    preference_schema = user_manager.get_profile_preferences_schema()
+                    preference_schema = get_user_manager().get_profile_preferences_schema()
                     current_profile = user_to_edit.get('profile', {})
 
                     # Language
@@ -512,7 +511,7 @@ def show_users_admin_content():
                                     else:
                                         updates["parent_id"] = None
 
-                                success = user_manager.update_user(
+                                success = get_user_manager().update_user(
                                     user_id_to_edit,
                                     current_user['id'],
                                     **updates
@@ -523,7 +522,7 @@ def show_users_admin_content():
 
                                     # Update session state if editing current user
                                     if is_editing_self:
-                                        updated_user = user_manager.get_user(user_id_to_edit)
+                                        updated_user = get_user_manager().get_user(user_id_to_edit)
                                         if updated_user:
                                             st.session_state.current_user = updated_user
 

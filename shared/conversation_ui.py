@@ -13,12 +13,12 @@ Combines functionality from:
 import streamlit as st
 import asyncio
 from datetime import datetime
-from shared.conversation import conversation_manager, Message
-from shared.common import _, log, get_config
+from shared.common import _, log, get_config, Message, get_conversation_manager
 from shared.llm import llm_generate, get_current_llm_info
 from shared.llm import register_llm_callback
 from typing import List, Dict, Optional, Tuple, Any, Callable
 from shared.ui_registry import UIRegistry
+from shared.common import get_conversation_manager
 
 
 def get_conversation_history_for_llm(messages):
@@ -123,8 +123,7 @@ def inject_ui_sidebar():
 
     try:
         # Get user's conversations
-        from shared.conversation import conversation_manager
-        user_conversations = conversation_manager.get_user_conversations(
+        user_conversations = get_conversation_manager().get_user_conversations(
             st.session_state.current_user['id'],
             include_inactive=False
         )
@@ -164,7 +163,7 @@ def inject_ui_sidebar():
                     # Load this conversation
                     st.session_state.current_conversation_id = conv['id']
                     try:
-                        conversation = conversation_manager.get_conversation(conv['id'], include_messages=True)
+                        conversation = get_conversation_manager().get_conversation(conv['id'], include_messages=True)
                         if conversation:
                             st.session_state.conversation_messages = conversation.messages
                         log("info", f"Loaded conversation: {conv['title']} ({conv['id']})")
@@ -202,7 +201,7 @@ def render_conversation_form():
     if st.session_state.editing_conversation_id:
         st.subheader("✏️ Edit Conversation Title")
         # Get current title for editing
-        current_conv = conversation_manager.get_conversation(
+        current_conv = get_conversation_manager().get_conversation(
             st.session_state.editing_conversation_id,
             include_messages=False
         )
@@ -229,7 +228,7 @@ def render_conversation_form():
 
                     if st.session_state.editing_conversation_id:
                         # Update existing conversation title
-                        success = conversation_manager.update_conversation_title(
+                        success = get_conversation_manager().update_conversation_title(
                             st.session_state.editing_conversation_id,
                             title.strip()
                         )
@@ -240,7 +239,7 @@ def render_conversation_form():
                             # If we're editing the current conversation, update session state
                             if st.session_state.current_conversation_id == st.session_state.editing_conversation_id:
                                 # Reload the conversation to get updated title
-                                conversation = conversation_manager.get_conversation(
+                                conversation = get_conversation_manager().get_conversation(
                                     st.session_state.current_conversation_id,
                                     include_messages=True
                                 )
@@ -267,7 +266,7 @@ def render_conversation_form():
                             # Remove any None values
                             llm_config = {k: v for k, v in llm_config.items() if v is not None}
 
-                        conversation_id = conversation_manager.create_conversation(
+                        conversation_id = get_conversation_manager().create_conversation(
                             user_id=st.session_state.current_user['id'],
                             title=title.strip(),
                             system_prompt=None,
@@ -328,7 +327,7 @@ def inject_ui_main_content():
 def show_conversation_interface():
     """Display the conversation chat interface."""
     # Get current conversation info
-    current_conv = conversation_manager.get_conversation(
+    current_conv = get_conversation_manager().get_conversation(
         st.session_state.current_conversation_id,
         include_messages=False
     )
@@ -341,7 +340,7 @@ def show_conversation_interface():
         with col2:
             # Refresh button
             if st.button("🔄 Refresh", help="Reload conversation from database"):
-                conversation = conversation_manager.get_conversation(
+                conversation = get_conversation_manager().get_conversation(
                     st.session_state.current_conversation_id,
                     include_messages=True
                 )
@@ -351,7 +350,7 @@ def show_conversation_interface():
         with col3:
             # Clear button
             if st.button("🗑️ Clear", help="Clear all messages in this conversation"):
-                if conversation_manager.clear_conversation_messages(st.session_state.current_conversation_id):
+                if get_conversation_manager().clear_conversation_messages(st.session_state.current_conversation_id):
                     st.session_state.conversation_messages = []
                     st.success("Conversation cleared")
                     st.rerun()
@@ -444,7 +443,7 @@ def show_conversation_interface():
                     )
 
                     # Add to database and session state
-                    conversation_manager.add_message(
+                    get_conversation_manager().add_message(
                         st.session_state.current_conversation_id,
                         assistant_msg
                     )
@@ -462,7 +461,7 @@ def show_conversation_interface():
                     log("error", error_msg, exc_info=True)
                     st.error(error_msg)
                     # Restore original messages if regeneration failed
-                    conversation = conversation_manager.get_conversation(
+                    conversation = get_conversation_manager().get_conversation(
                         st.session_state.current_conversation_id,
                         include_messages=True
                     )
@@ -498,7 +497,7 @@ def show_conversation_interface():
 
             # Add to database and session state
             try:
-                message_id = conversation_manager.add_message(
+                message_id = get_conversation_manager().add_message(
                     st.session_state.current_conversation_id,
                     user_msg
                 )
@@ -526,7 +525,7 @@ def show_conversation_interface():
                 )
 
                 # Add to database and session state
-                conversation_manager.add_message(
+                get_conversation_manager().add_message(
                     st.session_state.current_conversation_id,
                     assistant_msg
                 )

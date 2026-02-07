@@ -7,11 +7,8 @@ This module provides the debug section that was previously in app.py.
 
 import streamlit as st
 import os
-from shared.common import _, log, get_config
-from shared.database import db_manager
+from shared.common import _, log, get_config, get_user_manager, get_conversation_manager
 from shared.llm import get_available_llms, get_current_llm_info
-from shared.users import user_manager
-from shared.conversation import conversation_manager
 from shared.module_handler import get_active_modules, module_handler
 from shared.ui_registry import ui_registry
 
@@ -48,7 +45,7 @@ def inject_ui_main_footer():
                 st.write(f"- Message count: {len(st.session_state.conversation_messages)}")
 
                 # Get conversation from DB for more info
-                conv = conversation_manager.get_conversation(
+                conv = get_conversation_manager().get_conversation(
                     st.session_state.current_conversation_id,
                     include_messages=False
                 )
@@ -59,7 +56,7 @@ def inject_ui_main_footer():
         else:
             st.write("- No user logged in")
 
-        st.write(f"**Total Users:** {user_manager.get_user_count()}")
+        st.write(f"**Total Users:** {get_user_manager().get_user_count()}")
 
         # Current LLM info
         if current_llm_info:

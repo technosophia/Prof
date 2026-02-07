@@ -27,7 +27,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import text
 from contextlib import contextmanager
 
-from shared.common import _, log, get_config
+from shared.logging import log
 
 Base = declarative_base()
 
@@ -130,9 +130,7 @@ class DatabaseManager:
         else:
             # Persistent database
             if db_path is None:
-                # Use config or default path
-                db_dir = get_config().get("database.path", "data")
-                db_path = os.path.join(db_dir, "app.db")
+                raise ValueError("Database path must be specified for persistent database")
 
             # Ensure directory exists
             db_dir = os.path.dirname(db_path)
@@ -330,6 +328,5 @@ def init_database(use_memory: bool = False, db_path: Optional[str] = None):
     return db_manager
 
 
-def _get_db():
-    """Get database manager instance. Alternative to db_manager global."""
-    return db_manager
+def get_db_manager():
+    return DatabaseManager()

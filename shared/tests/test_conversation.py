@@ -607,11 +607,3 @@ class TestConversation:
         assert len(conversation.messages) == 2
         assert conversation.messages[0].role == "user"
         assert conversation.messages[1].role == "assistant"
-
-
-def test_init_conversation_manager():
-    """Test the init_conversation_manager function."""
-    from shared.conversation import conversation_manager, init_conversation_manager
-
-    result = init_conversation_manager()
-    assert result is conversation_manager

@@ -1,5 +1,5 @@
 import streamlit as st
-from test_component import test_component
+from llm_proxy_component import llm_proxy_component
 
 # Initialize session state
 if 'result' not in st.session_state:
@@ -37,10 +37,10 @@ else:
 
 # Call component
 st.write("**Component Output:**")
-result = test_component(
+result = llm_proxy_component(
     input_value=st.session_state.user_input,
     button_clicked=st.session_state.clicked,
-    key="test_component_key"  # Changed key for clarity
+    key="llm_proxy_component_key"  # Changed key for clarity
 )
 
 # Store and display result

@@ -9,8 +9,8 @@ Uses the new UI injection mechanism with admin_tab injection point.
 
 import streamlit as st
 import os
-from shared.database import db_manager
 from shared.common import _, log, get_config
+from shared.common import get_user_manager
 
 
 def show_system_admin_content():
@@ -87,11 +87,10 @@ def show_system_admin_content():
 
     with col2:
         st.subheader("Database")
-        from shared.users import user_manager
 
         db_path = os.path.join("data", "app.db") if os.path.exists("data") else "memory"
         st.write(f"**Path:** {db_path}")
-        st.write(f"**User Count:** {user_manager.get_user_count()}")
+        st.write(f"**User Count:** {get_user_manager().get_user_count()}")
 
 def inject_ui_admin_tab():
     """Register the System admin tab using the new injection mechanism.

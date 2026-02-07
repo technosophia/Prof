@@ -14,7 +14,7 @@ import pkgutil
 import sys
 
 from shared.common import _, log, get_config
-from shared.users import UserRole, user_manager
+from shared.common import UserRole, get_user_manager
 
 from modules.rag_manager.rag_engine import RAGEngine
 from modules.rag_manager.rag_simple import SimpleRAGEngine
@@ -26,6 +26,7 @@ except ImportError:
     HAS_CACHING = False
     RAGModelCache = None
 
+user_manager = get_user_manager()
 
 class RAGManager:
     """Manages RAG documents storage and operations with plugin-based engines."""

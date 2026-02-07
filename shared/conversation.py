@@ -12,9 +12,9 @@ from dataclasses import dataclass, asdict
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import Session, relationship
 
-from shared.common import _, log, get_config
-from shared.database import Base, db_manager
-from shared.users import user_manager
+from shared.logging import log
+from shared.database import Base, get_db_manager
+from shared.users import get_user_manager
 
 
 class ConversationTable(Base):
@@ -144,7 +144,7 @@ class ConversationManager:
     def __init__(self):
         # Initialize only once
         if not hasattr(self, '_initialized'):
-            self.db = db_manager  # Use the global database manager
+            self.db = get_db_manager()
             self._initialized = True
 
     def _ensure_tables_exist(self):
@@ -454,41 +454,5 @@ class ConversationManager:
             "metadata": conversation.metadata  # Include metadata
         }
 
-
-# Global conversation manager instance
-conversation_manager = ConversationManager()
-
-
-def init_conversation_manager():
-    """Initialize the conversation manager."""
-    # Just return the instance - tables will be created when needed
-    return conversation_manager
-
-def cleanup_user_conversations(user_id: str) -> bool:
-    """Cleanup all conversations for a user before deletion."""
-    try:
-        # Get all conversations for this user
-        with conversation_manager.db.get_session() as session:
-            # Delete all messages from user's conversations
-            conversations = session.query(ConversationTable).filter_by(user_id=user_id).all()
-
-            for conv in conversations:
-                # Delete all messages in this conversation
-                session.query(MessageTable).filter_by(conversation_id=conv.id).delete()
-
-            # Delete all conversations for this user
-            session.query(ConversationTable).filter_by(user_id=user_id).delete()
-
-            log("info", f"Cleaned up conversations for user {user_id}: "
-                       f"{len(conversations)} conversations deleted")
-            return True
-    except Exception as e:
-        log("error", f"Failed to cleanup conversations for user {user_id}: {e}")
-        return False
-
-# Register the cleanup callback with user_manager
-user_manager.register_before_delete_callback(cleanup_user_conversations)
-log("info", "Registered conversation cleanup callback with UserManager")
-
-# Initialize conversation manager
-init_conversation_manager()
+def get_conversation_manager():
+    return ConversationManager()
