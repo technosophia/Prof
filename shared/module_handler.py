@@ -40,7 +40,7 @@ import sys
 from typing import Dict, List, Optional, Set
 from pathlib import Path
 import streamlit as st
-from shared.logging import log
+from shared.common import log
 
 def _compute_modules_signature() -> str:
     """Compute a signature based on module directories and key file modification times."""

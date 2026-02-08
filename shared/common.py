@@ -3,10 +3,10 @@
 import streamlit as st
 import os, sys
 from typing import Optional, Dict, List, Tuple, Any
-from .logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict
-from .translate import load_all_translations, get_translation
-from .config import load_all_configs, Config
-from .database import Base as _Base, get_db_manager as _get_db_manager, init_database as _init_database
+from core.logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict
+from core.translate import load_all_translations, get_translation
+from core.config import load_all_configs, Config
+from core.database import Base as _Base, get_db_manager as _get_db_manager, init_database as _init_database
 from .users import UserRole as _UserRole, get_user_manager as _get_user_manager
 from .conversation import Message as _Message, get_conversation_manager as _get_conversation_manager
 

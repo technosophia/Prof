@@ -6,7 +6,7 @@ import asyncio
 import random
 from typing import List, Dict, Any, Optional, Callable
 from shared.llm_engine import LLMEngine
-from shared.logging import log
+from shared.common import log
 
 
 class MockEngine(LLMEngine):

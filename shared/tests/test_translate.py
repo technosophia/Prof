@@ -7,7 +7,7 @@ import pytest
 # Adjust path to import from project root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shared.translate import load_all_translations
+from core.translate import load_all_translations
 from shared.common import _, get_available_languages
 from shared.common import _load_translations  # Private, but needed to clear cache in tests
 

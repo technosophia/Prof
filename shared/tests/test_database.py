@@ -11,7 +11,7 @@ from unittest.mock import patch, MagicMock, call
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import Column, String, Integer
-from shared.database import Base, DatabaseManager, init_database, MEMDB
+from core.database import Base, DatabaseManager, init_database, MEMDB
 
 
 # Define a test table for testing the database manager
@@ -31,10 +31,10 @@ class TestDatabaseManager:
         # Clear any existing instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db1 = DatabaseManager()
         db2 = DatabaseManager()
         assert db1 is db2
@@ -45,19 +45,19 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
 
-            with patch('shared.database.create_engine') as mock_engine:
-                with patch('shared.database.sessionmaker') as mock_sessionmaker:
-                    with patch('shared.database.Path.mkdir'):
-                        with patch('shared.database.log'):
+            with patch('core.database.create_engine') as mock_engine:
+                with patch('core.database.sessionmaker') as mock_sessionmaker:
+                    with patch('core.database.Path.mkdir'):
+                        with patch('core.database.log'):
                             db._initialize(use_memory=False, db_path=db_path)
 
                             # Check that file URL was used
@@ -71,10 +71,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Initially not initialized
@@ -89,10 +89,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Mock engine and create_all method
@@ -109,10 +109,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Mock engine
@@ -120,7 +120,7 @@ class TestDatabaseManager:
         db._engine = mock_engine
 
         # Mock metadata.create_all - first call should create tables
-        with patch('shared.database.Base.metadata.create_all') as mock_create_all:
+        with patch('core.database.Base.metadata.create_all') as mock_create_all:
             db._tables_created = False  # Ensure tables not created yet
             db._create_all_tables()
             mock_create_all.assert_called_once_with(mock_engine)
@@ -131,10 +131,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Mock engine
@@ -142,8 +142,8 @@ class TestDatabaseManager:
         db._engine = mock_engine
 
         # Mock metadata.create_all
-        with patch('shared.database.Base.metadata.create_all') as mock_create_all:
-            with patch('shared.database.log') as mock_log:
+        with patch('core.database.Base.metadata.create_all') as mock_create_all:
+            with patch('core.database.log') as mock_log:
                 # Set tables as already created
                 db._tables_created = True
                 db._create_all_tables()
@@ -158,10 +158,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Initially not created
@@ -176,10 +176,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Mock session factory
@@ -215,10 +215,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Mock session
@@ -257,10 +257,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Ensure engine is None
@@ -276,10 +276,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Ensure engine is None
@@ -294,10 +294,10 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         # Ensure engine is None
@@ -312,19 +312,19 @@ class TestDatabaseManager:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         db = DatabaseManager()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
 
-            with patch('shared.database.create_engine') as mock_engine:
-                with patch('shared.database.sessionmaker') as mock_sessionmaker:
-                    with patch('shared.database.Path.mkdir'):
-                        with patch('shared.database.log'):
+            with patch('core.database.create_engine') as mock_engine:
+                with patch('core.database.sessionmaker') as mock_sessionmaker:
+                    with patch('core.database.Path.mkdir'):
+                        with patch('core.database.log'):
                             db._initialize(use_memory=False, db_path=db_path)
 
                             # Verify pool_pre_ping is NOT included for persistent
@@ -342,10 +342,10 @@ class TestDatabaseOperations:
         # Clear module and create fresh instance
         import importlib
         import sys
-        if 'shared.database' in sys.modules:
-            del sys.modules['shared.database']
+        if 'core.database' in sys.modules:
+            del sys.modules['core.database']
 
-        from shared.database import DatabaseManager
+        from core.database import DatabaseManager
         self.db = DatabaseManager()
 
         # Mock engine and session
@@ -438,18 +438,18 @@ def test_init_database():
     # Clear module
     import importlib
     import sys
-    if 'shared.database' in sys.modules:
-        del sys.modules['shared.database']
+    if 'core.database' in sys.modules:
+        del sys.modules['core.database']
 
     # Mock the db_manager that will be imported
-    with patch('shared.database.db_manager') as mock_db:
+    with patch('core.database.db_manager') as mock_db:
         mock_db._initialize = MagicMock()
         mock_db._create_all_tables = MagicMock()
         mock_db.is_initialized = MagicMock(return_value=False)
         mock_db.are_tables_created = MagicMock(return_value=False)  # NEW: Mock this method
 
         # Re-import after patching
-        from shared.database import init_database
+        from core.database import init_database
         result = init_database(use_memory=True)
 
         assert result is mock_db
@@ -461,17 +461,17 @@ def test_init_database_already_initialized():
     # Clear module
     import importlib
     import sys
-    if 'shared.database' in sys.modules:
-        del sys.modules['shared.database']
+    if 'core.database' in sys.modules:
+        del sys.modules['core.database']
 
     # Mock the db_manager that will be imported
-    with patch('shared.database.db_manager') as mock_db:
+    with patch('core.database.db_manager') as mock_db:
         mock_db._initialize = MagicMock()
         mock_db._create_all_tables = MagicMock()
         mock_db.is_initialized = MagicMock(return_value=True)
 
         # Re-import after patching
-        from shared.database import init_database
+        from core.database import init_database
         result = init_database(use_memory=True)
 
         assert result is mock_db
@@ -484,18 +484,18 @@ def test_init_database_with_params():
     # Clear module
     import importlib
     import sys
-    if 'shared.database' in sys.modules:
-        del sys.modules['shared.database']
+    if 'core.database' in sys.modules:
+        del sys.modules['core.database']
 
     # Mock the db_manager
-    with patch('shared.database.db_manager') as mock_db:
+    with patch('core.database.db_manager') as mock_db:
         mock_db._initialize = MagicMock()
         mock_db._create_all_tables = MagicMock()
         mock_db.is_initialized = MagicMock(side_effect=[False, False])  # Called twice
         mock_db.are_tables_created = MagicMock(return_value=False)  # NEW: Mock this method
 
         # Re-import after patching
-        from shared.database import init_database
+        from core.database import init_database
 
         # Test with memory database
         init_database(use_memory=True)
@@ -518,18 +518,18 @@ def test_init_database_tables_already_created():
     # Clear module
     import importlib
     import sys
-    if 'shared.database' in sys.modules:
-        del sys.modules['shared.database']
+    if 'core.database' in sys.modules:
+        del sys.modules['core.database']
 
     # Mock the db_manager
-    with patch('shared.database.db_manager') as mock_db:
+    with patch('core.database.db_manager') as mock_db:
         mock_db._initialize = MagicMock()
         mock_db._create_all_tables = MagicMock()
         mock_db.is_initialized = MagicMock(return_value=True)
         mock_db.are_tables_created = MagicMock(return_value=True)  # Tables already created
 
         # Re-import after patching
-        from shared.database import init_database
+        from core.database import init_database
         result = init_database(use_memory=True)
 
         assert result is mock_db

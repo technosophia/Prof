@@ -12,8 +12,8 @@ from dataclasses import dataclass, asdict
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import Session, relationship
 
-from shared.logging import log
-from shared.database import Base, get_db_manager
+from core.logging import log
+from core.database import Base, get_db_manager
 from shared.users import get_user_manager
 
 

@@ -27,7 +27,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import text
 from contextlib import contextmanager
 
-from shared.logging import log
+from core.logging import log
 
 Base = declarative_base()
 
@@ -47,7 +47,7 @@ class DatabaseManager:
 
     Usage:
         # In another module like users.py
-        from shared.database import db_manager
+        from core.database import db_manager
 
         if db_manager.is_initialized():
             with db_manager.get_session() as session:

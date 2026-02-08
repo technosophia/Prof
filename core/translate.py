@@ -2,7 +2,7 @@ import os
 import json
 from typing import Dict
 
-from shared.logging import log
+from core.logging import log
 
 
 def load_all_translations() -> Dict[str, Dict[str, str]]:

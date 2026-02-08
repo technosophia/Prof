@@ -5,7 +5,7 @@ Gemini LLM Engine
 import os
 from typing import List, Dict, Any, Optional, Callable
 from shared.llm_engine import LLMEngine
-from shared.logging import log
+from shared.common import log
 
 try:
     import google.genai as genai

@@ -9,8 +9,8 @@ from enum import Enum
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey
 from sqlalchemy.orm import Session, relationship, joinedload
 
-from shared.logging import log
-from shared.database import get_db_manager, Base
+from core.logging import log
+from core.database import get_db_manager, Base
 
 
 
