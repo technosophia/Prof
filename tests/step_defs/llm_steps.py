@@ -10,9 +10,6 @@ import os
 import subprocess
 import requests
 
-# Add the project root to sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
 from tests.step_defs.common_steps import take_screenshot

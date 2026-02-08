@@ -9,9 +9,6 @@ import json
 import pytest
 from unittest.mock import patch, Mock
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
-
 from shared.common import get_available_llms, set_current_llm, llm_generate, get_llm_manager
 
 class TestLLMManager:

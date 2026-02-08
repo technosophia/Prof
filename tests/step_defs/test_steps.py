@@ -12,9 +12,6 @@ from playwright.sync_api import Page, expect
 
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
-# Add the project root to sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 from tests.step_defs.common_steps import take_screenshot
 from tests.step_defs.common_steps import *
 from tests.step_defs.app_start_steps import *

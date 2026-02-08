@@ -8,9 +8,6 @@ import uuid
 from datetime import datetime
 from unittest.mock import MagicMock, patch, Mock
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Import after patching to avoid initialization issues
 from shared.users import UserManager, UserTable, UserRole
 
 

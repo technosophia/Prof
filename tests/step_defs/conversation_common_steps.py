@@ -8,9 +8,6 @@ from pytest_bdd import given, when, then, scenarios, parsers
 import sys
 import os
 
-# Add the project root to sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 # Load feature files
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 

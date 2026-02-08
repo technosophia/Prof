@@ -11,18 +11,7 @@ from pathlib import Path
 import shutil
 from unittest.mock import Mock, patch, MagicMock
 
-# Fix import path to find the RAGManager
-current_dir = Path(__file__).parent
-module_dir = current_dir.parent
-project_root = module_dir.parent.parent
-
-# Add project root to sys.path to allow importing modules
-sys.path.insert(0, str(project_root))
-
-# Now import the RAGManager
 from modules.rag_manager import RAGManager
-
-# Import shared modules first
 import shared.common
 
 # Create a comprehensive mock for the entire users module

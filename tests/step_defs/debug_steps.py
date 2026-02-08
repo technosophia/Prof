@@ -7,11 +7,6 @@ import re
 from pytest_bdd import given, when, then, scenarios, parsers
 from playwright.sync_api import Page, expect
 
-# Add project root to path
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
 
 from tests.step_defs.common_steps import *

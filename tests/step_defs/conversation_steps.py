@@ -10,9 +10,6 @@ import os
 import subprocess
 import requests
 
-# Add the project root to sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 # Load feature files
 scenarios('../../tests/features/conversation.feature')
 

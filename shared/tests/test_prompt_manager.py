@@ -9,8 +9,6 @@ import tempfile
 import yaml
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared.prompt_manager import PromptManager
 
 
