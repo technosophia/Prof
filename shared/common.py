@@ -119,6 +119,23 @@ conversations = manager.get_user_conversations(user_id)
 manager.add_message(conversation_id, Message(role="user", content="Hello"))
 ```
 
+## Prompt Management System (`shared/prompt_manager.py`)
+Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project directory structure.
+
+Key functions:
+- `get_prompt(key)`: Get prompt by key using dot notation
+- `get_all_prompts()`: Get all loaded prompts
+- `get_module_prompts(prefix)`: Get prompts for a specific module
+- `list_modules_with_prompts()`: List all modules with prompts
+
+Usage:
+```python
+from shared.common import get_prompt
+
+search_prompt = get_prompt("rag_manager.search_prompt")
+module_prompts = get_module_prompts("rag_manager")
+```
+
 ## Best Practices Quick Reference
 
 1. **Import from common.py only**: Never import directly from core modules
@@ -134,16 +151,19 @@ manager.add_message(conversation_id, Message(role="user", content="Hello"))
 
 import streamlit as st
 import os, sys
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Optional, Dict, List, Tuple, Any, Callable
 from core.logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict
 from core.translate import load_all_translations, get_translation
 from core.config import load_all_configs, Config
 from core.database import Base as _Base, get_db_manager as _get_db_manager, init_database as _init_database
 from .users import UserRole as _UserRole, get_user_manager as _get_user_manager
 from .conversation import Message as _Message, get_conversation_manager as _get_conversation_manager
+from .prompt_manager import get_prompt_manager as _get_prompt_manager, load_all_prompts as _load_all_prompts
+from .settings import UserSettingsManager
+from .llm import LLMManager
 
 
-# Translation
+# Translation ================================================================
 
 @st.cache_resource
 def _load_translations() -> dict[str, dict[str, str]]:
@@ -176,17 +196,46 @@ def _(key: str, lang: str | None = None) -> str:
 log = _log
 configure_logging_from_dict = _configure_logging_from_dict
 
-# Configuration
+# Configuration ================================================
 
 @st.cache_resource
 def _load_config() -> Config:
     """Cached loading of the full configuration."""
-    # Determine project root (shared/common.py → shared → root)
-    shared_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.dirname(shared_dir)
+    try:
+        # Determine project root (shared/common.py → shared → root)
+        shared_dir = os.path.dirname(os.path.abspath(__file__))
 
-    test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
-    return load_all_configs(root_dir, test_mode)
+        # Debug logging
+        log("info", f"_load_config: __file__ = {__file__}")
+        log("info", f"_load_config: shared_dir = {shared_dir}")
+
+        if not shared_dir:
+            raise ValueError("shared_dir is None or empty")
+
+        root_dir = os.path.dirname(shared_dir)
+        log("info", f"_load_config: root_dir = {root_dir}")
+
+        if not root_dir or not os.path.exists(root_dir):
+            raise ValueError(f"Invalid root_dir: {root_dir}")
+
+        test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
+        log("info", f"_load_config: test_mode = {test_mode}")
+
+        config = load_all_configs(root_dir, test_mode)
+        log("info", f"_load_config: config loaded successfully, has {len(config)} top-level sections")
+
+        return config
+
+    except Exception as e:
+        log("error", f"_load_config failed: {e}", exc_info=True)
+
+        # Return a minimal default config as fallback
+        from core.config import Config
+        fallback_config = Config()
+        fallback_config.load_file("config.json", [])  # Try to load root config directly
+
+        log("warning", f"Using fallback configuration due to error: {e}")
+        return fallback_config
 
 
 def get_config() -> Config:
@@ -206,7 +255,7 @@ def save_config(prefix: str = "", data: dict | None = None) -> bool:
     return get_config().save_section(prefix, data)
 
 
-# Database
+# Database =====================================================
 
 Base = _Base
 UserRole = _UserRole
@@ -233,7 +282,7 @@ def get_all_users() -> Dict[str, Dict[str, Any]]:
     """Backward compatibility alias."""
     return get_user_manager().get_all_users_dict()
 
-# Conversations
+# Conversations ================================================
 
 Message = _Message
 
@@ -265,3 +314,100 @@ def cleanup_user_conversations(user_id: str) -> bool:
 
 # Register the cleanup callback with user_manager
 get_user_manager().register_before_delete_callback(cleanup_user_conversations)
+
+# LLM ==========================================================
+
+@st.cache_resource
+def get_llm_manager():
+    """Get or create the global LLMManager instance."""
+    return LLMManager(get_config())
+
+# Update public functions with backward compatibility
+async def llm_generate(message: str,
+                      stream_callback: Optional[Callable] = None,
+                      conversation_history: Optional[List[Dict]] = None,
+                      user_id: Optional[str] = None) -> str:  # Added user_id parameter
+    """Simple interface to generate response from current LLM with conversation history."""
+    manager = get_llm_manager()
+    return await manager.generate(message, stream_callback, conversation_history, user_id)
+
+def set_current_llm(llm_id: str) -> bool:
+    """Set the current LLM to use."""
+    manager = get_llm_manager()
+    return manager.set_current_llm(llm_id)
+
+def get_available_llms() -> List[Dict[str, Any]]:
+    """Get list of available LLMs."""
+    manager = get_llm_manager()
+    return manager.get_available_llms()
+
+def get_current_llm_info() -> Optional[Dict[str, Any]]:
+    """Get information about the current LLM."""
+    manager = get_llm_manager()
+    return manager.get_current_llm_info()
+
+def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
+    """Get LLM information by name."""
+    manager = get_llm_manager()
+    return manager.get_llm_by_name(name)
+
+def register_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
+    """Register a callback to add LLM context to LLM queries."""
+    manager = get_llm_manager()
+    manager.register_llm_callback(callback_func)
+
+def unregister_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
+    """Unregister a LLM callback."""
+    manager = get_llm_manager()
+    manager.unregister_llm_callback(callback_func)
+
+# Alias for backward compatibility - maintains old interface
+llm = llm_generate
+
+
+# Prompt Management ============================================
+
+@st.cache_resource
+def _init_prompt_manager():
+    """Initialize and load all prompts."""
+    shared_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(shared_dir)
+    _load_all_prompts(root_dir)
+    return _get_prompt_manager()
+
+def get_prompt_manager():
+    """Get the prompt manager instance."""
+    return _init_prompt_manager()
+
+def get_prompt(key: str, default: Any = None) -> Any:
+    """
+    Get a prompt by key using dot notation.
+
+    text
+    Args:
+        key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+        default: Default value if key not found
+
+    Returns:
+        Prompt value or default
+    """
+    return get_prompt_manager().get_prompt(key, default)
+
+def get_all_prompts() -> Dict[str, Any]:
+    """Get all loaded prompts."""
+    return get_prompt_manager().get_all_prompts()
+
+def get_module_prompts(module_prefix: str = "") -> Dict[str, Any]:
+    """Get prompts for a specific module."""
+    return get_prompt_manager().get_module_prompts(module_prefix)
+
+def list_modules_with_prompts() -> List[str]:
+    """List all module prefixes with prompts."""
+    return get_prompt_manager().list_modules()
+
+# User Settings
+
+@st.cache_resource
+def get_user_settings_manager():
+    """Get or create the user settings manager."""
+    return UserSettingsManager()

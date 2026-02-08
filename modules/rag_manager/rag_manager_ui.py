@@ -9,16 +9,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 import tempfile
-from shared.common import _, log, get_config
-from shared.llm import register_llm_callback, unregister_llm_callback
+from shared.common import _, log, get_config, get_prompt
+from shared.common import register_llm_callback, unregister_llm_callback
 from typing import List, Dict, Optional
+from modules.rag_manager import rag_manager
 
-# Import the RAG manager
-try:
-    from modules.rag_manager import rag_manager
-except ImportError:
-    # Fallback for direct execution
-    from .rag_manager import rag_manager
 
 
 def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
@@ -67,17 +62,13 @@ def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
             st.session_state.last_rag_context = "No relevant documents found in knowledge base."
             return ""
 
-        # Build context from search results
-        context_parts = []
-        context_parts.append("CONTEXT FROM KNOWLEDGE BASE:")
-        context_parts.append("=" * 50)
+        # Build engine contexts
+        engine_contexts_parts = []
 
         # Process results from each engine
-        engine_counter = 0
         for engine_name, results in search_results.items():
             if results:  # Only process engines with results
-                engine_counter += 1
-                context_parts.append(f"\n--- Engine: {engine_name.upper()} ---")
+                engine_contexts_parts.append(f"--- Engine: {engine_name.upper()} ---")
 
                 # Add each document from this engine
                 for i, result in enumerate(results):
@@ -85,26 +76,24 @@ def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
                     content = result.get('content', '')
                     score = result.get('score', 0)
 
-                    context_parts.append(f"\nDocument {i+1}: {filename}")
-                    context_parts.append(f"Relevance Score: {score:.3f}")
-                    context_parts.append(f"Content: {content}")
+                    engine_contexts_parts.append(f"\nDocument {i+1}: {filename}")
+                    engine_contexts_parts.append(f"Relevance Score: {score:.3f}")
+                    engine_contexts_parts.append(f"Content: {content}")
 
-        # Add instructions for the LLM
-        context_parts.append("\n" + "=" * 50)
-        context_parts.append("INSTRUCTIONS:")
-        context_parts.append("- Use the above context to inform your response")
-        context_parts.append("- If the context is relevant, incorporate it naturally into your answer")
-        context_parts.append("- If the context doesn't contain relevant information, respond based on your own knowledge")
-        context_parts.append("- Do not mention that you are using a knowledge base or external context")
-        context_parts.append("- Cite specific information from the context when applicable")
-        context_parts.append("")
+        # Join engine contexts
+        engine_contexts = "\n".join(engine_contexts_parts)
 
-        # Join all parts into final context
-        context_text = "\n".join(context_parts)
+        # Get the template prompt and format it
+        template = get_prompt("rag_manager.rag_manager.context_template", "")
+        if not template:
+            raise ValueError("Missing template prompt : rag_manager.context_template")
+
+        # Format the context
+        context_text = template.format(engine_contexts=engine_contexts)
 
         # Log and store the context
-        log("debug", f"RAG debug Context length:{len(context_text)} chars")
-        log("debug", f"RAG debug Context preview:{context_text[:100]}...")
+        log("debug", f"RAG context length: {len(context_text)} chars")
+        log("debug", f"RAG context preview: {context_text[:100]}...")
 
         # Store in session state for UI display
         st.session_state.last_rag_context = context_text

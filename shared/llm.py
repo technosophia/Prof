@@ -11,7 +11,7 @@ Unified interface for multiple Large Language Models (Ollama, Gemini, Groq) with
 
 #### Initialization and Setup
 ```python
-from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+from shared.common import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # LLM manager is automatically initialized with app config
 # No manual initialization needed
@@ -35,7 +35,7 @@ response = await llm_generate("Tell me a story", stream_callback)
 ### Context injection
 Any module can inject context in the current conversation. It will be added at the end of the history
 ```
- from shared.llm import register_llm_callback, unregister_llm_callback
+ from shared.common import register_llm_callback, unregister_llm_callback
 
 def inject_current_time_context(user_id: str, messages: List[Dict]) -> str:
     from datetime import datetime
@@ -53,16 +53,17 @@ import importlib
 import pkgutil
 from typing import Dict, Any, List, Optional, Callable
 import asyncio
-from shared.common import _, log, get_config
+from core.logging import log
 from shared.llm_engine import LLMEngine
 
 
 class LLMManager:
-    def __init__(self):
+    def __init__(self, config):
         """Initialize LLM Manager using plugin-based engine system."""
-        self.config = get_config()
+        self.config = config
         self.engines = {}
         self.current_llm = None
+        self.llm_callbacks = []  # Moved from global variable to instance variable
 
         # Discover and load all engine modules
         self.discover_engines()
@@ -78,8 +79,7 @@ class LLMManager:
     def discover_engines(self):
         """Discover and load all LLM engine modules from shared/llms directory."""
         # Get the path to the shared directory
-        import shared
-        shared_dir = os.path.dirname(shared.__file__)
+        shared_dir = os.path.dirname(__file__)
         llms_dir = os.path.join(shared_dir, 'llms')
 
         log("debug", f"Looking for engines in: {llms_dir}")
@@ -317,6 +317,49 @@ class LLMManager:
 
         return None
 
+    def register_llm_callback(self, callback_func: Callable[[str, List[Dict]], str]):
+        """Register a callback to add LLM context to LLM queries."""
+        if callback_func not in self.llm_callbacks:
+            self.llm_callbacks.append(callback_func)
+            log("debug", f"Registered LLM callback: {callback_func.__name__}")
+
+    def unregister_llm_callback(self, callback_func: Callable[[str, List[Dict]], str]):
+        """Unregister a LLM callback."""
+        if callback_func in self.llm_callbacks:
+            self.llm_callbacks.remove(callback_func)
+            log("debug", f"Unregistered LLM callback: {callback_func.__name__}")
+
+    def _add_llm_context(self, user_id: str, messages: List[Dict]) -> List[Dict]:
+        """Add LLM context to messages using registered callbacks."""
+        if not self.llm_callbacks or not messages:
+            return messages
+
+        # Get the last user message
+        last_user_message = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_user_message = msg.get("content", "")
+                break
+
+        if not last_user_message:
+            return messages
+
+        # Apply all LLM callbacks
+        for callback in self.llm_callbacks:
+            try:
+                context = callback(user_id, messages)
+                if context:
+                    # Add context as a system message before the last user message
+                    messages.insert(-1, {
+                        "role": "system",
+                        "content": context
+                    })
+                    log("debug", f"Added LLM context from {callback.__name__}")
+            except Exception as e:
+                log("error", f"LLM callback {callback.__name__} failed: {e}")
+
+        return messages
+
     async def generate(self,
                     message: str,
                     stream_callback: Optional[Callable] = None,
@@ -345,8 +388,8 @@ class LLMManager:
             messages.append({"role": "user", "content": message})
 
         # Add LLM context if user_id is provided and callbacks are registered
-        if user_id and _llm_callbacks:
-            messages = _add_llm_context(user_id, messages)
+        if user_id and self.llm_callbacks:
+            messages = self._add_llm_context(user_id, messages)
 
         return await self.generate_response(self.current_llm, messages, stream_callback)
 
@@ -401,91 +444,3 @@ class LLMManager:
             error_msg = f"Error generating response from {llm_id}: {str(e)}"
             log("error", error_msg)
             return error_msg
-
-
-# Global instance
-_manager = None
-
-def _get_manager():
-    """Get or create the global LLMManager instance."""
-    global _manager
-    if _manager is None:
-        _manager = LLMManager()
-    return _manager
-
-# Update public functions with backward compatibility
-async def llm_generate(message: str,
-                      stream_callback: Optional[Callable] = None,
-                      conversation_history: Optional[List[Dict]] = None,
-                      user_id: Optional[str] = None) -> str:  # Added user_id parameter
-    """Simple interface to generate response from current LLM with conversation history."""
-    manager = _get_manager()
-    return await manager.generate(message, stream_callback, conversation_history, user_id)
-
-def set_current_llm(llm_id: str) -> bool:
-    """Set the current LLM to use."""
-    manager = _get_manager()
-    return manager.set_current_llm(llm_id)
-
-def get_available_llms() -> List[Dict[str, Any]]:
-    """Get list of available LLMs."""
-    manager = _get_manager()
-    return manager.get_available_llms()
-
-def get_current_llm_info() -> Optional[Dict[str, Any]]:
-    """Get information about the current LLM."""
-    manager = _get_manager()
-    return manager.get_current_llm_info()
-
-def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
-    """Get LLM information by name."""
-    manager = _get_manager()
-    return manager.get_llm_by_name(name)
-
-# Alias for backward compatibility - maintains old interface
-llm = llm_generate
-
-_llm_callbacks = []
-
-def register_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
-    """Register a callback to add LLM context to LLM queries."""
-    if callback_func not in _llm_callbacks:
-        _llm_callbacks.append(callback_func)
-        log("debug", f"Registered LLM callback: {callback_func.__name__}")
-
-def unregister_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
-    """Unregister a LLM callback."""
-    if callback_func in _llm_callbacks:
-        _llm_callbacks.remove(callback_func)
-        log("debug", f"Unregistered LLM callback: {callback_func.__name__}")
-
-def _add_llm_context(user_id: str, messages: List[Dict]) -> List[Dict]:
-    """Add LLM context to messages using registered callbacks."""
-    if not _llm_callbacks or not messages:
-        return messages
-
-    # Get the last user message
-    last_user_message = None
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            last_user_message = msg.get("content", "")
-            break
-
-    if not last_user_message:
-        return messages
-
-    # Apply all LLM callbacks
-    for callback in _llm_callbacks:
-        try:
-            context = callback(user_id, messages)
-            if context:
-                # Add context as a system message before the last user message
-                messages.insert(-1, {
-                    "role": "system",
-                    "content": context
-                })
-                log("debug", f"Added LLM context from {callback.__name__}")
-        except Exception as e:
-            log("error", f"LLM callback {callback.__name__} failed: {e}")
-
-    return messages

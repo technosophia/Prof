@@ -5,7 +5,7 @@
     "include_traceback": true
   },
   "app": {
-    "name": "Multilingual Streamlit App",
+    "name": "Professor",
     "default_llm": "Groq Llama 3",
     "test_default_llm": "Mock LLM",
     "version": "1.0.0",

@@ -11,153 +11,29 @@ Provides user settings interface where users can customize:
 
 import streamlit as st
 from typing import Dict, Any, Optional, Tuple
-from shared.common import _, log, get_config, get_user_manager, UserRole
-from shared.llm import get_available_llms, set_current_llm, get_current_llm_info
+from shared.common import _, log, get_config, get_user_settings_manager
+from shared.common import get_available_llms, set_current_llm, get_current_llm_info
+from shared.common import get_available_languages
+from shared.common import UserRole
 
-def get_user_settings_manager():
-    """Get or create the user settings manager."""
-    if "user_settings_manager" not in st.session_state:
-        st.session_state.user_settings_manager = UserSettingsManager()
-    return st.session_state.user_settings_manager
+def get_llm_options() -> list:
+    """Get available LLM options for dropdown."""
+    available_llms = get_available_llms()
+    options = []
 
-class UserSettingsManager:
-    """Manages user settings and preferences."""
+    for llm in available_llms:
+        if llm.get("available", False):
+            status = "🟢" if llm.get("enabled", False) else "🟡"
+            display_name = f"{status} {llm.get('name', 'Unknown')} ({llm.get('type', 'Unknown')})"
+            options.append({
+                "id": llm.get("id"),
+                "name": llm.get("name"),
+                "display": display_name,
+                "type": llm.get("type"),
+                "model": llm.get("model")
+            })
 
-    def __init__(self):
-        self.user_manager = get_user_manager()
-
-    def get_user_settings(self, user_id: str) -> Dict[str, Any]:
-        """Get all settings for a user."""
-        user = self.user_manager.get_user(user_id)
-        if not user:
-            return {}
-
-        # Get base settings from user profile
-        settings = user.get("profile", {}).get("settings", {})
-
-        # Ensure default structure
-        default_settings = {
-            "language": "en",
-            "default_llm": None,
-            "system_prompt": "",
-            "temperature": 0.7,
-            "max_tokens": 1000,
-            "auto_save": True,
-            "notifications": True,
-            "theme": "light"
-        }
-
-        # Merge with defaults
-        for key, value in default_settings.items():
-            if key not in settings:
-                settings[key] = value
-
-        return settings
-
-    def update_user_settings(self, user_id: str, settings_updates: Dict[str, Any]) -> bool:
-        """Update user settings."""
-        user = self.user_manager.get_user(user_id)
-        if not user:
-            return False
-
-        # Get current profile
-        profile = user.get("profile", {})
-
-        # Get current settings or create new
-        current_settings = profile.get("settings", {})
-
-        # Update settings
-        current_settings.update(settings_updates)
-
-        # Update user profile
-        profile["settings"] = current_settings
-
-        # Save to database
-        return self.user_manager.update_user(
-            user_id,
-            current_user_id=user_id,
-            profile=profile
-        )
-
-    def get_language_options(self) -> list:
-        """Get available language options."""
-        # In a real implementation, this would come from config or translation system
-        return [
-            {"code": "en", "name": "English", "flag": "🇺🇸"},
-            {"code": "fr", "name": "Français", "flag": "🇫🇷"},
-            {"code": "de", "name": "Deutsch", "flag": "🇩🇪"},
-            {"code": "es", "name": "Español", "flag": "🇪🇸"},
-            {"code": "it", "name": "Italiano", "flag": "🇮🇹"},
-            {"code": "zh", "name": "中文", "flag": "🇨🇳"},
-            {"code": "ja", "name": "日本語", "flag": "🇯🇵"},
-            {"code": "ko", "name": "한국어", "flag": "🇰🇷"},
-        ]
-
-    def get_llm_options(self) -> list:
-        """Get available LLM options for dropdown."""
-        available_llms = get_available_llms()
-        options = []
-
-        for llm in available_llms:
-            if llm.get("available", False):
-                status = "🟢" if llm.get("enabled", False) else "🟡"
-                display_name = f"{status} {llm.get('name', 'Unknown')} ({llm.get('type', 'Unknown')})"
-                options.append({
-                    "id": llm.get("id"),
-                    "name": llm.get("name"),
-                    "display": display_name,
-                    "type": llm.get("type"),
-                    "model": llm.get("model")
-                })
-
-        return options
-
-    def get_user_preferences(self, user: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Get user's preferred language and LLM from their profile settings.
-
-        Args:
-            user: User dictionary from user manager
-
-        Returns:
-            Tuple of (preferred_language, preferred_llm_id) or (None, None) if not found
-        """
-        if not user:
-            return None, None
-
-        # Check if user has profile settings
-        profile = user.get("profile", {})
-        preferred_lang = None
-        preferred_llm = None
-
-        # Check new settings structure
-        if "settings" in profile:
-            settings = profile.get("settings", {})
-
-            # Get language preference
-            if "language" in settings:
-                preferred_lang = settings.get("language")
-            else:
-                # Fall back to old profile language field
-                if "language" in profile:
-                    preferred_lang = profile.get("language")
-
-            # Get LLM preference
-            if "default_llm" in settings:
-                llm_id = settings.get("default_llm")
-                # Check if this LLM is still available
-                if llm_id:
-                    available_llms = get_available_llms()
-                    for llm in available_llms:
-                        if llm.get("id") == llm_id and llm.get("available", False):
-                            preferred_llm = llm_id
-                            break
-        else:
-            # Old structure: language might be directly in profile
-            if "language" in profile:
-                preferred_lang = profile.get("language")
-
-        return preferred_lang, preferred_llm
+    return options
 
 def show_settings_content():
     """Display the settings page content."""
@@ -215,7 +91,7 @@ def show_settings_content():
         st.divider()
         st.write("#### Default LLM Selection")
 
-        llm_options = settings_manager.get_llm_options()
+        llm_options = get_llm_options()
 
         if not llm_options:
             st.warning("No LLMs available. Please configure LLMs in the admin panel.")
@@ -453,8 +329,6 @@ def inject_ui_settings_content():
 
 def inject_ui_sidebar():
     """Add language and LLM selectors to sidebar that reflect user preferences."""
-    from shared.common import get_available_languages
-    from shared.llm import get_available_llms, set_current_llm, get_current_llm_info
 
     # Get current user
     current_user = st.session_state.get("current_user")
@@ -572,6 +446,6 @@ def inject_ui_sidebar():
 def inject_ui_initialize():
     """Initialize settings module."""
     if "user_settings_manager" not in st.session_state:
-        st.session_state.user_settings_manager = UserSettingsManager()
+        st.session_state.user_settings_manager = get_user_settings_manager()
 
     log("debug", "Settings UI module initialized")

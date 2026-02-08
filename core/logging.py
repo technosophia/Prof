@@ -104,7 +104,7 @@ class Logger:
             tb_lines = traceback.format_exc().strip().split('\n')
             if tb_lines and tb_lines[-1] and not tb_lines[-1].startswith("Traceback"):
                 # We have a real traceback
-                tb_str = "\n".join(tb_lines[-3:])  # Last 3 lines of traceback
+                tb_str = "\n".join(tb_lines)
                 return f"{base_message}\nTraceback: {tb_str}"
 
         return base_message

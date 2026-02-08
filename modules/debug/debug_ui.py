@@ -8,7 +8,7 @@ This module provides the debug section that was previously in app.py.
 import streamlit as st
 import os
 from shared.common import _, log, get_config, get_user_manager, get_conversation_manager
-from shared.llm import get_available_llms, get_current_llm_info
+from shared.common import get_available_llms, get_current_llm_info
 from shared.module_handler import get_active_modules, module_handler
 from shared.ui_registry import ui_registry
 

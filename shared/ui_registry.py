@@ -186,7 +186,7 @@ class UIRegistry:
                     result = new_result
             return result
         except Exception as e:
-            log("error", f"Error rendering {injection_point} from {module_key}: {str(e)}", exc_info=True)
+            log("error", f"Error rendering injection point - {injection_point} from {module_key}: {str(e)}", exc_info=True)
             return None
 
     def render(self, injection_point: str) -> Dict[str, Any]:

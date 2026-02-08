@@ -12,14 +12,14 @@ from unittest.mock import patch, Mock
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
-from shared.llm import LLMManager, get_available_llms, set_current_llm, llm_generate
+from shared.common import get_available_llms, set_current_llm, llm_generate, get_llm_manager
 
 class TestLLMManager:
     """Test LLM Manager functionality."""
 
     def test_discover_engines(self):
         """Test that engines are discovered correctly."""
-        manager = LLMManager()
+        manager = get_llm_manager()
 
         # Log what engines were found
         print(f"Discovered engines: {list(manager.engines.keys())}")
@@ -30,7 +30,7 @@ class TestLLMManager:
 
     def test_get_available_llms(self):
         """Test getting available LLMs."""
-        manager = LLMManager()
+        manager = get_llm_manager()
         llms = manager.get_available_llms()
 
         print(f"Available LLMs: {len(llms)}")
@@ -45,7 +45,7 @@ class TestLLMManager:
 
     def test_set_current_llm(self):
         """Test setting current LLM."""
-        manager = LLMManager()
+        manager = get_llm_manager()
         llms = manager.get_available_llms()
 
         mock_llms = [llm for llm in llms if llm["type"] == "mock"]
@@ -63,7 +63,7 @@ class TestLLMManager:
     @pytest.mark.asyncio
     async def test_generate_with_mock(self):
         """Test generating response with mock LLM."""
-        manager = LLMManager()
+        manager = get_llm_manager()
 
         llms = manager.get_available_llms()
         mock_llms = [llm for llm in llms if llm["type"] == "mock"]

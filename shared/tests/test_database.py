@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from sqlalchemy import Column, String, Integer
 from core.database import Base, DatabaseManager, init_database, MEMDB
 

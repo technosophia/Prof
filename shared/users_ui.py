@@ -6,7 +6,7 @@ User Management UI Module
 import streamlit as st
 from shared.common import get_user_manager, UserRole
 from shared.common import _, log, get_config
-from shared.llm import set_current_llm, get_current_llm_info
+from shared.common import set_current_llm, get_current_llm_info
 
 
 def apply_user_preferences(user):
@@ -23,10 +23,10 @@ def apply_user_preferences(user):
 
     # Import settings manager
     try:
-        from settings_ui import get_user_settings_manager
+        from shared.settings_ui import get_user_settings_manager
         settings_manager = get_user_settings_manager()
-    except ImportError:
-        log("warning", "Settings UI module not available for applying preferences")
+    except Exception as e:
+        log("warning", f"Settings UI module not available for applying preferences: {e} ", exec_info=True)
         return False
 
     applied = False
@@ -100,6 +100,9 @@ def auto_login_first_user():
         except Exception as e:
             log("error", f"Auto-login failed: {e}")
             return False
+    else:
+        log("info", "No users available for auto-login")
+        return False
     return True
 
 def inject_ui_sidebar():

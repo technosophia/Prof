@@ -16,7 +16,7 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests"
 ]
-
+pythonpath = ["."]
 # BDD-specific configuration needs to be in tool.pytest-bdd section
 [tool.pytest-bdd]
 features_base_dir = "tests/features"

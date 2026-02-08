@@ -123,7 +123,7 @@ from shared.common import init_database, get_db_manager
 from shared.common import init_user_manager
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
-from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+from shared.common import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # Import UI registry system
 from shared.ui_registry import UIRegistry
@@ -135,6 +135,7 @@ configure_logging_from_dict(get_config().get("logging", {}))
 
 db_path = get_config().get("database", {}).get("path", ".") + "/app.db"
 init_database(use_memory=False, db_path=db_path)
+get_available_languages()
 
 # Initialize Module Handler - store in session state
 if 'module_handler' not in st.session_state:

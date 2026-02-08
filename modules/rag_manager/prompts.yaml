@@ -1,0 +1,14 @@
+# file name: modules/rag_manager/prompts.yaml
+rag_manager:
+  # Single prompt template for RAG context injection
+  context_template: |
+    CONTEXT FROM KNOWLEDGE BASE:
+    ==================================================
+    {engine_contexts}
+    ==================================================
+    INSTRUCTIONS:
+    - Use the above context to inform your response
+    - If the context is relevant, incorporate it naturally into your answer
+    - If the context doesn't contain relevant information, respond based on your own knowledge
+    - Do not mention that you are using a knowledge base or external context
+    - Cite specific information from the context when applicable

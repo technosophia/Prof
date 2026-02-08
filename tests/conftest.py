@@ -39,15 +39,6 @@ def pytest_bdd_before_step(request, feature, scenario, step, step_func):
     _log(f"\n[STEP START] Feature: {feature.name} - Scenario: {scenario.name}")
     _log(f"           Step:@{step.type} {step.name}")
 
-os.environ["TEST_MODE"] = "true"
-os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
-from shared.common import get_config
-from shared.common import get_db_manager, init_database
-from shared.common import get_user_manager
-import tempfile
-from modules.rag_manager import rag_manager
-
-
 SCOPE = "module"
 TEST_PORT = 8505
 
@@ -58,9 +49,17 @@ CONFTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CONFTEST_DIR)  # Remonter d'un niveau depuis tests/
 sys.path.insert(0, PROJECT_ROOT)
 os.environ["PYTHONPATH"] = PROJECT_ROOT
+
+os.environ["TEST_MODE"] = "true"
+os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
+from shared.common import get_config
+from shared.common import get_db_manager, init_database
+from shared.common import get_user_manager
+import tempfile
+from modules.rag_manager import rag_manager
+
+
 _log(f"Python path: {sys.path}")
-
-
 _log(f"Conftest directory: {CONFTEST_DIR}")
 _log(f"Project root: {PROJECT_ROOT}")
 _log(f"App.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
