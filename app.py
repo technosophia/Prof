@@ -133,8 +133,6 @@ from shared.module_handler import ModuleHandler, get_active_modules, toggle_modu
 # Configure logging from config (one line)
 configure_logging_from_dict(get_config().get("logging", {}))
 
-db_path = get_config().get("database", {}).get("path", ".") + "/app.db"
-init_database(use_memory=False, db_path=db_path)
 get_available_languages()
 
 # Initialize Module Handler - store in session state
@@ -157,6 +155,9 @@ for module_name in active_modules:
         log("debug", f"Successfully loaded UI for module: {module_name}")
     else:
         log("warning", f"Could not load UI for module: {module_name}")
+
+db_path = get_config().get("database", {}).get("path", ".") + "/app.db"
+init_database(use_memory=False, db_path=db_path)
 
 # Initialize UI registry - do this here, not inside main()
 # The registry will be cached in session state

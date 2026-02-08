@@ -1,0 +1,9 @@
+{
+  "name": "training",
+  "version": "1.0.0",
+  "description": "Training module for master users to track and analyze student learning progress",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "education",
+  "dependencies": ["users", "conversation"]
+}
