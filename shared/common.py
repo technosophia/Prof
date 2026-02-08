@@ -1,4 +1,136 @@
-"""Common shared resources (Streamlit-aware)"""
+"""
+Module Development Guide: Config, Logging, Translation & Database Systems
+
+[agent]
+## Configuration System (`core/config.py`)
+Centralized configuration management with dot-notation access. Automatically discovers and merges config.json files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
+
+Key functions:
+- `get_config()`: Access the global configuration object
+- `get_section(prefix)`: Get module-specific configuration section
+- `save_config(prefix, data)`: Save module configuration back to file
+
+Usage:
+```python
+config = get_config()
+db_path = config.get("database.path")
+module_config = get_section("modules.my_module")
+```
+
+## Logging System (`core/logging.py`)
+Simple, configurable logging with multiple severity levels and stack trace support. Integrates with the configuration system.
+
+Key functions:
+- `log(level, message, *args, exc_info=False)`: Main logging function
+- Convenience functions: `debug()`, `info()`, `warning()`, `error()`, `critical()`
+- `configure_logging_from_dict(config_dict)`: Apply logging configuration
+
+Usage:
+```python
+log("info", "Module initialized")
+error("Failed to connect: %s", error_msg, exc_info=True)
+debug("Processing item %d", item_id)
+```
+
+## Translation System (`core/translate.py`)
+Multi-language support with JSON-based translation files. Automatically loads all translation files from 'translations' directories throughout the project.
+
+Key functions:
+- `_(key, lang=None)`: Main translation function (uses session language)
+- `get_available_languages()`: List all loaded language codes
+
+Usage:
+```python
+# Uses current session language
+title = _("welcome_message")
+# Force specific language
+title_en = _("welcome_message", "en")
+```
+
+## Database System (`core/database.py`)
+SQLAlchemy-based database management with singleton pattern. Supports both in-memory (testing) and persistent SQLite databases.
+
+Key imports:
+- `Base`: SQLAlchemy declarative base for model definitions
+
+Key functions:
+- `init_database()`: Initialize database connection (use in-memory for tests)
+- `get_db_manager()`: Access the global database manager
+- `db_manager.get_session()`: Get database session (context manager)
+- `db_manager.empty_all_tables()`: Clear all table data (preserves structure)
+
+Usage:
+```python
+# Define models
+class MyModel(Base):
+    __tablename__ = "my_table"
+
+# Initialize database
+init_database()
+
+# Use database session
+with get_db_manager().get_session() as session:
+    items = session.query(MyModel).all()
+```
+
+## User Management System (`shared/users.py`)
+Built-in user authentication and role-based access control with database persistence. Supports hierarchical user relationships.
+
+Key imports:
+- `UserRole`: Enum for user permissions (ADMIN, MASTER, NORMAL)
+
+Key functions:
+- `get_user_manager()`: Access user management singleton
+- `init_user_manager()`: Initialize with default users
+- `get_all_users()`: Get all users as dictionary
+
+User hierarchy:
+- ADMIN: Full system access
+- MASTER: Can manage their NORMAL users
+- NORMAL: Regular users with parent MASTER
+
+Usage:
+```python
+# Check user authentication
+if get_user_manager().authenticate(username, password):
+    user = get_user_manager().get_user(username)
+    # Check permissions
+    if user.role == UserRole.ADMIN:
+        # Admin actions
+```
+
+## Conversation Management System (`shared/conversation.py`)
+Stores and manages user conversations with LLM interactions. Supports multiple conversations per user with full message history.
+
+Key imports:
+- `Message`: Conversation message model with role, content, timestamp
+
+Key functions:
+- `get_conversation_manager()`: Access conversation management
+- Automatic cleanup of user conversations when users are deleted
+
+Usage:
+```python
+# Get user's conversations
+manager = get_conversation_manager()
+conversations = manager.get_user_conversations(user_id)
+
+# Add new message
+manager.add_message(conversation_id, Message(role="user", content="Hello"))
+```
+
+## Best Practices Quick Reference
+
+1. **Import from common.py only**: Never import directly from core modules
+2. **Initialize in order**: Config → Logging → Database → Other systems
+3. **Use session state for language**: Translation uses `st.session_state.current_language`
+4. **Always use db sessions as context managers**: `with get_db_manager().get_session() as session:`
+5. **Log errors with tracebacks**: Use `exc_info=True` for error logs
+6. **Test with in-memory database**: Use `init_database(use_memory=True)` in tests
+7. **Cleanup test data**: Use `db_manager.empty_all_tables()` between tests
+"""
+
+
 
 import streamlit as st
 import os, sys

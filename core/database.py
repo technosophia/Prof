@@ -2,7 +2,6 @@
 Unified database management with SQLAlchemy.
 Supports both in-memory (for testing) and persistent storage.
 
-[agent]
 This module provides a singleton DatabaseManager for database operations.
 Modules like users.py should inject this service rather than creating their own connections.
 
@@ -17,6 +16,57 @@ Typical usage:
 1. Call init_database() at application startup
 2. Use db_manager.get_session() for database operations
 3. Define models using Base as base class
+
+[agent]
+## Creating User-Linked Persistent Data
+When adding new persistent data linked to users (e.g., user preferences, user history), follow this pattern:
+
+### 1. Define Your Model
+```python
+from core.database import Base
+from sqlalchemy import Column, String, ForeignKey, DateTime, JSON
+from datetime import datetime
+
+class UserPreferenceTable(Base):
+    __tablename__ = 'user_preferences'
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
+    preference_type = Column(String, nullable=False)
+    preference_data = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+```
+
+### 2. Register Cleanup Callback
+To automatically clean up user data when a user is deleted, register a cleanup function:
+
+```python
+def cleanup_user_preferences(user_id: str) -> bool:
+    try:
+        with get_db_manager().get_session() as session:
+            session.query(UserPreferenceTable).filter_by(user_id=user_id).delete()
+            log("info", f"Cleaned up preferences for user {user_id}")
+            return True
+    except Exception as e:
+        log("error", f"Failed to cleanup preferences: {e}")
+        return False
+
+# Register with user manager
+get_user_manager().register_before_delete_callback(cleanup_user_preferences)
+```
+
+### 3. Access User-Linked Data
+Always query by user_id to respect permission boundaries:
+
+```python
+with get_db_manager().get_session() as session:
+    preferences = session.query(UserPreferenceTable).filter_by(user_id=current_user_id).all()
+```
+
+**Note**: Tables are automatically created via `Base.metadata.create_all()` when `init_database()` is called.
+
+
 """
 import os
 from pathlib import Path

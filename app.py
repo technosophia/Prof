@@ -1,4 +1,3 @@
-# file name: app.py
 """
 [agent]
 ## Technical Specifications
@@ -42,12 +41,67 @@ Planned Features:
 - MVP Features:
 - RAG with different RAG engines, means to compare and debug them.
 - Token stats: monitoring token usage per user.
-- Learning path, level assessment through discussion rather than questionnaires.
+- Training : follow user progression, learning path, level assessment through discussion rather than questionnaires.
 - Additional Features:
 - Retrieval of YouTube playlists and PDFs for importing RAG content.
-- Metadata for RAG if necessary for the learning path.
+
+## UI Injection Points
+
+Modules can implement the following injection points by creating functions with the pattern `inject_ui_[injection_point]()` in a `*_ui.py` file:
+
+### Core Application Flow
+- `initialize`: Called once at app startup for initializing session state and module setup. No UI expected.
+- `sidebar`: Content injected into the main sidebar. Use `st.*` functions to render UI elements.
+- `main_header`: Content injected at the top of the main content area (chat page).
+- `main_before_conversation`: Content injected before the conversation interface on chat page.
+- `main_content`: Content injected when no user is logged in (fallback content).
+- `main_after_conversation`: Content injected after the conversation interface on chat page.
+- `main_footer`: Content injected at the bottom of the main content area.
+- `settings_content`: Content injected into the user settings page when a user is logged in.
+
+### Admin Interface
+- `admin_tab`: Returns a tuple `(tab_name: str, render_function: callable)` to create admin tabs. The render function should contain `st.*` calls for the tab content.
+
+### Usage Examples:
+1. **For sidebar integration:**
+   ```python
+   def inject_ui_sidebar():
+       st.subheader("My Module")
+       if st.button("Do something"):
+           st.write("Clicked!")
+   ```
+
+2. **For admin tab integration:**
+   ```python
+   def inject_ui_admin_tab():
+       def render_my_admin_tab():
+           st.header("My Admin Panel")
+           st.write("Admin content here")
+       return ("My Module", render_my_admin_tab)
+   ```
+
+3. **For settings integration:**
+   ```python
+   def inject_ui_settings_content():
+       st.subheader("Module Settings")
+       option = st.selectbox("Choose option", ["A", "B", "C"])
+   ```
+
+### Location Requirements:
+- UI modules must be placed in `shared/` or `modules/[module_name]/` directories
+- File names must end with `_ui.py` (e.g., `my_module_ui.py`)
+- Functions must be named exactly `inject_ui_[injection_point]()`
+- Functions should use Streamlit commands (`st.button`, `st.write`, etc.) to render content
+
+### Notes:
+- Each injection point can be implemented by multiple modules
+- Modules can implement multiple injection points
+- The registry automatically discovers and caches all UI modules
+- Order of execution within an injection point is not guaranteed (use dependencies if needed)
+- Modules only appear if their parent module is active (except shared modules which are always active)
 
 """
+
 
 import streamlit as st
 import os

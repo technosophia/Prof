@@ -44,225 +44,400 @@ Planned Features:
 - MVP Features:
 - RAG with different RAG engines, means to compare and debug them.
 - Token stats: monitoring token usage per user.
-- Learning path, level assessment through discussion rather than questionnaires.
+- Training : follow user progression, learning path, level assessment through discussion rather than questionnaires.
 - Additional Features:
 - Retrieval of YouTube playlists and PDFs for importing RAG content.
-- Metadata for RAG if necessary for the learning path.
 
-<a id="shared.__init__"></a>
+## UI Injection Points
 
-# shared.\_\_init\_\_
+Modules can implement the following injection points by creating functions with the pattern `inject_ui_[injection_point]()` in a `*_ui.py` file:
 
-Module Development Guide: Config, Logging, Translation & LLM Systems
+### Core Application Flow
+- `initialize`: Called once at app startup for initializing session state and module setup. No UI expected.
+- `sidebar`: Content injected into the main sidebar. Use `st.*` functions to render UI elements.
+- `main_header`: Content injected at the top of the main content area (chat page).
+- `main_before_conversation`: Content injected before the conversation interface on chat page.
+- `main_content`: Content injected when no user is logged in (fallback content).
+- `main_after_conversation`: Content injected after the conversation interface on chat page.
+- `main_footer`: Content injected at the bottom of the main content area.
+- `settings_content`: Content injected into the user settings page when a user is logged in.
+
+### Admin Interface
+- `admin_tab`: Returns a tuple `(tab_name: str, render_function: callable)` to create admin tabs. The render function should contain `st.*` calls for the tab content.
+
+### Usage Examples:
+1. **For sidebar integration:**
+   ```python
+   def inject_ui_sidebar():
+       st.subheader("My Module")
+       if st.button("Do something"):
+           st.write("Clicked!")
+   ```
+
+2. **For admin tab integration:**
+   ```python
+   def inject_ui_admin_tab():
+       def render_my_admin_tab():
+           st.header("My Admin Panel")
+           st.write("Admin content here")
+       return ("My Module", render_my_admin_tab)
+   ```
+
+3. **For settings integration:**
+   ```python
+   def inject_ui_settings_content():
+       st.subheader("Module Settings")
+       option = st.selectbox("Choose option", ["A", "B", "C"])
+   ```
+
+### Location Requirements:
+- UI modules must be placed in `shared/` or `modules/[module_name]/` directories
+- File names must end with `_ui.py` (e.g., `my_module_ui.py`)
+- Functions must be named exactly `inject_ui_[injection_point]()`
+- Functions should use Streamlit commands (`st.button`, `st.write`, etc.) to render content
+
+### Notes:
+- Each injection point can be implemented by multiple modules
+- Modules can implement multiple injection points
+- The registry automatically discovers and caches all UI modules
+- Order of execution within an injection point is not guaranteed (use dependencies if needed)
+- Modules only appear if their parent module is active (except shared modules which are always active)
+
+<a id="core.database"></a>
+
+# core.database
+
+Unified database management with SQLAlchemy.
+Supports both in-memory (for testing) and persistent storage.
+
+This module provides a singleton DatabaseManager for database operations.
+Modules like users.py should inject this service rather than creating their own connections.
+
+Public interface:
+- db_manager: Global DatabaseManager instance
+- Base: SQLAlchemy declarative base for models
+- init_database(): Initialize database connection
+- DatabaseManager.get_session(): Get database session (context manager)
+- DatabaseManager.is_initialized(): Check if database is ready
+
+Typical usage:
+1. Call init_database() at application startup
+2. Use db_manager.get_session() for database operations
+3. Define models using Base as base class
 
 [agent]
+## Creating User-Linked Persistent Data
+When adding new persistent data linked to users (e.g., user preferences, user history), follow this pattern:
 
-## Overview
+### 1. Define Your Model
+```python
+from core.database import Base
+from sqlalchemy import Column, String, ForeignKey, DateTime, JSON
+from datetime import datetime
 
-This application provides four core utilities that all modules can use: **configuration management**, **logging**, **translation**, and **LLM integration**. Each system is designed for simple one-line initialization and easy use throughout your modules.
+class UserPreferenceTable(Base):
+    __tablename__ = 'user_preferences'
 
-## Best Practices
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
+    preference_type = Column(String, nullable=False)
+    preference_data = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+```
 
-1. **Initialize in correct order**: Always load config first, then other systems
-2. **Use async for LLM calls**: Always use `asyncio.run()` or async context for LLM operations
-3. **Handle streaming properly**: Use callbacks for real-time response display
-4. **Log errors with tracebacks**: Use `exc_info=True` for error logs to get stack traces
-5. **Check LLM availability**: Verify `llm_info["available"]` before trying to use an LLM
-6. **Use environment variables**: Keep API keys in `.env` file, not in code
-7. **Validate configurations**: Ensure your `config.json` has all required fields
-8. **Graceful error handling**: Always wrap LLM calls in try-except blocks
-
-## Quick Reference
+### 2. Register Cleanup Callback
+To automatically clean up user data when a user is deleted, register a cleanup function:
 
 ```python
-# Most common imports
-from shared.common import get_config
-from shared.logging import log
-from shared.common import _
-from shared.llm import llm_generate, set_current_llm
+def cleanup_user_preferences(user_id: str) -> bool:
+    try:
+        with get_db_manager().get_session() as session:
+            session.query(UserPreferenceTable).filter_by(user_id=user_id).delete()
+            log("info", f"Cleaned up preferences for user {user_id}")
+            return True
+    except Exception as e:
+        log("error", f"Failed to cleanup preferences: {e}")
+        return False
 
-# Most common patterns
+# Register with user manager
+get_user_manager().register_before_delete_callback(cleanup_user_preferences)
+```
+
+### 3. Access User-Linked Data
+Always query by user_id to respect permission boundaries:
+
+```python
+with get_db_manager().get_session() as session:
+    preferences = session.query(UserPreferenceTable).filter_by(user_id=current_user_id).all()
+```
+
+**Note**: Tables are automatically created via `Base.metadata.create_all()` when `init_database()` is called.
+
+<a id="core.database.DatabaseManager"></a>
+
+## DatabaseManager Objects
+
+```python
+class DatabaseManager()
+```
+
+Manages database connections and operations.
+
+[agent]
+Singleton class providing database services. Use the global db_manager instance.
+Other modules should inject this service rather than creating their own connections.
+
+Public methods:
+- get_session(): Primary method for database access
+- is_initialized(): Check if database is ready
+- empty_all_tables(): Remove all records from all tables (preserves table structure)
+
+Usage:
+    # In another module like users.py
+    from core.database import db_manager
+
+    if db_manager.is_initialized():
+        with db_manager.get_session() as session:
+            # Perform database operations
+
+<a id="core.database.DatabaseManager.is_initialized"></a>
+
+#### is\_initialized
+
+```python
+def is_initialized()
+```
+
+Check if database is initialized.
+
+[agent]
+Returns True if database is ready for use.
+
+Returns:
+    bool: True if database engine is initialized
+
+<a id="core.database.DatabaseManager.dispose"></a>
+
+#### dispose
+
+```python
+def dispose()
+```
+
+Dispose of database connections and reset manager state.
+
+[agent]
+Properly closes all database connections and resets the manager.
+Critical for test isolation - call between tests to prevent file locks.
+
+Usage:
+    # Between tests
+    if db_manager.is_initialized():
+        db_manager.dispose()
+
+<a id="core.database.DatabaseManager.get_session"></a>
+
+#### get\_session
+
+```python
+@contextmanager
+def get_session() -> Session
+```
+
+Get a database session with context manager.
+
+[agent]
+Primary method for database access. Provides automatic session management.
+Commits on success, rolls back on exception.
+
+Yields:
+    sqlalchemy.orm.Session: Database session
+
+Raises:
+    RuntimeError: If database not initialized
+
+Example (from users.py):
+    with db_manager.get_session() as session:
+        user = session.query(UserTable).filter_by(id=user_id).first()
+
+<a id="core.database.DatabaseManager.empty_all_tables"></a>
+
+#### empty\_all\_tables
+
+```python
+def empty_all_tables()
+```
+
+Remove all records from all tables while preserving table structure.
+
+[agent]
+Useful for testing or resetting application state. This method deletes all
+data from every table but keeps the tables themselves intact.
+
+Warning: This is a destructive operation and should be used with caution.
+Not recommended for production use unless absolutely necessary.
+
+Returns:
+    bool: True if successful, False otherwise
+
+Example:
+    # Reset database for testing
+    db_manager.empty_all_tables()
+
+<a id="core.database.init_database"></a>
+
+#### init\_database
+
+```python
+def init_database(use_memory: bool = False, db_path: Optional[str] = None)
+```
+
+Initialize the database.
+
+[agent]
+Initialize database connection. Must be called before any database operations.
+
+Args:
+    use_memory: Use in-memory database for testing (default: False)
+    db_path: Path to database file (default: from config or "data/app.db")
+
+Returns:
+    DatabaseManager: Initialized database manager
+
+<a id="shared.common"></a>
+
+# shared.common
+
+Module Development Guide: Config, Logging, Translation & Database Systems
+
+[agent]
+## Configuration System (`core/config.py`)
+Centralized configuration management with dot-notation access. Automatically discovers and merges config.json files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
+
+Key functions:
+- `get_config()`: Access the global configuration object
+- `get_section(prefix)`: Get module-specific configuration section
+- `save_config(prefix, data)`: Save module configuration back to file
+
+Usage:
+```python
 config = get_config()
-log("info", "Message here")
-translated_text = _("translation_key")
-response = await llm_generate("Your prompt")
+db_path = config.get("database.path")
+module_config = get_section("modules.my_module")
 ```
 
-## Troubleshooting
+## Logging System (`core/logging.py`)
+Simple, configurable logging with multiple severity levels and stack trace support. Integrates with the configuration system.
 
-### Common Issues
+Key functions:
+- `log(level, message, *args, exc_info=False)`: Main logging function
+- Convenience functions: `debug()`, `info()`, `warning()`, `error()`, `critical()`
+- `configure_logging_from_dict(config_dict)`: Apply logging configuration
 
-1. **"No available LLMs found"**: Check your `.env` file for missing API keys
-2. **"cannot access local variable 'llm'"**: Avoid using `llm` as variable name in loops
-3. **Configuration errors**: Ensure config is loaded before importing other modules
-4. **Streaming not working**: Verify the LLM supports streaming and callback is defined
-5. **Translation errors**: Check that translation files exist and keys match
-
-### Debug Tips
-
-1. Enable traceback in logging config: `"include_traceback": true`
-2. Check LLM availability: `get_available_llms()` returns detailed status
-3. Verify environment variables: Use debug section in Streamlit app
-4. Monitor logs: All system operations are logged with appropriate levels
-
-This integrated system allows each module to be self-contained with its own configuration, translations, logging, and LLM capabilities while seamlessly integrating with the main application.
-
-<a id="shared.logging"></a>
-
-# shared.logging
-
-This is a simple logging system with configurable levels.
-
-[agent]
-## Logging System (`shared/logging.py`)
-
-### Purpose
-Simple, configurable logging with multiple levels and stack trace support. All logs are in English (not translated). Integrates with configuration system.
-
-### Key Functions
-
-#### Simple Logging (main way to log)
+Usage:
 ```python
-from shared.logging import log
-
-# One-line logging
-log("info", "Module initialized successfully")
-log("debug", "Processing item %d", item_id)
-log("warning", "Deprecated function called")
-log("error", "Failed to connect: %s", error_msg)
-
-# With stack trace for errors
-try:
-    risky_operation()
-except Exception as e:
-    log("error", "Operation failed: %s", str(e), exc_info=True)
-
-# Or use convenience functions
-from shared.logging import debug, info, warning, error
-info("Module started")
-debug("Detailed debug info: %s", data)
+log("info", "Module initialized")
+error("Failed to connect: %s", error_msg, exc_info=True)
+debug("Processing item %d", item_id)
 ```
 
-#### Connecting to Configuration
+## Translation System (`core/translate.py`)
+Multi-language support with JSON-based translation files. Automatically loads all translation files from 'translations' directories throughout the project.
+
+Key functions:
+- `_(key, lang=None)`: Main translation function (uses session language)
+- `get_available_languages()`: List all loaded language codes
+
+Usage:
 ```python
-from shared.common import get_config
-from shared.logging import configure_logging_from_dict
-
-# Configure logging from config
-config = get_config()
-configure_logging_from_dict(config.get("logging", {}))
+# Uses current session language
+title = _("welcome_message")
+# Force specific language
+title_en = _("welcome_message", "en")
 ```
 
-### Log Levels (from most to least verbose)
-- `debug` - Detailed information for debugging
-- `info` - General information about program execution
-- `warning` - Potential issues that don't stop execution
-- `error` - Serious problems that affect functionality
-- `critical` - Critical errors that may cause program termination
+## Database System (`core/database.py`)
+SQLAlchemy-based database management with singleton pattern. Supports both in-memory (testing) and persistent SQLite databases.
 
-### Configuration Example
-```json
-{
-  "logging": {
-    "level": "INFO",
-    "format": "[{level}] {timestamp} - {message}",
-    "include_traceback": true
-  }
-}
-```
+Key imports:
+- `Base`: SQLAlchemy declarative base for model definitions
 
-<a id="shared.config"></a>
+Key functions:
+- `init_database()`: Initialize database connection (use in-memory for tests)
+- `get_db_manager()`: Access the global database manager
+- `db_manager.get_session()`: Get database session (context manager)
+- `db_manager.empty_all_tables()`: Clear all table data (preserves structure)
 
-# shared.config
-
-Configuration manager with module injection support.
-
-[agent]
-## Configuration System (`shared/config.py`)
-
-### Purpose
-Centralized configuration management with module injection support. Loads from JSON files and supports nested configurations with duplicate checking.
-
-### Key Functions
-
-#### Initialization (in your module)
+Usage:
 ```python
-from shared.config import get_config
+# Define models
+class MyModel(Base):
+    __tablename__ = "my_table"
 
-# Initialize main config (usually done once in app.py)
-config = init_config("config.json")
+# Initialize database
+init_database()
 
+# Use database session
+with get_db_manager().get_session() as session:
+    items = session.query(MyModel).all()
 ```
 
-#### Using Configuration
+## User Management System (`shared/users.py`)
+Built-in user authentication and role-based access control with database persistence. Supports hierarchical user relationships.
+
+Key imports:
+- `UserRole`: Enum for user permissions (ADMIN, MASTER, NORMAL)
+
+Key functions:
+- `get_user_manager()`: Access user management singleton
+- `init_user_manager()`: Initialize with default users
+- `get_all_users()`: Get all users as dictionary
+
+User hierarchy:
+- ADMIN: Full system access
+- MASTER: Can manage their NORMAL users
+- NORMAL: Regular users with parent MASTER
+
+Usage:
 ```python
-from shared.common import get_config
-
-config = get_config()
-
-# Get values with dot notation
-log_level = config.get("logging.level", "INFO")
-app_name = config.get("app.name")
-
-# Set values
-config.set("your_module.some_key", "value")
-
-# Check if key exists
-if "your_module.enabled" in config:
-    # Do something
+# Check user authentication
+if get_user_manager().authenticate(username, password):
+    user = get_user_manager().get_user(username)
+    # Check permissions
+    if user.role == UserRole.ADMIN:
+        # Admin actions
 ```
 
-### Module Configuration File Example
-Create `your_module/config.json`:
-```json
-{
-    "your_module": {
-        "enabled": true,
-        "api_key": "your_key_here",
-        "endpoint": "https://api.example.com"
-    },
-    "logging": {
-        "your_module_level": "DEBUG"
-    }
-}
-```
+## Conversation Management System (`shared/conversation.py`)
+Stores and manages user conversations with LLM interactions. Supports multiple conversations per user with full message history.
 
-<a id="shared.translate"></a>
+Key imports:
+- `Message`: Conversation message model with role, content, timestamp
 
-# shared.translate
+Key functions:
+- `get_conversation_manager()`: Access conversation management
+- Automatic cleanup of user conversations when users are deleted
 
-Translate helper function
-
-[agent]
-Translation System (`shared/translate.py`)
-
-## Purpose
-Multilingual support with module-specific translations. Uses simple `_()` function for translation lookups.
-
+Usage:
 ```python
-from shared.common import _
+# Get user's conversations
+manager = get_conversation_manager()
+conversations = manager.get_user_conversations(user_id)
 
-title = _("module_title")
-description = _("module_description")
-
-message = _("welcome_user").format(username=user_name)
+# Add new message
+manager.add_message(conversation_id, Message(role="user", content="Hello"))
 ```
 
-Put that in your module :
-```
-translations/
-├── en.json
-├── fr.json
-```
+## Best Practices Quick Reference
 
-Example `translations/en.json`:
-```json
-{
-    "hello_world": "Hello World!",
-    "description": "Welcome to the application",
-    "button_text": "Click here"
-}
-```
+1. **Import from common.py only**: Never import directly from core modules
+2. **Initialize in order**: Config → Logging → Database → Other systems
+3. **Use session state for language**: Translation uses `st.session_state.current_language`
+4. **Always use db sessions as context managers**: `with get_db_manager().get_session() as session:`
+5. **Log errors with tracebacks**: Use `exc_info=True` for error logs
+6. **Test with in-memory database**: Use `init_database(use_memory=True)` in tests
+7. **Cleanup test data**: Use `db_manager.empty_all_tables()` between tests
 
 <a id="shared.llm"></a>
 
@@ -301,115 +476,19 @@ def stream_callback(chunk):
 response = await llm_generate("Tell me a story", stream_callback)
 ```
 
-<a id="shared.database"></a>
-
-# shared.database
-
-Unified database management with SQLAlchemy.
-Supports both in-memory (for testing) and persistent storage.
-
-[agent]
-This module provides a singleton DatabaseManager for database operations.
-Modules like users.py should inject this service rather than creating their own connections.
-
-Public interface:
-- db_manager: Global DatabaseManager instance
-- Base: SQLAlchemy declarative base for models
-- init_database(): Initialize database connection
-- DatabaseManager.get_session(): Get database session (context manager)
-- DatabaseManager.is_initialized(): Check if database is ready
-
-Typical usage:
-1. Call init_database() at application startup
-2. Use db_manager.get_session() for database operations
-3. Define models using Base as base class
-
-<a id="shared.database.DatabaseManager"></a>
-
-## DatabaseManager Objects
-
-```python
-class DatabaseManager()
+### Context injection
+Any module can inject context in the current conversation. It will be added at the end of the history
 ```
+ from shared.llm import register_llm_callback, unregister_llm_callback
 
-Manages database connections and operations.
+def inject_current_time_context(user_id: str, messages: List[Dict]) -> str:
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"Current time: {current_time}"
 
-[agent]
-Singleton class providing database services. Use the global db_manager instance.
-Other modules should inject this service rather than creating their own connections.
-
-Public methods:
-- get_session(): Primary method for database access
-- is_initialized(): Check if database is ready
-
-Usage:
-    # In another module like users.py
-    from shared.database import db_manager
-
-    if db_manager.is_initialized():
-        with db_manager.get_session() as session:
-            # Perform database operations
-
-<a id="shared.database.DatabaseManager.is_initialized"></a>
-
-#### is\_initialized
-
-```python
-def is_initialized()
+# Register the callback (typically during initialization)
+register_llm_callback(inject_current_time_context)
 ```
-
-Check if database is initialized.
-
-[agent]
-Returns True if database is ready for use.
-
-Returns:
-    bool: True if database engine is initialized
-
-<a id="shared.database.DatabaseManager.get_session"></a>
-
-#### get\_session
-
-```python
-@contextmanager
-def get_session() -> Session
-```
-
-Get a database session with context manager.
-
-[agent]
-Primary method for database access. Provides automatic session management.
-Commits on success, rolls back on exception.
-
-Yields:
-    sqlalchemy.orm.Session: Database session
-
-Raises:
-    RuntimeError: If database not initialized
-
-Example (from users.py):
-    with db_manager.get_session() as session:
-        user = session.query(UserTable).filter_by(id=user_id).first()
-
-<a id="shared.database.init_database"></a>
-
-#### init\_database
-
-```python
-def init_database(use_memory: bool = False, db_path: Optional[str] = None)
-```
-
-Initialize the database.
-
-[agent]
-Initialize database connection. Must be called before any database operations.
-
-Args:
-    use_memory: Use in-memory database for testing (default: False)
-    db_path: Path to database file (default: from config or "data/app.db")
-
-Returns:
-    DatabaseManager: Initialized database manager
 
 <a id="shared.module_handler"></a>
 
@@ -423,7 +502,7 @@ Scans ./modules directory to detect modules and allows loading them or not,
 depending on the configuration. Module activation status is stored in modules.json.
 
 Key Features:
-- Auto-discovers modules in the modules/ directory
+- Auto-discovers modules in the modules/ directory (cached for efficiency)
 - Loads module configuration from module.json files
 - Manages activation status in modules.json
 - Provides toggle functionality for modules
@@ -447,3 +526,4 @@ Module JSON Structure:
     "dependencies": []
 }
 ```
+

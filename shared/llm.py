@@ -32,6 +32,19 @@ def stream_callback(chunk):
 response = await llm_generate("Tell me a story", stream_callback)
 ```
 
+### Context injection
+Any module can inject context in the current conversation. It will be added at the end of the history
+```
+ from shared.llm import register_llm_callback, unregister_llm_callback
+
+def inject_current_time_context(user_id: str, messages: List[Dict]) -> str:
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"Current time: {current_time}"
+
+# Register the callback (typically during initialization)
+register_llm_callback(inject_current_time_context)
+```
 """
 
 import os

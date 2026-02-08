@@ -4,13 +4,9 @@ loaders:
     search_path: [.]
     modules:
       - app
-      - shared.__init__
-      - shared.logging
-      - shared.config
-      - shared.translate
+      - core.database
+      - shared.common
       - shared.llm
-      - shared.database
-      - shared.users
       - shared.ui_registry
       - shared.module_handler
 
