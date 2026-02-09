@@ -146,6 +146,24 @@ def show_user_stats_tab(monitor):
             # Render user stats
             render_user_stats(user_stats)
 
+            st.write("---")
+            st.write("### ⚠️ Clear User Logs")
+
+            col_clear1, col_clear2 = st.columns([2, 1])
+
+            with col_clear1:
+                st.warning(f"This will permanently delete **ALL** LLM usage logs for {selected_user_name}. This action cannot be undone.")
+
+            with col_clear2:
+                if st.button("🗑️ Clear User Logs", key="clear_user_logs"):
+                    with st.spinner(f"Clearing logs for {selected_user_name}..."):
+                        deleted_count = monitor.clear_user_logs(selected_user_id)
+                        if deleted_count > 0:
+                            st.success(f"✅ Cleared {deleted_count} LLM call records for {selected_user_name}")
+                            st.rerun()
+                        else:
+                            st.info("No logs found to clear for this user")
+
             # Show recent calls for this user
             st.subheader("Recent Calls")
             recent_calls = calls[:20]  # Show last 20 calls
@@ -344,6 +362,38 @@ def show_configuration_tab(monitor):
 
         except Exception as e:
             st.error(f"Error getting database info: {str(e)}")
+
+    st.write("---")
+    st.write("### 🗑️ Clear All Logs")
+
+    col_clear_all1, col_clear_all2 = st.columns([2, 1])
+
+    with col_clear_all1:
+        st.error("""
+        **Danger Zone:** This will permanently delete **ALL** LLM usage logs from the entire system.
+
+        **Impact:**
+        - All LLM call records will be deleted
+        - All user statistics will be reset
+        - Historical usage data will be lost
+        - This action cannot be undone!
+        """)
+
+    with col_clear_all2:
+        # Add a confirmation checkbox
+        confirm_clear = st.checkbox("I understand this action is irreversible", key="confirm_clear_all")
+
+        if confirm_clear:
+            if st.button("🔥 Clear ALL Logs", type="secondary", key="clear_all_logs_button"):
+                with st.spinner("Clearing all logs..."):
+                    result = monitor.clear_all_logs()
+                    if result["llm_calls"] > 0 or result["user_stats"] > 0:
+                        st.error(f"✅ Cleared {result['llm_calls']} LLM call records and {result['user_stats']} user statistics")
+                        st.rerun()
+                    else:
+                        st.info("No logs found to clear")
+        else:
+            st.button("🔥 Clear ALL Logs", disabled=True, help="Check the confirmation box first")
 
 
 def inject_ui_admin_tab():

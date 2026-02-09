@@ -393,6 +393,60 @@ class LLMMonitor:
             return 0
 
 
+    def clear_user_logs(self, user_id: str) -> int:
+        """Clear all LLM logs for a specific user.
+        Returns: number of records deleted."""
+        if not self.enabled:
+            return 0
+
+        try:
+            with self.db.get_session() as session:
+                # Get count before deletion
+                count = session.query(LLMCallTable).filter_by(user_id=user_id).count()
+
+                # Delete the calls
+                deleted = session.query(LLMCallTable).filter_by(user_id=user_id).delete()
+
+                # Also clear user stats
+                session.query(UserLLMStatsTable).filter_by(user_id=user_id).delete()
+
+                session.commit()
+
+                log("info", f"Cleared {deleted} LLM calls for user {user_id}")
+                return deleted
+        except Exception as e:
+            log("error", f"Failed to clear user logs: {e}")
+            return 0
+
+    def clear_all_logs(self) -> Dict[str, int]:
+        """Clear all LLM logs from the system.
+        Returns: dictionary with counts of deleted records."""
+        if not self.enabled:
+            return {"llm_calls": 0, "user_stats": 0}
+
+        try:
+            with self.db.get_session() as session:
+                # Get counts before deletion
+                llm_calls_count = session.query(LLMCallTable).count()
+                user_stats_count = session.query(UserLLMStatsTable).count()
+
+                # Delete all records
+                session.query(LLMCallTable).delete()
+                session.query(UserLLMStatsTable).delete()
+
+                session.commit()
+
+                log("info", f"Cleared all LLM logs: {llm_calls_count} calls and {user_stats_count} user stats")
+
+                return {
+                    "llm_calls": llm_calls_count,
+                    "user_stats": user_stats_count
+                }
+        except Exception as e:
+            log("error", f"Failed to clear all logs: {e}")
+            return {"llm_calls": 0, "user_stats": 0}
+
+
 def get_llm_monitor():
     """Get the LLM monitor instance."""
     return LLMMonitor()
