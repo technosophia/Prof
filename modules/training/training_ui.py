@@ -10,9 +10,9 @@ from core.logging import log
 from shared.common import get_section
 from shared.common import get_user_manager, UserRole
 from shared.common import register_llm_callback, unregister_llm_callback
+from shared.common import get_prompt  # Added import
 
 from modules.training.training_logic import get_training_manager, StudentStatus
-
 
 def inject_ui_sidebar():
     """Inject training options into sidebar for master users."""
@@ -96,13 +96,23 @@ def render_training_dashboard(master_id: str, training_manager):
 
             with col1:
                 st.write("**Current Learning State:**")
-                st.text_area(
+
+                # Make state editable
+                edited_state = st.text_area(
                     "State",
                     value=status.current_state,
                     height=150,
-                    key=f"state_view_{status.student_id}",
-                    disabled=True
+                    key=f"state_edit_{status.student_id}",
+                    disabled=False  # Changed to allow editing
                 )
+
+                # Save edited state button
+                if edited_state != status.current_state:
+                    if st.button("💾 Save State", key=f"save_state_{status.student_id}"):
+                        if training_manager.update_student_state(master_id, status.student_id, edited_state):
+                            st.success("State updated!")
+                        else:
+                            st.error("Failed to update state")
 
             with col2:
                 st.write("**Activity Info:**")
@@ -178,14 +188,13 @@ def render_training_config(master_id: str, training_manager):
 
     # Get current config
     current_config = training_manager.get_master_config(master_id)
-    config_section = get_section("training")
 
     # Configuration form
     with st.form("training_config_form"):
         st.write("### System Prompt")
         system_prompt = st.text_area(
             "System prompt for student conversations",
-            value=current_config["system_prompt"] if current_config else config_section.get("default_system_prompt", ""),
+            value=current_config["system_prompt"] if current_config else "",
             height=100,
             key="system_prompt"
         )
@@ -193,62 +202,45 @@ def render_training_config(master_id: str, training_manager):
         st.write("### Learning Path")
         learning_path = st.text_area(
             "Learning path structure (can be hierarchical)",
-            value=current_config["learning_path"] if current_config else config_section.get("default_learning_path", ""),
+            value=current_config["learning_path"] if current_config else "",
             height=100,
             key="learning_path"
         )
 
         st.write("### Analyzer Prompt")
+        st.info("Fixed prompt from system configuration")
         analyzer_prompt = st.text_area(
             "Prompt for analyzing student messages",
-            value=current_config["analyzer_prompt"] if current_config else config_section.get("default_analyzer_prompt", ""),
+            value=get_prompt("training.analyzer_prompt_default", "ERROR"),
             height=150,
-            key="analyzer_prompt"
+            key="analyzer_prompt",
+            disabled=True  # Not editable
         )
 
         st.write("### Merging Prompt")
+        st.info("Fixed prompt from system configuration")
         merging_prompt = st.text_area(
             "Prompt for merging analysis with existing state",
-            value=current_config["merging_prompt"] if current_config else config_section.get("default_merging_prompt", ""),
+            value=get_prompt("training.merging_prompt_default", "ERROR"),
             height=150,
-            key="merging_prompt"
+            key="merging_prompt",
+            disabled=True  # Not editable
         )
-
-        # Auto-analysis settings
-        st.write("### Auto-analysis Settings")
-        auto_analyze = st.checkbox(
-            "Enable automatic analysis",
-            value=True,
-            help="Automatically analyze messages periodically"
-        )
-
-        if auto_analyze:
-            interval = st.slider(
-                "Analysis interval (messages)",
-                min_value=1,
-                max_value=20,
-                value=config_section.get("auto_analyze_interval", 5),
-                help="Analyze after this many unanalyzed messages"
-            )
 
         # Submit button
         submitted = st.form_submit_button("💾 Save Configuration")
 
         if submitted:
             try:
+                # Use the fixed prompts from get_prompt
                 config_id = training_manager.save_master_config(
                     master_id,
                     system_prompt,
                     learning_path,
-                    analyzer_prompt,
-                    merging_prompt
+                    get_prompt("training.analyzer_prompt_default", "ERROR"),
+                    get_prompt("training.merging_prompt_default", "ERROR")
                 )
                 st.success("Configuration saved successfully!")
-
-                # Update session state
-                if auto_analyze:
-                    st.session_state.auto_analyze = True
-                    st.session_state.analyze_interval = interval
 
             except Exception as e:
                 st.error(f"Failed to save configuration: {str(e)}")
@@ -258,16 +250,11 @@ def render_training_config(master_id: str, training_manager):
         st.write("""
         **System Prompt:** Guides how the AI should interact with students.
         **Learning Path:** Defines the progression structure for students.
-        **Analyzer Prompt:** Specifies what to look for in student messages.
-        **Merging Prompt:** Determines how to update the student's learning state.
+        **Analyzer Prompt:** Fixed system prompt for analyzing messages.
+        **Merging Prompt:** Fixed system prompt for updating learning state.
 
-        Best practices:
-        1. Be specific in your analyzer prompt about what constitutes learning
-        2. Keep learning paths flexible to accommodate different paces
-        3. Test your prompts with sample student messages
-        4. Review merged states regularly for accuracy
+        Note: Analyzer and Merging prompts are system-wide and cannot be modified.
         """)
-
 
 def inject_student_context_callback(user_id: str, messages: List[dict]) -> str:
     """Callback to inject student learning state into LLM context."""

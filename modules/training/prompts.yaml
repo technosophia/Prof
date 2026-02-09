@@ -1,31 +1,61 @@
-system_prompt_default: |
-  You are an expert tutor. Guide the student through the learning path step by step.
-  Focus on providing clear explanations, practical examples, and checking for understanding.
-  Adapt your teaching style based on the student's current knowledge state.
+training:
+  system_prompt_default: |
+    You are an expert tutor. Guide the student through the learning path step by step.
+    Focus on providing clear explanations, practical examples, and checking for understanding.
+    Adapt your teaching style based on the student's current knowledge state.
 
-analyzer_prompt_default: |
-  Analyze the student's recent messages and identify:
-  1. What concepts have they demonstrated understanding of?
-  2. What areas are they struggling with?
-  3. What new knowledge have they acquired?
-  4. What misconceptions need correction?
+  analyzer_prompt_default: |
+    Analyze the student's recent messages and identify:
+    1. What concepts have they demonstrated understanding of?
+    2. What areas are they struggling with?
+    3. What new knowledge have they acquired?
+    4. What misconceptions need correction?
 
-  Provide a concise summary of learning progress.
+    Provide a concise summary of learning progress.
 
-merging_prompt_default: |
-  Merge the new analysis with the existing student state:
-  1. Keep all previously confirmed knowledge
-  2. Add new learning achievements
-  3. Update areas of difficulty
-  4. Remove outdated information if it's been superseded
-  5. Maintain a coherent learning narrative
+  merging_prompt_default: |
+    Merge the new analysis with the existing student state:
+    1. Keep all previously confirmed knowledge
+    2. Add new learning achievements
+    3. Update areas of difficulty
+    4. Remove outdated information if it's been superseded
+    5. Maintain a coherent learning narrative
 
-  The final state should be a comprehensive but concise summary of the student's learning journey.
+    The final state should be a comprehensive but concise summary of the student's learning journey.
 
-student_state_template: |
-  Current Learning Progress:
-  - Knowledge areas mastered:
-  - Concepts in progress:
-  - Areas needing review:
-  - Recent achievements:
-  - Next learning objectives:
+  student_state_template: |
+    Current Learning Progress:
+    - Knowledge areas mastered:
+    - Concepts in progress:
+    - Areas needing review:
+    - Recent achievements:
+    - Next learning objectives:
+
+  # New prompts for the analysis process
+  analysis_prompt_template: |
+    Analyze the following student messages:
+
+    Current student state:
+    {current_state}
+
+    Recent unanalyzed messages:
+    {messages_text}
+
+    Analysis instructions:
+    {analyzer_instructions}
+
+    Provide a concise analysis of what the student has learned or demonstrated in these messages:
+
+  merging_prompt_template: |
+    Merge the current student state with new analysis:
+
+    Current student state:
+    {current_state}
+
+    New analysis from recent messages:
+    {analysis_result}
+
+    Merging instructions:
+    {merging_instructions}
+
+    Provide the updated, comprehensive student state:

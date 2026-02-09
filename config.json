@@ -9,7 +9,8 @@
     "default_llm": "Groq Llama 3",
     "test_default_llm": "Mock LLM",
     "version": "1.0.0",
-    "auto_login": true
+    "auto_login": true,
+    "auto_login_user": "master1"
   },
   "database": {
     "path": "data",
