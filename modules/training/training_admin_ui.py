@@ -82,23 +82,46 @@ def render_training_dashboard(master_id: str, training_manager):
             with col1:
                 st.write("**Current Learning State:**")
 
+                # Create a unique session state key for this student's state
+                state_key = f"student_state_{status.student_id}"
+
+                # Initialize the session state with current state if not exists
+                if state_key not in st.session_state:
+                    st.session_state[state_key] = status.current_state
+
+                # Track if we need to update the state (e.g., after analysis)
+                update_state_key = f"update_state_{status.student_id}"
+                if update_state_key in st.session_state:
+                    st.session_state[state_key] = st.session_state[update_state_key]
+                    del st.session_state[update_state_key]
+
                 # Make state editable
                 edited_state = st.text_area(
                     "State",
-                    value=status.current_state,
                     height=150,
-                    key=f"state_edit_{status.student_id}",
-                    disabled=False  # Changed to allow editing
+                    key=state_key
                 )
 
-                # Save edited state button
+                # Save edited state button - check if state has changed from original
                 if edited_state != status.current_state:
                     if st.button("💾 Save State", key=f"save_state_{status.student_id}"):
-                        if training_manager.update_student_state(master_id, status.student_id, edited_state):
+                        if training_manager.update_student_state(
+                            master_id,
+                            status.student_id,
+                            edited_state,
+                            change_reason="Manual state update by master"
+                        ):
                             st.success("State updated!")
+                            # Update the original state reference
+                            status.current_state = edited_state
                             st.rerun()
                         else:
                             st.error("Failed to update state")
+                # If state was edited but matches original, remove any unsaved indicator
+                elif st.session_state[state_key] != status.current_state:
+                    if st.button("↩️ Revert Changes", key=f"revert_{status.student_id}"):
+                        st.session_state[state_key] = status.current_state
+                        st.rerun()
 
             with col2:
                 st.write("**Activity Info:**")
@@ -127,6 +150,9 @@ def render_training_dashboard(master_id: str, training_manager):
                                 )
 
                             new_state, analyzed_msgs = asyncio.run(analyze())
+                            # Store the new state to be applied on next render
+                            st.session_state[f"update_state_{status.student_id}"] = new_state
+                            status.current_state = new_state
                             st.success(f"Analyzed {len(analyzed_msgs)} messages!")
                             st.rerun()
 
@@ -136,6 +162,8 @@ def render_training_dashboard(master_id: str, training_manager):
                 # Clear button
                 if st.button("🔄 Clear", key=f"clear_{status.student_id}"):
                     if training_manager.clear_student_state(master_id, status.student_id):
+                        # Clear the session state too
+                        st.session_state[f"update_state_{status.student_id}"] = ""
                         st.success("Student state cleared!")
                         st.rerun()
 
@@ -276,13 +304,18 @@ def render_state_history(master_id: str, training_manager):
             with col5:
                 # Revert button for entries that aren't already reverts
                 if update_type != "revert" and entry.previous_state:
-                    if st.button("⏮️ Revert to This", key=f"revert_{entry.id}"):
+                    # Use a unique key for the revert button
+                    revert_key = f"revert_{entry.id}"
+                    if st.button("⏮️ Revert to This", key=revert_key):
                         with st.spinner(f"Reverting to state from {entry.created_at.strftime('%Y-%m-%d %H:%M')}..."):
                             success, reverted_state = training_manager.revert_to_previous_state(
                                 master_id, selected_student_id, entry.id
                             )
                             if success:
                                 st.success(f"Reverted to previous state!")
+                                # Clear the confirmation flag
+                                if f"clear_confirm_{selected_student_id}" in st.session_state:
+                                    del st.session_state[f"clear_confirm_{selected_student_id}"]
                                 st.rerun()
                             else:
                                 st.error("Failed to revert to previous state")
@@ -294,17 +327,50 @@ def render_state_history(master_id: str, training_manager):
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("🗑️ Clear All History", type="secondary"):
-            if st.checkbox("I'm sure I want to clear all history for this student"):
-                if training_manager.clear_student_state_history(master_id, selected_student_id):
-                    st.success("History cleared!")
+        # Create a unique session state key for confirmation (different from widget keys)
+        confirm_state_key = f"clear_confirm_{selected_student_id}"
+
+        # Initialize confirmation state if not exists
+        if confirm_state_key not in st.session_state:
+            st.session_state[confirm_state_key] = False
+
+        # Clear history button - two-step process
+        if not st.session_state[confirm_state_key]:
+            # First click: show confirmation
+            if st.button("🗑️ Clear All History", key=f"clear_init_{selected_student_id}", type="secondary"):
+                st.session_state[confirm_state_key] = True
+                st.rerun()
+        else:
+            # Second click: show confirmation interface
+            st.warning(f"⚠️ Are you sure you want to clear ALL history for {selected_student['name']}?")
+            st.write("This action cannot be undone!")
+
+            # Use columns for the confirm/cancel buttons
+            confirm_col, cancel_col = st.columns(2)
+
+            with confirm_col:
+                # Use a different key pattern for the confirmation button
+                confirm_btn_key = f"do_clear_{selected_student_id}"
+                if st.button("✅ Yes, Clear All", type="primary", key=confirm_btn_key):
+                    if training_manager.clear_student_state_history(master_id, selected_student_id):
+                        st.success("History cleared!")
+                        # Reset confirmation state
+                        st.session_state[confirm_state_key] = False
+                        st.rerun()
+                    else:
+                        st.error("Failed to clear history")
+
+            with cancel_col:
+                # Use a different key pattern for the cancel button
+                cancel_btn_key = f"cancel_clear_{selected_student_id}"
+                if st.button("❌ Cancel", type="secondary", key=cancel_btn_key):
+                    st.session_state[confirm_state_key] = False
                     st.rerun()
-                else:
-                    st.error("Failed to clear history")
 
     with col2:
         # Export history button
-        if st.button("📥 Export History"):
+        export_key = f"export_{selected_student_id}"
+        if st.button("📥 Export History", key=export_key):
             import json
             from datetime import datetime
 
@@ -332,7 +398,8 @@ def render_state_history(master_id: str, training_manager):
                 label="Download JSON",
                 data=json.dumps(export_data, indent=2, ensure_ascii=False),
                 file_name=f"state_history_{selected_student_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
+                mime="application/json",
+                key=f"download_{selected_student_id}"
             )
 
 
