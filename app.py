@@ -129,6 +129,7 @@ from shared.common import llm_generate, set_current_llm, get_available_llms, get
 from shared.ui_registry import UIRegistry
 # Import module handler
 from shared.module_handler import ModuleHandler, get_active_modules, toggle_module
+from shared.users_ui import auto_login_first_user
 
 # Configure logging from config (one line)
 configure_logging_from_dict(get_config().get("logging", {}))
@@ -176,18 +177,18 @@ st.set_page_config(
     layout="centered"
 )
 
-# NEW: Initialize critical session state variables BEFORE main()
+# Initialize critical session state variables BEFORE main()
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 
 if "app_initialized" not in st.session_state:
     st.session_state.app_initialized = False
 
-# NEW: Add a flag to track if user explicitly logged out/switched
+# Add a flag to track if user explicitly logged out/switched
 if "user_manually_logged_out" not in st.session_state:
     st.session_state.user_manually_logged_out = False
 
-# NEW: Initialize admin tab state
+# Initialize admin tab state
 if "admin_current_tab" not in st.session_state:
     st.session_state.admin_current_tab = "System"
 
@@ -225,18 +226,13 @@ def main():
         st.session_state.app_initialized = True
         log("debug", "App initialization complete")
 
-    # NEW: Call UI module initialization functions
     # INJECTION POINT: Initialize - for setting up session state variables
     log("debug", "Calling UI module initialization functions")
     initialization_results = ui_registry.render_all("initialize")
 
-    # NEW: Auto-login after UI components are initialized
-    # This ensures user manager is available and session state is ready
-    if get_config().get("app.auto_login", False):
-        from shared.users_ui import auto_login_first_user
-        auto_login_first_user()
+    auto_login_first_user()
 
-    # NEW: Apply user preferences if a user is logged in
+    # Apply user preferences if a user is logged in
     current_user = st.session_state.get("current_user")
 
     # Sidebar for language, LLM, navigation, and injected UI modules
@@ -246,24 +242,24 @@ def main():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("💬 Chat", use_container_width=True):
+            if st.button("💬 Chat", width='stretch'):
                 st.session_state.current_page = "chat"
                 st.rerun()
 
         with col2:
-            if st.button("⚙️ Settings", use_container_width=True):
+            if st.button("⚙️ Settings", width='stretch'):
                 st.session_state.current_page = "settings"
                 st.rerun()
 
         with col3:
             # Only show Admin button for users who can access it
             if can_access_admin(current_user):
-                if st.button("🔧 Admin", use_container_width=True):
+                if st.button("🔧 Admin", width='stretch'):
                     st.session_state.current_page = "admin"
                     st.rerun()
             else:
                 # Disabled button for normal users
-                st.button("🔧 Admin", use_container_width=True, disabled=True,
+                st.button("🔧 Admin", width='stretch', disabled=True,
                          help="Admin access requires Master or Admin role")
 
         # INJECTION POINT 2: Sidebar Content from UI Modules
