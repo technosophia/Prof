@@ -95,7 +95,7 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...]) -> Tuple[Dict[st
                                 injection_point = name[len(PREFIX):]
                                 injection_points.add(injection_point)
                                 render_functions[injection_point] = obj
-                                log("info", f"Found render function: {module_key}.{name} -> {injection_point}")
+                                log("debug", f"Found render function: {module_key}.{name} -> {injection_point}")
 
                         if render_functions:
                             modules[module_key] = {

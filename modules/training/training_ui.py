@@ -262,7 +262,7 @@ def inject_student_context_callback(user_id: str, messages: List[dict]) -> str:
     return training_manager.get_student_state_for_injection(user_id)
 
 
-def initialize():
+def inject_ui_initialize():
     """Initialize the training module."""
     # Register cleanup callbacks
     training_manager = get_training_manager()
@@ -275,4 +275,4 @@ def initialize():
     # Register LLM context injection callback
     register_llm_callback(inject_student_context_callback)
 
-    log("info", "Training module initialized")
+    log("debug", "Training module initialized")

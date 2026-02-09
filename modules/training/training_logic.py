@@ -16,7 +16,7 @@ from shared.common import get_conversation_manager, Message
 from shared.common import llm_generate
 from shared.common import get_prompt  # Added import for prompt management
 
-from .training_models import (
+from modules.training.training_models import (
     TrainingMasterConfigTable,
     StudentStateTable,
     AnalyzedMessageTable
@@ -475,14 +475,14 @@ class TrainingManager:
         # Find the master for this student
         student = self.user_manager.get_user(student_id)
         if not student or not student.get("parent_id"):
-            return ""
+            return f"ERROR : user or master not found for student {student_id}"
 
         master_id = student["parent_id"]
         state_data = self.get_student_state(master_id, student_id)
 
         if state_data and state_data["current_state"]:
             return f"\n[Student Learning Context]\nCurrent learning progress: {state_data['current_state']}\n"
-        return ""
+        return f"ERROR : no user state found for student {student_id}"
 
     def cleanup_student_data(self, student_id: str) -> bool:
         """Clean up all training data for a student when they are deleted."""

@@ -67,7 +67,7 @@ def load_all_translations() -> Dict[str, Dict[str, str]]:
                         log("warning", f"Duplicate translation keys in {lang_code} from {rel_dir}/{filename}: {duplicates}")
 
                     translations[lang_code].update(data)
-                    log("info", f"Loaded {len(data)} translations for '{lang_code}' from {rel_dir}/{filename}")
+                    log("debug", f"Loaded {len(data)} translations for '{lang_code}' from {rel_dir}/{filename}")
 
                 except json.JSONDecodeError as e:
                     log("error", f"Invalid JSON in {filepath}: {e}")

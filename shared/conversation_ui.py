@@ -15,7 +15,6 @@ import asyncio
 from datetime import datetime
 from shared.common import _, log, get_config, Message, get_conversation_manager
 from shared.common import llm_generate, get_current_llm_info
-from shared.common import register_llm_callback
 from typing import List, Dict, Optional, Tuple, Any, Callable
 from shared.ui_registry import UIRegistry
 from shared.common import get_conversation_manager
