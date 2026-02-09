@@ -51,6 +51,7 @@ import os
 import sys
 import importlib
 import pkgutil
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable
 import asyncio
 from core.logging import log
@@ -439,8 +440,53 @@ class LLMManager:
         # Generate response using the engine
         try:
             response = await engine.generate(model_name, filtered_messages, stream_callback)
+            if hasattr(self, '_monitor_callbacks') and self._monitor_callbacks:
+                try:
+                    monitor_data = {
+                        "llm_id": llm_id,
+                        "llm_type": llm_type,
+                        "model": model_name,
+                        "messages": filtered_messages,
+                        "response": response,
+                        "user_id": None,  # Will be filled by caller if available
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "engine_type": engine.engine_type,
+                        "success": True,
+                        "error": None
+                    }
+                    self._notify_monitor_callbacks(monitor_data)
+                except Exception as e:
+                    log("error", f"Error notifying monitor callbacks: {str(e)}", exc_info=True)
             return response
         except Exception as e:
             error_msg = f"Error generating response from {llm_id}: {str(e)}"
             log("error", error_msg)
             return error_msg
+
+    def register_monitor_callback(self, callback_func: Callable[[Dict[str, Any]], None]):
+        """Register a callback to monitor LLM usage and costs.
+
+        Args:
+            callback_func: Function that receives a dictionary with monitoring data
+        """
+        if not hasattr(self, '_monitor_callbacks'):
+            self._monitor_callbacks = []
+
+        if callback_func not in self._monitor_callbacks:
+            self._monitor_callbacks.append(callback_func)
+            log("debug", f"Registered monitor callback: {callback_func.__name__}")
+
+    def unregister_monitor_callback(self, callback_func: Callable[[Dict[str, Any]], None]):
+        """Unregister a monitor callback."""
+        if hasattr(self, '_monitor_callbacks') and callback_func in self._monitor_callbacks:
+            self._monitor_callbacks.remove(callback_func)
+            log("debug", f"Unregistered monitor callback: {callback_func.__name__}")
+
+    def _notify_monitor_callbacks(self, data: Dict[str, Any]):
+        """Notify all registered monitor callbacks."""
+        if hasattr(self, '_monitor_callbacks'):
+            for callback in self._monitor_callbacks:
+                try:
+                    callback(data)
+                except Exception as e:
+                    log("error", f"Monitor callback error: {e}")

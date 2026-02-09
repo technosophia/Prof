@@ -1,0 +1,26 @@
+{
+  "llm_monitor": {
+    "enabled": true,
+    "auto_collect": true,
+    "costs": {
+      "ollama": {
+        "input_cost_per_million_tokens": 0.0,
+        "output_cost_per_million_tokens": 0.0
+      },
+      "groq": {
+        "input_cost_per_million_tokens": 0.7,
+        "output_cost_per_million_tokens": 0.8
+      },
+      "gemini": {
+        "input_cost_per_million_tokens": 0.35,
+        "output_cost_per_million_tokens": 1.05
+      },
+      "mock": {
+        "input_cost_per_million_tokens": 0.0,
+        "output_cost_per_million_tokens": 0.0
+      }
+    },
+    "default_token_estimator": "tiktoken",
+    "enable_cost_calculation": true
+  }
+}

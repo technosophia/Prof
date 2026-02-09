@@ -13,3 +13,5 @@ pytest-playwright
 faiss-cpu
 sentence-transformers
 numpy
+tiktoken
+plotly

@@ -1,0 +1,9 @@
+{
+  "name": "llm_monitor",
+  "version": "1.0.0",
+  "description": "Monitor and track LLM usage, costs, and performance",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "analytics",
+  "dependencies": []
+}

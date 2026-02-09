@@ -1,9 +1,10 @@
 {
   "active_modules": [
     "debug",
+    "llm_monitor",
     "rag_manager",
     "test",
     "training"
   ],
-  "total_modules": 4
+  "total_modules": 5
 }
