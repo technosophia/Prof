@@ -14,28 +14,7 @@ from shared.common import get_prompt  # Added import
 
 from modules.training.training_logic import get_training_manager, StudentStatus
 
-def inject_ui_sidebar():
-    """Inject training options into sidebar for master users."""
-    user_manager = get_user_manager()
-
-    if "current_user" in st.session_state and st.session_state.current_user:
-        user_id = st.session_state.current_user['id']
-        user_role = st.session_state.current_user['role']
-
-        if user_role == UserRole.MASTER.value:
-            st.sidebar.divider()
-            st.sidebar.subheader("🎓 Training Module")
-
-            if st.sidebar.button("Training Dashboard", key="training_dashboard"):
-                st.session_state.training_tab = "dashboard"
-                st.rerun()
-
-            if st.sidebar.button("Training Configuration", key="training_config"):
-                st.session_state.training_tab = "config"
-                st.rerun()
-
-
-def inject_ui_main_content():
+def display_admin_tabs():
     """Main training interface."""
     if not ("current_user" in st.session_state and st.session_state.current_user):
         return
@@ -60,6 +39,9 @@ def inject_ui_main_content():
 
     with tab2:
         render_training_config(user_id, training_manager)
+
+def inject_ui_admin_tab():
+    return ("Training", display_admin_tabs)
 
 
 def render_training_dashboard(master_id: str, training_manager):
