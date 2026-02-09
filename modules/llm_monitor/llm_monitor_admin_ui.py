@@ -402,7 +402,7 @@ def inject_ui_admin_tab():
     return ("LLM Monitor", show_llm_monitor_admin_content)
 
 
-def inject_ui_initialize():
+def initialize():
     """Initialize the LLM monitor admin UI module."""
     # Initialize any necessary session state variables
     def monitor_callback(data: dict):
@@ -423,3 +423,5 @@ def inject_ui_initialize():
     log("debug", "LLM monitor callback registered successfully")
     log("debug", "LLM monitor admin UI initialized")
     return True
+
+initialize()
