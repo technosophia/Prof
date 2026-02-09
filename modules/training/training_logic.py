@@ -300,130 +300,130 @@ class TrainingManager:
 
             return unanalyzed_messages
 
-        async def analyze_student_messages(
-            self,
-            master_id: str,
-            student_id: str,
-            analyzer_prompt: Optional[str] = None
-        ) -> Tuple[str, List[Dict[str, Any]]]:
-            """
-            Analyze unanalyzed messages and update student state.
-            Returns (new_state, analyzed_messages)
-            """
-            if not self.is_student_of_master(master_id, student_id):
-                raise ValueError(f"Student {student_id} does not belong to master {master_id}")
+    async def analyze_student_messages(
+        self,
+        master_id: str,
+        student_id: str,
+        analyzer_prompt: Optional[str] = None
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        """
+        Analyze unanalyzed messages and update student state.
+        Returns (new_state, analyzed_messages)
+        """
+        if not self.is_student_of_master(master_id, student_id):
+            raise ValueError(f"Student {student_id} does not belong to master {master_id}")
 
-            # Get master config
-            config = self.get_master_config(master_id)
-            if not config:
-                raise ValueError(f"No training configuration found for master {master_id}")
+        # Get master config
+        config = self.get_master_config(master_id)
+        if not config:
+            raise ValueError(f"No training configuration found for master {master_id}")
 
-            # Get current student state
-            current_state_data = self.get_student_state(master_id, student_id)
-            current_state = current_state_data["current_state"] if current_state_data else ""
+        # Get current student state
+        current_state_data = self.get_student_state(master_id, student_id)
+        current_state = current_state_data["current_state"] if current_state_data else ""
 
-            # Get unanalyzed messages
-            unanalyzed = self.get_unanalyzed_messages(student_id)
-            if not unanalyzed:
-                return current_state, []
+        # Get unanalyzed messages
+        unanalyzed = self.get_unanalyzed_messages(student_id)
+        if not unanalyzed:
+            return current_state, []
 
-            # Prepare messages for analysis
-            messages_text = "\n\n".join([
-                f"[{msg['timestamp'].strftime('%Y-%m-%d %H:%M')}] Student: {msg['message']}"
-                for msg in unanalyzed
-            ])
+        # Prepare messages for analysis
+        messages_text = "\n\n".join([
+            f"[{msg['timestamp'].strftime('%Y-%m-%d %H:%M')}] Student: {msg['message']}"
+            for msg in unanalyzed
+        ])
 
-            # Use provided analyzer prompt, then from config, then default prompt
-            if analyzer_prompt:
-                analyzer_prompt_to_use = analyzer_prompt
-            elif config.get("analyzer_prompt"):
-                analyzer_prompt_to_use = config["analyzer_prompt"]
+        # Use provided analyzer prompt, then from config, then default prompt
+        if analyzer_prompt:
+            analyzer_prompt_to_use = analyzer_prompt
+        elif config.get("analyzer_prompt"):
+            analyzer_prompt_to_use = config["analyzer_prompt"]
+        else:
+            # Fallback to default prompt from prompts.yaml
+            analyzer_prompt_to_use = get_prompt("training.analyzer_prompt_default",
+                                                "ERROR")
+
+        # Create analysis prompt using template from prompts.yaml
+        analysis_prompt_template = get_prompt(
+            "training.analysis_prompt_template", "ERROR"
+        )
+
+        analysis_prompt = analysis_prompt_template.format(
+            current_state=current_state,
+            messages_text=messages_text,
+            analyzer_instructions=analyzer_prompt_to_use
+        )
+
+        # Call LLM for analysis
+        analysis_result = await llm_generate(analysis_prompt)
+
+        # Use merging prompt from config or default
+        merging_prompt_to_use = config.get("merging_prompt") or get_prompt(
+            "training.merging_prompt_default",
+            "ERROR"
+        )
+
+        # Create merging prompt using template from prompts.yaml
+        merging_prompt_template = get_prompt(
+            "training.merging_prompt_template",
+            "ERROR"
+        )
+
+        merging_prompt = merging_prompt_template.format(
+            current_state=current_state,
+            analysis_result=analysis_result,
+            merging_instructions=merging_prompt_to_use
+        )
+
+        # Call LLM for merged state
+        new_state = await llm_generate(merging_prompt)
+
+        # Limit state length
+        max_length = self.config.get("max_state_length", 2000)
+        if len(new_state) > max_length:
+            new_state = new_state[:max_length] + "..."
+
+        # Save new state
+        with self.db.get_session() as session:
+            # Update or create student state
+            state = session.query(StudentStateTable).filter_by(
+                master_id=master_id, student_id=student_id
+            ).first()
+
+            if state:
+                state.current_state = new_state
+                state.last_analyzed_at = datetime.utcnow()
+                state.updated_at = datetime.utcnow()
             else:
-                # Fallback to default prompt from prompts.yaml
-                analyzer_prompt_to_use = get_prompt("training.analyzer_prompt_default",
-                                                   "ERROR")
+                state = StudentStateTable(
+                    id=str(uuid.uuid4()),
+                    master_id=master_id,
+                    student_id=student_id,
+                    current_state=new_state,
+                    last_analyzed_at=datetime.utcnow(),
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                session.add(state)
 
-            # Create analysis prompt using template from prompts.yaml
-            analysis_prompt_template = get_prompt(
-                "training.analysis_prompt_template", "ERROR"
-            )
+            # Mark messages as analyzed
+            for msg in unanalyzed:
+                analyzed_msg = AnalyzedMessageTable(
+                    id=str(uuid.uuid4()),
+                    student_id=student_id,
+                    message_id=f"{msg['conversation_id']}_{msg['timestamp'].timestamp()}",
+                    conversation_id=msg["conversation_id"],
+                    analyzed_at=datetime.utcnow(),
+                    analysis_summary=analysis_result[:500] if analysis_result else "",
+                    message_metadata={
+                        "original_message": msg["message"][:200],
+                        "timestamp": msg["timestamp"].isoformat()
+                    }
+                )
+                session.add(analyzed_msg)
 
-            analysis_prompt = analysis_prompt_template.format(
-                current_state=current_state,
-                messages_text=messages_text,
-                analyzer_instructions=analyzer_prompt_to_use
-            )
-
-            # Call LLM for analysis
-            analysis_result = await llm_generate(analysis_prompt)
-
-            # Use merging prompt from config or default
-            merging_prompt_to_use = config.get("merging_prompt") or get_prompt(
-                "training.merging_prompt_default",
-                "ERROR"
-            )
-
-            # Create merging prompt using template from prompts.yaml
-            merging_prompt_template = get_prompt(
-                "training.merging_prompt_template",
-                "ERROR"
-            )
-
-            merging_prompt = merging_prompt_template.format(
-                current_state=current_state,
-                analysis_result=analysis_result,
-                merging_instructions=merging_prompt_to_use
-            )
-
-            # Call LLM for merged state
-            new_state = await llm_generate(merging_prompt)
-
-            # Limit state length
-            max_length = self.config.get("max_state_length", 2000)
-            if len(new_state) > max_length:
-                new_state = new_state[:max_length] + "..."
-
-            # Save new state
-            with self.db.get_session() as session:
-                # Update or create student state
-                state = session.query(StudentStateTable).filter_by(
-                    master_id=master_id, student_id=student_id
-                ).first()
-
-                if state:
-                    state.current_state = new_state
-                    state.last_analyzed_at = datetime.utcnow()
-                    state.updated_at = datetime.utcnow()
-                else:
-                    state = StudentStateTable(
-                        id=str(uuid.uuid4()),
-                        master_id=master_id,
-                        student_id=student_id,
-                        current_state=new_state,
-                        last_analyzed_at=datetime.utcnow(),
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    session.add(state)
-
-                # Mark messages as analyzed
-                for msg in unanalyzed:
-                    analyzed_msg = AnalyzedMessageTable(
-                        id=str(uuid.uuid4()),
-                        student_id=student_id,
-                        message_id=f"{msg['conversation_id']}_{msg['timestamp'].timestamp()}",
-                        conversation_id=msg["conversation_id"],
-                        analyzed_at=datetime.utcnow(),
-                        analysis_summary=analysis_result[:500] if analysis_result else "",
-                        message_metadata={
-                            "original_message": msg["message"][:200],
-                            "timestamp": msg["timestamp"].isoformat()
-                        }
-                    )
-                    session.add(analyzed_msg)
-
-            log("info", f"Analyzed {len(unanalyzed)} messages for student {student_id}")
-            return new_state, unanalyzed
+        log("info", f"Analyzed {len(unanalyzed)} messages for student {student_id}")
+        return new_state, unanalyzed
 
     def get_student_status_board(self, master_id: str) -> List[StudentStatus]:
         """Get status board for all students of a master."""
