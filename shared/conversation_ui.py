@@ -98,6 +98,9 @@ def inject_ui_initialize():
     if "regenerating_message_id" not in st.session_state:
         st.session_state.regenerating_message_id = None
 
+    if "show_delete_conversation_dialog" not in st.session_state:
+        st.session_state.show_delete_conversation_dialog = False
+
     return True
 
 
@@ -333,7 +336,7 @@ def show_conversation_interface():
 
     if current_conv:
         # Conversation header
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])  # Added col5
+        col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
         with col1:
             st.subheader(f"💬 {current_conv.title}")
         with col2:
@@ -364,6 +367,13 @@ def show_conversation_interface():
                        type="secondary"):
                 # Set regeneration flag and trigger regeneration
                 st.session_state.regenerating_message_id = len(st.session_state.conversation_messages) - 1
+                st.rerun()
+        with col5:
+            # Delete conversation button
+            if st.button("🗑️ Delete",
+                        help="Delete this conversation permanently",
+                        type="secondary"):
+                st.session_state.show_delete_conversation_dialog = True
                 st.rerun()
 
         # Display conversation messages
@@ -471,6 +481,29 @@ def show_conversation_interface():
                 st.error("Could not find user message to regenerate from")
                 st.session_state.regenerating_message_id = None
                 st.rerun()
+
+        # Delete conversation dialog
+        if st.session_state.get('show_delete_conversation_dialog'):
+            st.divider()
+            st.error("🗑️ Delete Conversation")
+            st.warning(f"Are you sure you want to delete '{current_conv.title}'?")
+            st.warning("This action cannot be undone!")
+
+            col_del1, col_del2 = st.columns(2)
+            with col_del1:
+                if st.button("✅ Yes, Delete", type="primary"):
+                    if get_conversation_manager().delete_conversation(st.session_state.current_conversation_id):
+                        st.success(f"Conversation '{current_conv.title}' deleted!")
+                        st.session_state.current_conversation_id = None
+                        st.session_state.conversation_messages = []
+                        st.session_state.show_delete_conversation_dialog = False
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete conversation")
+            with col_del2:
+                if st.button("❌ Cancel"):
+                    st.session_state.show_delete_conversation_dialog = False
+                    st.rerun()
 
         # Display streaming buffer if active
         if st.session_state.streaming_active and st.session_state.stream_buffer:
