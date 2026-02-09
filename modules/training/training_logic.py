@@ -340,12 +340,12 @@ class TrainingManager:
             analyzer_prompt_to_use = config["analyzer_prompt"]
         else:
             # Fallback to default prompt from prompts.yaml
-            analyzer_prompt_to_use = get_prompt("training.analyzer_prompt_default",
+            analyzer_prompt_to_use = get_prompt("training.training.analyzer_prompt_default",
                                                 "ERROR")
 
         # Create analysis prompt using template from prompts.yaml
         analysis_prompt_template = get_prompt(
-            "training.analysis_prompt_template", "ERROR"
+            "training.training.analysis_prompt_template", "ERROR"
         )
 
         analysis_prompt = analysis_prompt_template.format(
@@ -359,13 +359,13 @@ class TrainingManager:
 
         # Use merging prompt from config or default
         merging_prompt_to_use = config.get("merging_prompt") or get_prompt(
-            "training.merging_prompt_default",
+            "training.training.merging_prompt_default",
             "ERROR"
         )
 
         # Create merging prompt using template from prompts.yaml
         merging_prompt_template = get_prompt(
-            "training.merging_prompt_template",
+            "training.training.merging_prompt_template",
             "ERROR"
         )
 

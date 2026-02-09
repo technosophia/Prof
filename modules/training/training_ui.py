@@ -211,7 +211,7 @@ def render_training_config(master_id: str, training_manager):
         st.info("Fixed prompt from system configuration")
         analyzer_prompt = st.text_area(
             "Prompt for analyzing student messages",
-            value=get_prompt("training.analyzer_prompt_default", "ERROR"),
+            value=get_prompt("training.training.analyzer_prompt_default", "ERROR"),
             height=150,
             key="analyzer_prompt",
             disabled=True  # Not editable
@@ -221,7 +221,7 @@ def render_training_config(master_id: str, training_manager):
         st.info("Fixed prompt from system configuration")
         merging_prompt = st.text_area(
             "Prompt for merging analysis with existing state",
-            value=get_prompt("training.merging_prompt_default", "ERROR"),
+            value=get_prompt("training.training.merging_prompt_default", "ERROR"),
             height=150,
             key="merging_prompt",
             disabled=True  # Not editable
@@ -237,8 +237,8 @@ def render_training_config(master_id: str, training_manager):
                     master_id,
                     system_prompt,
                     learning_path,
-                    get_prompt("training.analyzer_prompt_default", "ERROR"),
-                    get_prompt("training.merging_prompt_default", "ERROR")
+                    get_prompt("training.training.analyzer_prompt_default", "ERROR"),
+                    get_prompt("training.training.merging_prompt_default", "ERROR")
                 )
                 st.success("Configuration saved successfully!")
 
