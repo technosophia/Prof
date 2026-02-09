@@ -83,7 +83,7 @@ def _show_cache_tab():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔄 Clear Cache", type="primary", use_container_width=True,
+        if st.button("🔄 Clear Cache", type="primary", width='stretch',
                    help="Clear all cached model weights. Models will reload on next use."):
             with st.spinner("Clearing cache..."):
                 if rag_manager.clear_model_cache():
@@ -93,11 +93,11 @@ def _show_cache_tab():
                     st.error("Failed to clear cache")
 
     with col2:
-        if st.button("📊 Refresh Cache Info", use_container_width=True):
+        if st.button("📊 Refresh Cache Info", width='stretch'):
             st.rerun()
 
     with col3:
-        if st.button("⚙️ Reload Config", use_container_width=True,
+        if st.button("⚙️ Reload Config", width='stretch',
                    help="Reload RAG configuration from config file"):
             with st.spinner("Reloading config..."):
                 rag_manager.refresh_config()
@@ -170,7 +170,7 @@ def _show_cache_tab():
                 help="Select a model to pre-load into cache"
             )
 
-            if st.button("Pre-load Model", use_container_width=True):
+            if st.button("Pre-load Model", width='stretch'):
                 # Note: This requires implementation in rag_caching.py
                 st.info(f"Model pre-loading would be implemented in rag_caching.py")
                 # Example: rag_manager.preload_model(model_to_preload)
@@ -185,7 +185,7 @@ def _show_cache_tab():
                 help="Maximum number of models to keep in cache"
             )
 
-            if st.button("Update Cache Size", use_container_width=True):
+            if st.button("Update Cache Size", width='stretch'):
                 st.info(f"Cache size set to {cache_size} entries")
                 # Note: This would require updating @st.cache_resource decorator
 

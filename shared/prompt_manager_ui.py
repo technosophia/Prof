@@ -65,7 +65,7 @@ def show_prompt_admin_content():
 
     with col2:
         st.write("")  # Spacing
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", width='stretch'):
             st.rerun()
 
     if selected_module:
@@ -183,7 +183,7 @@ def show_prompt_admin_content():
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("📥 Export as YAML", use_container_width=True):
+            if st.button("📥 Export as YAML", width='stretch'):
                 yaml_data = yaml.dump(
                     module_prompts,
                     default_flow_style=False,
@@ -197,11 +197,11 @@ def show_prompt_admin_content():
                     data=yaml_data,
                     file_name=f"{selected_module}_prompts.yaml",
                     mime="text/yaml",
-                    use_container_width=True
+                    width='stretch'
                 )
 
         with col2:
-            if st.button("📋 Show YAML", use_container_width=True):
+            if st.button("📋 Show YAML", width='stretch'):
                 yaml_data = yaml.dump(
                     module_prompts,
                     default_flow_style=False,

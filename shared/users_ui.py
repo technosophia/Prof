@@ -65,45 +65,67 @@ def auto_login_first_user():
 
     if not st.session_state.current_user:
         try:
-            # Get all users
-            all_users = get_user_manager().get_all_users_dict()
-
-            if all_users:
-                # Try to find an admin first, then master, then any user
-                admin_users = [u for u in all_users.values() if u.get('role') == UserRole.ADMIN.value]
-                master_users = [u for u in all_users.values() if u.get('role') == UserRole.MASTER.value]
-
-                if admin_users:
-                    first_user = admin_users[0]
-                elif master_users:
-                    first_user = master_users[0]
-                else:
-                    first_user = list(all_users.values())[0]
-
-                # Set as current user
-                st.session_state.current_user = first_user
-
-                # Apply user preferences
-                apply_user_preferences(first_user)
-
-                # Update last login
-                get_user_manager().update_last_login(first_user['id'])
-
-                # Set the flag to show this was an auto-login
-                st.session_state.just_auto_logged_in = True
-
-                log("info", f"Auto-logged in user: {first_user['name']} ({first_user['role']})")
-                return True
-            else:
-                log("warning", "No users available for auto-login")
+            # Check if auto-login is enabled in config
+            if not get_config().get("app.auto_login", False):
+                log("debug", "Auto-login disabled in configuration")
                 return False
+
+            # Get the specified auto-login user from config
+            auto_login_user_id = get_config().get("app.auto_login_user")
+
+            if not auto_login_user_id:
+                log("warning", "Auto-login enabled but no user specified in config")
+                return False
+
+            # Get user manager
+            user_manager = get_user_manager()
+
+            # Try to find the specified user
+            target_user = user_manager.get_user(auto_login_user_id)
+
+            if not target_user:
+                log("warning", f"Auto-login user '{auto_login_user_id}' not found")
+
+                # Fallback: try to find any user (original behavior)
+                all_users = user_manager.get_all_users_dict()
+                if all_users:
+                    # Try to find an admin first, then master, then any user
+                    admin_users = [u for u in all_users.values() if u.get('role') == UserRole.ADMIN.value]
+                    master_users = [u for u in all_users.values() if u.get('role') == UserRole.MASTER.value]
+
+                    if admin_users:
+                        target_user = admin_users[0]
+                    elif master_users:
+                        target_user = master_users[0]
+                    else:
+                        target_user = list(all_users.values())[0]
+
+                    log("info", f"Falling back to auto-login with user: {target_user['name']}")
+                else:
+                    log("warning", "No users available for auto-login")
+                    return False
+
+            # Set as current user
+            st.session_state.current_user = target_user
+
+            # Apply user preferences
+            apply_user_preferences(target_user)
+
+            # Update last login
+            user_manager.update_last_login(target_user['id'])
+
+            # Set the flag to show this was an auto-login
+            st.session_state.just_auto_logged_in = True
+
+            log("info", f"Auto-logged in user: {target_user['name']} ({target_user['role']})")
+            return True
+
         except Exception as e:
             log("error", f"Auto-login failed: {e}")
             return False
     else:
-        log("info", "No users available for auto-login")
+        log("debug", "User already logged in, skipping auto-login")
         return False
-    return True
 
 def inject_ui_sidebar():
     """Render user management section in the sidebar."""

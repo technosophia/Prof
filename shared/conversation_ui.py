@@ -115,7 +115,7 @@ def inject_ui_sidebar():
     st.title("💬 Conversations")
 
     # Button to create new conversation
-    if st.button("➕ New Conversation", type="primary", use_container_width=True):
+    if st.button("➕ New Conversation", type="primary", width='stretch'):
         log("info", "Creating new conversation")
         st.session_state.show_new_conversation_form = True
         st.session_state.editing_conversation_id = None
@@ -157,7 +157,7 @@ def inject_ui_sidebar():
                     button_label,
                     key=f"select_{conv_key}",
                     help=f"Select this conversation ({conv['message_count']} messages)",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary" if is_current else "secondary"
                 ):
                     # Load this conversation

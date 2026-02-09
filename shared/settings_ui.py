@@ -282,7 +282,7 @@ def show_settings_content():
     col_save1, col_save2, col_save3 = st.columns([1, 1, 2])
 
     with col_save1:
-        if st.button("💾 Save Settings", type="primary", use_container_width=True):
+        if st.button("💾 Save Settings", type="primary", width='stretch'):
             # Collect all settings
             settings_updates = {
                 "language": selected_language,
@@ -316,7 +316,7 @@ def show_settings_content():
                 st.error("❌ Failed to save settings. Please try again.")
 
     with col_save2:
-        if st.button("❌ Cancel", use_container_width=True):
+        if st.button("❌ Cancel", width='stretch'):
             st.rerun()
 
     with col_save3:

@@ -59,7 +59,7 @@ def show_system_admin_content():
                     with st.form(key=f"disable_form_{module_name}"):
                         if st.form_submit_button("Disable",
                                                help=f"Disable {module_name} module",
-                                               use_container_width=True):
+                                               width='stretch'):
                             if module_handler.toggle_module(module_name, False):
                                 st.success(f"Module '{module_name}' disabled")
                                 st.rerun()
@@ -67,7 +67,7 @@ def show_system_admin_content():
                     with st.form(key=f"enable_form_{module_name}"):
                         if st.form_submit_button("Enable",
                                                help=f"Enable {module_name} module",
-                                               use_container_width=True):
+                                               width='stretch'):
                             if module_handler.toggle_module(module_name, True):
                                 st.success(f"Module '{module_name}' enabled")
                                 st.rerun()

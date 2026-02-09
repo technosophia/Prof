@@ -458,7 +458,7 @@ def inject_ui_sidebar():
             st.rerun()
 
         # Update button
-        if st.button("Apply Changes", type="secondary", use_container_width=True):
+        if st.button("Apply Changes", type="secondary", width='stretch'):
             if selected_engine != current_default:
                 # Try to update the RAG module config file
                 rag_config_path = Path(__file__).parent / "config.json"

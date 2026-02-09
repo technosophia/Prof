@@ -225,7 +225,7 @@ def show_users_admin_content():
                     if st.button("👁️ View",
                                key=f"view_{user['id']}",
                                help=f"View details for {user['name']}",
-                               use_container_width=True):
+                               width='stretch'):
                         st.session_state.viewing_user_id = user['id']
                         st.rerun()
 
@@ -234,7 +234,7 @@ def show_users_admin_content():
                     if st.button("✏️ Edit",
                                key=f"edit_{user['id']}",
                                help=f"Edit user {user['name']}",
-                               use_container_width=True):
+                               width='stretch'):
                         st.session_state.editing_user_id = user['id']
                         st.rerun()
 
@@ -255,7 +255,7 @@ def show_users_admin_content():
                                key=f"delete_{user['id']}",
                                help=tooltip,
                                disabled=not can_delete,
-                               use_container_width=True,
+                               width='stretch',
                                type="secondary"):
                         st.session_state.user_to_delete = user
                         st.session_state.show_delete_confirm = True
@@ -282,7 +282,7 @@ def show_users_admin_content():
                 with cols[1]:
                     if st.button("✏️ Edit Profile",
                                key="edit_master_profile",
-                               use_container_width=True):
+                               width='stretch'):
                         st.session_state.editing_user_id = user_id
                         st.rerun()
 
@@ -300,7 +300,7 @@ def show_users_admin_content():
 
             col_confirm1, col_confirm2 = st.columns(2)
             with col_confirm1:
-                if st.button("✅ Yes, Delete", type="primary", use_container_width=True):
+                if st.button("✅ Yes, Delete", type="primary", width='stretch'):
                     try:
                         success = get_user_manager().delete_user(user_to_delete['id'], current_user['id'])
                         if success:
@@ -317,7 +317,7 @@ def show_users_admin_content():
                     st.rerun()
 
             with col_confirm2:
-                if st.button("❌ Cancel", use_container_width=True):
+                if st.button("❌ Cancel", width='stretch'):
                     st.session_state.show_delete_confirm = False
                     st.session_state.user_to_delete = None
                     st.rerun()

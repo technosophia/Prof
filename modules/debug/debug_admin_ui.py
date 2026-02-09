@@ -63,7 +63,7 @@ def show_text_llm_tab():
 
     with col1:
         # Button to display text
-        if st.button("📤 Display Text", use_container_width=True):
+        if st.button("📤 Display Text", width='stretch'):
             if test_text.strip():
                 st.session_state.debug_test_result = test_text
                 st.success("Text captured! Check the result section below.")
@@ -73,7 +73,7 @@ def show_text_llm_tab():
 
     with col2:
         # Button to clear text
-        if st.button("🗑️ Clear Text", use_container_width=True, type="secondary"):
+        if st.button("🗑️ Clear Text", width='stretch', type="secondary"):
             st.session_state.debug_test_text = ""
             st.session_state.debug_test_result = ""
             st.session_state.debug_llm_response = ""
@@ -115,7 +115,7 @@ def show_text_llm_tab():
 
         with col3:
             # Button to ask LLM
-            if st.button("💭 Ask LLM", use_container_width=True, type="primary"):
+            if st.button("💭 Ask LLM", width='stretch', type="primary"):
                 if llm_question.strip():
                     st.session_state.debug_llm_loading = True
                     st.rerun()
@@ -124,7 +124,7 @@ def show_text_llm_tab():
 
         with col4:
             # Button to clear LLM response
-            if st.button("🗑️ Clear Response", use_container_width=True, type="secondary"):
+            if st.button("🗑️ Clear Response", width='stretch', type="secondary"):
                 st.session_state.debug_llm_response = ""
                 st.rerun()
 
@@ -420,7 +420,7 @@ def show_ui_registry_tab():
         col_test1, col_test2 = st.columns(2)
 
         with col_test1:
-            if st.button("Register Test Point", use_container_width=True):
+            if st.button("Register Test Point", width='stretch'):
                 # This simulates what would happen when a module registers a new point
                 # In reality, modules would define functions like inject_ui_test_custom_point
                 st.info(f"To create injection point '{test_point_name}', a module should define a function named:")
@@ -429,7 +429,7 @@ def show_ui_registry_tab():
                 st.code(f"    return 'Content for {test_point_name}'")
 
         with col_test2:
-            if st.button("Check Current Points", use_container_width=True):
+            if st.button("Check Current Points", width='stretch'):
                 # Refresh and show updated list
                 current_points = ui_registry.get_all_injection_points()
                 st.info(f"Currently have {len(current_points)} injection points")
@@ -471,7 +471,7 @@ def show_quick_tests_tab():
     col5, col6, col7 = st.columns(3)
 
     with col5:
-        if st.button("Test User Count", use_container_width=True):
+        if st.button("Test User Count", width='stretch'):
             try:
                 user_count = get_user_manager().get_user_count()
                 st.session_state.debug_test_result = f"Total users in system: {user_count}"
@@ -481,7 +481,7 @@ def show_quick_tests_tab():
                 st.error(f"❌ Error: {str(e)}")
 
     with col6:
-        if st.button("Test Logging", use_container_width=True):
+        if st.button("Test Logging", width='stretch'):
             log("info", "Test log message from debug admin panel")
             log("debug", "Debug test message")
             log("warning", "Warning test message")
@@ -490,7 +490,7 @@ def show_quick_tests_tab():
             st.session_state.debug_test_result = "Test log messages sent. Check logs."
 
     with col7:
-        if st.button("Session Info", use_container_width=True):
+        if st.button("Session Info", width='stretch'):
             session_keys = list(st.session_state.keys())
             session_info = f"Session has {len(session_keys)} keys:\n"
             for key in sorted(session_keys):
@@ -544,7 +544,7 @@ def show_quick_tests_tab():
     # Section 4: Reset All
     st.subheader("🔄 Reset")
 
-    if st.button("Reset All Debug Data", type="secondary", use_container_width=True):
+    if st.button("Reset All Debug Data", type="secondary", width='stretch'):
         st.session_state.debug_test_text = ""
         st.session_state.debug_test_result = ""
         st.session_state.debug_llm_response = ""
