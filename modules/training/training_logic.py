@@ -7,18 +7,18 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 
 from shared.common import get_db_manager
 from shared.common import log
 from shared.common import get_section
 from shared.common import get_user_manager, UserRole
 from shared.common import get_conversation_manager, Message
-from shared.common import llm_generate
-from shared.common import get_prompt  # Added import for prompt management
+from shared.common import llm_generate, get_current_llm_id
+from shared.common import get_prompt
 
 from modules.training.training_models import (
     TrainingMasterConfigTable,
-    StudentStateTable,
     StudentStateHistoryTable,
     AnalyzedMessageTable
 )
@@ -45,7 +45,8 @@ class StateHistoryEntry:
     change_reason: str
     analyzed_message_count: int
     created_at: datetime
-    metadata: Dict[str, Any]  # This is fine as it's just a dataclass field
+    llm_id: Optional[str]  # NEW: Added llm_id field
+    metadata: Dict[str, Any]
 
 
 class TrainingManager:
@@ -163,25 +164,28 @@ class TrainingManager:
             return config_id
 
     def get_student_state(self, master_id: str, student_id: str) -> Optional[Dict[str, Any]]:
-        """Get student's current learning state."""
+        """Get student's current learning state from the most recent history entry."""
         if not self.is_student_of_master(master_id, student_id):
             return None
 
         with self.db.get_session() as session:
-            state = session.query(StudentStateTable).filter_by(
-                master_id=master_id, student_id=student_id
-            ).first()
+            # Get the most recent history entry for this student
+            latest_history = session.query(StudentStateHistoryTable).filter_by(
+                master_id=master_id,
+                student_id=student_id
+            ).order_by(desc(StudentStateHistoryTable.created_at)).first()
 
-            if state:
+            if latest_history:
                 return {
-                    "id": state.id,
-                    "master_id": state.master_id,
-                    "student_id": state.student_id,
-                    "current_state": state.current_state,
-                    "last_analyzed_at": state.last_analyzed_at,
-                    "created_at": state.created_at,
-                    "updated_at": state.updated_at,
-                    "metadata": state.state_metadata or {}
+                    "id": latest_history.id,
+                    "master_id": latest_history.master_id,
+                    "student_id": latest_history.student_id,
+                    "current_state": latest_history.new_state,
+                    "last_analyzed_at": latest_history.created_at if latest_history.analyzed_message_count > 0 else None,
+                    "created_at": latest_history.created_at,
+                    "updated_at": latest_history.created_at,
+                    "llm_id": latest_history.llm_id,
+                    "metadata": latest_history.history_metadata or {}
                 }
             return None
 
@@ -191,20 +195,29 @@ class TrainingManager:
             raise ValueError(f"Student {student_id} does not belong to master {master_id}")
 
         state_id = str(uuid.uuid4())
+        current_llm_id = get_current_llm_id()  # Get current LLM ID
 
         with self.db.get_session() as session:
-            state = StudentStateTable(
+            # Create initial history entry
+            history_entry = StudentStateHistoryTable(
                 id=state_id,
                 master_id=master_id,
                 student_id=student_id,
-                current_state="New student. Learning progress will be tracked here.",
+                previous_state=None,
+                new_state="New student. Learning progress will be tracked here.",
+                change_reason="Initial state",
+                analyzed_message_count=0,
+                analyzed_message_ids=[],
                 created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-                state_metadata={"initialized_at": datetime.utcnow().isoformat()}
+                llm_id=current_llm_id,
+                history_metadata={
+                    "initialized_at": datetime.utcnow().isoformat(),
+                    "update_type": "initialization"
+                }
             )
-            session.add(state)
+            session.add(history_entry)
 
-        log("info", f"Initialized student state for {student_id} under master {master_id}")
+        log("info", f"Initialized student state for {student_id} under master {master_id} with LLM: {current_llm_id}")
         return state_id
 
     def update_student_state(self, master_id: str, student_id: str, new_state: str,
@@ -217,13 +230,16 @@ class TrainingManager:
             return False
 
         try:
-            with self.db.get_session() as session:
-                # Get current state first
-                state = session.query(StudentStateTable).filter_by(
-                    master_id=master_id, student_id=student_id
-                ).first()
+            current_llm_id = get_current_llm_id()
 
-                previous_state = state.current_state if state else ""
+            with self.db.get_session() as session:
+                # Get current state (most recent history entry)
+                latest_history = session.query(StudentStateHistoryTable).filter_by(
+                    master_id=master_id,
+                    student_id=student_id
+                ).order_by(desc(StudentStateHistoryTable.created_at)).first()
+
+                previous_state = latest_history.new_state if latest_history else ""
 
                 # Record history entry
                 history_id = str(uuid.uuid4())
@@ -237,30 +253,13 @@ class TrainingManager:
                     analyzed_message_count=0,
                     analyzed_message_ids=[],
                     created_at=datetime.utcnow(),
+                    llm_id=current_llm_id,
                     history_metadata={"update_type": "manual"}
                 )
                 session.add(history_entry)
 
-                if state:
-                    # Update existing state
-                    state.current_state = new_state
-                    state.updated_at = datetime.utcnow()
-                    log("info", f"Updated existing student state for {student_id}")
-                else:
-                    # Create new state record
-                    state = StudentStateTable(
-                        id=str(uuid.uuid4()),
-                        master_id=master_id,
-                        student_id=student_id,
-                        current_state=new_state,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
-                        state_metadata={"created_via": "manual_update"}
-                    )
-                    session.add(state)
-                    log("info", f"Created new student state for {student_id}")
-
                 session.commit()
+                log("info", f"Updated student state for {student_id} with LLM: {current_llm_id}")
                 return True
 
         except Exception as e:
@@ -272,13 +271,16 @@ class TrainingManager:
         if not self.is_student_of_master(master_id, student_id):
             return False
 
+        current_llm_id = get_current_llm_id()
+
         with self.db.get_session() as session:
             # Get current state before clearing
-            state = session.query(StudentStateTable).filter_by(
-                master_id=master_id, student_id=student_id
-            ).first()
+            latest_history = session.query(StudentStateHistoryTable).filter_by(
+                master_id=master_id,
+                student_id=student_id
+            ).order_by(desc(StudentStateHistoryTable.created_at)).first()
 
-            previous_state = state.current_state if state else ""
+            previous_state = latest_history.new_state if latest_history else ""
 
             # Record history entry for reset
             history_id = str(uuid.uuid4())
@@ -292,21 +294,17 @@ class TrainingManager:
                 analyzed_message_count=0,
                 analyzed_message_ids=[],
                 created_at=datetime.utcnow(),
+                llm_id=current_llm_id,
                 history_metadata={"reset_type": "full"}
             )
             session.add(history_entry)
-
-            if state:
-                state.current_state = "Learning progress has been reset."
-                state.last_analyzed_at = None
-                state.updated_at = datetime.utcnow()
 
             # Clear analyzed messages for this student
             session.query(AnalyzedMessageTable).filter_by(
                 student_id=student_id
             ).delete()
 
-        log("info", f"Cleared student state for {student_id}")
+        log("info", f"Cleared student state for {student_id} with LLM: {current_llm_id}")
         return True
 
     def get_unanalyzed_messages(self, student_id: str, limit: int = 100) -> List[Dict[str, Any]]:
@@ -341,7 +339,7 @@ class TrainingManager:
                                 "message": msg.content,
                                 "timestamp": msg.timestamp,
                                 "role": msg.role,
-                                "message_key": message_key  # Always include message_key
+                                "message_key": message_key
                             })
 
                             if len(unanalyzed_messages) >= limit:
@@ -435,30 +433,18 @@ class TrainingManager:
         if len(new_state) > max_length:
             new_state = new_state[:max_length] + "..."
 
+        # Get current LLM ID for tracking
+        current_llm_id = get_current_llm_id()
+
         # Save new state and record history
         with self.db.get_session() as session:
-            # Update or create student state
-            state = session.query(StudentStateTable).filter_by(
-                master_id=master_id, student_id=student_id
-            ).first()
+            # Get current state for history
+            latest_history = session.query(StudentStateHistoryTable).filter_by(
+                master_id=master_id,
+                student_id=student_id
+            ).order_by(desc(StudentStateHistoryTable.created_at)).first()
 
-            if state:
-                previous_state = state.current_state
-                state.current_state = new_state
-                state.last_analyzed_at = datetime.utcnow()
-                state.updated_at = datetime.utcnow()
-            else:
-                previous_state = ""
-                state = StudentStateTable(
-                    id=str(uuid.uuid4()),
-                    master_id=master_id,
-                    student_id=student_id,
-                    current_state=new_state,
-                    last_analyzed_at=datetime.utcnow(),
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                session.add(state)
+            previous_state = latest_history.new_state if latest_history else ""
 
             # Create history entry
             history_id = str(uuid.uuid4())
@@ -474,7 +460,8 @@ class TrainingManager:
                 analyzed_message_count=len(unanalyzed),
                 analyzed_message_ids=analyzed_message_ids,
                 created_at=datetime.utcnow(),
-                history_metadata={  # CHANGED: Use history_metadata
+                llm_id=current_llm_id,
+                history_metadata={
                     "analysis_result": analysis_result[:500] if analysis_result else "",
                     "unanalyzed_count_before": len(unanalyzed),
                     "update_type": "auto_analysis"
@@ -499,7 +486,7 @@ class TrainingManager:
                 )
                 session.add(analyzed_msg)
 
-        log("info", f"Analyzed {len(unanalyzed)} messages for student {student_id}")
+        log("info", f"Analyzed {len(unanalyzed)} messages for student {student_id} with LLM: {current_llm_id}")
         return new_state, unanalyzed
 
     def get_student_state_history(self, master_id: str, student_id: str,
@@ -512,7 +499,7 @@ class TrainingManager:
             history_entries = session.query(StudentStateHistoryTable).filter_by(
                 master_id=master_id,
                 student_id=student_id
-            ).order_by(StudentStateHistoryTable.created_at.desc()).limit(limit).all()
+            ).order_by(desc(StudentStateHistoryTable.created_at)).limit(limit).all()
 
             return [
                 StateHistoryEntry(
@@ -522,7 +509,8 @@ class TrainingManager:
                     change_reason=entry.change_reason or "",
                     analyzed_message_count=entry.analyzed_message_count,
                     created_at=entry.created_at,
-                    metadata=entry.history_metadata or {}  # CHANGED: Use history_metadata
+                    llm_id=entry.llm_id,
+                    metadata=entry.history_metadata or {}
                 )
                 for entry in history_entries
             ]
@@ -565,6 +553,8 @@ class TrainingManager:
             return False, None
 
         try:
+            current_llm_id = get_current_llm_id()
+
             with self.db.get_session() as session:
                 # Get the history entry to revert to
                 history_entry = session.query(StudentStateHistoryTable).filter_by(
@@ -577,30 +567,18 @@ class TrainingManager:
                     log("error", f"History entry {history_id} not found")
                     return False, None
 
-                # Get current state
-                current_state = session.query(StudentStateTable).filter_by(
+                # Get current state (most recent history entry)
+                current_history = session.query(StudentStateHistoryTable).filter_by(
                     master_id=master_id,
                     student_id=student_id
-                ).first()
+                ).order_by(desc(StudentStateHistoryTable.created_at)).first()
 
-                if not current_state:
+                if not current_history:
                     log("error", f"No current state found for student {student_id}")
                     return False, None
 
                 # Store the state we're reverting from
-                reverting_from_state = current_state.current_state
-
-                # Restore the previous state from history
-                current_state.current_state = history_entry.previous_state or ""
-                current_state.updated_at = datetime.utcnow()
-
-                # Unmark messages associated with this history entry
-                if history_entry.analyzed_message_ids:
-                    # Delete analyzed messages linked to this history entry
-                    session.query(AnalyzedMessageTable).filter(
-                        AnalyzedMessageTable.student_id == student_id,
-                        AnalyzedMessageTable.state_history_id == history_id
-                    ).delete()
+                reverting_from_state = current_history.new_state
 
                 # Create a new history entry for the reversion
                 revert_history_id = str(uuid.uuid4())
@@ -614,17 +592,27 @@ class TrainingManager:
                     analyzed_message_count=0,
                     analyzed_message_ids=[],
                     created_at=datetime.utcnow(),
+                    llm_id=current_llm_id,
                     history_metadata={
                         "reverted_from_history_id": history_id,
                         "reverted_message_count": len(history_entry.analyzed_message_ids or []),
+                        "original_llm_id": history_entry.llm_id,
                         "update_type": "revert"
                     }
                 )
                 session.add(revert_entry)
 
+                # Unmark messages associated with the reverted history entry
+                if history_entry.analyzed_message_ids:
+                    # Delete analyzed messages linked to this history entry
+                    session.query(AnalyzedMessageTable).filter(
+                        AnalyzedMessageTable.student_id == student_id,
+                        AnalyzedMessageTable.state_history_id == history_id
+                    ).delete()
+
                 session.commit()
 
-                log("info", f"Reverted student {student_id} to previous state from {history_entry.created_at}")
+                log("info", f"Reverted student {student_id} to previous state from {history_entry.created_at} with LLM: {current_llm_id}")
                 return True, history_entry.previous_state or ""
 
         except Exception as e:
@@ -646,7 +634,7 @@ class TrainingManager:
         for student in students:
             student_id = student["id"]
 
-            # Get student state
+            # Get student state from most recent history
             state_data = self.get_student_state(master_id, student_id)
 
             # Get unanalyzed message count
@@ -687,16 +675,14 @@ class TrainingManager:
         state_data = self.get_student_state(master_id, student_id)
 
         if state_data and state_data["current_state"]:
-            return f"\n[Student Learning Context]\nCurrent learning progress: {state_data['current_state']}\n"
+            llm_info = f" (analyzed by LLM: {state_data['llm_id']})" if state_data.get('llm_id') else ""
+            return f"\n[Student Learning Context]\nCurrent learning progress{llm_info}: {state_data['current_state']}\n"
         return f"ERROR : no user state found for student {student_id}"
 
     def cleanup_student_data(self, student_id: str) -> bool:
         """Clean up all training data for a student when they are deleted."""
         try:
             with self.db.get_session() as session:
-                # Delete student states
-                session.query(StudentStateTable).filter_by(student_id=student_id).delete()
-
                 # Delete state history
                 session.query(StudentStateHistoryTable).filter_by(student_id=student_id).delete()
 
@@ -715,9 +701,6 @@ class TrainingManager:
             with self.db.get_session() as session:
                 # Delete master config
                 session.query(TrainingMasterConfigTable).filter_by(master_id=master_id).delete()
-
-                # Delete student states for this master
-                session.query(StudentStateTable).filter_by(master_id=master_id).delete()
 
                 # Delete state history for this master
                 session.query(StudentStateHistoryTable).filter_by(master_id=master_id).delete()

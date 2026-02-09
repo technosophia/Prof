@@ -346,6 +346,34 @@ def get_current_llm_info() -> Optional[Dict[str, Any]]:
     manager = get_llm_manager()
     return manager.get_current_llm_info()
 
+def get_current_llm_id() -> str:
+    """
+    Get the ID of the currently configured LLM.
+
+    Returns:
+        str: The ID of the current LLM
+
+    Raises:
+        ValueError: If no LLM is configured or available
+    """
+    try:
+        current_llm_info = get_current_llm_info()
+        if current_llm_info:
+            # Try to get ID from the info dictionary
+            llm_id = current_llm_info.get('id')
+            if llm_id:
+                return str(llm_id)
+
+        # Fallback: check the LLM manager directly
+        manager = get_llm_manager()
+        if manager.current_llm:
+            return str(manager.current_llm)
+
+    except Exception as e:
+        raise ValueError(f"Failed to get current LLM ID: {e}")
+
+    raise ValueError("No LLM is currently configured or available")
+
 def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
     """Get LLM information by name."""
     manager = get_llm_manager()

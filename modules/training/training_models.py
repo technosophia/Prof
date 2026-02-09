@@ -28,20 +28,6 @@ class TrainingMasterConfigTable(Base):
     config_metadata = Column(JSON, default={})
 
 
-class StudentStateTable(Base):
-    """Student learning state."""
-    __tablename__ = 'student_states'
-
-    id = Column(String, primary_key=True)
-    master_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
-    student_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
-    current_state = Column(Text, nullable=False, default="")
-    last_analyzed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    state_metadata = Column(JSON, default={})
-
-
 class StudentStateHistoryTable(Base):
     """History of student state changes."""
     __tablename__ = 'student_state_history'
@@ -55,11 +41,13 @@ class StudentStateHistoryTable(Base):
     analyzed_message_count = Column(Integer, default=0)  # Number of messages analyzed
     analyzed_message_ids = Column(JSON, default=[])  # List of message IDs that were analyzed
     created_at = Column(DateTime, default=datetime.utcnow)
-    history_metadata = Column(JSON, default={})  # CHANGED: Renamed from 'metadata' to 'history_metadata'
+    llm_id = Column(String, nullable=True)  # Which LLM was used to create this state
+    history_metadata = Column(JSON, default={})
 
     # Index for faster retrieval by student and timestamp
     __table_args__ = (
         Index('idx_student_state_history_student_timestamp', 'student_id', 'created_at'),
+        Index('idx_student_state_history_llm', 'llm_id'),
     )
 
 
