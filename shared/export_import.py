@@ -33,14 +33,29 @@ class ExportedMessage:
     @classmethod
     def from_message(cls, message: Message, llm_id: Optional[str] = None) -> 'ExportedMessage':
         """Convert a Message object to ExportedMessage."""
-        return cls(
-            role=message.role,
-            content=message.content,
-            timestamp=message.timestamp.isoformat() if message.timestamp else datetime.utcnow().isoformat(),
-            tokens=message.tokens,
-            llm_id=llm_id,
-            metadata=message.metadata or {}
-        )
+        # For backward compatibility, only include llm_id for assistant messages
+        # and only if it's not None
+        export_llm_id = None
+        if message.role == "assistant":
+            export_llm_id = llm_id or message.llm_id
+
+        # Only include fields that have values (except role and content which are required)
+        result_data = {
+            "role": message.role,
+            "content": message.content,
+            "timestamp": message.timestamp.isoformat() if message.timestamp else datetime.utcnow().isoformat(),
+        }
+
+        if message.tokens is not None:
+            result_data["tokens"] = message.tokens
+
+        if export_llm_id:
+            result_data["llm_id"] = export_llm_id
+
+        if message.metadata:
+            result_data["metadata"] = message.metadata
+
+        return cls(**result_data)
 
     def to_message(self) -> Message:
         """Convert to Message object."""
@@ -49,6 +64,7 @@ class ExportedMessage:
             content=self.content,
             timestamp=datetime.fromisoformat(self.timestamp),
             tokens=self.tokens,
+            llm_id=self.llm_id,
             metadata=self.metadata or {}
         )
 
@@ -124,13 +140,29 @@ class ConversationExporter:
             # Convert to dictionary for YAML serialization
             export_data = conversation.to_dict()
 
+            # Clean up messages: remove null/empty fields
+            for msg in export_data.get("messages", []):
+                # Remove null values
+                keys_to_remove = []
+                for key, value in msg.items():
+                    if value is None or (isinstance(value, dict) and not value):
+                        keys_to_remove.append(key)
+
+                for key in keys_to_remove:
+                    msg.pop(key, None)
+
+                # For user messages, remove llm_id entirely (it should be None)
+                if msg.get("role") == "user" and "llm_id" in msg:
+                    msg.pop("llm_id", None)
+
             # Add export metadata
             export_data["_export_metadata"] = {
-                "export_version": "1.0",
+                "export_version": "1.1",  # Updated version
                 "exported_at": datetime.utcnow().isoformat(),
                 "export_type": "single_conversation",
                 "source_conversation_id": conversation_id,
-                "original_user_id": conversation.user_id
+                "original_user_id": conversation.user_id,
+                "format": "minimal"  # Indicate we're using minimal format
             }
 
             # Convert to YAML
@@ -320,6 +352,9 @@ class ConversationImporter:
         try:
             manager = get_conversation_manager()
 
+            # Get llm_id from conversation config for backward compatibility
+            conversation_llm_id = conv_data.get("llm_config", {}).get("id")
+
             # Generate new ID if not preserving
             original_id = conv_data.get("id")
             if preserve_ids and original_id:
@@ -368,9 +403,19 @@ class ConversationImporter:
             for msg_data in messages:
                 # Convert to Message object
                 if isinstance(msg_data, dict):
-                    # Handle exported format
-                    if "llm_id" in msg_data and "metadata" not in msg_data:
-                        msg_data["metadata"] = {"llm_id": msg_data["llm_id"]}
+                    # Handle backward compatibility: if llm_id is missing for assistant messages,
+                    # use the conversation's llm_config id
+                    if msg_data.get("role") == "assistant" and "llm_id" not in msg_data:
+                        msg_data["llm_id"] = conversation_llm_id
+
+                    # Handle old export format where llm_id was in metadata
+                    if msg_data.get("role") == "assistant" and not msg_data.get("llm_id"):
+                        metadata = msg_data.get("metadata", {})
+                        if metadata and metadata.get("llm_id"):
+                            msg_data["llm_id"] = metadata["llm_id"]
+                            # Remove from metadata to avoid duplication
+                            if "metadata" in msg_data:
+                                msg_data["metadata"].pop("llm_id", None)
 
                     message = Message.from_dict(msg_data)
                 else:
@@ -386,6 +431,9 @@ class ConversationImporter:
                     metadata = conv.conv_metadata or {}
                     metadata["imported_from"] = original_id
                     metadata["imported_at"] = datetime.utcnow().isoformat()
+                    metadata["import_format"] = "v2_with_llm_id" if any(
+                        msg.get("llm_id") for msg in messages if isinstance(msg, dict) and msg.get("role") == "assistant"
+                    ) else "v1_legacy"
                     conv.conv_metadata = metadata
 
             log("info", f"Imported conversation: {conv_data['title']} (ID: {conversation_id})")

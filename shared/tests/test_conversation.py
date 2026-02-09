@@ -294,7 +294,8 @@ class TestConversationManager:
                     user_message="Hello, assistant!",
                     assistant_message="Hello, user! How can I help?",
                     user_tokens=5,
-                    assistant_tokens=10
+                    assistant_tokens=10,
+                    llm_id="test-llm"
                 )
 
         # Should have added two messages

@@ -43,6 +43,8 @@ class MessageTable(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     tokens = Column(Integer, nullable=True)  # Token count for this message
     message_metadata = Column(JSON, default={})  # Renamed from 'metadata' to avoid conflicts
+    llm_id = Column(String, nullable=True)  # Track which LLM generated this message
+
 
 
 @dataclass
@@ -53,6 +55,8 @@ class Message:
     timestamp: Optional[datetime] = None
     tokens: Optional[int] = None
     metadata: Optional[Dict] = None  # External API uses 'metadata', we'll handle conversion
+    llm_id: Optional[str] = None  # Track which LLM generated this message
+
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -64,6 +68,8 @@ class Message:
             result["timestamp"] = self.timestamp.isoformat()
         if self.tokens is not None:
             result["tokens"] = self.tokens
+        if self.llm_id:  # Include llm_id
+            result["llm_id"] = self.llm_id
         if self.metadata:
             result["metadata"] = self.metadata
         return result
@@ -76,6 +82,7 @@ class Message:
             content=data["content"],
             timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else None,
             tokens=data.get("tokens"),
+            llm_id=data.get("llm_id"),
             metadata=data.get("metadata", {})
         )
 
@@ -234,6 +241,7 @@ class ConversationManager:
                         content=msg.content,
                         timestamp=msg.timestamp,
                         tokens=msg.tokens,
+                        llm_id=msg.llm_id,
                         metadata=msg.message_metadata or {}  # Map from message_metadata
                     )
                     for msg in messages_db
@@ -314,6 +322,7 @@ class ConversationManager:
                 content=message.content,
                 timestamp=message.timestamp or datetime.utcnow(),
                 tokens=message.tokens,
+                llm_id=message.llm_id,
                 message_metadata=message.metadata or {}  # Use message_metadata
             )
             session.add(message_db)
@@ -325,7 +334,8 @@ class ConversationManager:
         return message_id
 
     def add_message_pair(self, conversation_id: str, user_message: str, assistant_message: str,
-                        user_tokens: Optional[int] = None, assistant_tokens: Optional[int] = None) -> None:
+                        user_tokens: Optional[int] = None, assistant_tokens: Optional[int] = None,
+                        llm_id: Optional[str] = None) -> None:
         """Add a user-assistant message pair to a conversation."""
         # Add user message
         self.add_message(conversation_id, Message(
@@ -340,6 +350,7 @@ class ConversationManager:
             role="assistant",
             content=assistant_message,
             tokens=assistant_tokens,
+            llm_id=llm_id,
             metadata={}
         ))
 
@@ -440,6 +451,12 @@ class ConversationManager:
         if not conversation:
             return None
 
+        # Count LLM usage
+        llm_usage = {}
+        for msg in conversation.messages:
+            if msg.role == "assistant" and msg.llm_id:
+                llm_usage[msg.llm_id] = llm_usage.get(msg.llm_id, 0) + 1
+
         return {
             "id": conversation.id,
             "title": conversation.title,
@@ -447,11 +464,12 @@ class ConversationManager:
             "total_tokens": self.get_conversation_token_count(conversation_id),
             "created_at": conversation.created_at.isoformat(),
             "updated_at": conversation.updated_at.isoformat(),
+            "llm_usage": llm_usage,  # Include LLM usage statistics
             "last_user_message": next(
                 (msg.content for msg in reversed(conversation.messages) if msg.role == "user"),
                 None
             ),
-            "metadata": conversation.metadata  # Include metadata
+            "metadata": conversation.metadata
         }
 
 def get_conversation_manager():
