@@ -12,7 +12,7 @@ from shared.common import get_user_manager, UserRole
 from shared.common import register_llm_callback, unregister_llm_callback
 from shared.common import get_prompt  # Added import
 
-from modules.training.training_logic import get_training_manager, StudentStatus
+from modules.training.training_logic import get_training_manager, StudentStatus, StateHistoryEntry
 
 def display_admin_tabs():
     """Main training interface."""
@@ -32,12 +32,15 @@ def display_admin_tabs():
         st.session_state.training_tab = "dashboard"
 
     # Tab selection
-    tab1, tab2 = st.tabs(["📊 Training Dashboard", "⚙️ Configuration"])
+    tab1, tab2, tab3 = st.tabs(["📊 Training Dashboard", "📜 State History", "⚙️ Configuration"])
 
     with tab1:
         render_training_dashboard(user_id, training_manager)
 
     with tab2:
+        render_state_history(user_id, training_manager)
+
+    with tab3:
         render_training_config(user_id, training_manager)
 
 def inject_ui_admin_tab():
@@ -93,6 +96,7 @@ def render_training_dashboard(master_id: str, training_manager):
                     if st.button("💾 Save State", key=f"save_state_{status.student_id}"):
                         if training_manager.update_student_state(master_id, status.student_id, edited_state):
                             st.success("State updated!")
+                            st.rerun()
                         else:
                             st.error("Failed to update state")
 
@@ -162,6 +166,174 @@ def render_training_dashboard(master_id: str, training_manager):
             if st.button("Close Details"):
                 del st.session_state.selected_student
                 st.rerun()
+
+
+def render_state_history(master_id: str, training_manager):
+    """Render state history interface."""
+    st.header("📜 State History")
+
+    # Get all students for this master
+    students = training_manager.user_manager.get_children(master_id)
+
+    if not students:
+        st.info("No students found. Normal users assigned to you will appear here.")
+        return
+
+    # Student selection
+    student_options = {s["id"]: f"{s['name']} ({s['id'][:8]}...)" for s in students}
+    student_options[""] = "Select a student"
+
+    selected_student_id = st.selectbox(
+        "Select Student",
+        options=list(student_options.keys()),
+        format_func=lambda x: student_options[x],
+        key="history_student_select"
+    )
+
+    if not selected_student_id:
+        return
+
+    # Get student info
+    selected_student = next((s for s in students if s["id"] == selected_student_id), None)
+    if not selected_student:
+        st.error("Student not found")
+        return
+
+    st.subheader(f"History for {selected_student['name']}")
+
+    # Get state history
+    history_entries = training_manager.get_student_state_history(master_id, selected_student_id, limit=100)
+
+    if not history_entries:
+        st.info("No state history found for this student.")
+
+        # Show current state
+        current_state = training_manager.get_student_state(master_id, selected_student_id)
+        if current_state:
+            with st.expander("Current State"):
+                st.text_area("Current Learning State", value=current_state.get("current_state", ""), height=200, disabled=True)
+
+        return
+
+    # History metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total History Entries", len(history_entries))
+    with col2:
+        manual_updates = sum(1 for h in history_entries if h.metadata.get("update_type") == "manual")
+        st.metric("Manual Updates", manual_updates)
+    with col3:
+        auto_updates = sum(1 for h in history_entries if h.metadata.get("update_type") == "auto_analysis")
+        st.metric("Auto Analyses", auto_updates)
+
+    st.divider()
+
+    # Current state display
+    current_state = training_manager.get_student_state(master_id, selected_student_id)
+    if current_state:
+        with st.expander("📋 Current State", expanded=True):
+            st.text_area("Current Learning State",
+                        value=current_state.get("current_state", ""),
+                        height=200,
+                        key="current_state_display",
+                        disabled=True)
+
+    st.divider()
+
+    # History entries
+    st.write("### 📜 State History Timeline")
+
+    for i, entry in enumerate(history_entries):
+        with st.expander(f"📅 {entry.created_at.strftime('%Y-%m-%d %H:%M:%S')} - {entry.change_reason}", expanded=i < 3):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.write("**Previous State:**")
+                if entry.previous_state:
+                    st.text_area("Previous",
+                                value=entry.previous_state,
+                                height=150,
+                                key=f"prev_{entry.id}",
+                                disabled=True)
+                else:
+                    st.info("No previous state (initial entry)")
+
+            with col2:
+                st.write("**New State:**")
+                st.text_area("New",
+                            value=entry.new_state,
+                            height=150,
+                            key=f"new_{entry.id}",
+                            disabled=True)
+
+            # Entry details
+            col3, col4, col5 = st.columns(3)
+            with col3:
+                st.write(f"**Messages Analyzed:** {entry.analyzed_message_count}")
+            with col4:
+                update_type = entry.metadata.get("update_type", "unknown")
+                st.write(f"**Type:** {update_type}")
+            with col5:
+                # Revert button for entries that aren't already reverts
+                if update_type != "revert" and entry.previous_state:
+                    if st.button("⏮️ Revert to This", key=f"revert_{entry.id}"):
+                        with st.spinner(f"Reverting to state from {entry.created_at.strftime('%Y-%m-%d %H:%M')}..."):
+                            success, reverted_state = training_manager.revert_to_previous_state(
+                                master_id, selected_student_id, entry.id
+                            )
+                            if success:
+                                st.success(f"Reverted to previous state!")
+                                st.rerun()
+                            else:
+                                st.error("Failed to revert to previous state")
+
+    # Clear history button
+    st.divider()
+    st.write("### 🗑️ History Management")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("🗑️ Clear All History", type="secondary"):
+            if st.checkbox("I'm sure I want to clear all history for this student"):
+                if training_manager.clear_student_state_history(master_id, selected_student_id):
+                    st.success("History cleared!")
+                    st.rerun()
+                else:
+                    st.error("Failed to clear history")
+
+    with col2:
+        # Export history button
+        if st.button("📥 Export History"):
+            import json
+            from datetime import datetime
+
+            # Prepare export data
+            export_data = {
+                "student_id": selected_student_id,
+                "student_name": selected_student["name"],
+                "exported_at": datetime.utcnow().isoformat(),
+                "history_entries": [
+                    {
+                        "id": entry.id,
+                        "previous_state": entry.previous_state,
+                        "new_state": entry.new_state,
+                        "change_reason": entry.change_reason,
+                        "analyzed_message_count": entry.analyzed_message_count,
+                        "created_at": entry.created_at.isoformat(),
+                        "metadata": entry.metadata
+                    }
+                    for entry in history_entries
+                ]
+            }
+
+            # Create download link
+            st.download_button(
+                label="Download JSON",
+                data=json.dumps(export_data, indent=2, ensure_ascii=False),
+                file_name=f"state_history_{selected_student_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
 
 
 def render_training_config(master_id: str, training_manager):
@@ -238,13 +410,14 @@ def render_training_config(master_id: str, training_manager):
         Note: Analyzer and Merging prompts are system-wide and cannot be modified.
         """)
 
+
 def inject_student_context_callback(user_id: str, messages: List[dict]) -> str:
     """Callback to inject student learning state into LLM context."""
     training_manager = get_training_manager()
     return training_manager.get_student_state_for_injection(user_id)
 
 
-def inject_ui_initialize():
+def initialize():
     """Initialize the training module."""
     # Register cleanup callbacks
     training_manager = get_training_manager()
@@ -258,3 +431,5 @@ def inject_ui_initialize():
     register_llm_callback(inject_student_context_callback)
 
     log("debug", "Training module initialized")
+
+initialize()

@@ -19,6 +19,7 @@ from shared.common import get_prompt  # Added import for prompt management
 from modules.training.training_models import (
     TrainingMasterConfigTable,
     StudentStateTable,
+    StudentStateHistoryTable,
     AnalyzedMessageTable
 )
 
@@ -33,6 +34,18 @@ class StudentStatus:
     unanalyzed_messages: int
     total_conversations: int
     last_activity: Optional[datetime]
+
+
+@dataclass
+class StateHistoryEntry:
+    """Data class for state history display."""
+    id: str
+    previous_state: str
+    new_state: str
+    change_reason: str
+    analyzed_message_count: int
+    created_at: datetime
+    metadata: Dict[str, Any]  # This is fine as it's just a dataclass field
 
 
 class TrainingManager:
@@ -194,8 +207,9 @@ class TrainingManager:
         log("info", f"Initialized student state for {student_id} under master {master_id}")
         return state_id
 
-    def update_student_state(self, master_id: str, student_id: str, new_state: str) -> bool:
-        """Update student's learning state manually."""
+    def update_student_state(self, master_id: str, student_id: str, new_state: str,
+                           change_reason: str = "Manual update") -> bool:
+        """Update student's learning state manually and record history."""
         log("info", f"Updating student state for {student_id} and master {master_id}")
 
         if not self.is_student_of_master(master_id, student_id):
@@ -204,9 +218,28 @@ class TrainingManager:
 
         try:
             with self.db.get_session() as session:
+                # Get current state first
                 state = session.query(StudentStateTable).filter_by(
                     master_id=master_id, student_id=student_id
                 ).first()
+
+                previous_state = state.current_state if state else ""
+
+                # Record history entry
+                history_id = str(uuid.uuid4())
+                history_entry = StudentStateHistoryTable(
+                    id=history_id,
+                    master_id=master_id,
+                    student_id=student_id,
+                    previous_state=previous_state,
+                    new_state=new_state,
+                    change_reason=change_reason,
+                    analyzed_message_count=0,
+                    analyzed_message_ids=[],
+                    created_at=datetime.utcnow(),
+                    history_metadata={"update_type": "manual"}
+                )
+                session.add(history_entry)
 
                 if state:
                     # Update existing state
@@ -240,10 +273,28 @@ class TrainingManager:
             return False
 
         with self.db.get_session() as session:
-            # Clear student state
+            # Get current state before clearing
             state = session.query(StudentStateTable).filter_by(
                 master_id=master_id, student_id=student_id
             ).first()
+
+            previous_state = state.current_state if state else ""
+
+            # Record history entry for reset
+            history_id = str(uuid.uuid4())
+            history_entry = StudentStateHistoryTable(
+                id=history_id,
+                master_id=master_id,
+                student_id=student_id,
+                previous_state=previous_state,
+                new_state="Learning progress has been reset.",
+                change_reason="State reset by master",
+                analyzed_message_count=0,
+                analyzed_message_ids=[],
+                created_at=datetime.utcnow(),
+                history_metadata={"reset_type": "full"}
+            )
+            session.add(history_entry)
 
             if state:
                 state.current_state = "Learning progress has been reset."
@@ -280,16 +331,17 @@ class TrainingManager:
                 full_conv = self.conversation_manager.get_conversation(conv["id"])
                 if full_conv and full_conv.messages:
                     for msg in full_conv.messages:
+                        # Create message key
+                        message_key = f"{conv['id']}_{msg.timestamp.timestamp() if hasattr(msg.timestamp, 'timestamp') else msg.timestamp}"
+
                         # Check if this message has been analyzed
-                        # We'll need to store message IDs in the conversation system
-                        # For now, we'll use a simple approach
-                        message_key = f"{conv['id']}_{msg.timestamp}"
                         if message_key not in analyzed_ids and msg.role == "user":
                             unanalyzed_messages.append({
                                 "conversation_id": conv["id"],
                                 "message": msg.content,
                                 "timestamp": msg.timestamp,
-                                "role": msg.role
+                                "role": msg.role,
+                                "message_key": message_key  # Always include message_key
                             })
 
                             if len(unanalyzed_messages) >= limit:
@@ -383,7 +435,7 @@ class TrainingManager:
         if len(new_state) > max_length:
             new_state = new_state[:max_length] + "..."
 
-        # Save new state
+        # Save new state and record history
         with self.db.get_session() as session:
             # Update or create student state
             state = session.query(StudentStateTable).filter_by(
@@ -391,10 +443,12 @@ class TrainingManager:
             ).first()
 
             if state:
+                previous_state = state.current_state
                 state.current_state = new_state
                 state.last_analyzed_at = datetime.utcnow()
                 state.updated_at = datetime.utcnow()
             else:
+                previous_state = ""
                 state = StudentStateTable(
                     id=str(uuid.uuid4()),
                     master_id=master_id,
@@ -406,15 +460,38 @@ class TrainingManager:
                 )
                 session.add(state)
 
-            # Mark messages as analyzed
+            # Create history entry
+            history_id = str(uuid.uuid4())
+            analyzed_message_ids = [msg["message_key"] for msg in unanalyzed]
+
+            history_entry = StudentStateHistoryTable(
+                id=history_id,
+                master_id=master_id,
+                student_id=student_id,
+                previous_state=previous_state,
+                new_state=new_state,
+                change_reason=f"Analyzed {len(unanalyzed)} messages",
+                analyzed_message_count=len(unanalyzed),
+                analyzed_message_ids=analyzed_message_ids,
+                created_at=datetime.utcnow(),
+                history_metadata={  # CHANGED: Use history_metadata
+                    "analysis_result": analysis_result[:500] if analysis_result else "",
+                    "unanalyzed_count_before": len(unanalyzed),
+                    "update_type": "auto_analysis"
+                }
+            )
+            session.add(history_entry)
+
+            # Mark messages as analyzed, linking to history entry
             for msg in unanalyzed:
                 analyzed_msg = AnalyzedMessageTable(
                     id=str(uuid.uuid4()),
                     student_id=student_id,
-                    message_id=f"{msg['conversation_id']}_{msg['timestamp'].timestamp()}",
+                    message_id=msg["message_key"],
                     conversation_id=msg["conversation_id"],
                     analyzed_at=datetime.utcnow(),
                     analysis_summary=analysis_result[:500] if analysis_result else "",
+                    state_history_id=history_id,
                     message_metadata={
                         "original_message": msg["message"][:200],
                         "timestamp": msg["timestamp"].isoformat()
@@ -424,6 +501,135 @@ class TrainingManager:
 
         log("info", f"Analyzed {len(unanalyzed)} messages for student {student_id}")
         return new_state, unanalyzed
+
+    def get_student_state_history(self, master_id: str, student_id: str,
+                                limit: int = 50) -> List[StateHistoryEntry]:
+        """Get state history for a student."""
+        if not self.is_student_of_master(master_id, student_id):
+            return []
+
+        with self.db.get_session() as session:
+            history_entries = session.query(StudentStateHistoryTable).filter_by(
+                master_id=master_id,
+                student_id=student_id
+            ).order_by(StudentStateHistoryTable.created_at.desc()).limit(limit).all()
+
+            return [
+                StateHistoryEntry(
+                    id=entry.id,
+                    previous_state=entry.previous_state or "",
+                    new_state=entry.new_state,
+                    change_reason=entry.change_reason or "",
+                    analyzed_message_count=entry.analyzed_message_count,
+                    created_at=entry.created_at,
+                    metadata=entry.history_metadata or {}  # CHANGED: Use history_metadata
+                )
+                for entry in history_entries
+            ]
+
+    def clear_student_state_history(self, master_id: str, student_id: str) -> bool:
+        """Clear all state history for a student."""
+        if not self.is_student_of_master(master_id, student_id):
+            return False
+
+        try:
+            with self.db.get_session() as session:
+                # Delete all history entries for this student
+                session.query(StudentStateHistoryTable).filter_by(
+                    master_id=master_id,
+                    student_id=student_id
+                ).delete()
+
+                # Clear state_history_id references in analyzed messages
+                session.query(AnalyzedMessageTable).filter_by(
+                    student_id=student_id
+                ).update({"state_history_id": None})
+
+                session.commit()
+                log("info", f"Cleared state history for student {student_id}")
+                return True
+        except Exception as e:
+            log("error", f"Failed to clear state history: {e}")
+            return False
+
+    def revert_to_previous_state(self, master_id: str, student_id: str,
+                               history_id: str) -> Tuple[bool, Optional[str]]:
+        """
+        Revert to a previous state from history.
+        This will:
+        1. Restore the previous state
+        2. Unmark the messages associated with that history entry
+        3. Create a new history entry for the reversion
+        """
+        if not self.is_student_of_master(master_id, student_id):
+            return False, None
+
+        try:
+            with self.db.get_session() as session:
+                # Get the history entry to revert to
+                history_entry = session.query(StudentStateHistoryTable).filter_by(
+                    id=history_id,
+                    master_id=master_id,
+                    student_id=student_id
+                ).first()
+
+                if not history_entry:
+                    log("error", f"History entry {history_id} not found")
+                    return False, None
+
+                # Get current state
+                current_state = session.query(StudentStateTable).filter_by(
+                    master_id=master_id,
+                    student_id=student_id
+                ).first()
+
+                if not current_state:
+                    log("error", f"No current state found for student {student_id}")
+                    return False, None
+
+                # Store the state we're reverting from
+                reverting_from_state = current_state.current_state
+
+                # Restore the previous state from history
+                current_state.current_state = history_entry.previous_state or ""
+                current_state.updated_at = datetime.utcnow()
+
+                # Unmark messages associated with this history entry
+                if history_entry.analyzed_message_ids:
+                    # Delete analyzed messages linked to this history entry
+                    session.query(AnalyzedMessageTable).filter(
+                        AnalyzedMessageTable.student_id == student_id,
+                        AnalyzedMessageTable.state_history_id == history_id
+                    ).delete()
+
+                # Create a new history entry for the reversion
+                revert_history_id = str(uuid.uuid4())
+                revert_entry = StudentStateHistoryTable(
+                    id=revert_history_id,
+                    master_id=master_id,
+                    student_id=student_id,
+                    previous_state=reverting_from_state,
+                    new_state=history_entry.previous_state or "",
+                    change_reason=f"Reverted to state from {history_entry.created_at.strftime('%Y-%m-%d %H:%M')}",
+                    analyzed_message_count=0,
+                    analyzed_message_ids=[],
+                    created_at=datetime.utcnow(),
+                    history_metadata={
+                        "reverted_from_history_id": history_id,
+                        "reverted_message_count": len(history_entry.analyzed_message_ids or []),
+                        "update_type": "revert"
+                    }
+                )
+                session.add(revert_entry)
+
+                session.commit()
+
+                log("info", f"Reverted student {student_id} to previous state from {history_entry.created_at}")
+                return True, history_entry.previous_state or ""
+
+        except Exception as e:
+            log("error", f"Failed to revert to previous state: {e}", exc_info=True)
+            return False, None
 
     def get_student_status_board(self, master_id: str) -> List[StudentStatus]:
         """Get status board for all students of a master."""
@@ -491,6 +697,9 @@ class TrainingManager:
                 # Delete student states
                 session.query(StudentStateTable).filter_by(student_id=student_id).delete()
 
+                # Delete state history
+                session.query(StudentStateHistoryTable).filter_by(student_id=student_id).delete()
+
                 # Delete analyzed messages
                 session.query(AnalyzedMessageTable).filter_by(student_id=student_id).delete()
 
@@ -509,6 +718,9 @@ class TrainingManager:
 
                 # Delete student states for this master
                 session.query(StudentStateTable).filter_by(master_id=master_id).delete()
+
+                # Delete state history for this master
+                session.query(StudentStateHistoryTable).filter_by(master_id=master_id).delete()
 
                 log("info", f"Cleaned up training data for master {master_id}")
                 return True
