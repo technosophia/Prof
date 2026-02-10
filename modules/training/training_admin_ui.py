@@ -31,8 +31,13 @@ def display_admin_tabs():
     if "training_tab" not in st.session_state:
         st.session_state.training_tab = "dashboard"
 
-    # Tab selection
-    tab1, tab2, tab3 = st.tabs(["📊 Training Dashboard", "📜 State History", "⚙️ Configuration"])
+    # Tab selection - ADD EXPORT/IMPORT TAB
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Training Dashboard",
+        "📜 State History",
+        "⚙️ Configuration",
+        "📤 Export/Import"  # NEW TAB
+    ])
 
     with tab1:
         render_training_dashboard(user_id, training_manager)
@@ -42,6 +47,10 @@ def display_admin_tabs():
 
     with tab3:
         render_training_config(user_id, training_manager)
+
+    with tab4:  # NEW: Export/Import tab
+        from modules.training.training_export_ui import render_training_export_tab
+        render_training_export_tab(user_id)
 
 def inject_ui_admin_tab():
     return ("Training", display_admin_tabs)

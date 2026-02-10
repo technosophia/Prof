@@ -50,6 +50,20 @@ class StudentStateHistoryTable(Base):
         Index('idx_student_state_history_llm', 'llm_id'),
     )
 
+    @property
+    def analyzed_message_ids(self) -> List[str]:
+        """Get analyzed message IDs from metadata for backward compatibility."""
+        if self.history_metadata and "analyzed_message_ids" in self.history_metadata:
+            return self.history_metadata["analyzed_message_ids"]
+        return []
+
+    @analyzed_message_ids.setter
+    def analyzed_message_ids(self, value: List[str]):
+        """Set analyzed message IDs in metadata."""
+        if not self.history_metadata:
+            self.history_metadata = {}
+        self.history_metadata["analyzed_message_ids"] = value
+
 
 class AnalyzedMessageTable(Base):
     """Tracks which messages have been analyzed."""
