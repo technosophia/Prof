@@ -45,6 +45,19 @@ def inject_current_time_context(user_id: str, messages: List[Dict]) -> str:
 # Register the callback (typically during initialization)
 register_llm_callback(inject_current_time_context)
 ```
+
+### Enhanced Context Injection
+Any module can inject context with more control over placement and role
+```
+from shared.common import register_context_callback, unregister_context_callback
+
+def inject_weather_context(user_id: str, messages: List[Dict]) -> tuple:
+    weather = get_current_weather()
+    return weather, "system", "top"  # context, role, position
+
+# Register the enhanced callback
+register_context_callback(inject_weather_context)
+```
 """
 
 import os
@@ -52,10 +65,23 @@ import sys
 import importlib
 import pkgutil
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple, Union
 import asyncio
+from enum import Enum
 from core.logging import log
 from shared.llm_engine import LLMEngine
+
+
+class ContextPosition(Enum):
+    """Position where context should be inserted in the messages list."""
+    TOP = "top"          # Insert at the beginning (first system messages)
+    BOTTOM = "bottom"    # Insert just before the last user message (before final query)
+
+
+class ContextRole(Enum):
+    """Role for the context message."""
+    SYSTEM = "system"
+    USER = "user"
 
 
 class LLMManager:
@@ -64,7 +90,8 @@ class LLMManager:
         self.config = config
         self.engines = {}
         self.current_llm = None
-        self.llm_callbacks = []  # Moved from global variable to instance variable
+        self.llm_callbacks = []  # Legacy callbacks: return just context string
+        self.context_callbacks = []  # Enhanced callbacks: return (context, role, position)
 
         # Discover and load all engine modules
         self.discover_engines()
@@ -319,45 +346,137 @@ class LLMManager:
         return None
 
     def register_llm_callback(self, callback_func: Callable[[str, List[Dict]], str]):
-        """Register a callback to add LLM context to LLM queries."""
+        """Register a legacy callback to add LLM context to LLM queries.
+
+        Legacy callback returns just a context string (implicitly SYSTEM role, BOTTOM position).
+
+        Args:
+            callback_func: Function that takes (user_id, messages) and returns context string
+        """
         if callback_func not in self.llm_callbacks:
             self.llm_callbacks.append(callback_func)
-            log("debug", f"Registered LLM callback: {callback_func.__name__}")
+            log("debug", f"Registered legacy LLM callback: {callback_func.__name__}")
 
     def unregister_llm_callback(self, callback_func: Callable[[str, List[Dict]], str]):
-        """Unregister a LLM callback."""
+        """Unregister a legacy LLM callback."""
         if callback_func in self.llm_callbacks:
             self.llm_callbacks.remove(callback_func)
-            log("debug", f"Unregistered LLM callback: {callback_func.__name__}")
+            log("debug", f"Unregistered legacy LLM callback: {callback_func.__name__}")
+
+    def register_context_callback(self,
+                                 callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
+        """Register an enhanced context callback with control over role and position.
+
+        The callback should return a tuple: (context, role, position)
+        where:
+          - context: string to add as context
+          - role: "system" or "user"
+          - position: "top" or "bottom"
+
+        Args:
+            callback_func: Function that takes (user_id, messages) and returns (context, role, position)
+        """
+        if callback_func not in self.context_callbacks:
+            self.context_callbacks.append(callback_func)
+            log("debug", f"Registered enhanced context callback: {callback_func.__name__}")
+
+    def unregister_context_callback(self,
+                                   callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
+        """Unregister an enhanced context callback."""
+        if callback_func in self.context_callbacks:
+            self.context_callbacks.remove(callback_func)
+            log("debug", f"Unregistered enhanced context callback: {callback_func.__name__}")
 
     def _add_llm_context(self, user_id: str, messages: List[Dict]) -> List[Dict]:
-        """Add LLM context to messages using registered callbacks."""
-        if not self.llm_callbacks or not messages:
+        """Add LLM context to messages using registered callbacks.
+
+        This method handles both legacy callbacks (returning just context string)
+        and enhanced callbacks (returning context, role, position tuple).
+
+        Args:
+            user_id: User identifier
+            messages: List of message dictionaries
+
+        Returns:
+            Updated list of messages with context added
+        """
+        if (not self.llm_callbacks and not self.context_callbacks) or not messages:
             return messages
 
-        # Get the last user message
-        last_user_message = None
-        for msg in reversed(messages):
+        # Find the position of the last user message for BOTTOM insertion
+        last_user_msg_index = -1
+        for i, msg in enumerate(messages):
             if msg.get("role") == "user":
-                last_user_message = msg.get("content", "")
-                break
+                last_user_msg_index = i
 
-        if not last_user_message:
-            return messages
+        # Prepare context messages to insert
+        top_contexts = []     # Contexts to insert at the beginning
+        bottom_contexts = []  # Contexts to insert before the last user message
 
-        # Apply all LLM callbacks
+        # Process legacy callbacks (implicitly SYSTEM role, BOTTOM position)
         for callback in self.llm_callbacks:
             try:
                 context = callback(user_id, messages)
-                if context:
-                    # Add context as a system message before the last user message
-                    messages.insert(-1, {
+                if context and context.strip():
+                    bottom_contexts.append({
                         "role": "system",
-                        "content": context
+                        "content": context.strip(),
+                        "source": callback.__name__
                     })
-                    log("debug", f"Added LLM context from {callback.__name__}")
+                    log("debug", f"Added legacy context from {callback.__name__}")
             except Exception as e:
-                log("error", f"LLM callback {callback.__name__} failed: {e}")
+                log("error", f"Legacy LLM callback {callback.__name__} failed: {e}")
+
+        # Process enhanced context callbacks
+        for callback in self.context_callbacks:
+            try:
+                result = callback(user_id, messages)
+                if result and len(result) >= 3:
+                    context, role_str, position_str = result[:3]
+
+                    if not context or not context.strip():
+                        continue
+
+                    # Validate role
+                    role = ContextRole.SYSTEM  # Default to SYSTEM
+                    try:
+                        role = ContextRole(role_str.lower())
+                    except ValueError:
+                        log("warning", f"Invalid role '{role_str}' from {callback.__name__}, using 'system'")
+
+                    # Validate position
+                    position = ContextPosition.BOTTOM  # Default to BOTTOM
+                    try:
+                        position = ContextPosition(position_str.lower())
+                    except ValueError:
+                        log("warning", f"Invalid position '{position_str}' from {callback.__name__}, using 'bottom'")
+
+                    context_msg = {
+                        "role": role.value,
+                        "content": context.strip(),
+                        "source": callback.__name__
+                    }
+
+                    if position == ContextPosition.TOP:
+                        top_contexts.append(context_msg)
+                    else:  # BOTTOM
+                        bottom_contexts.append(context_msg)
+
+                    log("debug", f"Added enhanced context from {callback.__name__} (role: {role.value}, position: {position.value})")
+
+            except Exception as e:
+                log("error", f"Enhanced context callback {callback.__name__} failed: {e}")
+
+        # Insert contexts at appropriate positions
+        if top_contexts:
+            # Insert at the beginning in reverse order to maintain callback order
+            for context_msg in reversed(top_contexts):
+                messages.insert(0, context_msg)
+
+        if bottom_contexts and last_user_msg_index >= 0:
+            # Insert before the last user message in reverse order to maintain callback order
+            for context_msg in reversed(bottom_contexts):
+                messages.insert(last_user_msg_index, context_msg)
 
         return messages
 
@@ -389,7 +508,7 @@ class LLMManager:
             messages.append({"role": "user", "content": message})
 
         # Add LLM context if user_id is provided and callbacks are registered
-        if user_id and self.llm_callbacks:
+        if user_id and (self.llm_callbacks or self.context_callbacks):
             messages = self._add_llm_context(user_id, messages)
 
         return await self.generate_response(self.current_llm, messages, stream_callback)
