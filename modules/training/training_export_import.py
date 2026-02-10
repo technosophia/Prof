@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
-from shared.common import log, get_conversation_manager, get_user_manager
+from shared.common import log, get_conversation_manager, get_user_manager, get_current_llm_id, llm_generate
 from modules.training.training_logic import get_training_manager, StateHistoryEntry, StudentStatus
 from modules.training.training_models import StudentStateHistoryTable, AnalyzedMessageTable
 
@@ -208,13 +208,15 @@ class TrainingSessionExporter:
 
             # Sort all events by timestamp AND event type priority
             def get_event_priority(event):
-                """Give conversation_start events higher priority for sorting."""
+                """Sort key to ensure proper event processing order."""
                 if isinstance(event, ConversationStartEvent):
-                    return 0  # Highest priority - must come first
+                    return 0
+                elif isinstance(event, (UserMessageEvent, LLMResponseEvent)):
+                    return 1
                 elif isinstance(event, StateUpdateEvent):
-                    return 2  # State updates should come after messages
-                else:  # UserMessageEvent or LLMResponseEvent
-                    return 1  # Messages medium priority
+                    return 2
+                else:
+                    return 3
 
             # Sort by timestamp first, then by priority
             events.sort(key=lambda x: (x.timestamp, get_event_priority(x)))
@@ -293,12 +295,791 @@ class TrainingSessionExporter:
             return False
 
 
-class TrainingSessionImporter:
-    """Handles importing training sessions from YAML format."""
+class TrainingSessionProcessor:
+    """Base class for processing training sessions chronologically."""
+
+    def __init__(self, process_mode: str = "import"):
+        """
+        Initialize processor.
+
+        Args:
+            process_mode: "import" (preserve original) or "replay" (regenerate)
+        """
+        self.process_mode = process_mode
+        self.training_manager = get_training_manager()
+        self.conv_manager = get_conversation_manager()
+        self.user_manager = get_user_manager()
+
+    def _sort_events_chronologically(self, events: List[Dict]) -> List[Dict]:
+        """Sort events in chronological order with proper dependencies."""
+        def get_event_priority(event):
+            event_type = event.get("event_type", "")
+            if event_type == "conversation_start":
+                return 0
+            elif event_type == "user_message":
+                return 1
+            elif event_type == "llm_response":
+                return 2
+            elif event_type == "state_update":
+                return 3
+            else:
+                return 4
+
+        # Sort by timestamp then priority
+        return sorted(events, key=lambda x: (
+            x.get("timestamp", ""),
+            get_event_priority(x)
+        ))
+
+    def _process_conversation_start(self, event: Dict, target_student_id: str) -> Optional[str]:
+        """Process conversation start event."""
+        conv_id = self.conv_manager.create_conversation(
+            user_id=target_student_id,
+            title=event.get("title", f"{self.process_mode.capitalize()} Conversation"),
+            system_prompt=event.get("system_prompt"),
+            llm_config=event.get("llm_config", {})
+        )
+
+        if conv_id:
+            log("debug", f"Created conversation {conv_id} for {self.process_mode}")
+            return conv_id
+
+        return None
+
+    def _process_user_message(self, event: Dict, conv_id: str) -> Dict[str, Any]:
+        """Process user message event."""
+        try:
+            # Parse timestamp
+            timestamp_str = event.get("timestamp")
+            if timestamp_str:
+                timestamp = datetime.fromisoformat(timestamp_str)
+            else:
+                timestamp = datetime.utcnow()
+
+            from shared.common import Message
+
+            message = Message(
+                role="user",
+                content=event.get("content", ""),
+                timestamp=timestamp,
+                llm_id=None,
+                metadata={
+                    **event.get("metadata", {}),
+                    f"{self.process_mode}_original_id": event.get("message_id"),
+                    f"{self.process_mode}_type": "original_user_message"
+                }
+            )
+
+            message_id = self.conv_manager.add_message(conv_id, message)
+            return {
+                "success": True,
+                "message": message,
+                "message_key": f"{conv_id}_{timestamp.timestamp()}",
+                "conversation_id": conv_id
+            }
+
+        except Exception as e:
+            log("error", f"Failed to add user message: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _process_llm_response(self, event: Dict, conv_id: str,
+                                   conversation_messages: List) -> Dict[str, Any]:
+        """Process LLM response event."""
+        try:
+            if self.process_mode == "import":
+                # Import mode: preserve original response
+                return self._import_llm_response(event, conv_id)
+            else:
+                # Replay mode: regenerate with current LLM
+                return await self._replay_llm_response(event, conv_id, conversation_messages)
+        except Exception as e:
+            log("error", f"Failed to process LLM response: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def _import_llm_response(self, event: Dict, conv_id: str) -> Dict[str, Any]:
+        """Import original LLM response."""
+        timestamp_str = event.get("timestamp")
+        if timestamp_str:
+            timestamp = datetime.fromisoformat(timestamp_str)
+        else:
+            timestamp = datetime.utcnow()
+
+        from shared.common import Message
+
+        message = Message(
+            role=event.get("role", "assistant"),
+            content=event.get("content", ""),
+            timestamp=timestamp,
+            llm_id=event.get("llm_id"),
+            metadata={
+                **event.get("metadata", {}),
+                "import_original_id": event.get("message_id"),
+                "import_type": "original_response"
+            }
+        )
+
+        message_id = self.conv_manager.add_message(conv_id, message)
+        return {
+            "success": True,
+            "message": message,
+            "message_key": f"{conv_id}_{timestamp.timestamp()}",
+            "conversation_id": conv_id,
+            "regenerated": False
+        }
+
+    async def _replay_llm_response(self, event: Dict, conv_id: str,
+                                  conversation_messages: List) -> Dict[str, Any]:
+        """Replay LLM response with current LLM."""
+        # Get conversation history up to this point
+        messages_for_llm = [
+            {"role": msg.role, "content": msg.content}
+            for msg in conversation_messages
+        ]
+
+        # Get the last user message (which triggered this response)
+        last_user_message = None
+        for msg in reversed(conversation_messages):
+            if msg.role == "user":
+                last_user_message = msg.content
+                break
+
+        if not last_user_message:
+            return {"success": False, "error": "No user message found to trigger response"}
+
+        log("info", f"Regenerating LLM response for: {last_user_message[:50]}...")
+
+        # Generate new response with current LLM
+        new_response = await llm_generate(
+            last_user_message,
+            conversation_history=messages_for_llm
+        )
+
+        # Add regenerated response
+        timestamp_str = event.get("timestamp")
+        if timestamp_str:
+            timestamp = datetime.fromisoformat(timestamp_str)
+        else:
+            timestamp = datetime.utcnow()
+
+        from shared.common import Message
+
+        response_message = Message(
+            role="assistant",
+            content=new_response,
+            timestamp=timestamp,
+            llm_id=get_current_llm_id(),
+            metadata={
+                **event.get("metadata", {}),
+                "replay_original_id": event.get("message_id"),
+                "replay_type": "regenerated_response",
+                "original_content": event.get("content", "")[:500]
+            }
+        )
+
+        message_id = self.conv_manager.add_message(conv_id, response_message)
+        return {
+            "success": True,
+            "message": response_message,
+            "message_key": f"{conv_id}_{timestamp.timestamp()}",
+            "conversation_id": conv_id,
+            "regenerated": True
+        }
+
+    async def _process_state_update(self, event: Dict, target_master_id: str,
+                                  target_student_id: str, conversation_messages: Dict[str, List],
+                                  current_state: str) -> Tuple[bool, str, int]:
+        """Process state update event."""
+        if self.process_mode == "import":
+            return self._import_state_update(event, target_master_id, target_student_id)
+        else:
+            return await self._replay_state_update(event, target_master_id, target_student_id,
+                                                  conversation_messages, current_state)
+
+    def _import_state_update(self, event: Dict, target_master_id: str,
+                           target_student_id: str) -> Tuple[bool, str, int]:
+        """Import original state update."""
+        try:
+            with self.training_manager.db.get_session() as session:
+                state_id = str(uuid.uuid4())
+
+                # Parse timestamp
+                timestamp_str = event.get("timestamp")
+                if timestamp_str:
+                    created_at = datetime.fromisoformat(timestamp_str)
+                else:
+                    created_at = datetime.utcnow()
+
+                state_entry = StudentStateHistoryTable(
+                    id=state_id,
+                    master_id=target_master_id,
+                    student_id=target_student_id,
+                    previous_state=event.get("previous_state", ""),
+                    new_state=event.get("new_state", ""),
+                    change_reason=f"Imported: {event.get('change_reason', 'State update')}",
+                    analyzed_message_count=event.get("analyzed_message_count", 0),
+                    created_at=created_at,
+                    llm_id=event.get("llm_id"),
+                    history_metadata={
+                        **event.get("metadata", {}),
+                        "imported": True,
+                        "original_state_id": event.get("state_history_id"),
+                        "imported_at": datetime.utcnow().isoformat(),
+                        "analyzed_message_ids": event.get("analyzed_message_ids", [])
+                    }
+                )
+                session.add(state_entry)
+
+                # No analyzed message records for import (we don't have the mapping)
+
+                session.commit()
+                log("info", f"Imported state update for {target_student_id}")
+                return True, event.get("new_state", ""), 1
+
+        except Exception as e:
+            log("error", f"Failed to import state update: {e}", exc_info=True)
+            return False, "", 0
+
+    async def _replay_state_update(self, event: Dict, target_master_id: str,
+                                 target_student_id: str, conversation_messages: Dict[str, List],
+                                 current_state: str) -> Tuple[bool, str, int]:
+        """Replay state update with current LLM."""
+        # Collect all unanalyzed messages up to this point
+        unanalyzed_messages = []
+        analyzed_ids = event.get("analyzed_message_ids", [])
+
+        for conv_id, messages in conversation_messages.items():
+            for msg in messages:
+                if msg.role == "user":
+                    message_key = f"{conv_id}_{msg.timestamp.timestamp()}"
+
+                    # Check if this message was analyzed in the original
+                    original_msg_id = msg.metadata.get("replay_original_id", "")
+                    if (original_msg_id in analyzed_ids or
+                        message_key in analyzed_ids):
+                        unanalyzed_messages.append({
+                            "conversation_id": conv_id,
+                            "message": msg.content,
+                            "timestamp": msg.timestamp,
+                            "role": msg.role,
+                            "message_key": message_key
+                        })
+
+        if not unanalyzed_messages:
+            log("warning", f"No messages to analyze for state update")
+            return False, current_state, 0
+
+        try:
+            # Get master config for analyzer/merging prompts
+            config = self.training_manager.get_master_config(target_master_id)
+
+            # Prepare messages for analysis
+            messages_text = "\n\n".join([
+                f"[{msg['timestamp'].strftime('%Y-%m-%d %H:%M')}] Student: {msg['message']}"
+                for msg in unanalyzed_messages
+            ])
+
+            # Use analyzer prompt from config or default
+            from shared.common import get_prompt
+            analyzer_prompt_to_use = ""
+            if config and config.get("analyzer_prompt"):
+                analyzer_prompt_to_use = config["analyzer_prompt"]
+            else:
+                analyzer_prompt_to_use = get_prompt("training.training.analyzer_prompt_default", "ERROR")
+
+            # Create analysis prompt
+            analysis_prompt_template = get_prompt(
+                "training.training.analysis_prompt_template", "ERROR"
+            )
+
+            analysis_prompt = analysis_prompt_template.format(
+                current_state=current_state,
+                messages_text=messages_text,
+                analyzer_instructions=analyzer_prompt_to_use
+            )
+
+            # Generate analysis with current LLM
+            analysis_result = await llm_generate(analysis_prompt)
+
+            # Use merging prompt
+            merging_prompt_to_use = ""
+            if config and config.get("merging_prompt"):
+                merging_prompt_to_use = config["merging_prompt"]
+            else:
+                merging_prompt_to_use = get_prompt(
+                    "training.training.merging_prompt_default",
+                    "ERROR"
+                )
+
+            merging_prompt_template = get_prompt(
+                "training.training.merging_prompt_template",
+                "ERROR"
+            )
+
+            merging_prompt = merging_prompt_template.format(
+                current_state=current_state,
+                analysis_result=analysis_result,
+                merging_instructions=merging_prompt_to_use
+            )
+
+            # Generate new state
+            new_state = await llm_generate(merging_prompt)
+
+            # Record state history entry
+            with self.training_manager.db.get_session() as session:
+                state_id = str(uuid.uuid4())
+
+                # Parse timestamp
+                timestamp_str = event.get("timestamp")
+                if timestamp_str:
+                    created_at = datetime.fromisoformat(timestamp_str)
+                else:
+                    created_at = datetime.utcnow()
+
+                state_entry = StudentStateHistoryTable(
+                    id=state_id,
+                    master_id=target_master_id,
+                    student_id=target_student_id,
+                    previous_state=event.get("previous_state", ""),
+                    new_state=new_state,
+                    change_reason=f"Replay: {event.get('change_reason', 'State update')}",
+                    analyzed_message_count=len(unanalyzed_messages),
+                    created_at=created_at,
+                    llm_id=get_current_llm_id(),
+                    history_metadata={
+                        **event.get("metadata", {}),
+                        "replay_original_id": event.get("state_history_id"),
+                        "replay_type": "regenerated_state",
+                        "analysis_result": analysis_result[:500] if analysis_result else "",
+                        "original_state": event.get("new_state", "")[:500],
+                        "analyzed_message_ids": [msg["message_key"] for msg in unanalyzed_messages]
+                    }
+                )
+                session.add(state_entry)
+
+                # Create analyzed message records
+                for msg in unanalyzed_messages:
+                    analyzed_msg = AnalyzedMessageTable(
+                        id=str(uuid.uuid4()),
+                        student_id=target_student_id,
+                        message_id=msg["message_key"],
+                        conversation_id=msg["conversation_id"],
+                        analyzed_at=created_at,
+                        analysis_summary=analysis_result[:500] if analysis_result else "",
+                        state_history_id=state_id,
+                        message_metadata={
+                            **msg,
+                            "replay_original_id": msg.get("message_key"),
+                            "replay_type": "regenerated_analysis"
+                        }
+                    )
+                    session.add(analyzed_msg)
+
+                session.commit()
+                log("info", f"Regenerated state update with {len(unanalyzed_messages)} messages")
+                return True, new_state, 1
+
+        except Exception as e:
+            log("error", f"Failed to regenerate state update: {e}", exc_info=True)
+            return False, current_state, 0
+
+
+class BaseTrainingSessionProcessor:
+    """Base class for processing training sessions chronologically."""
 
     @staticmethod
-    def import_training_session(yaml_data: str, target_master_id: str,
-                               target_student_id: Optional[str] = None) -> Dict[str, Any]:
+    def load_from_file(file_path: str) -> Optional[str]:
+        """Load YAML data from file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            log("error", f"Failed to load file {file_path}: {e}")
+            return None
+
+    def _sort_events_chronologically(self, events: List[Dict]) -> List[Dict]:
+        """Sort events in chronological order with proper dependencies."""
+        def get_event_priority(event):
+            event_type = event.get("event_type", "")
+            if event_type == "conversation_start":
+                return 0
+            elif event_type == "user_message":
+                return 1
+            elif event_type == "llm_response":
+                return 2
+            elif event_type == "state_update":
+                return 3
+            else:
+                return 4
+
+        # Sort by timestamp then priority
+        return sorted(events, key=lambda x: (
+            x.get("timestamp", ""),
+            get_event_priority(x)
+        ))
+
+    def _process_conversation_start(self, event: Dict, target_student_id: str) -> Optional[str]:
+        """Process conversation start event."""
+        conv_manager = get_conversation_manager()
+        conv_id = conv_manager.create_conversation(
+            user_id=target_student_id,
+            title=event.get("title", "Processed Conversation"),
+            system_prompt=event.get("system_prompt"),
+            llm_config=event.get("llm_config", {})
+        )
+
+        if conv_id:
+            log("debug", f"Created conversation {conv_id}")
+            return conv_id
+
+        return None
+
+    def _process_user_message(self, event: Dict, conv_id: str, process_mode: str) -> Dict[str, Any]:
+        """Process user message event."""
+        try:
+            # Parse timestamp
+            timestamp_str = event.get("timestamp")
+            if timestamp_str:
+                timestamp = datetime.fromisoformat(timestamp_str)
+            else:
+                timestamp = datetime.utcnow()
+
+            from shared.common import Message
+
+            message = Message(
+                role="user",
+                content=event.get("content", ""),
+                timestamp=timestamp,
+                llm_id=None,
+                metadata={
+                    **event.get("metadata", {}),
+                    f"{process_mode}_original_id": event.get("message_id"),
+                    f"{process_mode}_type": "original_user_message"
+                }
+            )
+
+            conv_manager = get_conversation_manager()
+            message_id = conv_manager.add_message(conv_id, message)
+            return {
+                "success": True,
+                "message": message,
+                "message_key": f"{conv_id}_{timestamp.timestamp()}",
+                "conversation_id": conv_id
+            }
+
+        except Exception as e:
+            log("error", f"Failed to add user message: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _process_llm_response(self, event: Dict, conv_id: str,
+                                   conversation_messages: List, process_mode: str) -> Dict[str, Any]:
+        """Process LLM response event."""
+        try:
+            if process_mode == "import":
+                # Import mode: preserve original response
+                return self._import_llm_response(event, conv_id)
+            else:
+                # Replay mode: regenerate with current LLM
+                return await self._replay_llm_response(event, conv_id, conversation_messages)
+        except Exception as e:
+            log("error", f"Failed to process LLM response: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def _import_llm_response(self, event: Dict, conv_id: str) -> Dict[str, Any]:
+        """Import original LLM response."""
+        timestamp_str = event.get("timestamp")
+        if timestamp_str:
+            timestamp = datetime.fromisoformat(timestamp_str)
+        else:
+            timestamp = datetime.utcnow()
+
+        from shared.common import Message
+
+        message = Message(
+            role=event.get("role", "assistant"),
+            content=event.get("content", ""),
+            timestamp=timestamp,
+            llm_id=event.get("llm_id"),
+            metadata={
+                **event.get("metadata", {}),
+                "import_original_id": event.get("message_id"),
+                "import_type": "original_response"
+            }
+        )
+
+        conv_manager = get_conversation_manager()
+        message_id = conv_manager.add_message(conv_id, message)
+        return {
+            "success": True,
+            "message": message,
+            "message_key": f"{conv_id}_{timestamp.timestamp()}",
+            "conversation_id": conv_id,
+            "regenerated": False
+        }
+
+    async def _replay_llm_response(self, event: Dict, conv_id: str,
+                                  conversation_messages: List) -> Dict[str, Any]:
+        """Replay LLM response with current LLM."""
+        # Get conversation history up to this point
+        messages_for_llm = [
+            {"role": msg.role, "content": msg.content}
+            for msg in conversation_messages
+        ]
+
+        # Get the last user message (which triggered this response)
+        last_user_message = None
+        for msg in reversed(conversation_messages):
+            if msg.role == "user":
+                last_user_message = msg.content
+                break
+
+        if not last_user_message:
+            return {"success": False, "error": "No user message found to trigger response"}
+
+        log("info", f"Regenerating LLM response for: {last_user_message[:50]}...")
+
+        # Generate new response with current LLM
+        new_response = await llm_generate(
+            last_user_message,
+            conversation_history=messages_for_llm
+        )
+
+        # Add regenerated response
+        timestamp_str = event.get("timestamp")
+        if timestamp_str:
+            timestamp = datetime.fromisoformat(timestamp_str)
+        else:
+            timestamp = datetime.utcnow()
+
+        from shared.common import Message
+
+        response_message = Message(
+            role="assistant",
+            content=new_response,
+            timestamp=timestamp,
+            llm_id=get_current_llm_id(),
+            metadata={
+                **event.get("metadata", {}),
+                "replay_original_id": event.get("message_id"),
+                "replay_type": "regenerated_response",
+                "original_content": event.get("content", "")[:500]
+            }
+        )
+
+        conv_manager = get_conversation_manager()
+        message_id = conv_manager.add_message(conv_id, response_message)
+        return {
+            "success": True,
+            "message": response_message,
+            "message_key": f"{conv_id}_{timestamp.timestamp()}",
+            "conversation_id": conv_id,
+            "regenerated": True
+        }
+
+    async def _process_state_update(self, event: Dict, target_master_id: str,
+                                  target_student_id: str, conversation_messages: Dict[str, List],
+                                  current_state: str, process_mode: str) -> Tuple[bool, str, int]:
+        """Process state update event."""
+        if process_mode == "import":
+            return self._import_state_update(event, target_master_id, target_student_id)
+        else:
+            return await self._replay_state_update(event, target_master_id, target_student_id,
+                                                  conversation_messages, current_state)
+
+    def _import_state_update(self, event: Dict, target_master_id: str,
+                           target_student_id: str) -> Tuple[bool, str, int]:
+        """Import original state update."""
+        try:
+            training_manager = get_training_manager()
+
+            with training_manager.db.get_session() as session:
+                state_id = str(uuid.uuid4())
+
+                # Parse timestamp
+                timestamp_str = event.get("timestamp")
+                if timestamp_str:
+                    created_at = datetime.fromisoformat(timestamp_str)
+                else:
+                    created_at = datetime.utcnow()
+
+                state_entry = StudentStateHistoryTable(
+                    id=state_id,
+                    master_id=target_master_id,
+                    student_id=target_student_id,
+                    previous_state=event.get("previous_state", ""),
+                    new_state=event.get("new_state", ""),
+                    change_reason=f"Imported: {event.get('change_reason', 'State update')}",
+                    analyzed_message_count=event.get("analyzed_message_count", 0),
+                    created_at=created_at,
+                    llm_id=event.get("llm_id"),
+                    history_metadata={
+                        **event.get("metadata", {}),
+                        "imported": True,
+                        "original_state_id": event.get("state_history_id"),
+                        "imported_at": datetime.utcnow().isoformat(),
+                        "analyzed_message_ids": event.get("analyzed_message_ids", [])
+                    }
+                )
+                session.add(state_entry)
+                session.commit()
+
+                log("info", f"Imported state update for {target_student_id}")
+                return True, event.get("new_state", ""), 1
+
+        except Exception as e:
+            log("error", f"Failed to import state update: {e}", exc_info=True)
+            return False, "", 0
+
+    async def _replay_state_update(self, event: Dict, target_master_id: str,
+                                 target_student_id: str, conversation_messages: Dict[str, List],
+                                 current_state: str) -> Tuple[bool, str, int]:
+        """Replay state update with current LLM."""
+        # Collect all unanalyzed messages up to this point
+        unanalyzed_messages = []
+        analyzed_ids = event.get("analyzed_message_ids", [])
+
+        for conv_id, messages in conversation_messages.items():
+            for msg in messages:
+                if msg.role == "user":
+                    message_key = f"{conv_id}_{msg.timestamp.timestamp()}"
+
+                    # Check if this message was analyzed in the original
+                    original_msg_id = msg.metadata.get("replay_original_id", "")
+                    if (original_msg_id in analyzed_ids or
+                        message_key in analyzed_ids):
+                        unanalyzed_messages.append({
+                            "conversation_id": conv_id,
+                            "message": msg.content,
+                            "timestamp": msg.timestamp,
+                            "role": msg.role,
+                            "message_key": message_key
+                        })
+
+        if not unanalyzed_messages:
+            log("warning", f"No messages to analyze for state update")
+            return False, current_state, 0
+
+        try:
+            training_manager = get_training_manager()
+
+            # Get master config for analyzer/merging prompts
+            config = training_manager.get_master_config(target_master_id)
+
+            # Prepare messages for analysis
+            messages_text = "\n\n".join([
+                f"[{msg['timestamp'].strftime('%Y-%m-%d %H:%M')}] Student: {msg['message']}"
+                for msg in unanalyzed_messages
+            ])
+
+            # Use analyzer prompt from config or default
+            from shared.common import get_prompt
+            analyzer_prompt_to_use = ""
+            if config and config.get("analyzer_prompt"):
+                analyzer_prompt_to_use = config["analyzer_prompt"]
+            else:
+                analyzer_prompt_to_use = get_prompt("training.training.analyzer_prompt_default", "ERROR")
+
+            # Create analysis prompt
+            analysis_prompt_template = get_prompt(
+                "training.training.analysis_prompt_template", "ERROR"
+            )
+
+            analysis_prompt = analysis_prompt_template.format(
+                current_state=current_state,
+                messages_text=messages_text,
+                analyzer_instructions=analyzer_prompt_to_use
+            )
+
+            # Generate analysis with current LLM
+            analysis_result = await llm_generate(analysis_prompt)
+
+            # Use merging prompt
+            merging_prompt_to_use = ""
+            if config and config.get("merging_prompt"):
+                merging_prompt_to_use = config["merging_prompt"]
+            else:
+                merging_prompt_to_use = get_prompt(
+                    "training.training.merging_prompt_default",
+                    "ERROR"
+                )
+
+            merging_prompt_template = get_prompt(
+                "training.training.merging_prompt_template",
+                "ERROR"
+            )
+
+            merging_prompt = merging_prompt_template.format(
+                current_state=current_state,
+                analysis_result=analysis_result,
+                merging_instructions=merging_prompt_to_use
+            )
+
+            # Generate new state
+            new_state = await llm_generate(merging_prompt)
+
+            # Record state history entry
+            with training_manager.db.get_session() as session:
+                state_id = str(uuid.uuid4())
+
+                # Parse timestamp
+                timestamp_str = event.get("timestamp")
+                if timestamp_str:
+                    created_at = datetime.fromisoformat(timestamp_str)
+                else:
+                    created_at = datetime.utcnow()
+
+                state_entry = StudentStateHistoryTable(
+                    id=state_id,
+                    master_id=target_master_id,
+                    student_id=target_student_id,
+                    previous_state=event.get("previous_state", ""),
+                    new_state=new_state,
+                    change_reason=f"Replay: {event.get('change_reason', 'State update')}",
+                    analyzed_message_count=len(unanalyzed_messages),
+                    created_at=created_at,
+                    llm_id=get_current_llm_id(),
+                    history_metadata={
+                        **event.get("metadata", {}),
+                        "replay_original_id": event.get("state_history_id"),
+                        "replay_type": "regenerated_state",
+                        "analysis_result": analysis_result[:500] if analysis_result else "",
+                        "original_state": event.get("new_state", "")[:500],
+                        "analyzed_message_ids": [msg["message_key"] for msg in unanalyzed_messages]
+                    }
+                )
+                session.add(state_entry)
+
+                # Create analyzed message records
+                for msg in unanalyzed_messages:
+                    analyzed_msg = AnalyzedMessageTable(
+                        id=str(uuid.uuid4()),
+                        student_id=target_student_id,
+                        message_id=msg["message_key"],
+                        conversation_id=msg["conversation_id"],
+                        analyzed_at=created_at,
+                        analysis_summary=analysis_result[:500] if analysis_result else "",
+                        state_history_id=state_id,
+                        message_metadata={
+                            **msg,
+                            "replay_original_id": msg.get("message_key"),
+                            "replay_type": "regenerated_analysis"
+                        }
+                    )
+                    session.add(analyzed_msg)
+
+                session.commit()
+                log("info", f"Regenerated state update with {len(unanalyzed_messages)} messages")
+                return True, new_state, 1
+
+        except Exception as e:
+            log("error", f"Failed to regenerate state update: {e}", exc_info=True)
+            return False, current_state, 0
+
+
+class TrainingSessionImporter(BaseTrainingSessionProcessor):
+    """Handles importing training sessions from YAML format."""
+
+    async def import_training_session(self, yaml_data: str, target_master_id: str,
+                                    target_student_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Import a training session from YAML.
 
@@ -322,11 +1103,9 @@ class TrainingSessionImporter:
             original_master_id = data.get("master_config", {}).get("master_id")
 
             # Determine target student
+            user_manager = get_user_manager()
             if not target_student_id:
                 # Create new student for this master
-                user_manager = get_user_manager()
-
-                # Generate unique student name
                 student_name = original_student_info.get("student_name", "Imported Student")
                 base_name = student_name
                 counter = 1
@@ -340,8 +1119,6 @@ class TrainingSessionImporter:
 
                 # Create new student
                 target_student_id = user_manager.create_user(
-                    username=f"imported_{uuid.uuid4().hex[:8]}",
-                    password=uuid.uuid4().hex[:16],
                     name=student_name,
                     role="NORMAL",
                     parent_id=target_master_id
@@ -362,203 +1139,56 @@ class TrainingSessionImporter:
                 master_config.get("merging_prompt", "")
             )
 
-            # IMPORTANT: DO NOT initialize student state here - we'll import the states from the file
-            # This prevents creating a default "New student" state that overrides imported states
-            log("info", f"Skipping default state initialization for imported student {target_student_id}")
-
             # Process events
             events = data.get("training_session", [])
-            conv_manager = get_conversation_manager()
 
-            # Track created conversations
+            # Sort events chronologically
+            events = self._sort_events_chronologically(events)
+
+            # Track created conversations and messages
             conversations = {}
-            state_updates = []
-            has_state_updates = False
+            conversation_messages = {}
+            state_updates_processed = 0
+            llm_responses_processed = 0
 
-            # First, check if we have state updates in the import
-            for event in events:
-                if event.get("event_type") == "state_update":
-                    has_state_updates = True
-                    break
-
-            # If no state updates, we need to create at least one state entry
-            # to mark the student as having an initialized state
-            if not has_state_updates:
-                log("info", "No state updates found in import, creating minimal state entry")
-                with training_manager.db.get_session() as session:
-                    state_id = str(uuid.uuid4())
-                    minimal_state = StudentStateHistoryTable(
-                        id=state_id,
-                        master_id=target_master_id,
-                        student_id=target_student_id,
-                        previous_state=None,
-                        new_state="Imported student - no learning state data available",
-                        change_reason="Imported without state history",
-                        analyzed_message_count=0,
-                        created_at=datetime.utcnow(),
-                        llm_id=None,
-                        history_metadata={
-                            "imported": True,
-                            "import_type": "minimal_state",
-                            "imported_at": datetime.utcnow().isoformat()
-                        }
-                    )
-                    session.add(minimal_state)
-
-            # First, ensure events are properly sorted for import
-            # Priority: conversation_start > messages > state_update
-            def event_sort_key(event):
-                """Sort key to ensure proper event processing order."""
-                event_type = event.get("event_type", "")
-                timestamp = event.get("timestamp", "")
-
-                if event_type == "conversation_start":
-                    priority = 0
-                elif event_type in ["user_message", "llm_response"]:
-                    priority = 1
-                elif event_type == "state_update":
-                    priority = 2
-                else:
-                    priority = 3
-
-                return (priority, timestamp)
-
-            # Sort events for proper import order
-            events.sort(key=event_sort_key)
-
-            # Process events in order
+            # Process events in chronological order
             for event in events:
                 event_type = event.get("event_type")
 
                 if event_type == "conversation_start":
-                    # Create conversation
-                    conv_id = conv_manager.create_conversation(
-                        user_id=target_student_id,
-                        title=event.get("title", "Imported Conversation"),
-                        system_prompt=event.get("system_prompt"),
-                        llm_config=event.get("llm_config", {})
-                    )
-
+                    conv_id = self._process_conversation_start(event, target_student_id)
                     if conv_id:
                         conversations[event["conversation_id"]] = conv_id
-                        log("debug", f"Created conversation {conv_id} for import")
+                        conversation_messages[conv_id] = []
 
-                elif event_type in ["user_message", "llm_response"]:
-                    # Add message to conversation
+                elif event_type == "user_message":
                     original_conv_id = event.get("conversation_id")
                     conv_id = conversations.get(original_conv_id)
 
                     if conv_id:
-                        from shared.common import Message
+                        result = self._process_user_message(event, conv_id, "import")
+                        if result["success"]:
+                            conversation_messages[conv_id].append(result["message"])
 
-                        try:
-                            # Parse timestamp
-                            timestamp_str = event.get("timestamp")
-                            if timestamp_str:
-                                timestamp = datetime.fromisoformat(timestamp_str)
-                            else:
-                                timestamp = datetime.utcnow()
+                elif event_type == "llm_response":
+                    original_conv_id = event.get("conversation_id")
+                    conv_id = conversations.get(original_conv_id)
 
-                            message = Message(
-                                role=event.get("role", "user"),
-                                content=event.get("content", ""),
-                                timestamp=timestamp,
-                                llm_id=event.get("llm_id"),
-                                metadata=event.get("metadata", {})
-                            )
-
-                            message_id = conv_manager.add_message(conv_id, message)
-                            log("debug", f"Added message to conversation {conv_id}: {message.role[:20]}...")
-
-                        except Exception as e:
-                            log("error", f"Failed to add message: {e}")
-                    else:
-                        log("warning", f"Conversation {original_conv_id} not found for message: {event.get('content', '')[:50]}...")
+                    if conv_id:
+                        result = await self._process_llm_response(
+                            event, conv_id, conversation_messages.get(conv_id, []), "import"
+                        )
+                        if result["success"]:
+                            conversation_messages[conv_id].append(result["message"])
+                            llm_responses_processed += 1
 
                 elif event_type == "state_update":
-                    # Store state update for later processing
-                    state_updates.append(event)
-
-            # Process state updates after all messages are imported
-            state_updates_processed = 0
-            for state_event in state_updates:
-                try:
-                    # Create state history entry
-                    with training_manager.db.get_session() as session:
-                        state_id = str(uuid.uuid4())
-
-                        # Map analyzed message IDs to new conversation IDs
-                        analyzed_message_ids = []
-                        original_analyzed_ids = state_event.get("analyzed_message_ids", [])
-
-                        for msg_id in original_analyzed_ids:
-                            # Extract original conversation ID from message ID
-                            parts = msg_id.split("_")
-                            if len(parts) >= 2:
-                                orig_conv_id = parts[0]
-                                new_conv_id = conversations.get(orig_conv_id)
-                                if new_conv_id:
-                                    # Reconstruct message ID with new conversation ID
-                                    new_msg_id = f"{new_conv_id}_{'_'.join(parts[1:])}"
-                                    analyzed_message_ids.append(new_msg_id)
-                                else:
-                                    # Keep original if no mapping found
-                                    analyzed_message_ids.append(msg_id)
-                                    log("warning", f"No conversation mapping found for original ID: {orig_conv_id}")
-
-                        # Parse timestamp
-                        timestamp_str = state_event.get("timestamp")
-                        if timestamp_str:
-                            created_at = datetime.fromisoformat(timestamp_str)
-                        else:
-                            created_at = datetime.utcnow()
-
-                        state_entry = StudentStateHistoryTable(
-                            id=state_id,
-                            master_id=target_master_id,
-                            student_id=target_student_id,
-                            previous_state=state_event.get("previous_state", ""),
-                            new_state=state_event.get("new_state", ""),
-                            change_reason=state_event.get("change_reason", "Imported from export"),
-                            analyzed_message_count=state_event.get("analyzed_message_count", 0),
-                            created_at=created_at,
-                            llm_id=state_event.get("llm_id"),
-                            history_metadata={
-                                **state_event.get("metadata", {}),
-                                "imported": True,
-                                "original_state_id": state_event.get("state_history_id"),
-                                "imported_at": datetime.utcnow().isoformat(),
-                                "analyzed_message_ids": analyzed_message_ids
-                            }
-                        )
-                        session.add(state_entry)
-
-                        # Create analyzed message records
-                        for msg_id in analyzed_message_ids:
-                            # Extract conversation ID from message ID
-                            msg_parts = msg_id.split("_")
-                            conv_id = msg_parts[0] if msg_parts else "unknown"
-
-                            analyzed_msg = AnalyzedMessageTable(
-                                id=str(uuid.uuid4()),
-                                student_id=target_student_id,
-                                message_id=msg_id,
-                                conversation_id=conv_id,
-                                analyzed_at=created_at,
-                                analysis_summary=state_event.get("metadata", {}).get("analysis_result", "")[:500],
-                                state_history_id=state_id,
-                                message_metadata={
-                                    "imported": True,
-                                    "original_message_id": msg_id
-                                }
-                            )
-                            session.add(analyzed_msg)
-
-                        session.commit()
+                    success, new_state, count = await self._process_state_update(
+                        event, target_master_id, target_student_id,
+                        conversation_messages, "", "import"
+                    )
+                    if success:
                         state_updates_processed += 1
-
-                except Exception as e:
-                    log("error", f"Failed to process state update: {e}", exc_info=True)
 
             return {
                 "success": True,
@@ -566,6 +1196,7 @@ class TrainingSessionImporter:
                 "student_id": target_student_id,
                 "student_name": original_student_info.get("student_name", "Imported Student"),
                 "conversations_created": len(conversations),
+                "llm_responses_imported": llm_responses_processed,
                 "state_updates_imported": state_updates_processed,
                 "events_processed": len(events)
             }
@@ -574,21 +1205,150 @@ class TrainingSessionImporter:
             log("error", f"Failed to import training session: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
-    @staticmethod
-    def load_from_file(file_path: str) -> Optional[str]:
-        """Load YAML data from file."""
+
+class TrainingSessionReplayer(BaseTrainingSessionProcessor):
+    """Handles replaying training sessions with current LLM."""
+
+    async def replay_training_session(self, yaml_data: str, target_master_id: str,
+                                    target_student_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Replay a training session using current LLM.
+
+        Regenerates:
+        1. LLM responses (assistant messages)
+        2. State updates (analysis results)
+
+        Args:
+            yaml_data: YAML string containing training session
+            target_master_id: Master to replay under
+            target_student_id: Optional specific student ID to replay to
+
+        Returns:
+            Dictionary with replay results
+        """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
+            # Parse YAML
+            data = yaml.safe_load(yaml_data)
+
+            if not data or data.get("export_type") != "training_session":
+                return {"success": False, "error": "Invalid training session format"}
+
+            # Get original student info
+            original_student_info = data.get("student_info", {})
+            original_master_id = data.get("master_config", {}).get("master_id")
+
+            # Determine target student
+            user_manager = get_user_manager()
+            if not target_student_id:
+                # Create new student for this master
+                student_name = f"Replay: {original_student_info.get('student_name', 'Imported Student')}"
+                base_name = student_name
+                counter = 1
+
+                while True:
+                    existing = user_manager.get_user_by_name(student_name)
+                    if not existing:
+                        break
+                    student_name = f"{base_name} ({counter})"
+                    counter += 1
+
+                # Create new student
+                target_student_id = user_manager.create_user(
+                    name=student_name,
+                    role="NORMAL",
+                    parent_id=target_master_id
+                )
+
+                if not target_student_id:
+                    return {"success": False, "error": "Failed to create student"}
+
+            # Import master config (for context)
+            master_config = data.get("master_config", {})
+            training_manager = get_training_manager()
+
+            config_id = training_manager.save_master_config(
+                target_master_id,
+                master_config.get("system_prompt", ""),
+                master_config.get("learning_path", ""),
+                master_config.get("analyzer_prompt", ""),
+                master_config.get("merging_prompt", "")
+            )
+
+            # Process events
+            events = data.get("training_session", [])
+
+            # Sort events chronologically
+            events = self._sort_events_chronologically(events)
+
+            # Initialize tracking structures
+            conversations = {}
+            conversation_messages = {}
+            state_updates_processed = 0
+            llm_responses_regenerated = 0
+            current_state = ""
+
+            # Replay events in chronological order
+            for event in events:
+                event_type = event.get("event_type")
+
+                if event_type == "conversation_start":
+                    conv_id = self._process_conversation_start(event, target_student_id)
+                    if conv_id:
+                        conversations[event["conversation_id"]] = conv_id
+                        conversation_messages[conv_id] = []
+
+                elif event_type == "user_message":
+                    original_conv_id = event.get("conversation_id")
+                    conv_id = conversations.get(original_conv_id)
+
+                    if conv_id:
+                        result = self._process_user_message(event, conv_id, "replay")
+                        if result["success"]:
+                            conversation_messages[conv_id].append(result["message"])
+
+                elif event_type == "llm_response":
+                    original_conv_id = event.get("conversation_id")
+                    conv_id = conversations.get(original_conv_id)
+
+                    if conv_id:
+                        result = await self._process_llm_response(
+                            event, conv_id, conversation_messages.get(conv_id, []), "replay"
+                        )
+                        if result["success"]:
+                            conversation_messages[conv_id].append(result["message"])
+                            if result.get("regenerated", False):
+                                llm_responses_regenerated += 1
+
+                elif event_type == "state_update":
+                    success, new_state, count = await self._process_state_update(
+                        event, target_master_id, target_student_id,
+                        conversation_messages, current_state, "replay"
+                    )
+                    if success:
+                        current_state = new_state
+                        state_updates_processed += count
+
+            return {
+                "success": True,
+                "master_id": target_master_id,
+                "student_id": target_student_id,
+                "student_name": f"Replay: {original_student_info.get('student_name', 'Imported Student')}",
+                "conversations_created": len(conversations),
+                "llm_responses_regenerated": llm_responses_regenerated,
+                "state_updates_regenerated": state_updates_processed,
+                "events_processed": len(events),
+                "replay_type": "regenerated"
+            }
+
         except Exception as e:
-            log("error", f"Failed to load file {file_path}: {e}")
-            return None
+            log("error", f"Failed to replay training session: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
 
 # Global instances for easy access
 training_exporter = TrainingSessionExporter()
 training_importer = TrainingSessionImporter()
-
+training_replayer = TrainingSessionReplayer()
 
 def export_training_session_to_file(master_id: str, student_id: str, file_path: str) -> bool:
     """Convenience function to export training session to file."""
@@ -598,10 +1358,19 @@ def export_training_session_to_file(master_id: str, student_id: str, file_path: 
     return False
 
 
-def import_training_session_from_file(file_path: str, target_master_id: str,
-                                     target_student_id: Optional[str] = None) -> Dict[str, Any]:
+async def import_training_session_from_file(file_path: str, target_master_id: str,
+                                          target_student_id: Optional[str] = None) -> Dict[str, Any]:
     """Convenience function to import training session from file."""
     yaml_data = training_importer.load_from_file(file_path)
     if yaml_data:
-        return training_importer.import_training_session(yaml_data, target_master_id, target_student_id)
+        return await training_importer.import_training_session(yaml_data, target_master_id, target_student_id)
+    return {"success": False, "error": "Failed to load file"}
+
+
+async def replay_training_session_from_file(file_path: str, target_master_id: str,
+                                          target_student_id: Optional[str] = None) -> Dict[str, Any]:
+    """Convenience function to replay training session from file."""
+    yaml_data = training_importer.load_from_file(file_path)
+    if yaml_data:
+        return await training_replayer.replay_training_session(yaml_data, target_master_id, target_student_id)
     return {"success": False, "error": "Failed to load file"}
