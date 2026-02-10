@@ -458,13 +458,13 @@ class TrainingManager:
                 new_state=new_state,
                 change_reason=f"Analyzed {len(unanalyzed)} messages",
                 analyzed_message_count=len(unanalyzed),
-                analyzed_message_ids=analyzed_message_ids,
                 created_at=datetime.utcnow(),
                 llm_id=current_llm_id,
                 history_metadata={
                     "analysis_result": analysis_result[:500] if analysis_result else "",
                     "unanalyzed_count_before": len(unanalyzed),
-                    "update_type": "auto_analysis"
+                    "update_type": "auto_analysis",
+                    "analyzed_message_ids": analyzed_message_ids  # Store in metadata
                 }
             )
             session.add(history_entry)

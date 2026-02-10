@@ -136,8 +136,8 @@ class TrainingSessionExporter:
                 if not conversation:
                     continue
 
-                # Add conversation start event
-                events.append(ConversationStartEvent(
+                # Add conversation start event FIRST
+                conversation_start_event = ConversationStartEvent(
                     event_type="conversation_start",
                     conversation_id=conversation.id,
                     title=conversation.title,
@@ -145,7 +145,8 @@ class TrainingSessionExporter:
                     llm_config=conversation.llm_config or {},
                     timestamp=conversation.created_at.isoformat(),
                     metadata={"created_at": conversation.created_at.isoformat()}
-                ))
+                )
+                events.append(conversation_start_event)
 
                 # Process messages in this conversation
                 for message in conversation.messages:
@@ -205,8 +206,18 @@ class TrainingSessionExporter:
                 )
                 events.append(event)
 
-            # Sort all events by timestamp
-            events.sort(key=lambda x: x.timestamp)
+            # Sort all events by timestamp AND event type priority
+            def get_event_priority(event):
+                """Give conversation_start events higher priority for sorting."""
+                if isinstance(event, ConversationStartEvent):
+                    return 0  # Highest priority - must come first
+                elif isinstance(event, StateUpdateEvent):
+                    return 2  # State updates should come after messages
+                else:  # UserMessageEvent or LLMResponseEvent
+                    return 1  # Messages medium priority
+
+            # Sort by timestamp first, then by priority
+            events.sort(key=lambda x: (x.timestamp, get_event_priority(x)))
 
             # Prepare export data
             export_data = {
@@ -351,8 +362,9 @@ class TrainingSessionImporter:
                 master_config.get("merging_prompt", "")
             )
 
-            # Initialize student state
-            training_manager.initialize_student_state(target_master_id, target_student_id)
+            # IMPORTANT: DO NOT initialize student state here - we'll import the states from the file
+            # This prevents creating a default "New student" state that overrides imported states
+            log("info", f"Skipping default state initialization for imported student {target_student_id}")
 
             # Process events
             events = data.get("training_session", [])
@@ -361,7 +373,60 @@ class TrainingSessionImporter:
             # Track created conversations
             conversations = {}
             state_updates = []
+            has_state_updates = False
 
+            # First, check if we have state updates in the import
+            for event in events:
+                if event.get("event_type") == "state_update":
+                    has_state_updates = True
+                    break
+
+            # If no state updates, we need to create at least one state entry
+            # to mark the student as having an initialized state
+            if not has_state_updates:
+                log("info", "No state updates found in import, creating minimal state entry")
+                with training_manager.db.get_session() as session:
+                    state_id = str(uuid.uuid4())
+                    minimal_state = StudentStateHistoryTable(
+                        id=state_id,
+                        master_id=target_master_id,
+                        student_id=target_student_id,
+                        previous_state=None,
+                        new_state="Imported student - no learning state data available",
+                        change_reason="Imported without state history",
+                        analyzed_message_count=0,
+                        created_at=datetime.utcnow(),
+                        llm_id=None,
+                        history_metadata={
+                            "imported": True,
+                            "import_type": "minimal_state",
+                            "imported_at": datetime.utcnow().isoformat()
+                        }
+                    )
+                    session.add(minimal_state)
+
+            # First, ensure events are properly sorted for import
+            # Priority: conversation_start > messages > state_update
+            def event_sort_key(event):
+                """Sort key to ensure proper event processing order."""
+                event_type = event.get("event_type", "")
+                timestamp = event.get("timestamp", "")
+
+                if event_type == "conversation_start":
+                    priority = 0
+                elif event_type in ["user_message", "llm_response"]:
+                    priority = 1
+                elif event_type == "state_update":
+                    priority = 2
+                else:
+                    priority = 3
+
+                return (priority, timestamp)
+
+            # Sort events for proper import order
+            events.sort(key=event_sort_key)
+
+            # Process events in order
             for event in events:
                 event_type = event.get("event_type")
 
@@ -376,6 +441,7 @@ class TrainingSessionImporter:
 
                     if conv_id:
                         conversations[event["conversation_id"]] = conv_id
+                        log("debug", f"Created conversation {conv_id} for import")
 
                 elif event_type in ["user_message", "llm_response"]:
                     # Add message to conversation
@@ -385,75 +451,114 @@ class TrainingSessionImporter:
                     if conv_id:
                         from shared.common import Message
 
-                        message = Message(
-                            role=event.get("role", "user"),
-                            content=event.get("content", ""),
-                            timestamp=datetime.fromisoformat(event.get("timestamp")),
-                            llm_id=event.get("llm_id"),
-                            metadata=event.get("metadata", {})
-                        )
+                        try:
+                            # Parse timestamp
+                            timestamp_str = event.get("timestamp")
+                            if timestamp_str:
+                                timestamp = datetime.fromisoformat(timestamp_str)
+                            else:
+                                timestamp = datetime.utcnow()
 
-                        conv_manager.add_message(conv_id, message)
+                            message = Message(
+                                role=event.get("role", "user"),
+                                content=event.get("content", ""),
+                                timestamp=timestamp,
+                                llm_id=event.get("llm_id"),
+                                metadata=event.get("metadata", {})
+                            )
+
+                            message_id = conv_manager.add_message(conv_id, message)
+                            log("debug", f"Added message to conversation {conv_id}: {message.role[:20]}...")
+
+                        except Exception as e:
+                            log("error", f"Failed to add message: {e}")
+                    else:
+                        log("warning", f"Conversation {original_conv_id} not found for message: {event.get('content', '')[:50]}...")
 
                 elif event_type == "state_update":
                     # Store state update for later processing
                     state_updates.append(event)
 
             # Process state updates after all messages are imported
+            state_updates_processed = 0
             for state_event in state_updates:
-                # Create state history entry
-                with training_manager.db.get_session() as session:
-                    state_id = str(uuid.uuid4())
+                try:
+                    # Create state history entry
+                    with training_manager.db.get_session() as session:
+                        state_id = str(uuid.uuid4())
 
-                    # Map analyzed message IDs to new conversation IDs
-                    analyzed_message_ids = []
-                    for msg_id in state_event.get("analyzed_message_ids", []):
-                        # Extract original conversation ID from message ID
-                        parts = msg_id.split("_")
-                        if len(parts) >= 2:
-                            orig_conv_id = parts[0]
-                            new_conv_id = conversations.get(orig_conv_id)
-                            if new_conv_id:
-                                # Reconstruct message ID with new conversation ID
-                                new_msg_id = f"{new_conv_id}_{'_'.join(parts[1:])}"
-                                analyzed_message_ids.append(new_msg_id)
+                        # Map analyzed message IDs to new conversation IDs
+                        analyzed_message_ids = []
+                        original_analyzed_ids = state_event.get("analyzed_message_ids", [])
 
-                    state_entry = StudentStateHistoryTable(
-                        id=state_id,
-                        master_id=target_master_id,
-                        student_id=target_student_id,
-                        previous_state=state_event.get("previous_state", ""),
-                        new_state=state_event.get("new_state", ""),
-                        change_reason=state_event.get("change_reason", "Imported from export"),
-                        analyzed_message_count=state_event.get("analyzed_message_count", 0),
-                        created_at=datetime.fromisoformat(state_event.get("timestamp")),
-                        llm_id=state_event.get("llm_id"),
-                        history_metadata={
-                            **state_event.get("metadata", {}),
-                            "imported": True,
-                            "original_state_id": state_event.get("state_history_id"),
-                            "imported_at": datetime.utcnow().isoformat(),
-                            "analyzed_message_ids": analyzed_message_ids
-                        }
-                    )
-                    session.add(state_entry)
+                        for msg_id in original_analyzed_ids:
+                            # Extract original conversation ID from message ID
+                            parts = msg_id.split("_")
+                            if len(parts) >= 2:
+                                orig_conv_id = parts[0]
+                                new_conv_id = conversations.get(orig_conv_id)
+                                if new_conv_id:
+                                    # Reconstruct message ID with new conversation ID
+                                    new_msg_id = f"{new_conv_id}_{'_'.join(parts[1:])}"
+                                    analyzed_message_ids.append(new_msg_id)
+                                else:
+                                    # Keep original if no mapping found
+                                    analyzed_message_ids.append(msg_id)
+                                    log("warning", f"No conversation mapping found for original ID: {orig_conv_id}")
 
-                    # Create analyzed message records
-                    for msg_id in analyzed_message_ids:
-                        analyzed_msg = AnalyzedMessageTable(
-                            id=str(uuid.uuid4()),
+                        # Parse timestamp
+                        timestamp_str = state_event.get("timestamp")
+                        if timestamp_str:
+                            created_at = datetime.fromisoformat(timestamp_str)
+                        else:
+                            created_at = datetime.utcnow()
+
+                        state_entry = StudentStateHistoryTable(
+                            id=state_id,
+                            master_id=target_master_id,
                             student_id=target_student_id,
-                            message_id=msg_id,
-                            conversation_id=msg_id.split("_")[0],  # Extract conversation ID
-                            analyzed_at=datetime.fromisoformat(state_event.get("timestamp")),
-                            analysis_summary=state_event.get("metadata", {}).get("analysis_result", "")[:500],
-                            state_history_id=state_id,
-                            message_metadata={
+                            previous_state=state_event.get("previous_state", ""),
+                            new_state=state_event.get("new_state", ""),
+                            change_reason=state_event.get("change_reason", "Imported from export"),
+                            analyzed_message_count=state_event.get("analyzed_message_count", 0),
+                            created_at=created_at,
+                            llm_id=state_event.get("llm_id"),
+                            history_metadata={
+                                **state_event.get("metadata", {}),
                                 "imported": True,
-                                "original_message_id": msg_id
+                                "original_state_id": state_event.get("state_history_id"),
+                                "imported_at": datetime.utcnow().isoformat(),
+                                "analyzed_message_ids": analyzed_message_ids
                             }
                         )
-                        session.add(analyzed_msg)
+                        session.add(state_entry)
+
+                        # Create analyzed message records
+                        for msg_id in analyzed_message_ids:
+                            # Extract conversation ID from message ID
+                            msg_parts = msg_id.split("_")
+                            conv_id = msg_parts[0] if msg_parts else "unknown"
+
+                            analyzed_msg = AnalyzedMessageTable(
+                                id=str(uuid.uuid4()),
+                                student_id=target_student_id,
+                                message_id=msg_id,
+                                conversation_id=conv_id,
+                                analyzed_at=created_at,
+                                analysis_summary=state_event.get("metadata", {}).get("analysis_result", "")[:500],
+                                state_history_id=state_id,
+                                message_metadata={
+                                    "imported": True,
+                                    "original_message_id": msg_id
+                                }
+                            )
+                            session.add(analyzed_msg)
+
+                        session.commit()
+                        state_updates_processed += 1
+
+                except Exception as e:
+                    log("error", f"Failed to process state update: {e}", exc_info=True)
 
             return {
                 "success": True,
@@ -461,7 +566,7 @@ class TrainingSessionImporter:
                 "student_id": target_student_id,
                 "student_name": original_student_info.get("student_name", "Imported Student"),
                 "conversations_created": len(conversations),
-                "state_updates_imported": len(state_updates),
+                "state_updates_imported": state_updates_processed,
                 "events_processed": len(events)
             }
 

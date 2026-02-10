@@ -967,10 +967,14 @@ class TestTrainingModels:
                 new_state="New learning state",
                 change_reason="Analyzed 5 messages",
                 analyzed_message_count=5,
-                analyzed_message_ids=["msg1", "msg2", "msg3", "msg4", "msg5"],
+                # Store in history_metadata instead of separate column
+                history_metadata={
+                    "update_type": "auto_analysis",
+                    "unanalyzed_count_before": 5,
+                    "analyzed_message_ids": ["msg1", "msg2", "msg3", "msg4", "msg5"]  # Moved here
+                },
                 created_at=datetime.utcnow(),
-                llm_id="gpt-4",  # NEW: Test llm_id field
-                history_metadata={"update_type": "auto_analysis", "unanalyzed_count_before": 5}
+                llm_id="gpt-4"
             )
 
             session.add(history)
@@ -984,9 +988,13 @@ class TestTrainingModels:
             assert saved.previous_state == "Previous learning state"
             assert saved.new_state == "New learning state"
             assert saved.analyzed_message_count == 5
-            assert len(saved.analyzed_message_ids) == 5
-            assert saved.llm_id == "gpt-4"  # NEW: Verify llm_id
+            # Check analyzed_message_ids through the property (which reads from metadata)
+            assert len(saved.analyzed_message_ids) == 5  # This should work with the property
+            assert saved.llm_id == "gpt-4"
             assert saved.history_metadata["update_type"] == "auto_analysis"
+            # Also verify they're in metadata
+            assert "analyzed_message_ids" in saved.history_metadata
+            assert len(saved.history_metadata["analyzed_message_ids"]) == 5
 
     def test_analyzed_message_with_history_link(self):
         """Test AnalyzedMessageTable with state history link."""
