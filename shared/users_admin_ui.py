@@ -541,6 +541,174 @@ def show_users_admin_content():
                         st.session_state.editing_user_id = None
                         st.rerun()
 
+        # Section: Import/Export Users (only for Admin)
+        if user_role == UserRole.ADMIN.value:
+            st.divider()
+            st.subheader("📦 Import/Export Users")
+
+            # Create tabs for import and export
+            import_export_tab1, import_export_tab2 = st.tabs(["📤 Export Users", "📥 Import Users"])
+
+            with import_export_tab1:
+                col_export1, col_export2 = st.columns([2, 1])
+
+                with col_export1:
+                    # Export options
+                    st.caption("Export all users or select specific users to export")
+                    export_scope = st.radio(
+                        "Export scope",
+                        options=["All users", "Selected users"],
+                        horizontal=True,
+                        key="export_scope_radio"
+                    )
+
+                    selected_user_ids = []
+                    if export_scope == "Selected users":
+                        all_users_list = get_user_manager().get_all_users()
+                        user_options = {u["id"]: f"{u['name']} ({u['role']})" for u in all_users_list}
+
+                        selected_user_ids = st.multiselect(
+                            "Select users to export",
+                            options=list(user_options.keys()),
+                            format_func=lambda x: user_options[x],
+                            key="export_user_multiselect"
+                        )
+
+                    include_children = st.checkbox(
+                        "Include child users in export",
+                        value=True,
+                        help="When checked, includes all descendants of selected users"
+                    )
+
+                with col_export2:
+                    st.caption(" ")
+                    st.caption(" ")
+                    if st.button("📥 Generate Export", type="primary", use_container_width=True):
+                        try:
+                            export_data = get_user_manager().export_users(
+                                include_children=include_children,
+                                user_ids=selected_user_ids if selected_user_ids else None
+                            )
+
+                            # Convert to JSON string
+                            json_str = json.dumps(export_data, indent=2, ensure_ascii=False)
+
+                            # Store in session state
+                            st.session_state.export_json_data = json_str
+                            st.session_state.export_filename = f"users_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+                            st.success(f"✅ Exported {export_data['user_count']} users successfully!")
+
+                        except Exception as e:
+                            st.error(f"❌ Export failed: {str(e)}")
+                            log("error", f"Export failed: {e}")
+
+                # Display download button if export data is available
+                if st.session_state.get('export_json_data'):
+                    st.download_button(
+                        label="⬇️ Download JSON File",
+                        data=st.session_state.export_json_data,
+                        file_name=st.session_state.export_filename,
+                        mime="application/json",
+                        use_container_width=True
+                    )
+
+            with import_export_tab2:
+                st.caption("Import users from a JSON export file")
+
+                # File uploader
+                uploaded_file = st.file_uploader(
+                    "Choose a JSON file",
+                    type=['json'],
+                    help="Upload a JSON file exported from the system or in compatible format",
+                    key="import_file_uploader"
+                )
+
+                if uploaded_file is not None:
+                    try:
+                        import_data = json.load(uploaded_file)
+
+                        # Preview import data
+                        st.info(f"📊 File contains {len(import_data.get('users', []))} users")
+
+                        # Import options
+                        col_import1, col_import2 = st.columns(2)
+                        with col_import1:
+                            overwrite = st.checkbox(
+                                "Overwrite existing users",
+                                help="If checked, will replace existing users with same ID",
+                                key="import_overwrite"
+                            )
+
+                        with col_import2:
+                            validate_only = st.checkbox(
+                                "Validate only (no import)",
+                                help="Check if the import would succeed without making changes",
+                                key="import_validate_only"
+                            )
+
+                        # Preview table
+                        if import_data.get("users"):
+                            with st.expander("👁️ Preview users to import", expanded=False):
+                                preview_data = []
+                                for user in import_data["users"][:10]:  # Show first 10
+                                    preview_data.append({
+                                        "ID": user.get("id", "N/A"),
+                                        "Name": user.get("name", "N/A"),
+                                        "Role": user.get("role", "N/A"),
+                                        "Email": user.get("email", "N/A"),
+                                        "Parent": user.get("parent_id", "None")
+                                    })
+                                st.table(preview_data)
+                                if len(import_data["users"]) > 10:
+                                    st.caption(f"... and {len(import_data['users']) - 10} more users")
+
+                        # Import button
+                        if st.button("🚀 Import Users", type="primary", use_container_width=True):
+                            try:
+                                with st.spinner("Importing users..."):
+                                    result = get_user_manager().import_users(
+                                        import_data,
+                                        overwrite_existing=overwrite,
+                                        validate_only=validate_only
+                                    )
+
+                                # Display results
+                                if validate_only:
+                                    st.subheader("✅ Validation Results")
+                                else:
+                                    st.subheader("📋 Import Results")
+
+                                col_res1, col_res2, col_res3 = st.columns(3)
+                                with col_res1:
+                                    st.metric("Successful", result["success_count"])
+                                with col_res2:
+                                    st.metric("Failed", result["failure_count"])
+                                with col_res3:
+                                    st.metric("Total", result["success_count"] + result["failure_count"])
+
+                                if result["errors"]:
+                                    with st.expander("⚠️ Errors", expanded=True):
+                                        for error in result["errors"][:20]:
+                                            st.error(error)
+                                        if len(result["errors"]) > 20:
+                                            st.warning(f"... and {len(result['errors']) - 20} more errors")
+
+                                if not validate_only and result["success_count"] > 0:
+                                    st.success(f"✅ Successfully imported {result['success_count']} users!")
+                                    st.rerun()
+
+                            except Exception as e:
+                                st.error(f"❌ Import failed: {str(e)}")
+                                log("error", f"Import failed: {e}")
+
+                    except json.JSONDecodeError:
+                        st.error("❌ Invalid JSON file")
+                    except Exception as e:
+                        st.error(f"❌ Error reading file: {str(e)}")
+
+            st.divider()
+
     except Exception as e:
         st.error(f"❌ Error loading users: {str(e)}")
         log("error", f"Error in users admin UI: {e}")

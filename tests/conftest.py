@@ -122,7 +122,7 @@ def setup_database():
     # Create default users
     _log("Creating default users...")
     try:
-        get_user_manager().create_default_users()
+        get_user_manager()._create_default_users_fallback()
         _log("✓ Default users created")
     except Exception as e:
         _log(f"⚠ Error creating default users: {e}", level="ERROR")

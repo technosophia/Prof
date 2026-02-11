@@ -1,0 +1,127 @@
+{
+  "exported_at": "2024-01-01T00:00:00.000000",
+  "version": "1.0",
+  "user_count": 7,
+  "users": [
+    {
+      "id": "admin",
+      "name": "System Administrator",
+      "email": "admin@example.com",
+      "role": "admin",
+      "parent_id": null,
+      "is_active": true,
+      "profile": {
+        "language": "en"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "master1",
+      "name": "Master User 1",
+      "email": "master1@example.com",
+      "role": "master",
+      "parent_id": null,
+      "is_active": true,
+      "profile": {
+        "language": "en"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "master2",
+      "name": "Master User 2",
+      "email": "master2@example.com",
+      "role": "master",
+      "parent_id": null,
+      "is_active": true,
+      "profile": {
+        "language": "fr"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "normal1_m1",
+      "name": "Normal User 1 (Master 1)",
+      "email": "normal1_m1@example.com",
+      "role": "normal",
+      "parent_id": "master1",
+      "is_active": true,
+      "profile": {
+        "language": "en"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "normal2_m1",
+      "name": "Normal User 2 (Master 1)",
+      "email": "normal2_m1@example.com",
+      "role": "normal",
+      "parent_id": "master1",
+      "is_active": true,
+      "profile": {
+        "language": "fr"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "normal1_m2",
+      "name": "Normal User 1 (Master 2)",
+      "email": "normal1_m2@example.com",
+      "role": "normal",
+      "parent_id": "master2",
+      "is_active": true,
+      "profile": {
+        "language": "en"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "normal2_m2",
+      "name": "Normal User 2 (Master 2)",
+      "email": "normal2_m2@example.com",
+      "role": "normal",
+      "parent_id": "master2",
+      "is_active": true,
+      "profile": {
+        "language": "fr"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    },
+    {
+      "id": "normal3_m2",
+      "name": "Normal User 3 (Master 2)",
+      "email": "normal3_m2@example.com",
+      "role": "normal",
+      "parent_id": "master2",
+      "is_active": true,
+      "profile": {
+        "language": "en"
+      },
+      "metadata": {
+        "is_initial": true,
+        "created_by": "system"
+      }
+    }
+  ]
+}

@@ -80,7 +80,7 @@ class TestUserManager:
 
         # Mock the log to avoid output
         with patch('shared.users.log'):
-            self.user_manager.create_default_users()
+            self.user_manager._create_default_users_fallback()
 
         # Verify session.add was called 7 times
         assert self.mock_session.add.call_count == 7

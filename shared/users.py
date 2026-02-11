@@ -84,9 +84,264 @@ class UserManager:
         # Then create default users if needed
         return self.create_default_users()
 
+    def export_users(self, include_children: bool = False, user_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Export users to JSON-serializable dictionary.
+
+        Args:
+            include_children: Whether to include full child hierarchies
+            user_ids: Optional list of specific user IDs to export (None = all manageable by admin)
+
+        Returns:
+            Dictionary with users and metadata
+        """
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            # Determine which users to export
+            if user_ids:
+                users = session.query(UserTable).filter(UserTable.id.in_(user_ids)).all()
+            else:
+                users = session.query(UserTable).all()
+
+            export_data = {
+                "exported_at": datetime.utcnow().isoformat(),
+                "version": "1.0",
+                "user_count": len(users),
+                "users": []
+            }
+
+            for user in users:
+                user_dict = self._user_to_dict(user, include_children=include_children)
+                # Remove session-specific fields
+                user_dict.pop("last_login", None)
+                user_dict.pop("created_at", None)
+                export_data["users"].append(user_dict)
+
+            return export_data
+
+    def import_users(self, import_data: Dict[str, Any],
+                    overwrite_existing: bool = False,
+                    validate_only: bool = False) -> Dict[str, Any]:
+        """Import users from JSON data.
+
+        Args:
+            import_data: Dictionary with users data (format from export_users)
+            overwrite_existing: Whether to overwrite existing users with same ID
+            validate_only: Only validate the import data without saving
+
+        Returns:
+            Dictionary with import results (success_count, failure_count, errors)
+        """
+        self._ensure_table_exists()
+
+        result = {
+            "success_count": 0,
+            "failure_count": 0,
+            "errors": [],
+            "imported_users": []
+        }
+
+        # Validate import data structure
+        if "users" not in import_data or not isinstance(import_data["users"], list):
+            raise ValueError("Invalid import format: missing 'users' array")
+
+        # Validate user IDs are unique in import
+        import_user_ids = [u["id"] for u in import_data["users"] if u.get("id")]
+        if len(import_user_ids) != len(set(import_user_ids)):
+            raise ValueError("Duplicate user IDs in import data")
+
+        with self.db.get_session() as session:
+            try:
+                # Check existing users
+                existing_ids = set()
+                if not overwrite_existing:
+                    existing = session.query(UserTable.id).filter(
+                        UserTable.id.in_(import_user_ids)
+                    ).all()
+                    existing_ids = {e[0] for e in existing}
+
+                # Validate parent references
+                all_ids_in_import = set(import_user_ids)
+
+                for user_data in import_data["users"]:
+                    try:
+                        # Skip if user exists and we're not overwriting
+                        if user_data["id"] in existing_ids and not overwrite_existing:
+                            result["failure_count"] += 1
+                            result["errors"].append(
+                                f"User '{user_data['id']}' already exists (use overwrite_existing=True to replace)"
+                            )
+                            continue
+
+                        # Validate required fields
+                        if not user_data.get("id"):
+                            raise ValueError("Missing user ID")
+                        if not user_data.get("name"):
+                            raise ValueError(f"Missing name for user {user_data['id']}")
+
+                        # Validate role
+                        if user_data["role"] not in [r.value for r in UserRole]:
+                            raise ValueError(f"Invalid role '{user_data['role']}' for user {user_data['id']}")
+
+                        # Validate parent reference
+                        if user_data.get("parent_id"):
+                            # Parent must exist either in import or already in DB
+                            if user_data["parent_id"] not in all_ids_in_import:
+                                parent_exists = session.query(UserTable).filter_by(
+                                    id=user_data["parent_id"]
+                                ).first() is not None
+                                if not parent_exists:
+                                    raise ValueError(
+                                        f"Parent '{user_data['parent_id']}' not found for user {user_data['id']}"
+                                    )
+
+                        # Validate normal users have parent
+                        if user_data["role"] == UserRole.NORMAL.value and not user_data.get("parent_id"):
+                            raise ValueError(f"Normal user {user_data['id']} must have a parent")
+
+                        # If only validating, continue to next user
+                        if validate_only:
+                            result["success_count"] += 1
+                            continue
+
+                        # Prepare user data
+                        user = UserTable(
+                            id=user_data["id"],
+                            name=user_data["name"],
+                            email=user_data.get("email"),
+                            role=user_data["role"],
+                            parent_id=user_data.get("parent_id"),
+                            is_active=user_data.get("is_active", True),
+                            profile=user_data.get("profile", {}),
+                            user_metadata=user_data.get("metadata", {}),
+                            created_at=datetime.utcnow()  # Set to current time
+                        )
+
+                        # Merge or add user
+                        session.merge(user)
+                        result["success_count"] += 1
+                        result["imported_users"].append(user_data["id"])
+
+                    except Exception as e:
+                        result["failure_count"] += 1
+                        result["errors"].append(f"Error importing user {user_data.get('id', 'unknown')}: {str(e)}")
+
+                if not validate_only:
+                    session.commit()
+                    log("info", f"Imported {result['success_count']} users, {result['failure_count']} failures")
+
+            except Exception as e:
+                session.rollback()
+                raise e
+
+        return result
+
+    def auto_import_users_from_config(self, config_path: Optional[str] = None) -> bool:
+        """Auto-import users from JSON file specified in config, only if no users exist.
+
+        Called during system initialization to replace create_default_users.
+
+        Returns:
+            bool: True if import was successful or no import needed, False on error
+        """
+        # Check if users already exist
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user_count = session.query(UserTable).count()
+            if user_count > 0:
+                log("info", "Users already exist, skipping auto-import")
+                return True
+
+        # Get config
+        from shared.common import get_config
+        config = get_config()
+
+        # Check if auto-import is configured
+        auto_import_config = config.get("database.auto_import_users")
+        if not auto_import_config or not auto_import_config.get("enabled", False):
+            log("info", "Auto-import not enabled in config")
+            return True
+
+        import_file = auto_import_config.get("file")
+        if not import_file:
+            log("error", "Auto-import enabled but no import file specified")
+            return False
+
+        # Resolve file path
+        import os
+        from shared.common import get_config
+        shared_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(shared_dir)
+
+        if not os.path.isabs(import_file):
+            import_file = os.path.join(root_dir, import_file)
+
+        if not os.path.exists(import_file):
+            log("error", f"Auto-import file not found: {import_file}")
+            return False
+
+        try:
+            import json
+            with open(import_file, 'r', encoding='utf-8') as f:
+                import_data = json.load(f)
+
+            # Validate import format
+            if import_data.get("version") == "1.0" and "users" in import_data:
+                # This is our export format
+                result = self.import_users(
+                    import_data,
+                    overwrite_existing=auto_import_config.get("overwrite", False)
+                )
+            elif isinstance(import_data, list):
+                # Legacy format: array of user objects
+                legacy_data = {
+                    "version": "legacy",
+                    "users": import_data,
+                    "exported_at": datetime.utcnow().isoformat()
+                }
+                result = self.import_users(
+                    legacy_data,
+                    overwrite_existing=auto_import_config.get("overwrite", False)
+                )
+            else:
+                log("error", f"Unknown import file format: {import_file}")
+                return False
+
+            if result["failure_count"] > 0:
+                for error in result["errors"][:5]:  # Log first 5 errors
+                    log("error", f"Auto-import error: {error}")
+                if result["failure_count"] > 5:
+                    log("error", f"... and {result['failure_count'] - 5} more errors")
+
+            log("info", f"Auto-import completed: {result['success_count']} users imported, "
+                       f"{result['failure_count']} failures")
+            return result["failure_count"] == 0
+
+        except Exception as e:
+            log("error", f"Auto-import failed: {e}", exc_info=True)
+            return False
+
     def create_default_users(self):
-        """Create 7 default test users: 1 admin, 2 masters, 4 normal users."""
-        # Double-check that database is initialized
+        """Deprecated: kept for backward compatibility.
+
+        Now checks config and uses auto-import if configured, otherwise creates default users.
+        """
+        from shared.common import get_config
+        config = get_config()
+
+        # Check if auto-import is configured
+        if config.get("database.auto_import_users.enabled", False):
+            log("info", "Auto-import is configured, using it instead of create_default_users")
+            success = self.auto_import_users_from_config()
+            if success:
+                return True
+
+        # Fall back to old behavior
+        return self._create_default_users_fallback()
+
+    def _create_default_users_fallback(self):
+        """Original create_default_users implementation."""
         if not self.db.is_initialized():
             log("error", "Cannot create default users: database not initialized")
             return False

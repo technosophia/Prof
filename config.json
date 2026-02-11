@@ -15,7 +15,13 @@
   "database": {
     "path": "data",
     "auto_create_tables": true,
-    "create_default_users": true
+    "create_default_users": false,
+    "auto_import_users": {
+      "enabled": true,
+      "file": "tests/initial_users.json",
+      "overwrite": false,
+      "description": "Auto-import users from JSON file if no users exist"
+    }
   },
   "llms": {
     "mock": {
