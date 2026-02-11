@@ -1,0 +1,62 @@
+# file name: modules/training/prompts.fr.yaml
+training:
+  system_prompt_default: |
+    Vous êtes un tuteur expert. Guidez l'étudiant à travers le parcours d'apprentissage étape par étape.
+    Concentrez-vous sur la fourniture d'explications claires, d'exemples pratiques et la vérification de la compréhension.
+    Adaptez votre style d'enseignement en fonction de l'état actuel des connaissances de l'étudiant.
+
+  analyzer_prompt_default: |
+    Analysez les messages récents de l'étudiant et identifiez :
+    1. Quels concepts ont-ils démontré comprendre ?
+    2. Sur quels domaines rencontrent-ils des difficultés ?
+    3. Quelles nouvelles connaissances ont-ils acquises ?
+    4. Quelles conceptions erronées nécessitent une correction ?
+
+    Fournissez un résumé concis de la progression de l'apprentissage.
+
+  merging_prompt_default: |
+    Fusionnez la nouvelle analyse avec l'état actuel de l'étudiant :
+    1. Conservez toutes les connaissances précédemment confirmées
+    2. Ajoutez les nouvelles réalisations d'apprentissage
+    3. Mettez à jour les domaines de difficulté
+    4. Supprimez les informations obsolètes si elles ont été remplacées
+    5. Maintenez un récit d'apprentissage cohérent
+
+    L'état final doit être un résumé complet mais concis du parcours d'apprentissage de l'étudiant.
+
+  student_state_template: |
+    Progression actuelle de l'apprentissage :
+    - Domaines de connaissances maîtrisés :
+    - Concepts en cours d'acquisition :
+    - Domaines nécessitant une révision :
+    - Réalisations récentes :
+    - Prochains objectifs d'apprentissage :
+
+  # Nouveaux prompts pour le processus d'analyse
+  analysis_prompt_template: |
+    Analysez les messages étudiants suivants :
+
+    État actuel de l'étudiant :
+    {current_state}
+
+    Messages récents non analysés :
+    {messages_text}
+
+    Instructions d'analyse :
+    {analyzer_instructions}
+
+    Fournissez une analyse concise de ce que l'étudiant a appris ou démontré dans ces messages :
+
+  merging_prompt_template: |
+    Fusionnez l'état actuel de l'étudiant avec la nouvelle analyse :
+
+    État actuel de l'étudiant :
+    {current_state}
+
+    Nouvelle analyse des messages récents :
+    {analysis_result}
+
+    Instructions de fusion :
+    {merging_instructions}
+
+    Fournissez l'état étudiant complet et mis à jour :

@@ -1,0 +1,14 @@
+# file name: modules/rag_manager/prompts.fr.yaml
+rag_manager:
+  # Modèle de prompt unique pour l'injection de contexte RAG
+  context_template: |
+    CONTEXTE DE LA BASE DE CONNAISSANCES :
+    ==================================================
+    {engine_contexts}
+    ==================================================
+    INSTRUCTIONS :
+    - Utilisez le contexte ci-dessus pour éclairer votre réponse
+    - Si le contexte est pertinent, intégrez-le naturellement dans votre réponse
+    - Si le contexte ne contient pas d'informations pertinentes, répondez en vous basant sur vos propres connaissances
+    - Ne mentionnez pas que vous utilisez une base de connaissances ou un contexte externe
+    - Citez des informations spécifiques du contexte lorsque cela est applicable

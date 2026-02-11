@@ -159,6 +159,7 @@ from core.database import Base as _Base, get_db_manager as _get_db_manager, init
 from .users import UserRole as _UserRole, get_user_manager as _get_user_manager
 from .conversation import Message as _Message, get_conversation_manager as _get_conversation_manager
 from .prompt_manager import get_prompt_manager as _get_prompt_manager, load_all_prompts as _load_all_prompts
+from .prompt_manager import is_multilingual as _is_multilingual, set_default_language as _set_default_language
 from .settings import UserSettingsManager
 from .llm import LLMManager
 
@@ -395,6 +396,9 @@ llm = llm_generate
 
 # Prompt Management ============================================
 
+is_multilingual = _is_multilingual
+set_default_language = _set_default_language
+
 @st.cache_resource
 def _init_prompt_manager():
     """Initialize and load all prompts."""
@@ -407,33 +411,37 @@ def get_prompt_manager():
     """Get the prompt manager instance."""
     return _init_prompt_manager()
 
-def get_prompt(key: str, default: Any = None) -> Any:
+def get_prompt(key: str, default: Any = None, language: Optional[str] = None) -> Any:
     """
     Get a prompt by key using dot notation.
 
-    text
     Args:
         key: Dot-separated key (e.g., 'rag_manager.search_prompt')
         default: Default value if key not found
+        language: Language code for multilingual mode (e.g., 'en', 'fr')
 
     Returns:
         Prompt value or default
     """
-    return get_prompt_manager().get_prompt(key, default)
+    return get_prompt_manager().get_prompt(key, default, language)
 
-def get_all_prompts() -> Dict[str, Any]:
+def get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]:
     """Get all loaded prompts."""
-    return get_prompt_manager().get_all_prompts()
+    return get_prompt_manager().get_all_prompts(language)
 
-def get_module_prompts(module_prefix: str = "") -> Dict[str, Any]:
+def get_module_prompts(module_prefix: str = "", language: Optional[str] = None) -> Dict[str, Any]:
     """Get prompts for a specific module."""
-    return get_prompt_manager().get_module_prompts(module_prefix)
+    return get_prompt_manager().get_module_prompts(module_prefix, language)
 
-def list_modules_with_prompts() -> List[str]:
+def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
     """List all module prefixes with prompts."""
-    return get_prompt_manager().list_modules()
+    return get_prompt_manager().list_modules(language)
 
-# User Settings
+def get_available_prompt_languages() -> List[str]:
+    """Get list of available languages."""
+    return get_prompt_manager().get_available_languages()
+
+# User Settings =============================================
 
 @st.cache_resource
 def get_user_settings_manager():
