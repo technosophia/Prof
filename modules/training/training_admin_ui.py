@@ -4,15 +4,81 @@ Training module UI injections.
 import asyncio
 import streamlit as st
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Tuple
 
 from core.logging import log
 from shared.common import get_section
 from shared.common import get_user_manager, UserRole
-from shared.common import register_llm_callback, unregister_llm_callback
+from shared.common import register_llm_context_callback, unregister_llm_context_callback
 from shared.common import get_prompt  # Added import
 
 from modules.training.training_logic import get_training_manager, StudentStatus, StateHistoryEntry
+
+
+def inject_teacher_system_prompt_callback(user_id: str, messages: List[dict]) -> Tuple[str, str, str]:
+    """
+    Callback to inject the student's teacher/master system prompt into LLM context.
+    Returns (context, role, position) where:
+        context: The system prompt to inject
+        role: "system" (will be added as system message)
+        position: "top" (will be added at the beginning)
+    """
+    # Only inject for normal users (students)
+    user_manager = get_user_manager()
+    user = user_manager.get_user(user_id)
+
+    if not user or user.get("role") != UserRole.NORMAL.value:
+        return "", "", ""
+
+    # Get the student's parent (master/teacher)
+    master_id = user.get("parent_id")
+    if not master_id:
+        return "", "", ""
+
+    # Get the training manager and master's configuration
+    training_manager = get_training_manager()
+    config = training_manager.get_master_config(master_id)
+
+    if config and config.get("system_prompt"):
+        system_prompt = config["system_prompt"]
+    else:
+        # Use default system prompt from prompts if no config exists
+        system_prompt = get_prompt("training.default_system_prompt",
+                                   "You are a helpful teacher. Guide the student through their learning journey.")
+
+    return system_prompt, "system", "top"
+
+
+def inject_student_context_callback(user_id: str, messages: List[dict]) -> Tuple[str, str, str]:
+    """
+    Callback to inject student learning state into LLM context.
+    Returns (context, role, position) where:
+        context: The student's current learning state
+        role: "user" (will be added as a user message to provide context)
+        position: "bottom" (will be added at the end, right before the actual user query)
+    """
+    # Only inject for normal users (students)
+    user_manager = get_user_manager()
+    user = user_manager.get_user(user_id)
+
+    if not user or user.get("role") != UserRole.NORMAL.value:
+        return "", "", ""
+
+    # Get the student's parent (master/teacher)
+    master_id = user.get("parent_id")
+    if not master_id:
+        return "", "", ""
+
+    training_manager = get_training_manager()
+    state_data = training_manager.get_student_state(master_id, user_id)
+
+    if state_data and state_data.get("current_state"):
+        llm_info = f" (analyzed by LLM: {state_data['llm_id']})" if state_data.get('llm_id') else ""
+        context = f"\n[Student Learning Context - Current progress{llm_info}]:\n{state_data['current_state']}\n"
+        return context, "user", "bottom"
+
+    return "", "", ""
+
 
 def display_admin_tabs():
     """Main training interface."""
@@ -51,6 +117,7 @@ def display_admin_tabs():
     with tab4:  # NEW: Export/Import tab
         from modules.training.training_export_ui import render_training_export_tab
         render_training_export_tab(user_id)
+
 
 def inject_ui_admin_tab():
     return ("Training", display_admin_tabs)
@@ -419,20 +486,31 @@ def render_training_config(master_id: str, training_manager):
     # Get current config
     current_config = training_manager.get_master_config(master_id)
 
+    # Get default system prompt from prompts.yaml
+    default_system_prompt = get_prompt("training.default_system_prompt",
+                                      "You are a helpful teacher. Guide the student through their learning journey.")
+
     # Configuration form
     with st.form("training_config_form"):
         st.write("### System Prompt")
+
+        # Use existing system prompt or default if empty
+        current_system_prompt = current_config.get("system_prompt", "") if current_config else ""
+        if not current_system_prompt:
+            current_system_prompt = default_system_prompt
+
         system_prompt = st.text_area(
-            "System prompt for student conversations",
-            value=current_config["system_prompt"] if current_config else "",
-            height=100,
-            key="system_prompt"
+            "System prompt for student conversations (leave empty to use default)",
+            value=current_system_prompt,
+            height=150,
+            key="system_prompt",
+            placeholder=default_system_prompt
         )
 
         st.write("### Learning Path")
         learning_path = st.text_area(
             "Learning path structure (can be hierarchical)",
-            value=current_config["learning_path"] if current_config else "",
+            value=current_config.get("learning_path", "") if current_config else "",
             height=100,
             key="learning_path"
         )
@@ -462,6 +540,11 @@ def render_training_config(master_id: str, training_manager):
 
         if submitted:
             try:
+                # If system prompt is empty, save the default value
+                if not system_prompt.strip():
+                    system_prompt = default_system_prompt
+                    st.info("Using default system prompt")
+
                 # Use the fixed prompts from get_prompt
                 config_id = training_manager.save_master_config(
                     master_id,
@@ -478,19 +561,13 @@ def render_training_config(master_id: str, training_manager):
     # Configuration tips
     with st.expander("💡 Configuration Tips"):
         st.write("""
-        **System Prompt:** Guides how the AI should interact with students.
+        **System Prompt:** Guides how the AI should interact with students. If left empty, a default pedagogical prompt will be used.
         **Learning Path:** Defines the progression structure for students.
         **Analyzer Prompt:** Fixed system prompt for analyzing messages.
         **Merging Prompt:** Fixed system prompt for updating learning state.
 
         Note: Analyzer and Merging prompts are system-wide and cannot be modified.
         """)
-
-
-def inject_student_context_callback(user_id: str, messages: List[dict]) -> str:
-    """Callback to inject student learning state into LLM context."""
-    training_manager = get_training_manager()
-    return training_manager.get_student_state_for_injection(user_id)
 
 
 def initialize():
@@ -503,8 +580,12 @@ def initialize():
     user_manager.register_before_delete_callback(training_manager.cleanup_student_data)
     user_manager.register_before_delete_callback(training_manager.cleanup_master_data)
 
-    # Register LLM context injection callback
-    register_llm_callback(inject_student_context_callback)
+    # Register LLM context injection callbacks with the new signature
+    # The student state is injected at the bottom as a user message
+    register_llm_context_callback(inject_student_context_callback)
+
+    # The teacher system prompt is injected at the top as a system message
+    register_llm_context_callback(inject_teacher_system_prompt_callback)
 
     log("debug", "Training module initialized")
 

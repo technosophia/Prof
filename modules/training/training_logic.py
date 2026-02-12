@@ -106,8 +106,7 @@ class TrainingManager:
                 return {
                     "id": config.id,
                     "master_id": config.master_id,
-                    "system_prompt": config.system_prompt,
-                    "learning_path": config.learning_path,
+                    "system_prompt": config.system_prompt or get_prompt("training.system_prompt_default", ""),                    "learning_path": config.learning_path,
                     "analyzer_prompt": config.analyzer_prompt,
                     "merging_prompt": config.merging_prompt,
                     "created_at": config.created_at,

@@ -390,6 +390,21 @@ def unregister_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
     manager = get_llm_manager()
     manager.unregister_llm_callback(callback_func)
 
+def register_llm_context_callback(callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
+    """Register a callback to add LLM context to LLM queries.
+    The callback should return a tuple: (context, role, position)
+    where:
+      - context: string to add as context
+      - role: "system" or "user"
+      - position: "top" or "bottom"""
+    manager = get_llm_manager()
+    manager.register_context_callback(callback_func)
+
+def unregister_llm_context_callback(callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
+    """Unregister a LLM callback."""
+    manager = get_llm_manager()
+    manager.unregister_context_callback(callback_func)
+
 # Alias for backward compatibility - maintains old interface
 llm = llm_generate
 
