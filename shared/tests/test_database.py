@@ -93,14 +93,21 @@ class TestDatabaseManager:
         from core.database import DatabaseManager
         db = DatabaseManager()
 
-        # Mock engine and create_all method
+        # Mock engine
         mock_engine = MagicMock()
         db._engine = mock_engine
 
-        # Mock the table creation
-        with patch.object(MockTable.__table__, 'create') as mock_create:
-            db._create_tables(MockTable)
-            mock_create.assert_called_once_with(bind=mock_engine, checkfirst=True)
+        # Mock alembic helper to avoid issues
+        db._migration_helper = MagicMock()
+        db._migration_helper.is_alembic_available = False
+
+        # Mock the Base.metadata.create_all method
+        with patch('core.database.Base.metadata.create_all') as mock_create_all:
+            db._tables_created = False
+            db._create_all_tables()
+            mock_create_all.assert_called_once_with(mock_engine)
+            assert db._tables_created == True
+
 
     def test_create_all_tables(self):
         """Test creating all tables."""
@@ -285,7 +292,7 @@ class TestDatabaseManager:
 
         # Should raise RuntimeError
         with pytest.raises(RuntimeError, match="Database not initialized"):
-            db._create_tables(MockTable)
+            db._create_all_tables()
 
     def test_create_all_tables_not_initialized(self):
         """Test creating all tables when database is not initialized."""

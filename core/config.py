@@ -14,8 +14,10 @@ Key changes:
 """
 
 import json
+import sys
 import os
 from typing import Any, Dict
+from .logging import log
 
 
 class Config:
@@ -194,3 +196,42 @@ def load_all_configs(root_dir: str, test_mode: bool = False) -> Config:
                 config.load_file(file_path, prefix_parts)
 
     return config
+
+
+def _load_config() -> Config:
+    """Cached loading of the full configuration."""
+    try:
+        # Determine project root (shared/common.py → shared → root)
+        shared_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Debug logging
+        log("info", f"_load_config: __file__ = {__file__}")
+        log("info", f"_load_config: shared_dir = {shared_dir}")
+
+        if not shared_dir:
+            raise ValueError("shared_dir is None or empty")
+
+        root_dir = os.path.dirname(shared_dir)
+        log("info", f"_load_config: root_dir = {root_dir}")
+
+        if not root_dir or not os.path.exists(root_dir):
+            raise ValueError(f"Invalid root_dir: {root_dir}")
+
+        test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
+        log("info", f"_load_config: test_mode = {test_mode}")
+
+        config = load_all_configs(root_dir, test_mode)
+        log("info", f"_load_config: config loaded successfully, has {len(config)} top-level sections")
+
+        return config
+
+    except Exception as e:
+        log("error", f"_load_config failed: {e}", exc_info=True)
+
+        # Return a minimal default config as fallback
+        from core.config import Config
+        fallback_config = Config()
+        fallback_config.load_file("config.json", [])  # Try to load root config directly
+
+        log("warning", f"Using fallback configuration due to error: {e}")
+        return fallback_config

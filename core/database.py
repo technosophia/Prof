@@ -1,108 +1,190 @@
 """
-Unified database management with SQLAlchemy.
-Supports both in-memory (for testing) and persistent storage.
+Unified database management with SQLAlchemy and Alembic migrations.
+Supports both in-memory (for testing) and persistent storage with automatic schema migrations.
 
 This module provides a singleton DatabaseManager for database operations.
-Modules like users.py should inject this service rather than creating their own connections.
+Now with integrated Alembic migration support.
 
 Public interface:
 - db_manager: Global DatabaseManager instance
 - Base: SQLAlchemy declarative base for models
-- init_database(): Initialize database connection
+- init_database(): Initialize database connection and run migrations
 - DatabaseManager.get_session(): Get database session (context manager)
-- DatabaseManager.is_initialized(): Check if database is ready
-
-Typical usage:
-1. Call init_database() at application startup
-2. Use db_manager.get_session() for database operations
-3. Define models using Base as base class
-
-[agent]
-## Creating User-Linked Persistent Data
-When adding new persistent data linked to users (e.g., user preferences, user history), follow this pattern:
-
-### 1. Define Your Model
-```python
-from core.database import Base
-from sqlalchemy import Column, String, ForeignKey, DateTime, JSON
-from datetime import datetime
-
-class UserPreferenceTable(Base):
-    __tablename__ = 'user_preferences'
-
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
-    preference_type = Column(String, nullable=False)
-    preference_data = Column(JSON, default={})
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-```
-
-### 2. Register Cleanup Callback
-To automatically clean up user data when a user is deleted, register a cleanup function:
-
-```python
-def cleanup_user_preferences(user_id: str) -> bool:
-    try:
-        with get_db_manager().get_session() as session:
-            session.query(UserPreferenceTable).filter_by(user_id=user_id).delete()
-            log("info", f"Cleaned up preferences for user {user_id}")
-            return True
-    except Exception as e:
-        log("error", f"Failed to cleanup preferences: {e}")
-        return False
-
-# Register with user manager
-get_user_manager().register_before_delete_callback(cleanup_user_preferences)
-```
-
-### 3. Access User-Linked Data
-Always query by user_id to respect permission boundaries:
-
-```python
-with get_db_manager().get_session() as session:
-    preferences = session.query(UserPreferenceTable).filter_by(user_id=current_user_id).all()
-```
-
-**Note**: Tables are automatically created via `Base.metadata.create_all()` when `init_database()` is called.
-
-
+- DatabaseManager.check_and_upgrade_schema(): Run pending migrations
 """
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+import importlib.util
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
-from sqlalchemy.sql import text
 from contextlib import contextmanager
 
 from core.logging import log
 
 Base = declarative_base()
 
-MEMDB = 'sqlite:///:memory:'  # Changed to true in-memory database
+MEMDB = 'sqlite:///:memory:'
+
+
+class AlembicMigrationHelper:
+    """
+    Helper class for Alembic migrations.
+    Integrated directly into DatabaseManager to avoid circular imports.
+    """
+
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+        self._alembic_available = None
+        self._alembic_cfg = None
+
+    @property
+    def is_alembic_available(self):
+        """Check if alembic is installed."""
+        if self._alembic_available is None:
+            try:
+                import alembic
+                self._alembic_available = True
+            except ImportError:
+                self._alembic_available = False
+        return self._alembic_available
+
+    def _get_alembic_config(self):
+        """Get Alembic configuration."""
+        if not self.is_alembic_available:
+            return None
+
+        if self._alembic_cfg is None:
+            try:
+                from alembic.config import Config
+
+                # Find project root (where alembic.ini should be)
+                # Start from the directory of this file and go up to find app.py
+                current_dir = Path(__file__).parent
+                project_root = current_dir.parent  # core/ is inside project root
+
+                # Verify we have the right directory (app.py should be there)
+                app_py = project_root / "app.py"
+                if not app_py.exists():
+                    # Try going up one more level
+                    project_root = project_root.parent
+                    app_py = project_root / "app.py"
+
+                alembic_ini = project_root / "alembic.ini"
+
+                if not alembic_ini.exists():
+                    log("warning", f"Alembic config not found at {alembic_ini}")
+                    return None
+
+                cfg = Config(str(alembic_ini))
+
+                # Set database URL based on current connection
+                if self.db_manager._engine:
+                    cfg.set_main_option("sqlalchemy.url", str(self.db_manager._engine.url))
+
+                self._alembic_cfg = cfg
+            except Exception as e:
+                log("error", f"Failed to load Alembic config: {e}")
+                return None
+
+        return self._alembic_cfg
+
+    def get_current_revision(self):
+        """Get current database revision."""
+        if not self.db_manager.is_initialized():
+            return None
+
+        cfg = self._get_alembic_config()
+        if not cfg:
+            return None
+
+        try:
+            from alembic.runtime.migration import MigrationContext
+
+            with self.db_manager.get_session() as session:
+                context = MigrationContext.configure(session.connection())
+                return context.get_current_revision()
+        except Exception as e:
+            log("error", f"Failed to get current revision: {e}")
+            return None
+
+    def get_head_revision(self):
+        """Get head revision from migrations."""
+        cfg = self._get_alembic_config()
+        if not cfg:
+            return None
+
+        try:
+            from alembic.script import ScriptDirectory
+
+            script = ScriptDirectory.from_config(cfg)
+            return script.get_current_head()
+        except Exception as e:
+            log("error", f"Failed to get head revision: {e}")
+            return None
+
+    def needs_upgrade(self):
+        """Check if database needs upgrade."""
+        current = self.get_current_revision()
+        head = self.get_head_revision()
+        return current != head
+
+    def upgrade(self, revision="head"):
+        """Upgrade database to specified revision."""
+        cfg = self._get_alembic_config()
+        if not cfg:
+            return False
+
+        try:
+            from alembic import command
+
+            log("info", f"Running Alembic upgrade to {revision}...")
+            command.upgrade(cfg, revision)
+            log("info", "Database upgrade completed successfully")
+            return True
+        except Exception as e:
+            log("error", f"Database upgrade failed: {e}", exc_info=True)
+            return False
+
+    def stamp(self, revision="head"):
+        """Stamp database without running migrations."""
+        cfg = self._get_alembic_config()
+        if not cfg:
+            return False
+
+        try:
+            from alembic import command
+
+            command.stamp(cfg, revision)
+            log("info", f"Database stamped with revision {revision}")
+            return True
+        except Exception as e:
+            log("error", f"Failed to stamp database: {e}")
+            return False
+
+    def create_migration(self, message, autogenerate=True):
+        """Create a new migration."""
+        cfg = self._get_alembic_config()
+        if not cfg:
+            return False
+
+        try:
+            from alembic import command
+
+            if autogenerate:
+                command.revision(cfg, message=message, autogenerate=True)
+            else:
+                command.revision(cfg, message=message, autogenerate=False)
+            log("info", f"Created migration: {message}")
+            return True
+        except Exception as e:
+            log("error", f"Failed to create migration: {e}")
+            return False
+
 
 class DatabaseManager:
-    """Manages database connections and operations.
-
-    [agent]
-    Singleton class providing database services. Use the global db_manager instance.
-    Other modules should inject this service rather than creating their own connections.
-
-    Public methods:
-    - get_session(): Primary method for database access
-    - is_initialized(): Check if database is ready
-    - empty_all_tables(): Remove all records from all tables (preserves table structure)
-
-    Usage:
-        # In another module like users.py
-        from core.database import db_manager
-
-        if db_manager.is_initialized():
-            with db_manager.get_session() as session:
-                # Perform database operations
-    """
+    """Manages database connections and operations with Alembic migration support."""
 
     _instance = None
     _shared_engine = None
@@ -119,45 +201,26 @@ class DatabaseManager:
 
     def __init__(self):
         # Singleton pattern - don't reinitialize
-        pass
+        if not hasattr(self, '_migration_helper'):
+            self._migration_helper = AlembicMigrationHelper(self)
 
     def is_initialized(self):
-        """Check if database is initialized.
-
-        [agent]
-        Returns True if database is ready for use.
-
-        Returns:
-            bool: True if database engine is initialized
-        """
+        """Check if database is initialized."""
         return self._engine is not None
 
     def dispose(self):
-        """Dispose of database connections and reset manager state.
-
-        [agent]
-        Properly closes all database connections and resets the manager.
-        Critical for test isolation - call between tests to prevent file locks.
-
-        Usage:
-            # Between tests
-            if db_manager.is_initialized():
-                db_manager.dispose()
-        """
+        """Dispose of database connections and reset manager state."""
         if self._engine is not None:
             try:
-                # Close all connections in the pool
                 self._engine.dispose()
                 log("info", "Database connections disposed")
             except Exception as e:
                 log("error", f"Error disposing database engine: {e}")
 
-            # CRITICAL: Reset all state so is_initialized() returns False
             self._engine = None
             self._session_factory = None
             self._tables_created = False
             self._in_memory = False
-            # Note: _initialized is derived from _engine, so no need to set it
 
     def _initialize(self, use_memory: bool = False, db_path: Optional[str] = None):
         """Initialize the database connection. Called by init_database()."""
@@ -174,17 +237,14 @@ class DatabaseManager:
             db_url = MEMDB
             self._engine = create_engine(db_url, echo=False)
             self._in_memory = True
-            # Store as shared engine
             DatabaseManager._shared_engine = self._engine
             log("info", "Initialized and stored shared in-memory database engine")
         else:
-            # Persistent database
             if db_path is None:
                 raise ValueError("Database path must be specified for persistent database")
 
-            # Ensure directory exists
             db_dir = os.path.dirname(db_path)
-            if db_dir:  # Not empty string
+            if db_dir:
                 try:
                     Path(db_dir).mkdir(parents=True, exist_ok=True)
                     log("debug", f"Ensured directory exists: {db_dir}")
@@ -201,7 +261,6 @@ class DatabaseManager:
                 log("error", f"Failed to create database at {db_path}: {e}")
                 raise
 
-        # Create session factory
         try:
             self._session_factory = sessionmaker(bind=self._engine)
             log("info", "Database session factory created successfully")
@@ -213,22 +272,7 @@ class DatabaseManager:
 
     @contextmanager
     def get_session(self) -> Session:
-        """Get a database session with context manager.
-
-        [agent]
-        Primary method for database access. Provides automatic session management.
-        Commits on success, rolls back on exception.
-
-        Yields:
-            sqlalchemy.orm.Session: Database session
-
-        Raises:
-            RuntimeError: If database not initialized
-
-        Example (from users.py):
-            with db_manager.get_session() as session:
-                user = session.query(UserTable).filter_by(id=user_id).first()
-        """
+        """Get a database session with context manager."""
         if self._engine is None:
             raise RuntimeError("Database not initialized. Call init_database() first.")
 
@@ -243,66 +287,35 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def _create_tables(self, *table_classes):
-        """Create tables for given model classes. Internal method."""
-        if self._engine is None:
-            raise RuntimeError("Database not initialized. Call init_database() first.")
-
-        try:
-            for table_class in table_classes:
-                table_class.__table__.create(bind=self._engine, checkfirst=True)
-                log("debug", f"Created table: {table_class.__tablename__}")
-        except Exception as e:
-            log("error", f"Failed to create tables: {e}")
-            raise
-
     def _create_all_tables(self):
-        """Create all tables registered with Base. Internal method."""
+        """Create all tables registered with Base."""
         if self._engine is None:
             raise RuntimeError("Database not initialized. Call init_database() first.")
 
-        # Check if tables already created
         if self._tables_created:
             log("debug", "Database tables already created, skipping")
             return
 
         try:
             Base.metadata.create_all(self._engine)
-            self._tables_created = True  # Mark as created
+            self._tables_created = True
             log("info", "All database tables created successfully")
         except Exception as e:
             log("error", f"Failed to create database tables: {e}")
             raise
 
-    # Add method to check if tables created
     def are_tables_created(self):
         """Check if tables have been created."""
         return self._tables_created
 
     def empty_all_tables(self):
-        """Remove all records from all tables while preserving table structure.
-
-        [agent]
-        Useful for testing or resetting application state. This method deletes all
-        data from every table but keeps the tables themselves intact.
-
-        Warning: This is a destructive operation and should be used with caution.
-        Not recommended for production use unless absolutely necessary.
-
-        Returns:
-            bool: True if successful, False otherwise
-
-        Example:
-            # Reset database for testing
-            db_manager.empty_all_tables()
-        """
+        """Remove all records from all tables while preserving table structure."""
         if not self.is_initialized():
             log("error", "Database not initialized. Cannot empty tables.")
             return False
 
         try:
             with self.get_session() as session:
-                # Get all table names
                 result = session.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
                 )
@@ -312,11 +325,9 @@ class DatabaseManager:
                     log("debug", "No tables found to empty")
                     return True
 
-                # Disable foreign key constraints for SQLite
                 if self._in_memory or 'sqlite' in str(self._engine.url):
                     session.execute(text("PRAGMA foreign_keys = OFF"))
 
-                # Delete all records from each table
                 deleted_counts = {}
                 for table_name in table_names:
                     try:
@@ -326,7 +337,6 @@ class DatabaseManager:
                     except Exception as e:
                         log("warning", f"Failed to delete from table {table_name}: {e}")
 
-                # Re-enable foreign key constraints for SQLite
                 if self._in_memory or 'sqlite' in str(self._engine.url):
                     session.execute(text("PRAGMA foreign_keys = ON"))
 
@@ -334,13 +344,10 @@ class DatabaseManager:
 
                 total_deleted = sum(deleted_counts.values())
                 log("info", f"Successfully emptied all tables. Total records deleted: {total_deleted}")
-                log("debug", f"Details: {deleted_counts}")
-
                 return True
 
         except Exception as e:
             log("error", f"Failed to empty all tables: {e}", exc_info=True)
-            # Try to re-enable foreign key constraints in case of error
             try:
                 if self._in_memory or 'sqlite' in str(self._engine.url):
                     with self._engine.connect() as conn:
@@ -349,34 +356,148 @@ class DatabaseManager:
                 pass
             return False
 
+    # ============= ALEMBIC MIGRATION METHODS =============
+
+    def check_and_upgrade_schema(self, revision="head"):
+        """
+        Check if database schema needs upgrade and run migrations.
+        This is the main method to call on application startup.
+
+        Args:
+            revision: Target revision (default: "head")
+
+        Returns:
+            bool: True if upgrade was successful or not needed, False on error
+        """
+        if not self.is_initialized():
+            log("warning", "Database not initialized, skipping schema upgrade")
+            return False
+
+        if self._in_memory:
+            log("debug", "In-memory database, skipping schema upgrade")
+            return True
+
+        if not self._migration_helper.is_alembic_available:
+            log("warning", "Alembic not installed. Install with: pip install alembic")
+            return True
+
+        try:
+            if self._migration_helper.needs_upgrade():
+                log("info", "Database schema needs upgrade, running migrations...")
+                return self._migration_helper.upgrade(revision)
+            else:
+                log("debug", "Database schema is up to date")
+                return True
+        except Exception as e:
+            log("error", f"Failed to check/upgrade schema: {e}", exc_info=True)
+            return False
+
+    def create_migration(self, message: str, autogenerate: bool = True):
+        """
+        Create a new migration file.
+
+        Args:
+            message: Migration description
+            autogenerate: Auto-detect changes vs create empty migration
+
+        Returns:
+            bool: True if migration was created successfully
+        """
+        if not self._migration_helper.is_alembic_available:
+            log("error", "Alembic not installed. Install with: pip install alembic")
+            return False
+
+        return self._migration_helper.create_migration(message, autogenerate)
+
+    def get_migration_status(self) -> dict:
+        """
+        Get current migration status.
+
+        Returns:
+            dict: Migration status information
+        """
+        status = {
+            "alembic_available": self._migration_helper.is_alembic_available,
+            "database_initialized": self.is_initialized(),
+            "in_memory": self._in_memory,
+            "current_revision": None,
+            "head_revision": None,
+            "needs_upgrade": False
+        }
+
+        if self.is_initialized() and not self._in_memory:
+            status["current_revision"] = self._migration_helper.get_current_revision()
+            status["head_revision"] = self._migration_helper.get_head_revision()
+            status["needs_upgrade"] = self._migration_helper.needs_upgrade()
+
+        return status
+
+    def stamp_database(self, revision="head"):
+        """
+        Stamp database without running migrations.
+
+        Args:
+            revision: Revision to stamp
+
+        Returns:
+            bool: True if stamping was successful
+        """
+        if not self._migration_helper.is_alembic_available:
+            log("error", "Alembic not installed")
+            return False
+
+        return self._migration_helper.stamp(revision)
+
 
 # Global database manager instance
 db_manager = DatabaseManager()
 
 
-
-def init_database(use_memory: bool = False, db_path: Optional[str] = None):
-    """Initialize the database.
-
-    [agent]
-    Initialize database connection. Must be called before any database operations.
+def init_database(use_memory: bool = False,
+                  db_path: Optional[str] = None,
+                  auto_upgrade: bool = True,
+                  upgrade_revision: str = "head"):
+    """
+    Initialize the database with optional automatic migration.
 
     Args:
-        use_memory: Use in-memory database for testing (default: False)
+        use_memory: Use in-memory database for testing
         db_path: Path to database file (default: from config or "data/app.db")
+        auto_upgrade: Automatically run schema migrations on startup
+        upgrade_revision: Target revision for upgrade (default: "head")
 
     Returns:
         DatabaseManager: Initialized database manager
     """
-    # Don't reinitialize if already done
     if db_manager.is_initialized():
         return db_manager
 
+    # If db_path is None, try to get from config
+    if db_path is None and not use_memory:
+        try:
+            from shared.common import get_config
+            config = get_config()
+            db_path = config.get("database.path", "data")
+            db_path = os.path.join(db_path, "app.db")
+        except ImportError:
+            db_path = "data/app.db"
+            log("warning", f"Could not load config, using default path: {db_path}")
+        except Exception as e:
+            db_path = "data/app.db"
+            log("warning", f"Error loading config, using default path: {db_path}")
+
     db_manager._initialize(use_memory=use_memory, db_path=db_path)
+
+    # Auto-upgrade schema if requested and not in-memory
+    if auto_upgrade and not use_memory:
+        db_manager.check_and_upgrade_schema(upgrade_revision)
+
     if not db_manager.are_tables_created():
         db_manager._create_all_tables()
+
     return db_manager
 
 
 def get_db_manager():
+    """Get the global DatabaseManager instance."""
     return DatabaseManager()

@@ -15,3 +15,5 @@ sentence-transformers
 numpy
 tiktoken
 plotly
+alembic
+sqlalchemy-utils

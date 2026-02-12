@@ -159,6 +159,15 @@ for module_name in active_modules:
 
 db_path = get_config().get("database", {}).get("path", ".") + "/app.db"
 init_database(use_memory=False, db_path=db_path)
+# Auto-upgrade database schema if needed
+log("info", "Checking database schema version...")
+try:
+    # This will automatically upgrade to latest if needed
+    get_db_manager().check_and_upgrade_schema()
+    log("info", "Database schema is up to date")
+except Exception as e:
+    log("error", f"Database schema upgrade failed: {e}", exc_info=True)
+    st.error(f"Database migration failed: {e}. Please check logs.")
 
 # Initialize UI registry - do this here, not inside main()
 # The registry will be cached in session state
