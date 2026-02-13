@@ -35,7 +35,6 @@ from .plugin_base import get_plugin_manager
 __all__ = [
     'get_trainer_manager',
     'get_plugin_manager',
-    'StudentNote',
     'PluginData',
     'PluginActivation'
 ]

@@ -1,7 +1,6 @@
-# modules/trainer/models.py - REMOVE StudentNote class
 """
 Trainer module database models.
-Defines tables for student notes and plugin data.
+Defines tables for plugin data.
 """
 
 from datetime import datetime
