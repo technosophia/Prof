@@ -23,7 +23,6 @@ class TrainerManager:
 
     def get_trainer_students(self, trainer_id: str) -> List[Dict[str, Any]]:
         """Get all normal users that have this trainer as parent."""
-        # Use get_children() like in training_logic.py
         return self.user_manager.get_children(trainer_id)
 
     def get_student_conversation_count(self, trainer_id: str, student_id: str) -> int:
@@ -39,7 +38,6 @@ class TrainerManager:
         for conv in conversations:
             full_conv = self.conversation_manager.get_conversation(conv["id"])
             if full_conv and full_conv.messages:
-                # Count only user messages (student messages)
                 user_messages = [msg for msg in full_conv.messages if msg.role == "user"]
                 total_messages += len(user_messages)
 
@@ -49,7 +47,6 @@ class TrainerManager:
         """Get last activity time for a student."""
         conversations = self.conversation_manager.get_user_conversations(student_id)
         if conversations:
-            # Get the most recent conversation by updated_at
             last_conv = max(conversations, key=lambda x: x.get("updated_at", ""))
             updated_at = last_conv.get("updated_at")
             if updated_at:
@@ -58,50 +55,6 @@ class TrainerManager:
                 except:
                     return None
         return None
-
-    def get_student_note(self, student_id: str, trainer_id: str,
-                        plugin_id: str = "core") -> Optional[str]:
-        """Get student's pad/note content."""
-        from .models import StudentNote
-
-        with self.db.get_session() as session:
-            note = session.query(StudentNote).filter_by(
-                user_id=student_id,
-                trainer_id=trainer_id,
-                plugin_id=plugin_id
-            ).first()
-
-            return note.content if note else ""
-
-    def save_student_note(self, student_id: str, trainer_id: str,
-                         content: str, plugin_id: str = "core") -> bool:
-        """Save student's pad/note content."""
-        from .models import StudentNote
-
-        try:
-            with self.db.get_session() as session:
-                note = session.query(StudentNote).filter_by(
-                    user_id=student_id,
-                    trainer_id=trainer_id,
-                    plugin_id=plugin_id
-                ).first()
-
-                if note:
-                    note.content = content
-                    note.updated_at = datetime.utcnow()
-                else:
-                    note = StudentNote(
-                        user_id=student_id,
-                        trainer_id=trainer_id,
-                        content=content,
-                        plugin_id=plugin_id
-                    )
-                    session.add(note)
-                session.commit()
-                return True
-        except Exception as e:
-            log("error", f"Failed to save student note: {e}", exc_info=True)
-            return False
 
     def export_configuration(self, trainer_id: str) -> str:
         """Export trainer and plugins configuration as YAML."""
@@ -116,7 +69,6 @@ class TrainerManager:
             'plugins': {}
         }
 
-        # Get plugin data
         plugin_manager = get_plugin_manager()
         for plugin in plugin_manager.get_active_plugins(trainer_id):
             plugin_config = plugin.export_config(trainer_id)
@@ -132,7 +84,6 @@ class TrainerManager:
         try:
             config = yaml.safe_load(yaml_content)
 
-            # Import plugin configurations
             plugin_manager = get_plugin_manager()
             for plugin_id, plugin_config in config.get('plugins', {}).items():
                 plugin = plugin_manager.get_plugin(plugin_id)

@@ -21,7 +21,6 @@ def inject_ui_admin_tab():
     Inject Trainer admin tab - only visible for masters.
     This is the required injection point for admin tabs.
     """
-    # Only show for master users
     if not ("current_user" in st.session_state and st.session_state.current_user):
         return
 
@@ -32,8 +31,7 @@ def inject_ui_admin_tab():
         return
 
     def render_trainer_admin():
-        from shared.common import _
-        st.header(_("🎓 Trainer Module"))
+        st.header("🎓 Trainer Module")
 
         trainer_id = st.session_state.current_user['id']
         trainer_manager = get_trainer_manager()
@@ -41,10 +39,10 @@ def inject_ui_admin_tab():
 
         # Create base tabs
         tab_names = [
-            _("trainer.admin.dashboard"),
-            _("trainer.admin.configuration"),
-            _("trainer.admin.import_export"),
-            _("trainer.admin.plugins")
+            "Dashboard",
+            "Configuration",
+            "Import/Export",
+            "Plugins"
         ]
 
         # Add plugin tabs from active plugins
@@ -58,7 +56,7 @@ def inject_ui_admin_tab():
 
         # Dashboard tab
         with tabs[0]:
-            _render_dashboard_tab(trainer_id, trainer_manager)
+            _render_dashboard_tab(trainer_id, trainer_manager, plugin_manager)
 
         # Configuration tab
         with tabs[1]:
@@ -80,18 +78,17 @@ def inject_ui_admin_tab():
     return ("Trainer", render_trainer_admin)
 
 
-def _render_dashboard_tab(trainer_id: str, trainer_manager):
+def _render_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager):
     """Render the students dashboard."""
-    st.subheader("trainer.dashboard.students")
+    st.subheader("Students")
 
     user_manager = get_user_manager()
-    plugin_manager = get_plugin_manager()
 
     # Get students (list of user objects from get_children)
     student_objects = trainer_manager.get_trainer_students(trainer_id)
 
     if not student_objects:
-        st.info("trainer.dashboard.no_students")
+        st.info("No students assigned yet.")
         return
 
     # Add conversation stats
@@ -115,21 +112,19 @@ def _render_dashboard_tab(trainer_id: str, trainer_manager):
 
             with col2:
                 st.metric(
-                    "trainer.dashboard.conversations",
+                    "Conversations",
                     student.get('conversation_count', 0)
                 )
 
             with col3:
                 st.metric(
-                    "trainer.dashboard.total_messages",
+                    "Messages",
                     student.get('total_messages', 0)
                 )
 
             with col4:
-                # Make key unique by including trainer_id
                 if st.button("View", key=f"view_{trainer_id}_{student['id']}"):
                     st.session_state[f'selected_student_{trainer_id}'] = student['id']
-                    # Also store the selected student info
                     st.session_state[f'selected_student_name_{trainer_id}'] = student.get('name', 'Unknown')
                     st.rerun()
 
@@ -137,7 +132,7 @@ def _render_dashboard_tab(trainer_id: str, trainer_manager):
             if st.session_state.get(f'selected_student_{trainer_id}') == student['id']:
                 with st.expander(f"📝 Student: {st.session_state.get(f'selected_student_name_{trainer_id}', '')}", expanded=True):
                     # Create tabs for different views
-                    detail_tab1, detail_tab2, detail_tab3 = st.tabs(["📋 Profile", "💬 Chat Pad", "📊 Analytics"])
+                    detail_tab1, detail_tab2 = st.tabs(["📋 Profile", "📝 Student Notes"])
 
                     with detail_tab1:
                         col1, col2 = st.columns(2)
@@ -157,79 +152,24 @@ def _render_dashboard_tab(trainer_id: str, trainer_manager):
                             st.write(f"Total Messages: {student.get('total_messages', 0)}")
 
                     with detail_tab2:
-                        st.write("**💬 Chat Pad / Notes**")
+                        st.write("**Student Notes & Teacher Feedback**")
+                        st.divider()
 
-                        # Get existing note
-                        note_content = trainer_manager.get_student_note(
-                            student_id=student['id'],
-                            trainer_id=trainer_id,
-                            plugin_id="student_pad"
-                        )
+                        # Get the student pad plugin specifically
+                        student_pad_plugin = plugin_manager.get_plugin("student_pad")
 
-                        # Note editor
-                        edited_note = st.text_area(
-                            "Student notes and chat history",
-                            value=note_content or "",
-                            height=300,
-                            key=f"note_{trainer_id}_{student['id']}",
-                            placeholder="Enter notes, observations, or chat with the student here..."
-                        )
-
-                        # Save button
-                        col_save, col_clear = st.columns([1, 4])
-                        with col_save:
-                            if st.button("💾 Save Notes", key=f"save_note_{trainer_id}_{student['id']}"):
-                                if trainer_manager.save_student_note(
-                                    student_id=student['id'],
-                                    trainer_id=trainer_id,
-                                    content=edited_note,
-                                    plugin_id="core"
-                                ):
-                                    st.success("Notes saved successfully!")
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to save notes")
-
-                        # Display note preview
-                        if edited_note:
-                            with st.expander("Preview"):
-                                st.markdown(edited_note)
-
-                    with detail_tab3:
-                        st.write("**📊 Analytics & Progress**")
-
-                        # Get conversation history
-                        conversations = get_conversation_manager().get_user_conversations(student['id'])
-
-                        if conversations:
-                            st.write(f"Total Conversations: {len(conversations)}")
-
-                            # Recent activity chart
-                            recent_convos = sorted(
-                                conversations,
-                                key=lambda x: x.get('updated_at', ''),
-                                reverse=True
-                            )[:5]
-
-                            st.write("**Recent Activity:**")
-                            for conv in recent_convos:
-                                updated = conv.get('updated_at', '')
-                                if updated:
-                                    updated = updated[:10] if 'T' in updated else updated
-                                st.write(f"- {conv.get('title', 'Untitled')} ({updated})")
+                        # Use trainer_manager to check if plugin is active, not plugin_manager
+                        if student_pad_plugin and trainer_manager.is_plugin_active(trainer_id, "student_pad"):
+                            # Render the student pad widget directly
+                            widgets = student_pad_plugin.render_student_widgets(trainer_id, student)
+                            for widget in widgets:
+                                widget()
                         else:
-                            st.info("No conversations yet")
-
-                    # Plugin widgets
-                    active_plugins = plugin_manager.get_active_plugins(trainer_id)
-                    for plugin in active_plugins:
-                        widgets = plugin.render_student_widgets(trainer_id, student)
-                        for widget in widgets:
-                            widget()
+                            st.info("The Student Pad plugin is not active. Activate it in the Plugins tab to view and manage student notes.")
 
             st.divider()
 
-    # Plugin dashboard widgets
+    # Plugin dashboard widgets (non-student specific)
     active_plugins = plugin_manager.get_active_plugins(trainer_id)
     for plugin in active_plugins:
         widgets = plugin.render_dashboard_widgets(trainer_id, students)
@@ -239,64 +179,58 @@ def _render_dashboard_tab(trainer_id: str, trainer_manager):
 
 def _render_configuration_tab():
     """Render the configuration tab."""
-    st.subheader(_("trainer.config.system_prompt"))
+    st.subheader("System Prompt")
 
-    # Get current prompt
-    config = get_config()
-    prompt_key = config.get('trainer.system_prompt_key', 'teacher.system_prompt')
-    current_prompt = get_prompt(prompt_key)
+    current_prompt = get_prompt('trainer.teacher.system_prompt')
 
-    # Display current prompt (read-only in UI, configured via import/export)
     st.info(current_prompt)
-    st.caption(_("trainer.config.system_prompt_help"))
+    st.caption("System prompt is configured via import/export or configuration files.")
 
 
 def _render_import_export_tab(trainer_id: str, trainer_manager):
     """Render the import/export tab."""
-    st.subheader(_("trainer.import_export.export"))
+    st.subheader("Export Configuration")
 
-    # Export section
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button(_("trainer.import_export.export_yaml"), use_container_width=True):
+        if st.button("Export YAML", use_container_width=True):
             yaml_content = trainer_manager.export_configuration(trainer_id)
             st.download_button(
-                label=_("Download YAML"),
+                label="Download YAML",
                 data=yaml_content,
                 file_name=f"trainer_config_{trainer_id}.yaml",
                 mime="text/yaml",
                 use_container_width=True
             )
 
-    # Import section
     with col2:
         uploaded_file = st.file_uploader(
-            _("trainer.import_export.select_file"),
+            "Select YAML file",
             type=['yaml', 'yml'],
-            help=_("trainer.import_export.import_yaml")
+            help="Upload a previously exported YAML configuration"
         )
 
         if uploaded_file is not None:
             try:
                 yaml_content = uploaded_file.read().decode('utf-8')
-                if st.button(_("Import"), use_container_width=True):
+                if st.button("Import", use_container_width=True):
                     if trainer_manager.import_configuration(trainer_id, yaml_content):
-                        st.success(_("trainer.import_export.import_success"))
+                        st.success("Configuration imported successfully!")
                     else:
-                        st.error(_("trainer.import_export.import_error"))
+                        st.error("Failed to import configuration")
             except Exception as e:
-                st.error(f"{_('trainer.import_export.import_error')}: {str(e)}")
+                st.error(f"Import error: {str(e)}")
 
 
 def _render_plugins_tab(trainer_id: str, trainer_manager, plugin_manager):
     """Render the plugins management tab."""
-    st.subheader(_("trainer.plugins.title"))
+    st.subheader("Plugin Management")
 
     plugins = plugin_manager.get_all_plugins()
 
     if not plugins:
-        st.info(_("trainer.plugins.no_plugins"))
+        st.info("No plugins available.")
         return
 
     for plugin in plugins:
@@ -309,17 +243,17 @@ def _render_plugins_tab(trainer_id: str, trainer_manager, plugin_manager):
 
             with col2:
                 is_active = trainer_manager.is_plugin_active(trainer_id, plugin.id)
-                status_text = _("trainer.plugins.active") if is_active else _("trainer.plugins.inactive")
-                st.write(_("trainer.plugins.status") + f": {status_text}")
+                status_text = "Active" if is_active else "Inactive"
+                st.write(f"Status: {status_text}")
 
             with col3:
                 if is_active:
-                    if st.button(_("trainer.plugins.deactivate"), key=f"deactivate_{plugin.id}"):
+                    if st.button("Deactivate", key=f"deactivate_{plugin.id}"):
                         trainer_manager.set_plugin_active(trainer_id, plugin.id, False)
                         plugin.on_deactivate(trainer_id)
                         st.rerun()
                 else:
-                    if st.button(_("trainer.plugins.activate"), key=f"activate_{plugin.id}"):
+                    if st.button("Activate", key=f"activate_{plugin.id}"):
                         trainer_manager.set_plugin_active(trainer_id, plugin.id, True)
                         plugin.on_activate(trainer_id)
                         st.rerun()

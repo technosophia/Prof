@@ -4,7 +4,7 @@ Defines the base classes and manager for plugins.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional, Callable, Protocol
 from dataclasses import dataclass
 import json
 import yaml
@@ -54,6 +54,13 @@ class TrainerPlugin(ABC):
         """Return list of render functions for student-specific widgets."""
         return []
 
+    def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
+        """
+        Return list of render functions for student header area.
+        Called when a student (normal user) views their own page.
+        """
+        return []
+
     def export_config(self, trainer_id: str) -> Optional[Dict]:
         """Export plugin configuration for YAML export."""
         return None
@@ -69,6 +76,14 @@ class TrainerPlugin(ABC):
     def on_deactivate(self, trainer_id: str) -> bool:
         """Called when plugin is deactivated for a trainer."""
         return True
+
+
+class PluginDataProvider(Protocol):
+    """Protocol for plugins that provide data access methods."""
+    def get_data(self, trainer_id: str, key: str, **kwargs) -> Any:
+        ...
+    def save_data(self, trainer_id: str, key: str, value: Any, **kwargs) -> bool:
+        ...
 
 
 class PluginManager:
@@ -152,6 +167,20 @@ class PluginManager:
             if trainer_manager.is_plugin_active(trainer_id, plugin.id):
                 active.append(plugin)
         return active
+
+    def get_plugins_by_hook(self, trainer_id: str, hook_name: str) -> List[TrainerPlugin]:
+        """Get active plugins that implement a specific hook."""
+        active_plugins = self.get_active_plugins(trainer_id)
+        result = []
+
+        for plugin in active_plugins:
+            method = getattr(plugin, hook_name, None)
+            if method and callable(method):
+                # Check if it's not the base class implementation
+                if method.__func__ != getattr(TrainerPlugin, hook_name, getattr(TrainerPlugin, hook_name, None)):
+                    result.append(plugin)
+
+        return result
 
 
 # Singleton instance

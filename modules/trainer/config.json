@@ -1,6 +1,5 @@
 {
   "trainer": {
-    "system_prompt_key": "teacher.system_prompt",
     "default_language": "en",
     "plugins_enabled": true,
     "plugins_auto_discover": true
