@@ -4,10 +4,11 @@ LLM Monitoring and Cost Tracking Core Module
 import asyncio
 import json
 import time
-from datetime import datetime
-from typing import Dict, List, Any, Optional, Callable
+from datetime import datetime, date, timedelta
+from typing import Dict, List, Any, Optional, Callable, Tuple
 import tiktoken  # For token estimation
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import func, and_, desc
 from shared.common import get_db_manager, Base
 from shared.common import log
 from shared.common import get_config
@@ -15,11 +16,16 @@ from shared.common import get_user_manager
 from shared.common import get_conversation_manager
 
 # Import models
-from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable
+from modules.llm_monitor.models import (
+    LLMCallTable,
+    UserLLMStatsTable,
+    RateLimitUsageTable,
+    DailyCostSummaryTable
+)
 
 
 class LLMMonitor:
-    """Main class for monitoring LLM usage and costs."""
+    """Main class for monitoring LLM usage, costs, and rate limits."""
 
     _instance = None
 
@@ -30,15 +36,17 @@ class LLMMonitor:
 
     def __init__(self):
         if not hasattr(self, '_initialized'):
-            self.config = get_config().get("llm_monitor", {})
+            self.config = get_config().get("modules.llm_monitor", {})
             self.db = get_db_manager()
             self._ensure_tables_exist()
             self.cost_config = self.config.get("costs", {})
+            self.rate_limits_config = self.config.get("rate_limits", {})
             self.enabled = self.config.get("enabled", True)
             self.auto_collect = self.config.get("auto_collect", True)
+            self.rate_limit_tracking = self.config.get("rate_limit_tracking", {"enabled": True})
             self._token_encoder_cache = {}
             self._initialized = True
-            log("info", "LLMMonitor initialized")
+            log("info", "LLMMonitor initialized with rate limit tracking")
 
     def _ensure_tables_exist(self):
         """Ensure monitoring tables exist."""
@@ -48,6 +56,8 @@ class LLMMonitor:
         try:
             LLMCallTable.__table__.create(bind=self.db._engine, checkfirst=True)
             UserLLMStatsTable.__table__.create(bind=self.db._engine, checkfirst=True)
+            RateLimitUsageTable.__table__.create(bind=self.db._engine, checkfirst=True)
+            DailyCostSummaryTable.__table__.create(bind=self.db._engine, checkfirst=True)
             log("debug", "LLM monitor tables ensured")
             return True
         except Exception as e:
@@ -121,8 +131,20 @@ class LLMMonitor:
 
         return total_tokens
 
+    def is_free_provider(self, llm_type: str) -> bool:
+        """Check if the provider is free (no cost)."""
+        provider_config = self.cost_config.get(llm_type, {})
+        return provider_config.get("is_free", False)
+
     def calculate_cost(self, llm_type: str, input_tokens: int, output_tokens: int) -> Dict[str, float]:
-        """Calculate cost based on token usage."""
+        """Calculate cost based on token usage (per million tokens)."""
+        if self.is_free_provider(llm_type):
+            return {
+                "input_cost": 0.0,
+                "output_cost": 0.0,
+                "total_cost": 0.0
+            }
+
         costs = self.cost_config.get(llm_type, {})
 
         input_cost_per_million = costs.get("input_cost_per_million_tokens", 0)
@@ -137,6 +159,210 @@ class LLMMonitor:
             "output_cost": output_cost,
             "total_cost": total_cost
         }
+
+    def get_rate_limits(self, provider: str, model: str, plan_type: str = "free") -> Dict[str, Any]:
+        """Get rate limits for a specific provider and model."""
+        if provider not in self.rate_limits_config:
+            return {}
+
+        provider_limits = self.rate_limits_config[provider]
+
+        if plan_type not in provider_limits:
+            plan_type = "free"  # Default to free
+
+        plan_limits = provider_limits[plan_type]
+
+        # Try to get model-specific limits, fallback to default
+        if model in plan_limits:
+            return plan_limits[model]
+        elif "default" in plan_limits:
+            return plan_limits["default"]
+        else:
+            return {}
+
+    def update_rate_limit_usage(self, provider: str, model: str,
+                               tokens_used: int, user_id: Optional[str] = None,
+                               rate_limit_headers: Optional[Dict] = None):
+        """Update rate limit usage for a provider using estimated tokens."""
+        if not self.rate_limit_tracking.get("enabled", True):
+            return
+
+        # Only track for free providers
+        if not self.is_free_provider(provider):
+            return
+
+        try:
+            with self.db.get_session() as session:
+                today = datetime.utcnow().strftime("%Y-%m-%d")
+                current_hour = datetime.utcnow().hour
+
+                # Get the rate limits for this model to know what limits exist
+                limits = self.get_rate_limits(provider, model, "free")
+                if not limits:
+                    # Try developer plan as fallback
+                    limits = self.get_rate_limits(provider, model, "developer")
+
+                # Only track if we have limits configured
+                if not limits:
+                    log("debug", f"No rate limits configured for {provider}/{model}, skipping tracking")
+                    return
+
+                # Update daily usage
+                daily_usage = session.query(RateLimitUsageTable).filter_by(
+                    provider=provider,
+                    model=model,
+                    period_date=today,
+                    period_hour=None,
+                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                ).first()
+
+                if not daily_usage:
+                    daily_usage = RateLimitUsageTable(
+                        provider=provider,
+                        model=model,
+                        plan_type="free",  # Default to free plan
+                        period_date=today,
+                        user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                    )
+                    session.add(daily_usage)
+
+                daily_usage.requests_count += 1
+                daily_usage.tokens_count += tokens_used
+
+                # Update hourly usage
+                hourly_usage = session.query(RateLimitUsageTable).filter_by(
+                    provider=provider,
+                    model=model,
+                    period_date=today,
+                    period_hour=current_hour,
+                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                ).first()
+
+                if not hourly_usage:
+                    hourly_usage = RateLimitUsageTable(
+                        provider=provider,
+                        model=model,
+                        plan_type="free",
+                        period_date=today,
+                        period_hour=current_hour,
+                        user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                    )
+                    session.add(hourly_usage)
+
+                hourly_usage.requests_count += 1
+                hourly_usage.tokens_count += tokens_used
+
+                # No need for rate limit headers - we just track our estimated usage
+
+                session.commit()
+                log("debug", f"Updated rate limit usage for {provider}/{model}: +1 request, +{tokens_used} tokens")
+
+        except Exception as e:
+            log("error", f"Failed to update rate limit usage: {e}", exc_info=True)
+
+    def get_rate_limit_usage(self, provider: str, model: str,
+                            user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get current rate limit usage for a provider."""
+        try:
+            with self.db.get_session() as session:
+                today = datetime.utcnow().strftime("%Y-%m-%d")
+                current_hour = datetime.utcnow().hour
+
+                # Get limits for this model
+                limits = self.get_rate_limits(provider, model, "free")
+                if not limits:
+                    limits = self.get_rate_limits(provider, model, "developer")
+
+                # If no limits found, return empty but with structure
+                if not limits:
+                    return {
+                        "provider": provider,
+                        "model": model,
+                        "limits": {},
+                        "daily": {
+                            "requests": 0,
+                            "tokens": 0,
+                            "requests_limit": None,
+                            "tokens_limit": None,
+                            "requests_percentage": 0,
+                            "tokens_percentage": 0
+                        },
+                        "hourly": {
+                            "requests": 0,
+                            "tokens": 0,
+                            "requests_limit": None,
+                            "tokens_limit": None,
+                            "requests_percentage": 0,
+                            "tokens_percentage": 0
+                        }
+                    }
+
+                # Get daily usage
+                daily_usage = session.query(RateLimitUsageTable).filter_by(
+                    provider=provider,
+                    model=model,
+                    period_date=today,
+                    period_hour=None,
+                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                ).first()
+
+                # Get hourly usage
+                hourly_usage = session.query(RateLimitUsageTable).filter_by(
+                    provider=provider,
+                    model=model,
+                    period_date=today,
+                    period_hour=current_hour,
+                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                ).first()
+
+                result = {
+                    "provider": provider,
+                    "model": model,
+                    "limits": limits,
+                    "daily": {
+                        "requests": daily_usage.requests_count if daily_usage else 0,
+                        "tokens": daily_usage.tokens_count if daily_usage else 0,
+                        "requests_limit": limits.get("rpd"),
+                        "tokens_limit": limits.get("tpd"),
+                        "requests_reset_at": daily_usage.requests_reset_at.isoformat() if daily_usage and daily_usage.requests_reset_at else None,
+                        "tokens_reset_at": daily_usage.tokens_reset_at.isoformat() if daily_usage and daily_usage.tokens_reset_at else None,
+                    },
+                    "hourly": {
+                        "requests": hourly_usage.requests_count if hourly_usage else 0,
+                        "tokens": hourly_usage.tokens_count if hourly_usage else 0,
+                        "requests_limit": limits.get("rpm"),
+                        "tokens_limit": limits.get("tpm"),
+                        "requests_reset_at": hourly_usage.requests_reset_at.isoformat() if hourly_usage and hourly_usage.requests_reset_at else None,
+                        "tokens_reset_at": hourly_usage.tokens_reset_at.isoformat() if hourly_usage and hourly_usage.tokens_reset_at else None,
+                    }
+                }
+
+                # Calculate percentages with safe division
+                if result["daily"]["requests_limit"] and result["daily"]["requests_limit"] > 0:
+                    result["daily"]["requests_percentage"] = (result["daily"]["requests"] / result["daily"]["requests_limit"]) * 100
+                else:
+                    result["daily"]["requests_percentage"] = 0
+
+                if result["daily"]["tokens_limit"] and result["daily"]["tokens_limit"] > 0:
+                    result["daily"]["tokens_percentage"] = (result["daily"]["tokens"] / result["daily"]["tokens_limit"]) * 100
+                else:
+                    result["daily"]["tokens_percentage"] = 0
+
+                if result["hourly"]["requests_limit"] and result["hourly"]["requests_limit"] > 0:
+                    result["hourly"]["requests_percentage"] = (result["hourly"]["requests"] / result["hourly"]["requests_limit"]) * 100
+                else:
+                    result["hourly"]["requests_percentage"] = 0
+
+                if result["hourly"]["tokens_limit"] and result["hourly"]["tokens_limit"] > 0:
+                    result["hourly"]["tokens_percentage"] = (result["hourly"]["tokens"] / result["hourly"]["tokens_limit"]) * 100
+                else:
+                    result["hourly"]["tokens_percentage"] = 0
+
+                return result
+
+        except Exception as e:
+            log("error", f"Failed to get rate limit usage: {e}")
+            return {}
 
     def extract_context_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Extract context messages (system messages and LLM callbacks) from conversation."""
@@ -200,29 +426,33 @@ class LLMMonitor:
                 context_messages = self.extract_context_messages(all_messages)
                 display_messages = self.extract_user_assistant_messages(all_messages)
 
+                # Extract rate limit headers if available
+                rate_limit_info = data.get("rate_limit_info", {})
+
                 # Create LLM call record
                 llm_call = LLMCallTable(
-                                    user_id=user_id,
-                                    conversation_id=conversation_id,
-                                    llm_id=data["llm_id"],
-                                    llm_type=data["llm_type"],
-                                    model=data["model"],
-                                    engine_type=data["engine_type"],
-                                    timestamp=datetime.fromisoformat(data["timestamp"]) if isinstance(data["timestamp"], str) else data["timestamp"],
-                                    duration_ms=data.get("duration_ms"),
-                                    input_tokens=input_tokens,
-                                    output_tokens=output_tokens,
-                                    total_tokens=total_tokens,
-                                    input_cost=costs["input_cost"],
-                                    output_cost=costs["output_cost"],
-                                    total_cost=costs["total_cost"],
-                                    messages=display_messages,  # Store only user/assistant messages for display
-                                    context_messages=context_messages,  # Store context separately
-                                    response=data["response"],
-                                    success=data.get("success", 1),
-                                    error_message=data.get("error"),
-                                    call_metadata=data.get("metadata", {})  # Changed from metadata to call_metadata
-                                )
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    llm_id=data["llm_id"],
+                    llm_type=data["llm_type"],
+                    model=data["model"],
+                    engine_type=data["engine_type"],
+                    timestamp=datetime.fromisoformat(data["timestamp"]) if isinstance(data["timestamp"], str) else data["timestamp"],
+                    duration_ms=data.get("duration_ms"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                    input_cost=costs["input_cost"],
+                    output_cost=costs["output_cost"],
+                    total_cost=costs["total_cost"],
+                    messages=display_messages,
+                    context_messages=context_messages,
+                    response=data["response"],
+                    success=data.get("success", 1),
+                    error_message=data.get("error"),
+                    call_metadata=data.get("metadata", {}),
+                    rate_limit_info=rate_limit_info
+                )
 
                 session.add(llm_call)
 
@@ -232,10 +462,66 @@ class LLMMonitor:
                                           input_tokens or 0, output_tokens or 0,
                                           costs["total_cost"])
 
+                # Update daily cost summary
+                self._update_daily_cost_summary(session, data["llm_type"], data["model"],
+                                               input_tokens or 0, output_tokens or 0,
+                                               costs["total_cost"])
+
+                # Update rate limit usage for free providers
+                if self.is_free_provider(data["llm_type"]):
+                    log("debug", f"Tracking rate limit for free provider: {data['llm_type']}/{data['model']} with {total_tokens} tokens")
+                    self.update_rate_limit_usage(
+                        provider=data["llm_type"],
+                        model=data["model"],
+                        tokens_used=total_tokens,
+                        user_id=user_id
+                        # No rate_limit_headers parameter needed
+                    )
+
+                # Commit all changes
+                session.commit()
                 log("debug", f"Logged LLM call: {data['llm_id']} for user {user_id}")
 
         except Exception as e:
             log("error", f"Failed to log LLM call: {e}", exc_info=True)
+
+    def _update_daily_cost_summary(self, session: Session, provider: str, model: str,
+                                  input_tokens: int, output_tokens: int, total_cost: float):
+        """Update daily cost summary."""
+        try:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+
+            summary = session.query(DailyCostSummaryTable).filter_by(
+                date=today,
+                provider=provider,
+                model=model
+            ).first()
+
+            if summary:
+                summary.total_calls += 1
+                summary.total_input_tokens += input_tokens
+                summary.total_output_tokens += output_tokens
+                summary.total_tokens += (input_tokens + output_tokens)
+                summary.total_input_cost += (input_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("input_cost_per_million_tokens", 0)
+                summary.total_output_cost += (output_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("output_cost_per_million_tokens", 0)
+                summary.total_cost += total_cost
+            else:
+                summary = DailyCostSummaryTable(
+                    date=today,
+                    provider=provider,
+                    model=model,
+                    total_calls=1,
+                    total_input_tokens=input_tokens,
+                    total_output_tokens=output_tokens,
+                    total_tokens=(input_tokens + output_tokens),
+                    total_input_cost=(input_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("input_cost_per_million_tokens", 0),
+                    total_output_cost=(output_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("output_cost_per_million_tokens", 0),
+                    total_cost=total_cost
+                )
+                session.add(summary)
+
+        except Exception as e:
+            log("error", f"Failed to update daily cost summary: {e}")
 
     def _update_user_stats(self, session: Session, user_id: str, llm_type: str,
                           input_tokens: int, output_tokens: int, cost: float):
@@ -306,9 +592,62 @@ class LLMMonitor:
             log("error", f"Failed to get user stats: {e}")
             return {"by_llm_type": {}, "overall": {}}
 
+    def get_daily_costs(self, days: int = 30) -> List[Dict[str, Any]]:
+        """Get daily cost summary for the last N days."""
+        try:
+            with self.db.get_session() as session:
+                cutoff_date = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+                results = session.query(
+                    DailyCostSummaryTable
+                ).filter(
+                    DailyCostSummaryTable.date >= cutoff_date
+                ).order_by(
+                    DailyCostSummaryTable.date.desc()
+                ).all()
+
+                return [
+                    {
+                        "date": r.date,
+                        "provider": r.provider,
+                        "model": r.model,
+                        "total_calls": r.total_calls,
+                        "total_tokens": r.total_tokens,
+                        "total_cost": r.total_cost
+                    }
+                    for r in results
+                ]
+        except Exception as e:
+            log("error", f"Failed to get daily costs: {e}")
+            return []
+
+    def get_monthly_cost(self, provider: Optional[str] = None) -> float:
+        """Get total cost for current month."""
+        try:
+            with self.db.get_session() as session:
+                current_month = datetime.utcnow().strftime("%Y-%m")
+
+                query = session.query(
+                    func.sum(DailyCostSummaryTable.total_cost)
+                ).filter(
+                    DailyCostSummaryTable.date.like(f"{current_month}%")
+                )
+
+                if provider:
+                    query = query.filter(DailyCostSummaryTable.provider == provider)
+
+                total = query.scalar() or 0.0
+                return total
+        except Exception as e:
+            log("error", f"Failed to get monthly cost: {e}")
+            return 0.0
+
     def get_llm_calls(self, user_id: Optional[str] = None,
                      llm_type: Optional[str] = None,
                      conversation_id: Optional[str] = None,
+                     model: Optional[str] = None,
+                     start_date: Optional[datetime] = None,
+                     end_date: Optional[datetime] = None,
                      limit: int = 100,
                      offset: int = 0) -> List[Dict[str, Any]]:
         """Get LLM calls with filters."""
@@ -322,8 +661,17 @@ class LLMMonitor:
                 if llm_type:
                     query = query.filter_by(llm_type=llm_type)
 
+                if model:
+                    query = query.filter_by(model=model)
+
                 if conversation_id:
                     query = query.filter_by(conversation_id=conversation_id)
+
+                if start_date:
+                    query = query.filter(LLMCallTable.timestamp >= start_date)
+
+                if end_date:
+                    query = query.filter(LLMCallTable.timestamp <= end_date)
 
                 calls = query.order_by(LLMCallTable.timestamp.desc()).limit(limit).offset(offset).all()
 
@@ -344,13 +692,14 @@ class LLMMonitor:
                         "input_cost": call.input_cost,
                         "output_cost": call.output_cost,
                         "total_cost": call.total_cost,
-                        "messages": call.messages,  # User/assistant messages only
-                        "context_messages": call.context_messages,  # Context messages
+                        "messages": call.messages,
+                        "context_messages": call.context_messages,
                         "response_preview": call.response[:100] + "..." if len(call.response) > 100 else call.response,
                         "response": call.response,
                         "success": bool(call.success),
                         "error_message": call.error_message,
-                        "metadata": call.call_metadata or {}  # Changed from call.metadata to call.call_metadata
+                        "metadata": call.call_metadata or {},
+                        "rate_limit_info": call.rate_limit_info or {}
                     })
 
                 return result
@@ -364,11 +713,9 @@ class LLMMonitor:
         try:
             with self.db.get_session() as session:
                 result = session.query(
-                    UserLLMStatsTable.total_cost
-                ).filter_by(user_id=user_id).all()
-
-                total = sum(row[0] for row in result)
-                return total
+                    func.sum(UserLLMStatsTable.total_cost)
+                ).filter_by(user_id=user_id).scalar()
+                return result or 0.0
         except Exception as e:
             log("error", f"Failed to get total cost: {e}")
             return 0.0
@@ -386,12 +733,11 @@ class LLMMonitor:
         """Get total number of LLM calls in the system."""
         try:
             with self.db.get_session() as session:
-                count = session.query(LLMCallTable).count()  # Use the table class
+                count = session.query(LLMCallTable).count()
                 return count
         except Exception as e:
             log("error", f"Failed to get total calls count: {e}")
             return 0
-
 
     def clear_user_logs(self, user_id: str) -> int:
         """Clear all LLM logs for a specific user.
@@ -410,6 +756,10 @@ class LLMMonitor:
                 # Also clear user stats
                 session.query(UserLLMStatsTable).filter_by(user_id=user_id).delete()
 
+                # Clear rate limit usage if per-user tracking is enabled
+                if self.rate_limit_tracking.get("track_per_user", False):
+                    session.query(RateLimitUsageTable).filter_by(user_id=user_id).delete()
+
                 session.commit()
 
                 log("info", f"Cleared {deleted} LLM calls for user {user_id}")
@@ -422,29 +772,35 @@ class LLMMonitor:
         """Clear all LLM logs from the system.
         Returns: dictionary with counts of deleted records."""
         if not self.enabled:
-            return {"llm_calls": 0, "user_stats": 0}
+            return {"llm_calls": 0, "user_stats": 0, "rate_limit_usage": 0, "daily_summary": 0}
 
         try:
             with self.db.get_session() as session:
                 # Get counts before deletion
                 llm_calls_count = session.query(LLMCallTable).count()
                 user_stats_count = session.query(UserLLMStatsTable).count()
+                rate_limit_count = session.query(RateLimitUsageTable).count()
+                daily_summary_count = session.query(DailyCostSummaryTable).count()
 
                 # Delete all records
                 session.query(LLMCallTable).delete()
                 session.query(UserLLMStatsTable).delete()
+                session.query(RateLimitUsageTable).delete()
+                session.query(DailyCostSummaryTable).delete()
 
                 session.commit()
 
-                log("info", f"Cleared all LLM logs: {llm_calls_count} calls and {user_stats_count} user stats")
+                log("info", f"Cleared all LLM logs: {llm_calls_count} calls, {user_stats_count} user stats, {rate_limit_count} rate limit records, {daily_summary_count} daily summaries")
 
                 return {
                     "llm_calls": llm_calls_count,
-                    "user_stats": user_stats_count
+                    "user_stats": user_stats_count,
+                    "rate_limit_usage": rate_limit_count,
+                    "daily_summary": daily_summary_count
                 }
         except Exception as e:
             log("error", f"Failed to clear all logs: {e}")
-            return {"llm_calls": 0, "user_stats": 0}
+            return {"llm_calls": 0, "user_stats": 0, "rate_limit_usage": 0, "daily_summary": 0}
 
 
 def get_llm_monitor():

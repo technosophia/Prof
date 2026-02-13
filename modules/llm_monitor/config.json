@@ -5,22 +5,63 @@
     "costs": {
       "ollama": {
         "input_cost_per_million_tokens": 0.0,
-        "output_cost_per_million_tokens": 0.0
+        "output_cost_per_million_tokens": 0.0,
+        "is_free": true
       },
       "groq": {
         "input_cost_per_million_tokens": 0.7,
-        "output_cost_per_million_tokens": 0.8
+        "output_cost_per_million_tokens": 0.8,
+        "is_free": false
       },
       "gemini": {
         "input_cost_per_million_tokens": 0.35,
-        "output_cost_per_million_tokens": 1.05
+        "output_cost_per_million_tokens": 1.05,
+        "is_free": false
       },
       "mock": {
         "input_cost_per_million_tokens": 0.0,
-        "output_cost_per_million_tokens": 0.0
+        "output_cost_per_million_tokens": 0.0,
+        "is_free": true
+      }
+    },
+    "rate_limits": {
+      "groq": {
+        "free": {
+          "llama-3.3-70b-versatile": {
+            "rpm": 30,
+            "rpd": 1000,
+            "tpm": 12000,
+            "tpd": 100000
+          },
+          "default": {
+            "rpm": 30,
+            "rpd": 1000,
+            "tpm": 12000,
+            "tpd": 100000
+          }
+        }
+      },
+      "gemini": {
+        "free": {
+          "gemini-2.5-flash": {
+            "rpm": 15,
+            "tpm": 1000000,
+            "rpd": 1500
+          },
+          "default": {
+            "rpm": 60,
+            "tpm": 1000000,
+            "rpd": null
+          }
+        }
       }
     },
     "default_token_estimator": "tiktoken",
-    "enable_cost_calculation": true
+    "enable_cost_calculation": true,
+    "rate_limit_tracking": {
+      "enabled": true,
+      "reset_cron": "0 0 * * *",
+      "track_per_user": false
+    }
   }
 }
