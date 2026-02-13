@@ -39,7 +39,8 @@ def inject_ui_admin_tab():
 
         # Create base tabs
         tab_names = [
-            "Dashboard",
+            "User Dashboard",
+            "Plugin Dashboard",
             "Configuration",
             "Import/Export",
             "Plugins"
@@ -56,18 +57,21 @@ def inject_ui_admin_tab():
 
         # Dashboard tab
         with tabs[0]:
-            _render_dashboard_tab(trainer_id, trainer_manager, plugin_manager)
+            _render_user_dashboard_tab(trainer_id, trainer_manager, plugin_manager)
+
+        with tabs[1]:
+            _render_plugin_dashboard_tab(trainer_id, trainer_manager, plugin_manager)
 
         # Configuration tab
-        with tabs[1]:
+        with tabs[2]:
             _render_configuration_tab()
 
         # Import/Export tab
-        with tabs[2]:
+        with tabs[3]:
             _render_import_export_tab(trainer_id, trainer_manager)
 
         # Plugins management tab
-        with tabs[3]:
+        with tabs[4]:
             _render_plugins_tab(trainer_id, trainer_manager, plugin_manager)
 
         # Plugin tabs
@@ -130,7 +134,7 @@ def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
                 widget()
 
 
-def _render_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager):
+def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager):
     """Render the students dashboard."""
     st.subheader("Students")
 
@@ -231,7 +235,27 @@ def _render_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager):
                                     widget()
                             plugin_idx += 1
 
-            st.divider()
+
+def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager):
+    """Render the students dashboard."""
+    st.subheader("Students")
+
+    user_manager = get_user_manager()
+
+    # Get students (list of user objects from get_children)
+    student_objects = trainer_manager.get_trainer_students(trainer_id)
+
+    if not student_objects:
+        st.info("No students assigned yet.")
+        return
+
+    # Add conversation stats
+    students = []
+    for student in student_objects:
+        student['conversation_count'] = trainer_manager.get_student_conversation_count(trainer_id, student['id'])
+        student['total_messages'] = trainer_manager.get_student_message_count(trainer_id, student['id'])
+        student['last_active'] = trainer_manager.get_student_last_active(student['id'])
+        students.append(student)
 
     # Plugin dashboard widgets (non-student specific)
     active_plugins = plugin_manager.get_active_plugins(trainer_id)
@@ -239,7 +263,6 @@ def _render_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager):
         widgets = plugin.render_dashboard_widgets(trainer_id, students)
         for widget in widgets:
             widget()
-
 
 def _render_configuration_tab():
     """Render the configuration tab."""
