@@ -6,6 +6,13 @@ Provides admin interface for user management with hierarchical roles:
 - Admin: Can view and manage all users
 - Master: Can view and manage only themselves and their children
 - Normal: No access to admin tab
+
+[agent]
+
+How to get the current user : user = st.session_state.current_user
+How to check if a user can access admin tab : can_access_admin_tab(user)
+How to check user role : user.get("role") in [UserRole.ADMIN.value, UserRole.MASTER.value]
+
 """
 
 import streamlit as st
