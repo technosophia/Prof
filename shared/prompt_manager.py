@@ -170,7 +170,7 @@ class PromptManager:
                             self._deep_merge(current, prompts)
                             self._source_files[prefix] = file_path
 
-                        log("info", f"Loaded legacy prompts from {file_path} (prefix: '{prefix or 'root'}')")
+                        log("debug", f"Loaded legacy prompts from {file_path} (prefix: '{prefix or 'root'}')")
 
                     else:
                         # Multilingual format - FORCE create the language entry
@@ -192,7 +192,7 @@ class PromptManager:
                         source_key = f"{prefix}:{lang_code}" if prefix else f"root:{lang_code}"
                         self._source_files[source_key] = file_path
 
-                        log("info", f"Loaded {lang_code} prompts from {file_path} (prefix: '{prefix or 'root'}')")
+                        log("debug", f"Loaded {lang_code} prompts from {file_path} (prefix: '{prefix or 'root'}')")
 
                 except Exception as e:
                     log("error", f"Error loading prompts from {file_path}: {e}")

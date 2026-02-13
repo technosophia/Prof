@@ -332,7 +332,7 @@ llm = llm_generate
 is_multilingual = _is_multilingual
 set_default_language = _set_default_language
 
-@st.cache_resource(ttl=0)  # Disable caching or force reload
+@st.cache_resource
 def _init_prompt_manager():
     """Initialize and load all prompts."""
     shared_dir = os.path.dirname(os.path.abspath(__file__))
@@ -347,7 +347,6 @@ def _init_prompt_manager():
 
     # Get fresh prompt manager
     prompt_manager_instance = prompt_manager.get_prompt_manager()
-    prompt_manager_instance._loaded = False  # Force reload
 
     # Load prompts
     prompt_manager.load_all_prompts(root_dir)
@@ -356,8 +355,6 @@ def _init_prompt_manager():
     if prompt_manager_instance._multilingual_prompts:
         prompt_manager_instance._is_multilingual = True
         prompt_manager_instance._available_languages = set(prompt_manager_instance._multilingual_prompts.keys())
-        print(f"DEBUG - Initialized prompt manager with languages: {prompt_manager_instance._available_languages}")
-        print(f"DEBUG - Multilingual mode: {prompt_manager_instance._is_multilingual}")
 
     return prompt_manager_instance
 
