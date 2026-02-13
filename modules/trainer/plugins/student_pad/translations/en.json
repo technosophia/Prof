@@ -1,0 +1,21 @@
+{
+  "trainer_plugin_student_pad": {
+    "name": "Student Pad",
+    "description": "Personal notes for each student",
+    "notes": "Notes",
+    "save_notes": "Save notes",
+    "notes_saved": "Notes saved!",
+    "notes_save_failed": "Failed to save notes",
+    "student_notes": "Student Notes",
+    "update_notes": "Update Notes",
+    "notes_updated": "Notes updated!",
+    "my_personal_notes": "My Personal Notes",
+    "write_your_notes_here": "Write your notes here...",
+    "notes_saved_check": "✓ Notes saved",
+    "failed_to_save_notes": "Failed to save notes",
+    "take_notes_placeholder": "Take notes, write down questions, or keep track of what you've learned...",
+    "characters": "characters",
+    "auto_saves_for_students": "Auto-saves for students",
+    "last_updated": "Last updated"
+  }
+}

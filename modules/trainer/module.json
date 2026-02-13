@@ -1,0 +1,9 @@
+{
+  "name": "trainer",
+  "version": "1.0.0",
+  "description": "Student training and progression tracking module",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "education",
+  "dependencies": []
+}

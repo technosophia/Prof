@@ -1,0 +1,9 @@
+{
+  "id": "student_pad",
+  "name": "Student Pad",
+  "version": "1.0.0",
+  "description": "Personal note-taking pad for each student",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "productivity"
+}

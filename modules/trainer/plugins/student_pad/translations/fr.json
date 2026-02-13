@@ -1,0 +1,21 @@
+{
+  "trainer_plugin_student_pad": {
+    "name": "Bloc-notes étudiant",
+    "description": "Notes personnelles pour chaque étudiant",
+    "notes": "Notes",
+    "save_notes": "Enregistrer les notes",
+    "notes_saved": "Notes enregistrées !",
+    "notes_save_failed": "Échec de l'enregistrement",
+    "student_notes": "Notes de l'étudiant",
+    "update_notes": "Mettre à jour",
+    "notes_updated": "Notes mises à jour !",
+    "my_personal_notes": "Mes notes personnelles",
+    "write_your_notes_here": "Écrivez vos notes ici...",
+    "notes_saved_check": "✓ Notes enregistrées",
+    "failed_to_save_notes": "Échec de l'enregistrement",
+    "take_notes_placeholder": "Prenez des notes, écrivez des questions ou suivez ce que vous avez appris...",
+    "characters": "caractères",
+    "auto_saves_for_students": "Auto-enregistrement",
+    "last_updated": "Dernière mise à jour"
+  }
+}

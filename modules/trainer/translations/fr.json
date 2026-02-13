@@ -1,0 +1,44 @@
+{
+  "trainer": {
+    "title": "Formateur",
+    "admin": {
+      "dashboard": "Tableau de bord",
+      "configuration": "Configuration",
+      "import_export": "Import/Export",
+      "plugins": "Extensions"
+    },
+    "dashboard": {
+      "students": "Mes Élèves",
+      "no_students": "Aucun élève trouvé",
+      "student_details": "Détails de l'élève",
+      "last_active": "Dernière activité",
+      "conversations": "Conversations",
+      "total_messages": "Messages",
+      "actions": "Actions"
+    },
+    "config": {
+      "system_prompt": "Prompt système",
+      "system_prompt_help": "Ce prompt définit comment l'IA se comporte en tant qu'enseignant",
+      "save_config": "Enregistrer la configuration",
+      "config_saved": "Configuration enregistrée avec succès"
+    },
+    "import_export": {
+      "export": "Exporter la configuration",
+      "import": "Importer la configuration",
+      "export_yaml": "Exporter en YAML",
+      "import_yaml": "Importer YAML",
+      "select_file": "Sélectionner un fichier YAML",
+      "import_success": "Configuration importée avec succès",
+      "import_error": "Erreur lors de l'importation"
+    },
+    "plugins": {
+      "title": "Extensions",
+      "no_plugins": "Aucune extension disponible",
+      "activate": "Activer",
+      "deactivate": "Désactiver",
+      "status": "Statut",
+      "active": "Actif",
+      "inactive": "Inactif"
+    }
+  }
+}
