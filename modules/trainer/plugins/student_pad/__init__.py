@@ -225,7 +225,7 @@ class StudentPadPlugin(TrainerPlugin):
         """Add pad widget to dashboard overview."""
         def render_pad_overview():
             st.markdown("---")
-            st.subheader(_("📝 Student Notes Overview"))
+            st.subheader("📝 Student Notes Overview")
 
             for student in students[:3]:  # Show only first 3 to avoid clutter
                 student_id = student['id']
@@ -237,20 +237,20 @@ class StudentPadPlugin(TrainerPlugin):
 
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.caption(f"📝 Student: {len(current_content)} " + _("chars"))
+                        st.caption(f"📝 Student: {len(current_content)} " + "chars")
                         if current_content:
                             preview = current_content[:100] + ("..." if len(current_content) > 100 else "")
                             st.markdown(preview)
                         else:
-                            st.caption(_("No student notes"))
+                            st.caption("No student notes")
 
                     with col2:
-                        st.caption(f"👨‍🏫 Teacher: {len(teacher_notes)} " + _("chars"))
+                        st.caption(f"👨‍🏫 Teacher: {len(teacher_notes)} " + "chars")
                         if teacher_notes:
                             preview = teacher_notes[:100] + ("..." if len(teacher_notes) > 100 else "")
                             st.markdown(preview)
                         else:
-                            st.caption(_("No teacher notes"))
+                            st.caption("No teacher notes")
 
         return [render_pad_overview]
 
