@@ -1,150 +1,107 @@
 """
-Module Development Guide: Config, Logging, Translation & Database Systems
+Module Development Guide: Config, Logging, Translation, Database, Users, Conversations, LLM, Prompts & Settings
 
 [agent]
-## Configuration System (`core/config.py`)
+## Core Systems
+
+### Configuration System (`core/config.py`)
 Centralized configuration management with dot-notation access. Automatically discovers and merges config.json files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
 
-Key functions:
+**Exported functions:**
 - `get_config()`: Access the global configuration object
 - `get_section(prefix)`: Get module-specific configuration section
 - `save_config(prefix, data)`: Save module configuration back to file
 
-Usage:
-```python
-config = get_config()
-db_path = config.get("database.path")
-module_config = get_section("modules.my_module")
-```
-
-## Logging System (`core/logging.py`)
+### Logging System (`core/logging.py`)
 Simple, configurable logging with multiple severity levels and stack trace support. Integrates with the configuration system.
 
-Key functions:
+**Exported functions:**
 - `log(level, message, *args, exc_info=False)`: Main logging function
-- Convenience functions: `debug()`, `info()`, `warning()`, `error()`, `critical()`
 - `configure_logging_from_dict(config_dict)`: Apply logging configuration
 
-Usage:
-```python
-log("info", "Module initialized")
-error("Failed to connect: %s", error_msg, exc_info=True)
-debug("Processing item %d", item_id)
-```
-
-## Translation System (`core/translate.py`)
+### Translation System (`core/translate.py`)
 Multi-language support with JSON-based translation files. Automatically loads all translation files from 'translations' directories throughout the project.
 
-Key functions:
+**Exported functions:**
 - `_(key, lang=None)`: Main translation function (uses session language)
 - `get_available_languages()`: List all loaded language codes
 
-Usage:
-```python
-# Uses current session language
-title = _("welcome_message")
-# Force specific language
-title_en = _("welcome_message", "en")
-```
-
-## Database System (`core/database.py`)
+### Database System (`core/database.py`)
 SQLAlchemy-based database management with singleton pattern. Supports both in-memory (testing) and persistent SQLite databases.
 
-Key imports:
+**Exported components:**
 - `Base`: SQLAlchemy declarative base for model definitions
-
-Key functions:
-- `init_database()`: Initialize database connection (use in-memory for tests)
+- `init_database()`: Initialize database connection
 - `get_db_manager()`: Access the global database manager
 - `db_manager.get_session()`: Get database session (context manager)
-- `db_manager.empty_all_tables()`: Clear all table data (preserves structure)
+- `db_manager.empty_all_tables()`: Clear all table data
 
-Usage:
-```python
-# Define models
-class MyModel(Base):
-    __tablename__ = "my_table"
+## Shared Systems
 
-# Initialize database
-init_database()
+### User Management System (`shared/users.py`)
+Built-in user authentication and role-based access control with database persistence. Supports hierarchical user relationships (ADMIN, MASTER, NORMAL).
 
-# Use database session
-with get_db_manager().get_session() as session:
-    items = session.query(MyModel).all()
-```
-
-## User Management System (`shared/users.py`)
-Built-in user authentication and role-based access control with database persistence. Supports hierarchical user relationships.
-
-Key imports:
-- `UserRole`: Enum for user permissions (ADMIN, MASTER, NORMAL)
-
-Key functions:
+**Exported components:**
+- `UserRole`: Enum for user permissions
 - `get_user_manager()`: Access user management singleton
 - `init_user_manager()`: Initialize with default users
 - `get_all_users()`: Get all users as dictionary
+- Automatic cleanup callbacks for user deletion
 
-User hierarchy:
-- ADMIN: Full system access
-- MASTER: Can manage their NORMAL users
-- NORMAL: Regular users with parent MASTER
-
-Usage:
-```python
-# Check user authentication
-if get_user_manager().authenticate(username, password):
-    user = get_user_manager().get_user(username)
-    # Check permissions
-    if user.role == UserRole.ADMIN:
-        # Admin actions
-```
-
-## Conversation Management System (`shared/conversation.py`)
+### Conversation Management System (`shared/conversation.py`)
 Stores and manages user conversations with LLM interactions. Supports multiple conversations per user with full message history.
 
-Key imports:
-- `Message`: Conversation message model with role, content, timestamp
-
-Key functions:
+**Exported components:**
+- `Message`: Conversation message model
 - `get_conversation_manager()`: Access conversation management
-- Automatic cleanup of user conversations when users are deleted
+- `cleanup_user_conversations()`: Cleanup conversations before user deletion
+- Automatic cleanup when users are deleted
 
-Usage:
-```python
-# Get user's conversations
-manager = get_conversation_manager()
-conversations = manager.get_user_conversations(user_id)
+### LLM Management System (`shared/llm.py`)
+Manages multiple LLM providers and models with unified interface. Supports streaming, conversation history, and context injection.
 
-# Add new message
-manager.add_message(conversation_id, Message(role="user", content="Hello"))
-```
+**Exported functions:**
+- `get_llm_manager()`: Get global LLM manager instance
+- `llm_generate()` / `llm()`: Generate response from current LLM
+- `set_current_llm()`: Switch active LLM
+- `get_available_llms()`: List all configured LLMs
+- `get_current_llm_info()`: Get current LLM details
+- `get_current_llm_id()`: Get current LLM identifier
+- `get_llm_by_name()`: Find LLM by name
+- `register_llm_callback()`: Register context generation callback - legacy
+- `unregister_llm_callback()`: Remove context callback - legacy
+- `register_llm_context_callback()`: Register structured context callback
+- `unregister_llm_context_callback()`: Remove structured context callback
 
-## Prompt Management System (`shared/prompt_manager.py`)
-Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project directory structure.
+### Prompt Management System (`shared/prompt_manager.py`)
+Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project. Supports multilingual prompts.
 
-Key functions:
-- `get_prompt(key)`: Get prompt by key using dot notation
+**Exported functions:**
+- `get_prompt()`: Get prompt by key using dot notation
 - `get_all_prompts()`: Get all loaded prompts
-- `get_module_prompts(prefix)`: Get prompts for a specific module
+- `get_module_prompts()`: Get prompts for a specific module
 - `list_modules_with_prompts()`: List all modules with prompts
+- `get_available_prompt_languages()`: List dynamic available languages
+- `is_multilingual()`: Check if multilingual mode is enabled
+- `set_default_language()`: Set default prompt language
+- `get_prompt_manager()`: Access prompt manager instance
 
-Usage:
-```python
-from shared.common import get_prompt
+### User Settings System (`shared/settings.py`)
+Manages user-specific configuration and preferences with database persistence.
 
-search_prompt = get_prompt("rag_manager.search_prompt")
-module_prompts = get_module_prompts("rag_manager")
-```
+**Exported functions:**
+- `get_user_settings_manager()`: Access user settings manager
 
 ## Best Practices Quick Reference
 
-1. **Import from common.py only**: Never import directly from core modules
+1. **Import from common.py only**: Never import directly from core/shared modules
 2. **Initialize in order**: Config → Logging → Database → Other systems
 3. **Use session state for language**: Translation uses `st.session_state.current_language`
 4. **Always use db sessions as context managers**: `with get_db_manager().get_session() as session:`
 5. **Log errors with tracebacks**: Use `exc_info=True` for error logs
 6. **Test with in-memory database**: Use `init_database(use_memory=True)` in tests
 7. **Cleanup test data**: Use `db_manager.empty_all_tables()` between tests
+8. **Cache singletons**: All managers use `@st.cache_resource` for global state
 """
 
 

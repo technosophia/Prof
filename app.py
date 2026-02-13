@@ -31,7 +31,7 @@ Modules:
 - A module must be independent of other modules, except for common functionalities.
 - A module can have sub-modules and its own injection points, but the only dependencies are the parent module and the application's common functionalities. There must be no module that depends on multiple modules. It is a tree structure.
 
-Common:
+Common & Core:
 - Shared modules are in a dedicated "shared" directory to clearly separate them from removable modules; these modules cannot be disabled.
 - The application provides injection points for modules for: translations, prompts and LLM calls, configuration, tests, display (side bar, main page, settings tab, user config).
 - Everything common comes with a Mock for tests.
@@ -47,7 +47,7 @@ Planned Features:
 
 ## UI Injection Points
 
-Modules can implement the following injection points by creating functions with the pattern `inject_ui_[injection_point]()` in a `*_ui.py` file:
+Modules that ends with *_ui.py can implement the following injection points by creating functions with the pattern `inject_ui_[injection_point]()` in a `*_ui.py` file:
 
 ### Core Application Flow
 - `initialize`: Called once at app startup for initializing session state and module setup. No UI expected.

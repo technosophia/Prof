@@ -1,5 +1,34 @@
 """
 User management with database backend.
+
+[agent]
+
+## User objets
+User object structure returned by UserManager.get_user() and similar methods:
+
+{
+    "id": str,                          # Unique user identifier (UUID or predefined)
+    "name": str,                        # Full name, must not be empty
+    "email": Optional[str],             # Email address, can be null
+    "role": str,                       # One of: "admin", "master", "normal"
+    "parent_id": Optional[str],        # ID of parent user (required for normal users, must be master)
+    "created_at": Optional[str],       # ISO 8601 datetime string, null if not set
+    "last_login": Optional[str],       # ISO 8601 datetime string, null if never logged in
+    "is_active": bool,                # Whether user account is active (default: True)
+    "profile": Dict[str, Any],        # User preferences (includes language: str with 2-letter code)
+    "metadata": Dict[str, Any],       # System metadata (creation source, defaults, etc.)
+    "parent_name": Optional[str],     # Display name of parent user, null if no parent
+    "children": Optional[List[Dict]]  # Only when include_children=True: recursive list of child users
+}
+
+Role hierarchy:
+- ADMIN: System administrators, can manage all users
+- MASTER: Can manage themselves and their direct children (normal users)
+- NORMAL: Regular users, must have a master as parent, can only see themselves
+
+This structure is JSON-serializable and used consistently across get_user(),
+get_all_users(), search_users(), and similar methods.
+
 """
 import uuid
 from typing import Dict, List, Optional, Any, Set

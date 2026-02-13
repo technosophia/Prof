@@ -3,6 +3,8 @@
 
 ## Logging System (`shared/logging.py`)
 
+BECAREFUL : internal module. Use shared.common for imports, not core.logging
+
 ### Purpose
 Simple, configurable logging with multiple levels and stack trace support. All logs are in English (not translated). Integrates with configuration system.
 
@@ -10,7 +12,7 @@ Simple, configurable logging with multiple levels and stack trace support. All l
 
 #### Simple Logging (main way to log)
 ```python
-from logging import log
+from core.logging import log
 
 # One-line logging
 log("info", "Module initialized successfully")

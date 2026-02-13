@@ -11,6 +11,68 @@ Public interface:
 - init_database(): Initialize database connection and run migrations
 - DatabaseManager.get_session(): Get database session (context manager)
 - DatabaseManager.check_and_upgrade_schema(): Run pending migrations
+
+[agent]
+Unified database management with SQLAlchemy.
+BECAREFUL : internal module. Use shared.common for imports, not core.database
+
+This module provides a singleton DatabaseManager and SQLAlchemy declarative Base
+for applications to define their own database models that integrate with the main
+database system.
+
+===========================================================================
+DEFINING CUSTOM TABLES
+===========================================================================
+
+1. Import the Base class from this module:
+
+   from core.database import Base
+
+2. Define your model class inheriting from Base:
+
+   class MyTable(Base):
+       __tablename__ = 'my_table'
+
+       id = Column(String, primary_key=True)
+       name = Column(String, nullable=False)
+       # ... other columns
+
+3. Tables are automatically created on application startup via init_database().
+   No manual creation or migration handling is needed.
+
+===========================================================================
+DATABASE ACCESS
+===========================================================================
+
+Get the global database manager and use session context manager:
+
+   from core.database import get_db_manager
+
+   db = get_db_manager()
+   with db.get_session() as session:
+       result = session.query(MyTable).all()
+       session.add(my_object)
+
+The session automatically commits on success, rolls back on error.
+
+===========================================================================
+PUBLIC INTERFACE
+===========================================================================
+
+- Base: SQLAlchemy declarative base - inherit this for all custom tables
+- get_db_manager(): Returns the singleton DatabaseManager instance
+- init_database(): Initialize database connection (called by app startup)
+- DatabaseManager.get_session(): Context manager for database sessions
+
+===========================================================================
+NOTE
+===========================================================================
+
+- All tables inheriting from Base are automatically detected and created
+- For persistent databases, schema changes are handled via Alembic migrations
+- In-memory database (:memory:) is automatically used for testing
+- Always use get_session() context manager - never manage sessions manually
+
 """
 import os
 from pathlib import Path

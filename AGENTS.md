@@ -34,7 +34,7 @@ Modules:
 - A module must be independent of other modules, except for common functionalities.
 - A module can have sub-modules and its own injection points, but the only dependencies are the parent module and the application's common functionalities. There must be no module that depends on multiple modules. It is a tree structure.
 
-Common:
+Common & Core:
 - Shared modules are in a dedicated "shared" directory to clearly separate them from removable modules; these modules cannot be disabled.
 - The application provides injection points for modules for: translations, prompts and LLM calls, configuration, tests, display (side bar, main page, settings tab, user config).
 - Everything common comes with a Mock for tests.
@@ -50,7 +50,7 @@ Planned Features:
 
 ## UI Injection Points
 
-Modules can implement the following injection points by creating functions with the pattern `inject_ui_[injection_point]()` in a `*_ui.py` file:
+Modules that ends with *_ui.py can implement the following injection points by creating functions with the pattern `inject_ui_[injection_point]()` in a `*_ui.py` file:
 
 ### Core Application Flow
 - `initialize`: Called once at app startup for initializing session state and module setup. No UI expected.
@@ -107,337 +107,187 @@ Modules can implement the following injection points by creating functions with 
 
 # core.database
 
-Unified database management with SQLAlchemy.
-Supports both in-memory (for testing) and persistent storage.
+Unified database management with SQLAlchemy and Alembic migrations.
+Supports both in-memory (for testing) and persistent storage with automatic schema migrations.
 
 This module provides a singleton DatabaseManager for database operations.
-Modules like users.py should inject this service rather than creating their own connections.
+Now with integrated Alembic migration support.
 
 Public interface:
 - db_manager: Global DatabaseManager instance
 - Base: SQLAlchemy declarative base for models
-- init_database(): Initialize database connection
+- init_database(): Initialize database connection and run migrations
 - DatabaseManager.get_session(): Get database session (context manager)
-- DatabaseManager.is_initialized(): Check if database is ready
-
-Typical usage:
-1. Call init_database() at application startup
-2. Use db_manager.get_session() for database operations
-3. Define models using Base as base class
+- DatabaseManager.check_and_upgrade_schema(): Run pending migrations
 
 [agent]
-## Creating User-Linked Persistent Data
-When adding new persistent data linked to users (e.g., user preferences, user history), follow this pattern:
+Unified database management with SQLAlchemy.
+BECAREFUL : internal module. Use shared.common for imports, not core.database
 
-### 1. Define Your Model
-```python
-from core.database import Base
-from sqlalchemy import Column, String, ForeignKey, DateTime, JSON
-from datetime import datetime
+This module provides a singleton DatabaseManager and SQLAlchemy declarative Base
+for applications to define their own database models that integrate with the main
+database system.
 
-class UserPreferenceTable(Base):
-    __tablename__ = 'user_preferences'
+===========================================================================
+DEFINING CUSTOM TABLES
+===========================================================================
 
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
-    preference_type = Column(String, nullable=False)
-    preference_data = Column(JSON, default={})
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-```
+1. Import the Base class from this module:
 
-### 2. Register Cleanup Callback
-To automatically clean up user data when a user is deleted, register a cleanup function:
+   from core.database import Base
 
-```python
-def cleanup_user_preferences(user_id: str) -> bool:
-    try:
-        with get_db_manager().get_session() as session:
-            session.query(UserPreferenceTable).filter_by(user_id=user_id).delete()
-            log("info", f"Cleaned up preferences for user {user_id}")
-            return True
-    except Exception as e:
-        log("error", f"Failed to cleanup preferences: {e}")
-        return False
+2. Define your model class inheriting from Base:
 
-# Register with user manager
-get_user_manager().register_before_delete_callback(cleanup_user_preferences)
-```
+   class MyTable(Base):
+       __tablename__ = 'my_table'
 
-### 3. Access User-Linked Data
-Always query by user_id to respect permission boundaries:
+       id = Column(String, primary_key=True)
+       name = Column(String, nullable=False)
+       # ... other columns
 
-```python
-with get_db_manager().get_session() as session:
-    preferences = session.query(UserPreferenceTable).filter_by(user_id=current_user_id).all()
-```
+3. Tables are automatically created on application startup via init_database().
+   No manual creation or migration handling is needed.
 
-**Note**: Tables are automatically created via `Base.metadata.create_all()` when `init_database()` is called.
+===========================================================================
+DATABASE ACCESS
+===========================================================================
 
-<a id="core.database.DatabaseManager"></a>
+Get the global database manager and use session context manager:
 
-## DatabaseManager Objects
+   from core.database import get_db_manager
 
-```python
-class DatabaseManager()
-```
+   db = get_db_manager()
+   with db.get_session() as session:
+       result = session.query(MyTable).all()
+       session.add(my_object)
 
-Manages database connections and operations.
+The session automatically commits on success, rolls back on error.
 
-[agent]
-Singleton class providing database services. Use the global db_manager instance.
-Other modules should inject this service rather than creating their own connections.
+===========================================================================
+PUBLIC INTERFACE
+===========================================================================
 
-Public methods:
-- get_session(): Primary method for database access
-- is_initialized(): Check if database is ready
-- empty_all_tables(): Remove all records from all tables (preserves table structure)
+- Base: SQLAlchemy declarative base - inherit this for all custom tables
+- get_db_manager(): Returns the singleton DatabaseManager instance
+- init_database(): Initialize database connection (called by app startup)
+- DatabaseManager.get_session(): Context manager for database sessions
 
-Usage:
-    # In another module like users.py
-    from core.database import db_manager
+===========================================================================
+NOTE
+===========================================================================
 
-    if db_manager.is_initialized():
-        with db_manager.get_session() as session:
-            # Perform database operations
-
-<a id="core.database.DatabaseManager.is_initialized"></a>
-
-#### is\_initialized
-
-```python
-def is_initialized()
-```
-
-Check if database is initialized.
-
-[agent]
-Returns True if database is ready for use.
-
-Returns:
-    bool: True if database engine is initialized
-
-<a id="core.database.DatabaseManager.dispose"></a>
-
-#### dispose
-
-```python
-def dispose()
-```
-
-Dispose of database connections and reset manager state.
-
-[agent]
-Properly closes all database connections and resets the manager.
-Critical for test isolation - call between tests to prevent file locks.
-
-Usage:
-    # Between tests
-    if db_manager.is_initialized():
-        db_manager.dispose()
-
-<a id="core.database.DatabaseManager.get_session"></a>
-
-#### get\_session
-
-```python
-@contextmanager
-def get_session() -> Session
-```
-
-Get a database session with context manager.
-
-[agent]
-Primary method for database access. Provides automatic session management.
-Commits on success, rolls back on exception.
-
-Yields:
-    sqlalchemy.orm.Session: Database session
-
-Raises:
-    RuntimeError: If database not initialized
-
-Example (from users.py):
-    with db_manager.get_session() as session:
-        user = session.query(UserTable).filter_by(id=user_id).first()
-
-<a id="core.database.DatabaseManager.empty_all_tables"></a>
-
-#### empty\_all\_tables
-
-```python
-def empty_all_tables()
-```
-
-Remove all records from all tables while preserving table structure.
-
-[agent]
-Useful for testing or resetting application state. This method deletes all
-data from every table but keeps the tables themselves intact.
-
-Warning: This is a destructive operation and should be used with caution.
-Not recommended for production use unless absolutely necessary.
-
-Returns:
-    bool: True if successful, False otherwise
-
-Example:
-    # Reset database for testing
-    db_manager.empty_all_tables()
-
-<a id="core.database.init_database"></a>
-
-#### init\_database
-
-```python
-def init_database(use_memory: bool = False, db_path: Optional[str] = None)
-```
-
-Initialize the database.
-
-[agent]
-Initialize database connection. Must be called before any database operations.
-
-Args:
-    use_memory: Use in-memory database for testing (default: False)
-    db_path: Path to database file (default: from config or "data/app.db")
-
-Returns:
-    DatabaseManager: Initialized database manager
+- All tables inheriting from Base are automatically detected and created
+- For persistent databases, schema changes are handled via Alembic migrations
+- In-memory database (:memory:) is automatically used for testing
+- Always use get_session() context manager - never manage sessions manually
 
 <a id="shared.common"></a>
 
 # shared.common
 
-Module Development Guide: Config, Logging, Translation & Database Systems
+Module Development Guide: Config, Logging, Translation, Database, Users, Conversations, LLM, Prompts & Settings
 
 [agent]
-## Configuration System (`core/config.py`)
+## Core Systems
+
+### Configuration System (`core/config.py`)
 Centralized configuration management with dot-notation access. Automatically discovers and merges config.json files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
 
-Key functions:
+**Exported functions:**
 - `get_config()`: Access the global configuration object
 - `get_section(prefix)`: Get module-specific configuration section
 - `save_config(prefix, data)`: Save module configuration back to file
 
-Usage:
-```python
-config = get_config()
-db_path = config.get("database.path")
-module_config = get_section("modules.my_module")
-```
-
-## Logging System (`core/logging.py`)
+### Logging System (`core/logging.py`)
 Simple, configurable logging with multiple severity levels and stack trace support. Integrates with the configuration system.
 
-Key functions:
+**Exported functions:**
 - `log(level, message, *args, exc_info=False)`: Main logging function
-- Convenience functions: `debug()`, `info()`, `warning()`, `error()`, `critical()`
 - `configure_logging_from_dict(config_dict)`: Apply logging configuration
 
-Usage:
-```python
-log("info", "Module initialized")
-error("Failed to connect: %s", error_msg, exc_info=True)
-debug("Processing item %d", item_id)
-```
-
-## Translation System (`core/translate.py`)
+### Translation System (`core/translate.py`)
 Multi-language support with JSON-based translation files. Automatically loads all translation files from 'translations' directories throughout the project.
 
-Key functions:
+**Exported functions:**
 - `_(key, lang=None)`: Main translation function (uses session language)
 - `get_available_languages()`: List all loaded language codes
 
-Usage:
-```python
-# Uses current session language
-title = _("welcome_message")
-# Force specific language
-title_en = _("welcome_message", "en")
-```
-
-## Database System (`core/database.py`)
+### Database System (`core/database.py`)
 SQLAlchemy-based database management with singleton pattern. Supports both in-memory (testing) and persistent SQLite databases.
 
-Key imports:
+**Exported components:**
 - `Base`: SQLAlchemy declarative base for model definitions
-
-Key functions:
-- `init_database()`: Initialize database connection (use in-memory for tests)
+- `init_database()`: Initialize database connection
 - `get_db_manager()`: Access the global database manager
 - `db_manager.get_session()`: Get database session (context manager)
-- `db_manager.empty_all_tables()`: Clear all table data (preserves structure)
+- `db_manager.empty_all_tables()`: Clear all table data
 
-Usage:
-```python
-# Define models
-class MyModel(Base):
-    __tablename__ = "my_table"
+## Shared Systems
 
-# Initialize database
-init_database()
+### User Management System (`shared/users.py`)
+Built-in user authentication and role-based access control with database persistence. Supports hierarchical user relationships (ADMIN, MASTER, NORMAL).
 
-# Use database session
-with get_db_manager().get_session() as session:
-    items = session.query(MyModel).all()
-```
-
-## User Management System (`shared/users.py`)
-Built-in user authentication and role-based access control with database persistence. Supports hierarchical user relationships.
-
-Key imports:
-- `UserRole`: Enum for user permissions (ADMIN, MASTER, NORMAL)
-
-Key functions:
+**Exported components:**
+- `UserRole`: Enum for user permissions
 - `get_user_manager()`: Access user management singleton
 - `init_user_manager()`: Initialize with default users
 - `get_all_users()`: Get all users as dictionary
+- Automatic cleanup callbacks for user deletion
 
-User hierarchy:
-- ADMIN: Full system access
-- MASTER: Can manage their NORMAL users
-- NORMAL: Regular users with parent MASTER
-
-Usage:
-```python
-# Check user authentication
-if get_user_manager().authenticate(username, password):
-    user = get_user_manager().get_user(username)
-    # Check permissions
-    if user.role == UserRole.ADMIN:
-        # Admin actions
-```
-
-## Conversation Management System (`shared/conversation.py`)
+### Conversation Management System (`shared/conversation.py`)
 Stores and manages user conversations with LLM interactions. Supports multiple conversations per user with full message history.
 
-Key imports:
-- `Message`: Conversation message model with role, content, timestamp
-
-Key functions:
+**Exported components:**
+- `Message`: Conversation message model
 - `get_conversation_manager()`: Access conversation management
-- Automatic cleanup of user conversations when users are deleted
+- `cleanup_user_conversations()`: Cleanup conversations before user deletion
+- Automatic cleanup when users are deleted
 
-Usage:
-```python
-# Get user's conversations
-manager = get_conversation_manager()
-conversations = manager.get_user_conversations(user_id)
+### LLM Management System (`shared/llm.py`)
+Manages multiple LLM providers and models with unified interface. Supports streaming, conversation history, and context injection.
 
-# Add new message
-manager.add_message(conversation_id, Message(role="user", content="Hello"))
-```
+**Exported functions:**
+- `get_llm_manager()`: Get global LLM manager instance
+- `llm_generate()` / `llm()`: Generate response from current LLM
+- `set_current_llm()`: Switch active LLM
+- `get_available_llms()`: List all configured LLMs
+- `get_current_llm_info()`: Get current LLM details
+- `get_current_llm_id()`: Get current LLM identifier
+- `get_llm_by_name()`: Find LLM by name
+- `register_llm_callback()`: Register context generation callback - legacy
+- `unregister_llm_callback()`: Remove context callback - legacy
+- `register_llm_context_callback()`: Register structured context callback
+- `unregister_llm_context_callback()`: Remove structured context callback
+
+### Prompt Management System (`shared/prompt_manager.py`)
+Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project. Supports multilingual prompts.
+
+**Exported functions:**
+- `get_prompt()`: Get prompt by key using dot notation
+- `get_all_prompts()`: Get all loaded prompts
+- `get_module_prompts()`: Get prompts for a specific module
+- `list_modules_with_prompts()`: List all modules with prompts
+- `get_available_prompt_languages()`: List dynamic available languages
+- `is_multilingual()`: Check if multilingual mode is enabled
+- `set_default_language()`: Set default prompt language
+- `get_prompt_manager()`: Access prompt manager instance
+
+### User Settings System (`shared/settings.py`)
+Manages user-specific configuration and preferences with database persistence.
+
+**Exported functions:**
+- `get_user_settings_manager()`: Access user settings manager
 
 ## Best Practices Quick Reference
 
-1. **Import from common.py only**: Never import directly from core modules
+1. **Import from common.py only**: Never import directly from core/shared modules
 2. **Initialize in order**: Config → Logging → Database → Other systems
 3. **Use session state for language**: Translation uses `st.session_state.current_language`
 4. **Always use db sessions as context managers**: `with get_db_manager().get_session() as session:`
 5. **Log errors with tracebacks**: Use `exc_info=True` for error logs
 6. **Test with in-memory database**: Use `init_database(use_memory=True)` in tests
 7. **Cleanup test data**: Use `db_manager.empty_all_tables()` between tests
+8. **Cache singletons**: All managers use `@st.cache_resource` for global state
 
 <a id="shared.llm"></a>
 
@@ -455,7 +305,7 @@ Unified interface for multiple Large Language Models (Ollama, Gemini, Groq) with
 
 #### Initialization and Setup
 ```python
-from shared.llm import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+from shared.common import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # LLM manager is automatically initialized with app config
 # No manual initialization needed
@@ -479,7 +329,7 @@ response = await llm_generate("Tell me a story", stream_callback)
 ### Context injection
 Any module can inject context in the current conversation. It will be added at the end of the history
 ```
- from shared.llm import register_llm_callback, unregister_llm_callback
+ from shared.common import register_llm_callback, unregister_llm_callback
 
 def inject_current_time_context(user_id: str, messages: List[Dict]) -> str:
     from datetime import datetime
@@ -488,6 +338,19 @@ def inject_current_time_context(user_id: str, messages: List[Dict]) -> str:
 
 # Register the callback (typically during initialization)
 register_llm_callback(inject_current_time_context)
+```
+
+### Enhanced Context Injection
+Any module can inject context with more control over placement and role
+```
+from shared.common import register_context_callback, unregister_context_callback
+
+def inject_weather_context(user_id: str, messages: List[Dict]) -> tuple:
+    weather = get_current_weather()
+    return weather, "system", "top"  # context, role, position
+
+# Register the enhanced callback
+register_context_callback(inject_weather_context)
 ```
 
 <a id="shared.module_handler"></a>
@@ -507,12 +370,17 @@ Key Features:
 - Manages activation status in modules.json
 - Provides toggle functionality for modules
 - Integrates with UI registry for selective module loading
+- Auto-discovery of translations and prompts
+- Auto-discovery of injection points for UI integration with main App
 
 Module Requirements:
 1. Must be placed in modules/ directory as a subdirectory
 2. Must contain a module.json file with metadata
-3. UI modules should follow *_ui.py naming convention
+3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration with main App
 4. Can include config.json for module-specific configuration
+5. Can include translation/xx.json for language-specific translations
+6. Can include prompts.xx.json for language-specific prompts
+7. Can include tests in the test/ directory for pytest automatic testing
 
 Module JSON Structure:
 ```json
@@ -527,3 +395,100 @@ Module JSON Structure:
 }
 ```
 
+<a id="shared.users"></a>
+
+# shared.users
+
+User management with database backend.
+
+[agent]
+
+## User objets
+User object structure returned by UserManager.get_user() and similar methods:
+
+{
+    "id": str,                          # Unique user identifier (UUID or predefined)
+    "name": str,                        # Full name, must not be empty
+    "email": Optional[str],             # Email address, can be null
+    "role": str,                       # One of: "admin", "master", "normal"
+    "parent_id": Optional[str],        # ID of parent user (required for normal users, must be master)
+    "created_at": Optional[str],       # ISO 8601 datetime string, null if not set
+    "last_login": Optional[str],       # ISO 8601 datetime string, null if never logged in
+    "is_active": bool,                # Whether user account is active (default: True)
+    "profile": Dict[str, Any],        # User preferences (includes language: str with 2-letter code)
+    "metadata": Dict[str, Any],       # System metadata (creation source, defaults, etc.)
+    "parent_name": Optional[str],     # Display name of parent user, null if no parent
+    "children": Optional[List[Dict]]  # Only when include_children=True: recursive list of child users
+}
+
+Role hierarchy:
+- ADMIN: System administrators, can manage all users
+- MASTER: Can manage themselves and their direct children (normal users)
+- NORMAL: Regular users, must have a master as parent, can only see themselves
+
+This structure is JSON-serializable and used consistently across get_user(),
+get_all_users(), search_users(), and similar methods.
+
+<a id="shared.conversation"></a>
+
+# shared.conversation
+
+Conversation management with database backend.
+Handles multiple conversations per user with LLM interactions.
+
+[agent]
+
+## Conversation objects
+Conversation object structure returned by ConversationManager.get_conversation():
+
+{
+    "id": str,                          # Unique conversation identifier (UUID)
+    "user_id": str,                     # ID of the user who owns the conversation
+    "title": str,                      # Conversation title, cannot be empty
+    "created_at": str,                 # ISO 8601 datetime string of creation
+    "updated_at": str,                # ISO 8601 datetime string of last update
+    "is_active": bool,               # Whether conversation is active (soft delete flag)
+    "metadata": Dict[str, Any],      # Conversation metadata (created_via, etc.)
+    "system_prompt": Optional[str],  # Custom system prompt for this conversation
+    "llm_config": Dict[str, Any],   # LLM configuration used (model, temperature, etc.)
+    "messages": List[Dict]          # Array of message objects (empty if include_messages=False)
+}
+
+Message object structure within the messages array:
+
+{
+    "role": str,                    # One of: "user", "assistant", "system"
+    "content": str,                # Message content/body
+    "timestamp": str,             # ISO 8601 datetime string
+    "tokens": Optional[int],      # Token count for this message (if tracked)
+    "llm_id": Optional[str],     # ID of the LLM that generated this message (assistant only)
+    "metadata": Dict[str, Any]   # Message metadata (empty dict if none)
+}
+
+Related conversation summary (get_conversation_summary()):
+{
+    "id": str,                    # Conversation ID
+    "title": str,               # Conversation title
+    "message_count": int,       # Total number of messages
+    "total_tokens": int,       # Sum of tokens across all messages
+    "created_at": str,        # ISO 8601 creation timestamp
+    "updated_at": str,        # ISO 8601 last update timestamp
+    "llm_usage": Dict[str, int],  # Map of LLM IDs to message counts
+    "last_user_message": Optional[str],  # Content of most recent user message
+    "metadata": Dict[str, Any]  # Conversation metadata
+}
+
+User conversations list (get_user_conversations()):
+{
+    "id": str,                    # Conversation ID
+    "user_id": str,             # Owner user ID
+    "title": str,              # Conversation title
+    "created_at": str,        # ISO 8601 creation timestamp
+    "updated_at": str,        # ISO 8601 last update timestamp
+    "is_active": bool,       # Active status
+    "message_count": int,    # Number of messages in conversation
+    "last_message_at": Optional[str],  # ISO 8601 of most recent message
+    "system_prompt": Optional[str],    # Custom system prompt
+    "llm_config": Dict[str, Any],      # LLM configuration
+    "metadata": Dict[str, Any]         # Conversation metadata
+}

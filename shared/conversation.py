@@ -2,6 +2,64 @@
 """
 Conversation management with database backend.
 Handles multiple conversations per user with LLM interactions.
+
+[agent]
+
+## Conversation objects
+Conversation object structure returned by ConversationManager.get_conversation():
+
+{
+    "id": str,                          # Unique conversation identifier (UUID)
+    "user_id": str,                     # ID of the user who owns the conversation
+    "title": str,                      # Conversation title, cannot be empty
+    "created_at": str,                 # ISO 8601 datetime string of creation
+    "updated_at": str,                # ISO 8601 datetime string of last update
+    "is_active": bool,               # Whether conversation is active (soft delete flag)
+    "metadata": Dict[str, Any],      # Conversation metadata (created_via, etc.)
+    "system_prompt": Optional[str],  # Custom system prompt for this conversation
+    "llm_config": Dict[str, Any],   # LLM configuration used (model, temperature, etc.)
+    "messages": List[Dict]          # Array of message objects (empty if include_messages=False)
+}
+
+Message object structure within the messages array:
+
+{
+    "role": str,                    # One of: "user", "assistant", "system"
+    "content": str,                # Message content/body
+    "timestamp": str,             # ISO 8601 datetime string
+    "tokens": Optional[int],      # Token count for this message (if tracked)
+    "llm_id": Optional[str],     # ID of the LLM that generated this message (assistant only)
+    "metadata": Dict[str, Any]   # Message metadata (empty dict if none)
+}
+
+Related conversation summary (get_conversation_summary()):
+{
+    "id": str,                    # Conversation ID
+    "title": str,               # Conversation title
+    "message_count": int,       # Total number of messages
+    "total_tokens": int,       # Sum of tokens across all messages
+    "created_at": str,        # ISO 8601 creation timestamp
+    "updated_at": str,        # ISO 8601 last update timestamp
+    "llm_usage": Dict[str, int],  # Map of LLM IDs to message counts
+    "last_user_message": Optional[str],  # Content of most recent user message
+    "metadata": Dict[str, Any]  # Conversation metadata
+}
+
+User conversations list (get_user_conversations()):
+{
+    "id": str,                    # Conversation ID
+    "user_id": str,             # Owner user ID
+    "title": str,              # Conversation title
+    "created_at": str,        # ISO 8601 creation timestamp
+    "updated_at": str,        # ISO 8601 last update timestamp
+    "is_active": bool,       # Active status
+    "message_count": int,    # Number of messages in conversation
+    "last_message_at": Optional[str],  # ISO 8601 of most recent message
+    "system_prompt": Optional[str],    # Custom system prompt
+    "llm_config": Dict[str, Any],      # LLM configuration
+    "metadata": Dict[str, Any]         # Conversation metadata
+}
+
 """
 import uuid
 import json

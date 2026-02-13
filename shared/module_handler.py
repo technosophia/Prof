@@ -11,12 +11,17 @@ Key Features:
 - Manages activation status in modules.json
 - Provides toggle functionality for modules
 - Integrates with UI registry for selective module loading
+- Auto-discovery of translations and prompts
+- Auto-discovery of injection points for UI integration with main App
 
 Module Requirements:
 1. Must be placed in modules/ directory as a subdirectory
 2. Must contain a module.json file with metadata
-3. UI modules should follow *_ui.py naming convention
+3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration with main App
 4. Can include config.json for module-specific configuration
+5. Can include translation/xx.json for language-specific translations
+6. Can include prompts.xx.json for language-specific prompts
+7. Can include tests in the test/ directory for pytest automatic testing
 
 Module JSON Structure:
 ```json
