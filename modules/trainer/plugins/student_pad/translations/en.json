@@ -36,6 +36,7 @@
     "my_learning_tools": "📝 My Learning Tools",
     "quick_access": "Quick access to your notes and learning resources",
     "student_notes_context": "The student's personal notes (their thoughts, questions, and learning progress):\n{student_notes}",
-    "teacher_notes_context": "Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}"
+    "teacher_notes_context": "Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}",
+    "previous_versions": "Previous versions"
   }
 }
