@@ -122,16 +122,16 @@ class AlembicMigrationHelper:
                 from alembic.config import Config
 
                 # Find project root (where alembic.ini should be)
-                # Start from the directory of this file and go up to find app.py
+                # Start from the directory of this file and go up to find prof.py
                 current_dir = Path(__file__).parent
                 project_root = current_dir.parent  # core/ is inside project root
 
-                # Verify we have the right directory (app.py should be there)
-                app_py = project_root / "app.py"
+                # Verify we have the right directory (prof.py should be there)
+                app_py = project_root / "prof.py"
                 if not app_py.exists():
                     # Try going up one more level
                     project_root = project_root.parent
-                    app_py = project_root / "app.py"
+                    app_py = project_root / "prof.py"
 
                 alembic_ini = project_root / "alembic.ini"
 

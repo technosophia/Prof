@@ -300,5 +300,5 @@ def toggle_module(module_name: str, activate: bool) -> bool:
     return handler.toggle_module(module_name, activate)
 
 
-# Singleton instance (used in app.py via session_state)
+# Singleton instance (used in prof.py via session_state)
 module_handler = ModuleHandler()

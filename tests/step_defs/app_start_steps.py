@@ -40,7 +40,7 @@ def app_is_running(context, page: Page, debug_dir, streamlit_server):
     # Basic Streamlit container check (fast, confirms the app responded)
     expect(page.locator("div[data-testid='stApp']")).to_be_visible(timeout=30000)
 
-    # CRITICAL: Wait for the explicit readiness marker added to app.py
+    # CRITICAL: Wait for the explicit readiness marker added to prof.py
     # This marker is rendered at the very end of main(), after all sidebar, content,
     # module injections, and any potential initial reruns/auto-logins.
     # Using "attached" (not "visible") because the div is intentionally empty/invisible.

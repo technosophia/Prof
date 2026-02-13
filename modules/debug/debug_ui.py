@@ -2,7 +2,7 @@
 
 [agent]
 Debug module that displays system information and debugging tools.
-This module provides the debug section that was previously in app.py.
+This module provides the debug section that was previously in prof.py.
 """
 
 import streamlit as st

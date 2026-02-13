@@ -129,7 +129,7 @@ def call_llm_api(prompt: str) -> str:
 #### Code Organization (🟠 CRITICAL)
 ```python
 # ❌ BAD: Everything in one file
-# app.py (1000+ lines)
+# prof.py (1000+ lines)
 import streamlit as st
 import openai
 
@@ -147,7 +147,7 @@ import openai
 #       chat_page.py     # Page orchestration
 #   config/
 #     settings.py        # Configuration
-# app.py                 # Entry point (minimal)
+# prof.py                 # Entry point (minimal)
 ```
 
 **CHECK:**

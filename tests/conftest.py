@@ -31,7 +31,7 @@ def pytest_sessionfinish(session, exitstatus):
     _log("="*50)
 
     # Kill any remaining Streamlit processes
-    subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True,
+    subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True,
                    capture_output=True, timeout=5)
 
 def pytest_bdd_before_step(request, feature, scenario, step, step_func):
@@ -62,7 +62,7 @@ from modules.rag_manager import rag_manager
 _log(f"Python path: {sys.path}")
 _log(f"Conftest directory: {CONFTEST_DIR}")
 _log(f"Project root: {PROJECT_ROOT}")
-_log(f"App.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'app.py'))}")
+_log(f"prof.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'prof.py'))}")
 
 def cleanup_directory(directory):
     import shutil
@@ -265,7 +265,7 @@ def streamlit_server(setup_test_environment):
     _log("\n=== STARTING STREAMLIT SERVER ===")
 
     # 1. Kill any stray processes
-    subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True, capture_output=True)
+    subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
     env = os.environ.copy()
     log_dir = os.path.join(PROJECT_ROOT, "tests", "logs")
@@ -275,7 +275,7 @@ def streamlit_server(setup_test_environment):
     stderr_file = open(os.path.join(log_dir, "streamlit_stderr.log"), "w")
 
     cmd = [
-        "streamlit", "run", "app.py",
+        "streamlit", "run", "prof.py",
         "--server.port", str(TEST_PORT),
         "--server.headless", "true",
         "--server.fileWatcherType", "none",
@@ -352,7 +352,7 @@ def streamlit_server(setup_test_environment):
         stderr_file.close()
 
         # Final cleanup of any remaining processes
-        subprocess.run("pkill -9 -f 'streamlit run app.py'", shell=True, capture_output=True)
+        subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
 # ============ FUNCTION FIXTURES ============
 

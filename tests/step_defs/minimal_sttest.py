@@ -12,7 +12,7 @@ def test_find_test_on_page():
     os.environ["TEST_MODE"] = "true"
 
     # Create AppTest
-    at = AppTest.from_file("../../app.py", default_timeout=30)
+    at = AppTest.from_file("../../prof.py", default_timeout=30)
 
     # Setup minimal session state
     at.session_state["current_language"] = "en"
@@ -60,7 +60,7 @@ def test_admin_page_loads():
     """Test that admin page loads."""
     os.environ["TEST_MODE"] = "true"
 
-    at = AppTest.from_file("../../app.py", default_timeout=30)
+    at = AppTest.from_file("../../prof.py", default_timeout=30)
     at.session_state["current_language"] = "en"
     at.session_state["app_initialized"] = True
     at.session_state["current_page"] = "admin"

@@ -295,7 +295,7 @@ def main():
         # INJECTION POINT 5: Main Content when no user is logged in
         no_user_contents = ui_registry.render_all("main_content")
 
-        # Let UI modules handle ALL content - no default fallback content in app.py
+        # Let UI modules handle ALL content - no default fallback content in prof.py
         # Each UI module should handle its own fallback logic
 
         # INJECTION POINT 6: Main Content after conversation interface
