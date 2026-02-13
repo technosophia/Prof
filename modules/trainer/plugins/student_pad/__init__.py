@@ -4,21 +4,24 @@ Allows each student to have a personal note-taking pad.
 Visible in dashboard and exportable/importable.
 """
 
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 import streamlit as st
 from datetime import datetime
 
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 from modules.trainer.models import StudentNote
-from shared.common import _, get_db_manager
+from shared.common import _, get_db_manager, get_prompt, register_llm_context_callback
 
 
 class StudentPadPlugin(TrainerPlugin):
     """Plugin providing personal pads for students."""
 
     def initialize(self) -> bool:
-        """Initialize the plugin."""
+        """Initialize the plugin and register context callbacks."""
+        # Register context callbacks for student notes and teacher notes
+        register_llm_context_callback(self.get_student_notes_context)
+        register_llm_context_callback(self.get_teacher_notes_context)
         return True
 
     def _get_student_note(self, student_id: str, trainer_id: str, plugin_id: str = None) -> str:
@@ -66,6 +69,69 @@ class StudentPadPlugin(TrainerPlugin):
             from shared.common import log
             log("error", f"Failed to save student note: {e}", exc_info=True)
             return False
+
+    def get_student_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        """
+        Context callback for student's personal notes.
+        Returns tuple: (context, role, position)
+        """
+        # Get the student's trainer (parent)
+        from shared.common import get_user_manager
+        user_manager = get_user_manager()
+        user = user_manager.get_user(user_id)
+
+        if not user or not user.get('parent_id'):
+            return None
+
+        trainer_id = user['parent_id']
+        student_notes = self._get_student_note(user_id, trainer_id)
+
+        if not student_notes:
+            return None
+
+        # Get the appropriate prompt based on language
+        try:
+            context_prompt = get_prompt('trainer.plugins.student_pad.student_notes_context')
+        except:
+            # Fallback if prompt not found
+            context_prompt = "The student's personal notes (their thoughts, questions, and learning progress):\n{student_notes}"
+
+        context = context_prompt.format(student_notes=student_notes)
+
+        # Return as system message at the top of the context
+        return (context, "system", "top")
+
+    def get_teacher_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        """
+        Context callback for teacher's private notes about the student.
+        Returns tuple: (context, role, position)
+        Teacher notes are only visible to the AI, not to the student.
+        """
+        # Get the student's trainer (parent)
+        from shared.common import get_user_manager
+        user_manager = get_user_manager()
+        user = user_manager.get_user(user_id)
+
+        if not user or not user.get('parent_id'):
+            return None
+
+        trainer_id = user['parent_id']
+        teacher_notes = self._get_student_note(user_id, trainer_id, "teacher_notes")
+
+        if not teacher_notes:
+            return None
+
+        # Get the appropriate prompt based on language
+        try:
+            context_prompt = get_prompt('trainer.plugins.student_pad.teacher_notes_context')
+        except:
+            # Fallback if prompt not found
+            context_prompt = "Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}"
+
+        context = context_prompt.format(teacher_notes=teacher_notes)
+
+        # Return as system message at the top of the context
+        return (context, "system", "top")
 
     def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
         """
@@ -126,6 +192,9 @@ class StudentPadPlugin(TrainerPlugin):
             if current_content:
                 st.markdown("**" + _("Student's personal notes:") + "**")
                 st.markdown(current_content)
+
+                # Add a note about AI context
+                st.caption(_("✨ These notes are automatically shared with the AI teacher to provide context for your conversations."))
             else:
                 st.info(_("This student hasn't written any notes yet."))
 
@@ -134,17 +203,19 @@ class StudentPadPlugin(TrainerPlugin):
 
             # Teacher's private notes section (separate from student's pad)
             st.markdown("**" + _("Teacher's private notes:") + "**")
+            st.caption(_("These notes are only visible to you and the AI teacher. The student cannot see them."))
 
             teacher_note_content = st.text_area(
-                _("Private notes (only visible to you)"),
+                _("Private notes (visible to AI, not to student)"),
                 value=teacher_notes or "",
                 height=150,
-                key=f"teacher_notes_{student_id}"
+                key=f"teacher_notes_{student_id}",
+                help=_("These notes will guide the AI teacher's responses to this student")
             )
 
             if st.button(_("Save private notes"), key=f"save_teacher_notes_{student_id}"):
                 if self._save_student_note(student_id, trainer_id, teacher_note_content, "teacher_notes"):
-                    st.success(_("Private notes saved!"))
+                    st.success(_("Private notes saved! The AI teacher will use these to personalize responses."))
                 else:
                     st.error(_("Failed to save private notes"))
 
@@ -162,15 +233,24 @@ class StudentPadPlugin(TrainerPlugin):
 
                 with st.expander(f"{student_name}", expanded=False):
                     current_content = self._get_student_note(student_id, trainer_id)
-                    st.caption(f"📄 {len(current_content)} " + _("characters"))
+                    teacher_notes = self._get_student_note(student_id, trainer_id, "teacher_notes")
 
-                    if current_content:
-                        st.markdown("**" + _("Latest notes:") + "**")
-                        # Show preview with ellipsis
-                        preview = current_content[:200] + ("..." if len(current_content) > 200 else "")
-                        st.markdown(preview)
-                    else:
-                        st.caption(_("No notes yet"))
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.caption(f"📝 Student: {len(current_content)} " + _("chars"))
+                        if current_content:
+                            preview = current_content[:100] + ("..." if len(current_content) > 100 else "")
+                            st.markdown(preview)
+                        else:
+                            st.caption(_("No student notes"))
+
+                    with col2:
+                        st.caption(f"👨‍🏫 Teacher: {len(teacher_notes)} " + _("chars"))
+                        if teacher_notes:
+                            preview = teacher_notes[:100] + ("..." if len(teacher_notes) > 100 else "")
+                            st.markdown(preview)
+                        else:
+                            st.caption(_("No teacher notes"))
 
         return [render_pad_overview]
 
@@ -181,24 +261,24 @@ class StudentPadPlugin(TrainerPlugin):
 
         pads = {}
         for student in students:
+            student_data = {
+                'student_name': student.get('name', student['id']),
+                'updated_at': datetime.utcnow().isoformat()
+            }
+
             # Export student notes
             content = self._get_student_note(student['id'], trainer_id)
             if content:
-                pads[student['id']] = {
-                    'student_name': student.get('name', student['id']),
-                    'content': content,
-                    'updated_at': datetime.utcnow().isoformat()
-                }
+                student_data['content'] = content
 
-            # Also export teacher notes if they exist
+            # Export teacher notes
             teacher_notes = self._get_student_note(student['id'], trainer_id, "teacher_notes")
             if teacher_notes:
-                if student['id'] not in pads:
-                    pads[student['id']] = {
-                        'student_name': student.get('name', student['id']),
-                        'updated_at': datetime.utcnow().isoformat()
-                    }
-                pads[student['id']]['teacher_notes'] = teacher_notes
+                student_data['teacher_notes'] = teacher_notes
+
+            # Only add if there's any content
+            if content or teacher_notes:
+                pads[student['id']] = student_data
 
         return {'student_pads': pads} if pads else None
 

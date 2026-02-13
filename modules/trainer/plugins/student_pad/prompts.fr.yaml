@@ -1,0 +1,17 @@
+student_notes_context: |
+  L'élève dispose d'un bloc-notes personnel où il conserve ses réflexions, questions et progrès d'apprentissage.
+
+  Notes actuelles de l'élève :
+  {student_notes}
+
+  Veuillez tenir compte de ces notes lorsque vous répondez à l'élève. S'il mentionne quelque chose de ses notes,
+  reconnaissez-le. S'il pose des questions liées à ses notes, aidez-le à approfondir ces sujets.
+
+teacher_notes_context: |
+  L'enseignant a fourni des notes privées sur cet élève pour vous aider à adapter votre approche pédagogique.
+  Ces notes sont confidentielles et ne doivent pas être mentionnées à l'élève.
+
+  Notes de l'enseignant :
+  {teacher_notes}
+
+  Utilisez ces informations pour personnaliser vos réponses et adapter votre style d'enseignement aux besoins de cet élève.

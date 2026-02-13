@@ -1,0 +1,17 @@
+student_notes_context: |
+  The student has a personal notes pad where they keep their thoughts, questions, and learning progress.
+
+  Current student notes:
+  {student_notes}
+
+  Please take these notes into account when responding to the student. If they mention something from their notes,
+  acknowledge it. If they ask questions related to their notes, help them expand on those topics.
+
+teacher_notes_context: |
+  The teacher has provided private notes about this student to help guide your teaching approach.
+  These notes are confidential and should not be mentioned to the student.
+
+  Teacher's notes:
+  {teacher_notes}
+
+  Use this information to personalize your responses and adapt your teaching style to this student's needs.

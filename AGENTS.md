@@ -492,3 +492,4 @@ User conversations list (get_user_conversations()):
     "llm_config": Dict[str, Any],      # LLM configuration
     "metadata": Dict[str, Any]         # Conversation metadata
 }
+
