@@ -18,6 +18,7 @@ from modules.trainer.manager import get_trainer_manager
 class StudentNote(Base):
     """Store notes/pad for each student."""
     __tablename__ = 'trainer_student_notes'
+    __table_args__ = {'extend_existing': True}  # Add this line
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, nullable=False, index=True)  # Student ID
@@ -34,12 +35,12 @@ class StudentPadPlugin(TrainerPlugin):
 
     def initialize(self) -> bool:
         """Initialize the plugin and register context callbacks."""
-        # Ensure table exists - force SQLAlchemy to create it if not exists
+        # Ensure table exists - but don't try to create it in tests
         try:
             db = get_db_manager()
-            if db.is_initialized():
+            if db.is_initialized() and not db._in_memory:
                 # Create tables for this model if they don't exist
-                Base.metadata.create_all(db._engine, tables=[StudentNote.__table__])
+                Base.metadata.create_all(db._engine, tables=[StudentNote.__table__], checkfirst=True)
                 log("info", "StudentNote table created/verified")
         except Exception as e:
             log("error", f"Failed to create StudentNote table: {e}")
