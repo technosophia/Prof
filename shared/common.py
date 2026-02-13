@@ -332,13 +332,34 @@ llm = llm_generate
 is_multilingual = _is_multilingual
 set_default_language = _set_default_language
 
-@st.cache_resource
+@st.cache_resource(ttl=0)  # Disable caching or force reload
 def _init_prompt_manager():
     """Initialize and load all prompts."""
     shared_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(shared_dir)
-    _load_all_prompts(root_dir)
-    return _get_prompt_manager()
+
+    # IMPORTANT: Get fresh instance and force reload
+    import importlib
+    from shared import prompt_manager
+
+    # Reload the module to ensure fresh state
+    importlib.reload(prompt_manager)
+
+    # Get fresh prompt manager
+    prompt_manager_instance = prompt_manager.get_prompt_manager()
+    prompt_manager_instance._loaded = False  # Force reload
+
+    # Load prompts
+    prompt_manager.load_all_prompts(root_dir)
+
+    # Double-check multilingual status
+    if prompt_manager_instance._multilingual_prompts:
+        prompt_manager_instance._is_multilingual = True
+        prompt_manager_instance._available_languages = set(prompt_manager_instance._multilingual_prompts.keys())
+        print(f"DEBUG - Initialized prompt manager with languages: {prompt_manager_instance._available_languages}")
+        print(f"DEBUG - Multilingual mode: {prompt_manager_instance._is_multilingual}")
+
+    return prompt_manager_instance
 
 def get_prompt_manager():
     """Get the prompt manager instance."""
@@ -360,19 +381,36 @@ def get_prompt(key: str, default: Any = None, language: Optional[str] = None) ->
 
 def get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]:
     """Get all loaded prompts."""
-    return get_prompt_manager().get_all_prompts(language)
+    manager = get_prompt_manager()
+    return manager.get_all_prompts(language)
 
 def get_module_prompts(module_prefix: str = "", language: Optional[str] = None) -> Dict[str, Any]:
     """Get prompts for a specific module."""
-    return get_prompt_manager().get_module_prompts(module_prefix, language)
+    manager = get_prompt_manager()
+    return manager.get_module_prompts(module_prefix, language)
 
 def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
     """List all module prefixes with prompts."""
-    return get_prompt_manager().list_modules(language)
+    manager = get_prompt_manager()
+
+    # Force multilingual detection
+    if not manager._is_multilingual and manager._multilingual_prompts:
+        manager._is_multilingual = True
+        manager._available_languages = set(manager._multilingual_prompts.keys())
+
+    return manager.list_modules(language)
 
 def get_available_prompt_languages() -> List[str]:
     """Get list of dynamic available languages."""
-    return get_prompt_manager().get_available_languages()
+    manager = get_prompt_manager()
+
+    # Force multilingual detection
+    if manager._multilingual_prompts:
+        manager._is_multilingual = True
+        manager._available_languages = set(manager._multilingual_prompts.keys())
+        return sorted(manager._available_languages)
+
+    return manager.get_available_languages()
 
 # User Settings =============================================
 

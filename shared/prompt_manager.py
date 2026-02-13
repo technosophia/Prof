@@ -94,6 +94,14 @@ class PromptManager:
             )
             raise PromptLoadError(error_msg)
 
+    def _detect_multilingual_mode(self):
+        """Detect if we're in multilingual mode based on loaded prompts."""
+        if self._multilingual_prompts and len(self._multilingual_prompts) > 0:
+            self._is_multilingual = True
+            self._available_languages = set(self._multilingual_prompts.keys())
+            return True
+        return False
+
     def load_all_prompts(self, root_dir: str):
         """Load all prompts.yaml or prompts.xx.yaml files from the project."""
         if self._loaded:
@@ -165,9 +173,10 @@ class PromptManager:
                         log("info", f"Loaded legacy prompts from {file_path} (prefix: '{prefix or 'root'}')")
 
                     else:
-                        # Multilingual format
+                        # Multilingual format - FORCE create the language entry
                         if lang_code not in self._multilingual_prompts:
                             self._multilingual_prompts[lang_code] = {}
+                            self._available_languages.add(lang_code)  # Add immediately
 
                         current = self._multilingual_prompts[lang_code]
 
@@ -180,7 +189,6 @@ class PromptManager:
                                 current = current[part]
                             self._deep_merge(current, prompts)
 
-                        self._available_languages.add(lang_code)
                         source_key = f"{prefix}:{lang_code}" if prefix else f"root:{lang_code}"
                         self._source_files[source_key] = file_path
 
@@ -202,11 +210,18 @@ class PromptManager:
             )
             raise PromptLoadError(error_msg)
 
-        self._is_multilingual = multilingual_detected
+        # CRITICAL FIX: Force multilingual mode if we have any multilingual prompts
+        if self._multilingual_prompts and len(self._multilingual_prompts) > 0:
+            self._is_multilingual = True
+            self._available_languages = set(self._multilingual_prompts.keys())
+            multilingual_detected = True
+            log("info", f"FORCE: Multilingual mode enabled. Available languages: {sorted(self._available_languages)}")
+        else:
+            self._is_multilingual = False
+
         self._loaded = True
 
         if self._is_multilingual:
-            log("info", f"Multilingual mode enabled. Available languages: {sorted(self._available_languages)}")
             if self._default_language not in self._available_languages:
                 log("warning", f"Default language '{self._default_language}' not found. Using '{next(iter(self._available_languages), 'en')}'")
                 self._default_language = next(iter(self._available_languages), 'en')
