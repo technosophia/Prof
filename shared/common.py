@@ -173,7 +173,7 @@ def _load_translations() -> dict[str, dict[str, str]]:
 
 
 def get_available_languages() -> list[str]:
-    """Return sorted list of available language codes."""
+    """Return sorted list of dynamic available language codes."""
     translations = _load_translations()
     return sorted(translations.keys())
 
@@ -414,7 +414,7 @@ def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
     return get_prompt_manager().list_modules(language)
 
 def get_available_prompt_languages() -> List[str]:
-    """Get list of available languages."""
+    """Get list of dynamic available languages."""
     return get_prompt_manager().get_available_languages()
 
 # User Settings =============================================

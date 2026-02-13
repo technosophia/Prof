@@ -21,9 +21,7 @@ import glob
 from typing import Dict, Any, Optional, List, Set
 from pathlib import Path
 from core.logging import log
-
-# Valid language codes for prompts
-VALID_LANGUAGES = {'en', 'fr', 'es', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar'}
+from core.translate import VALID_LANGUAGES
 
 
 class PromptLoadError(Exception):
@@ -452,7 +450,7 @@ def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
     return get_prompt_manager().list_modules(language)
 
 def get_available_languages() -> List[str]:
-    """Get list of available languages."""
+    """Get list of dynamic available languages."""
     return get_prompt_manager().get_available_languages()
 
 def is_multilingual() -> bool:

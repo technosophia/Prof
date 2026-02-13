@@ -4,6 +4,7 @@ from typing import Dict
 
 from core.logging import log
 
+VALID_LANGUAGES = {'en', 'fr'}
 
 def load_all_translations() -> Dict[str, Dict[str, str]]:
     """
@@ -11,6 +12,7 @@ def load_all_translations() -> Dict[str, Dict[str, str]]:
     Returns a dict: {lang_code: {key: translation, ...}, ...}
     Later directories override earlier ones on key conflict (with warning).
     Loading order is deterministic: modules → shared → root (root has highest priority).
+    Only loads translations for languages in VALID_LANGUAGES.
     """
     translations: Dict[str, Dict[str, str]] = {}
 
@@ -52,6 +54,12 @@ def load_all_translations() -> Dict[str, Dict[str, str]]:
         for filename in os.listdir(abs_dir):
             if filename.endswith(".json"):
                 lang_code = os.path.splitext(filename)[0]
+
+                # Skip if language is not in VALID_LANGUAGES
+                if lang_code not in VALID_LANGUAGES:
+                    log("debug", f"Skipping {filename}: language '{lang_code}' is not in VALID_LANGUAGES")
+                    continue
+
                 filepath = os.path.join(abs_dir, filename)
 
                 try:
