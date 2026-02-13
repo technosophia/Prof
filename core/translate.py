@@ -1,94 +1,148 @@
 import os
 import json
-from typing import Dict
+from typing import Dict, Any
 
 from core.logging import log
 
 VALID_LANGUAGES = {'en', 'fr'}
 
+def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, str]:
+    """
+    Recursively flatten a nested dictionary using dot notation.
+
+    Example:
+        {
+            "trainer_plugin_student_pad": {
+                "name": "Student Pad",
+                "notes": "Notes"
+            }
+        }
+
+        Becomes:
+        {
+            "trainer_plugin_student_pad.name": "Student Pad",
+            "trainer_plugin_student_pad.notes": "Notes"
+        }
+    """
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, str(v) if v is not None else ""))
+    return dict(items)
+
+
 def load_all_translations() -> Dict[str, Dict[str, str]]:
     """
     Search the entire project for 'translations' directories and load all JSON files.
-    Returns a dict: {lang_code: {key: translation, ...}, ...}
+    Returns a dict: {lang_code: {flat_key: translation, ...}, ...}
+
+    Supports both flat JSON files and nested JSON files with dot notation.
     Later directories override earlier ones on key conflict (with warning).
-    Loading order is deterministic: modules → shared → root (root has highest priority).
+    Loading order is deterministic: deeper paths first, root translations last.
     Only loads translations for languages in VALID_LANGUAGES.
     """
     translations: Dict[str, Dict[str, str]] = {}
 
+    # Log starting point
+    cwd = os.getcwd()
+    log("info", f"Starting translation loading from working directory: {cwd}")
+
     # Walk only from the project root – this covers everything recursively
     base_dir = "."
 
-    translation_dirs: set[str] = set()
+    translation_files: list[tuple[str, str]] = []
+    directories_checked = 0
+    translations_dirs_found = 0
+
+    # Directories to skip completely
+    SKIP_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', 'env', '.venv', '.env',
+                 '.pytest_cache', '.mypy_cache', '.idea', '.vscode', '.tox', 'dist', 'build'}
 
     if os.path.exists(base_dir):
-        for root, dirs, _ in os.walk(base_dir):
-            if "translations" in dirs:
-                trans_path = os.path.join(root, "translations")
-                abs_path = os.path.abspath(trans_path)
-                if os.path.exists(abs_path):
-                    translation_dirs.add(abs_path)
+        for root, dirs, files in os.walk(base_dir):
+            directories_checked += 1
 
-    if not translation_dirs:
-        log("warning", "No translation directories found")
+            # Modify dirs in-place to prevent walking into skipped directories
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+
+            # Check if current directory is named 'translations'
+            if os.path.basename(root) == 'translations':
+                translations_dirs_found += 1
+
+                for file in files:
+                    if file.endswith('.json'):
+                        filepath = os.path.join(root, file)
+                        rel_dir = os.path.relpath(root, os.getcwd())
+                        translation_files.append((filepath, rel_dir))
+
+    log("info", f"Directory scan complete. Checked {directories_checked} directories")
+    log("info", f"Found {translations_dirs_found} directories named 'translations'")
+    log("info", f"Found {len(translation_files)} translation JSON files")
+
+    if not translation_files:
+        log("warning", "No translation files found in any 'translations' directories")
         return translations
 
-    # Nice relative paths for logging
-    rel_dirs = [os.path.relpath(p, os.getcwd()) for p in translation_dirs]
-    log("info", f"Found translation directories: {sorted(rel_dirs)}")
+    # Sort by path depth (deeper paths first) so root translations override plugin translations
+    translation_files.sort(key=lambda x: x[1].count(os.sep), reverse=True)
 
-    # Load in sorted order by relative path → modules first, shared, then root last
-    # This ensures root translations have the highest priority (override everything)
-    load_order = sorted(
-        translation_dirs,
-        key=lambda p: os.path.relpath(p, os.getcwd())
-    )
+    for filepath, rel_dir in translation_files:
+        filename = os.path.basename(filepath)
+        lang_code = os.path.splitext(filename)[0]
 
-    for abs_dir in load_order:
-        rel_dir = os.path.relpath(abs_dir, os.getcwd())
-        log("info", f"Loading translations from: {rel_dir}")
-
-        if not os.path.exists(abs_dir):
+        # Skip if language is not in VALID_LANGUAGES
+        if lang_code not in VALID_LANGUAGES:
+            log("debug", f"Skipping {rel_dir}/{filename}: language '{lang_code}' is not in VALID_LANGUAGES")
             continue
 
-        for filename in os.listdir(abs_dir):
-            if filename.endswith(".json"):
-                lang_code = os.path.splitext(filename)[0]
+        try:
+            log("debug", f"Loading translation file: {filepath}")
+            with open(filepath, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
 
-                # Skip if language is not in VALID_LANGUAGES
-                if lang_code not in VALID_LANGUAGES:
-                    log("debug", f"Skipping {filename}: language '{lang_code}' is not in VALID_LANGUAGES")
-                    continue
+            # Flatten the JSON structure to support dot notation
+            flat_data = flatten_dict(raw_data)
 
-                filepath = os.path.join(abs_dir, filename)
+            log("debug", f"  Successfully parsed JSON with {len(raw_data)} top-level keys")
+            log("debug", f"  Flattened to {len(flat_data)} translation keys")
 
-                try:
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        data: Dict[str, str] = json.load(f)
+            if lang_code not in translations:
+                translations[lang_code] = {}
 
-                    if lang_code not in translations:
-                        translations[lang_code] = {}
+            # Warn on duplicates (keys already present from previously loaded files)
+            duplicates = set(translations[lang_code].keys()) & set(flat_data.keys())
+            if duplicates:
+                log("warning", f"Duplicate translation keys in {lang_code} from {rel_dir}/{filename}: {sorted(duplicates)}")
 
-                    # Warn on duplicates (keys already present from previous directories)
-                    duplicates = set(translations[lang_code].keys()) & set(data.keys())
-                    if duplicates:
-                        log("warning", f"Duplicate translation keys in {lang_code} from {rel_dir}/{filename}: {duplicates}")
+            translations[lang_code].update(flat_data)
+            log("debug", f"Loaded {len(flat_data)} translations for '{lang_code}' from {rel_dir}/{filename}")
 
-                    translations[lang_code].update(data)
-                    log("debug", f"Loaded {len(data)} translations for '{lang_code}' from {rel_dir}/{filename}")
-
-                except json.JSONDecodeError as e:
-                    log("error", f"Invalid JSON in {filepath}: {e}")
-                except Exception as e:
-                    log("error", f"Error loading {filepath}: {e}")
+        except json.JSONDecodeError as e:
+            log("error", f"Invalid JSON in {filepath}: {e}")
+        except Exception as e:
+            log("error", f"Error loading {filepath}: {e}")
+            import traceback
+            log("debug", traceback.format_exc())
 
     total = sum(len(t) for t in translations.values())
-    log("info", f"Finished loading translations: {total} keys across {len(translations)} languages")
+    langs = list(translations.keys())
+    log("info", f"Finished loading translations: {total} keys across {len(translations)} languages: {langs}")
+
+    # Log sample keys for debugging
+    for lang in langs:
+        sample_keys = list(translations[lang].keys())[:10]
+        log("debug", f"Sample keys for {lang}: {sample_keys}")
+
     return translations
+
 
 def get_translation(key: str, lang: str, translations: Dict[str, Dict[str, str]]) -> str:
     """
     Get translation for a key in specified language.
+    Supports dot notation (e.g., 'trainer_plugin_student_pad.my_learning_tools').
     Falls back to other languages if key not found.
     """
     # Primary lookup

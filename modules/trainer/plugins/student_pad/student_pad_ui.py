@@ -40,8 +40,8 @@ def inject_ui_main_header():
         # Create a container for all student header widgets
         with st.container():
             # Add a main expander for student tools
-            with st.expander(_("📝 My Learning Tools"), expanded=False):
-                st.caption(_("Quick access to your notes and learning resources"))
+            with st.expander(_("trainer_plugin_student_pad.my_learning_tools"), expanded=False):
+                st.caption(_("trainer_plugin_student_pad.quick_access"))
                 st.divider()
 
                 # Render the student pad widget directly

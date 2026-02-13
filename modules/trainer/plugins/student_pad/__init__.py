@@ -90,11 +90,8 @@ class StudentPadPlugin(TrainerPlugin):
             return None
 
         # Get the appropriate prompt based on language
-        try:
-            context_prompt = get_prompt('trainer.plugins.student_pad.student_notes_context')
-        except:
-            # Fallback if prompt not found
-            context_prompt = "The student's personal notes (their thoughts, questions, and learning progress):\n{student_notes}"
+        context_prompt = get_prompt('trainer.plugins.student_pad.student_notes_context',
+                                   _("The student's personal notes (their thoughts, questions, and learning progress):\n{student_notes}"))
 
         context = context_prompt.format(student_notes=student_notes)
 
@@ -122,11 +119,8 @@ class StudentPadPlugin(TrainerPlugin):
             return None
 
         # Get the appropriate prompt based on language
-        try:
-            context_prompt = get_prompt('trainer.plugins.student_pad.teacher_notes_context')
-        except:
-            # Fallback if prompt not found
-            context_prompt = "Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}"
+        context_prompt = get_prompt('trainer.plugins.student_pad.teacher_notes_context',
+                                   _("Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}"))
 
         context = context_prompt.format(teacher_notes=teacher_notes)
 
@@ -139,32 +133,32 @@ class StudentPadPlugin(TrainerPlugin):
         This is the main textarea for students to edit their notes.
         """
         def render_student_pad():
-            st.markdown("### " + _("My Personal Notes"))
+            st.markdown("### " + _("trainer_plugin_student_pad.my_personal_notes"))
 
             # Get current pad content using helper
             current_content = self._get_student_note(student_id, trainer_id)
 
             # Character count
             if current_content:
-                st.caption(f"📄 {len(current_content)} " + _("characters"))
+                st.caption(f"📄 {len(current_content)} " + _("trainer_plugin_student_pad.characters"))
 
             # Editable text area - this is where students write their notes
             new_content = st.text_area(
-                _("Write your notes here..."),
+                _("trainer_plugin_student_pad.write_your_notes_here"),
                 value=current_content or "",
                 height=250,
                 key=f"student_pad_editor_{student_id}",
-                placeholder=_("Take notes, write down questions, or keep track of what you've learned..."),
-                help=_("Auto-saves when you type"),
+                placeholder=_("trainer_plugin_student_pad.take_notes_placeholder"),
+                help=_("trainer_plugin_student_pad.auto_saves_for_students"),
                 label_visibility="collapsed"
             )
 
             # Auto-save on change
             if new_content != current_content:
                 if self._save_student_note(student_id, trainer_id, new_content):
-                    st.success(_("✓ Notes saved"), icon="✅")
+                    st.success(_("trainer_plugin_student_pad.notes_saved_check"), icon="✅")
                 else:
-                    st.error(_("Failed to save notes"))
+                    st.error(_("trainer_plugin_student_pad.failed_to_save_notes"))
 
         return [render_student_pad]
 
@@ -173,7 +167,7 @@ class StudentPadPlugin(TrainerPlugin):
         def render_teacher_student_pad():
             student_id = student['id']
 
-            st.markdown("### 📝 " + _("Student Notes"))
+            st.markdown("### 📝 " + _("trainer_plugin_student_pad.student_notes"))
 
             # Get student notes using helper
             current_content = self._get_student_note(student_id, trainer_id)
@@ -184,40 +178,40 @@ class StudentPadPlugin(TrainerPlugin):
             # Metadata row
             col1, col2 = st.columns([4, 1])
             with col1:
-                st.caption(_("Last updated: ") + datetime.now().strftime('%Y-%m-%d %H:%M'))
+                st.caption(_("trainer_plugin_student_pad.last_updated") + f" {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             with col2:
-                st.caption(f"📄 {len(current_content)} " + _("chars"))
+                st.caption(f"📄 {len(current_content)} " + _("trainer_plugin_student_pad.characters"))
 
             # Read-only display of student's notes
             if current_content:
-                st.markdown("**" + _("Student's personal notes:") + "**")
+                st.markdown("**" + _("trainer_plugin_student_pad.student_personal_notes") + "**")
                 st.markdown(current_content)
 
                 # Add a note about AI context
-                st.caption(_("✨ These notes are automatically shared with the AI teacher to provide context for your conversations."))
+                st.caption(_("trainer_plugin_student_pad.ai_context_note"))
             else:
-                st.info(_("This student hasn't written any notes yet."))
+                st.info(_("trainer_plugin_student_pad.no_student_notes_yet"))
 
             # Add a visual separator
             st.divider()
 
             # Teacher's private notes section (separate from student's pad)
-            st.markdown("**" + _("Teacher's private notes:") + "**")
-            st.caption(_("These notes are only visible to you and the AI teacher. The student cannot see them."))
+            st.markdown("**" + _("trainer_plugin_student_pad.teacher_private_notes") + "**")
+            st.caption(_("trainer_plugin_student_pad.teacher_notes_visibility_note"))
 
             teacher_note_content = st.text_area(
-                _("Private notes (visible to AI, not to student)"),
+                _("trainer_plugin_student_pad.teacher_notes_placeholder"),
                 value=teacher_notes or "",
                 height=150,
                 key=f"teacher_notes_{student_id}",
-                help=_("These notes will guide the AI teacher's responses to this student")
+                help=_("trainer_plugin_student_pad.teacher_notes_help")
             )
 
-            if st.button(_("Save private notes"), key=f"save_teacher_notes_{student_id}"):
+            if st.button(_("trainer_plugin_student_pad.save_private_notes"), key=f"save_teacher_notes_{student_id}"):
                 if self._save_student_note(student_id, trainer_id, teacher_note_content, "teacher_notes"):
-                    st.success(_("Private notes saved! The AI teacher will use these to personalize responses."))
+                    st.success(_("trainer_plugin_student_pad.teacher_notes_saved"))
                 else:
-                    st.error(_("Failed to save private notes"))
+                    st.error(_("trainer_plugin_student_pad.failed_to_save_teacher_notes"))
 
         return [render_teacher_student_pad]
 
@@ -225,7 +219,7 @@ class StudentPadPlugin(TrainerPlugin):
         """Add pad widget to dashboard overview."""
         def render_pad_overview():
             st.markdown("---")
-            st.subheader("📝 Student Notes Overview")
+            st.subheader("📝 " + _("trainer_plugin_student_pad.notes_overview"))
 
             for student in students[:3]:  # Show only first 3 to avoid clutter
                 student_id = student['id']
@@ -237,20 +231,20 @@ class StudentPadPlugin(TrainerPlugin):
 
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.caption(f"📝 Student: {len(current_content)} " + "chars")
+                        st.caption(f"📝 " + _("trainer_plugin_student_pad.student") + f": {len(current_content)} " + _("trainer_plugin_student_pad.chars"))
                         if current_content:
                             preview = current_content[:100] + ("..." if len(current_content) > 100 else "")
                             st.markdown(preview)
                         else:
-                            st.caption("No student notes")
+                            st.caption(_("trainer_plugin_student_pad.no_student_notes"))
 
                     with col2:
-                        st.caption(f"👨‍🏫 Teacher: {len(teacher_notes)} " + "chars")
+                        st.caption(f"👨‍🏫 " + _("trainer_plugin_student_pad.teacher") + f": {len(teacher_notes)} " + _("trainer_plugin_student_pad.chars"))
                         if teacher_notes:
                             preview = teacher_notes[:100] + ("..." if len(teacher_notes) > 100 else "")
                             st.markdown(preview)
                         else:
-                            st.caption("No teacher notes")
+                            st.caption(_("trainer_plugin_student_pad.no_teacher_notes"))
 
         return [render_pad_overview]
 
