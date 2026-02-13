@@ -1,3 +1,4 @@
+# modules/trainer/models.py - REMOVE StudentNote class
 """
 Trainer module database models.
 Defines tables for student notes and plugin data.
@@ -8,19 +9,6 @@ from sqlalchemy import Column, String, Text, DateTime, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from shared.common import Base
 import uuid
-
-
-class StudentNote(Base):
-    """Store notes/pad for each student."""
-    __tablename__ = 'trainer_student_notes'
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, nullable=False, index=True)  # Student ID
-    trainer_id = Column(String, nullable=False, index=True)  # Trainer/Master ID
-    content = Column(Text, default="")
-    plugin_id = Column(String, default="core")  # Which plugin owns this note
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    note_metadata = Column(JSON, default={})  # Renamed from 'metadata' to avoid SQLAlchemy conflict
 
 
 class PluginData(Base):
@@ -34,8 +22,7 @@ class PluginData(Base):
     value = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    data_metadata = Column(JSON, default={})  # Renamed from 'metadata' to avoid SQLAlchemy conflict
-
+    data_metadata = Column(JSON, default={})
 
 class PluginActivation(Base):
     """Store plugin activation status per trainer."""
@@ -47,4 +34,4 @@ class PluginActivation(Base):
     is_active = Column(Boolean, default=True)
     config = Column(JSON, default={})
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    activation_metadata = Column(JSON, default={})  # Renamed from 'metadata' to avoid SQLAlchemy conflict
+    activation_metadata = Column(JSON, default={})

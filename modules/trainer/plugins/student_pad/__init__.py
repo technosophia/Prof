@@ -7,11 +7,26 @@ Visible in dashboard and exportable/importable.
 from typing import List, Dict, Any, Optional, Callable, Tuple
 import streamlit as st
 from datetime import datetime
+import uuid
 
+from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey
+from shared.common import Base, get_db_manager, get_prompt, register_llm_context_callback, log, _
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
-from modules.trainer.models import StudentNote
-from shared.common import _, get_db_manager, get_prompt, register_llm_context_callback
+
+# ============= DATABASE MODEL =============
+class StudentNote(Base):
+    """Store notes/pad for each student."""
+    __tablename__ = 'trainer_student_notes'
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, nullable=False, index=True)  # Student ID
+    trainer_id = Column(String, nullable=False, index=True)  # Trainer/Master ID
+    content = Column(Text, default="")
+    plugin_id = Column(String, default="core")  # Which plugin owns this note
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    note_metadata = Column(JSON, default={})
+# ==========================================
 
 
 class StudentPadPlugin(TrainerPlugin):
@@ -19,7 +34,18 @@ class StudentPadPlugin(TrainerPlugin):
 
     def initialize(self) -> bool:
         """Initialize the plugin and register context callbacks."""
-        # Register context callbacks for student notes and teacher notes
+        # Ensure table exists - force SQLAlchemy to create it if not exists
+        try:
+            db = get_db_manager()
+            if db.is_initialized():
+                # Create tables for this model if they don't exist
+                Base.metadata.create_all(db._engine, tables=[StudentNote.__table__])
+                log("info", "StudentNote table created/verified")
+        except Exception as e:
+            log("error", f"Failed to create StudentNote table: {e}")
+            # Continue anyway - table might already exist
+
+        # Register context callbacks
         register_llm_context_callback(self.get_student_notes_context)
         register_llm_context_callback(self.get_teacher_notes_context)
         return True
@@ -66,7 +92,6 @@ class StudentPadPlugin(TrainerPlugin):
                 session.commit()
                 return True
         except Exception as e:
-            from shared.common import log
             log("error", f"Failed to save student note: {e}", exc_info=True)
             return False
 

@@ -28,7 +28,7 @@ File Naming Convention:
 """
 
 from shared.common import log, get_db_manager
-from .models import StudentNote, PluginData, PluginActivation
+from .models import PluginData, PluginActivation
 from .manager import get_trainer_manager
 from .plugin_base import get_plugin_manager
 

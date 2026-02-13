@@ -1,5 +1,5 @@
 [tool.pytest.ini_options]
-testpaths = ["shared/tests", "modules/rag_manager/tests", "modules/training/tests", "tests", ]
+testpaths = ["shared/tests", "modules/rag_manager/tests", "modules/training/tests", "modules/trainer/tests", "tests",]
 python_files = ["test_*.py", "*_steps.py", "*_test.py"]
 python_classes = "Test*"
 python_functions = "test_*"

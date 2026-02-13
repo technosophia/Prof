@@ -1,1 +1,1 @@
-import modules.trainer.modles
+import modules.trainer.models
