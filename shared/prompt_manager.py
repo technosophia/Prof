@@ -49,14 +49,19 @@ class PromptManager:
             else:
                 target[key] = value
 
-    def _detect_prompt_files(self, dirpath: str) -> Dict[str, str]:
+    def _detect_prompt_files(self, dirpath: str, recursive: bool = True) -> Dict[str, str]:
         """
-        Detect prompt files in a directory.
+        Detect prompt files in a directory recursively.
         Returns a dict: {language_code: file_path}
         Special key 'default' for prompts.yaml
+
+        Args:
+            dirpath: Directory to search
+            recursive: Whether to search subdirectories recursively
         """
         prompt_files = {}
 
+        # Check current directory
         # Check for legacy prompts.yaml
         legacy_file = os.path.join(dirpath, "prompts.yaml")
         if os.path.exists(legacy_file):
@@ -71,6 +76,25 @@ class PromptManager:
                 lang_code = filename.replace('prompts.', '').replace('.yaml', '')
                 if lang_code in VALID_LANGUAGES:
                     prompt_files[lang_code] = file_path
+
+        # Recursively search subdirectories if requested
+        if recursive:
+            try:
+                for item in os.listdir(dirpath):
+                    item_path = os.path.join(dirpath, item)
+                    # Skip __pycache__ and tests directories
+                    if os.path.isdir(item_path) and item not in ['__pycache__', 'tests']:
+                        subdir_files = self._detect_prompt_files(item_path, recursive=True)
+                        # Merge subdirectory files into the result
+                        for lang_code, file_path in subdir_files.items():
+                            if lang_code not in prompt_files:
+                                prompt_files[lang_code] = file_path
+                            else:
+                                # If there are multiple files for same language, log warning
+                                log("warning", f"Multiple prompt files for language '{lang_code}' found: "
+                                            f"{prompt_files[lang_code]} and {file_path}")
+            except PermissionError:
+                log("debug", f"Permission denied accessing {dirpath}")
 
         return prompt_files
 
@@ -103,14 +127,14 @@ class PromptManager:
         return False
 
     def load_all_prompts(self, root_dir: str):
-        """Load all prompts.yaml or prompts.xx.yaml files from the project."""
+        """Load all prompts.yaml or prompts.xx.yaml files from the project recursively."""
         if self._loaded:
             return
 
         multilingual_detected = False
         legacy_detected = False
 
-        # Walk through all directories, skipping tests
+        # Walk through all directories, skipping tests and __pycache__
         for dirpath, dirnames, filenames in os.walk(root_dir):
             # Skip tests directories
             if "tests" in dirnames:
@@ -119,8 +143,8 @@ class PromptManager:
             if "__pycache__" in dirnames:
                 dirnames.remove("__pycache__")
 
-            # Detect prompt files in this directory
-            prompt_files = self._detect_prompt_files(dirpath)
+            # Detect prompt files in this directory (non-recursive here since os.walk handles recursion)
+            prompt_files = self._detect_prompt_files(dirpath, recursive=False)
 
             if not prompt_files:
                 continue
@@ -134,17 +158,23 @@ class PromptManager:
             else:
                 multilingual_detected = True
 
-            # Calculate module prefix based on directory structure
+            # Calculate module prefix based on full directory structure from root
             rel_path = os.path.relpath(dirpath, root_dir)
             if rel_path == ".":
                 prefix = ""
             else:
+                # Split the path and create a dot-separated prefix that includes subdirectories
                 parts = rel_path.split(os.sep)
+
+                # Handle special top-level directories
                 if parts[0] == "shared":
-                    prefix = "shared"
+                    # For shared directory, use full path
+                    prefix = ".".join(parts)
                 elif parts[0] == "modules" and len(parts) > 1:
-                    prefix = parts[1]
+                    # For modules, start from the module name (skip 'modules' directory)
+                    prefix = ".".join(parts[1:])  # This preserves subdirectories
                 else:
+                    # For other directories, use full path
                     prefix = ".".join(parts)
 
             # Load prompt files
@@ -176,7 +206,7 @@ class PromptManager:
                         # Multilingual format - FORCE create the language entry
                         if lang_code not in self._multilingual_prompts:
                             self._multilingual_prompts[lang_code] = {}
-                            self._available_languages.add(lang_code)  # Add immediately
+                            self._available_languages.add(lang_code)
 
                         current = self._multilingual_prompts[lang_code]
 
@@ -225,6 +255,7 @@ class PromptManager:
             if self._default_language not in self._available_languages:
                 log("warning", f"Default language '{self._default_language}' not found. Using '{next(iter(self._available_languages), 'en')}'")
                 self._default_language = next(iter(self._available_languages), 'en')
+
 
     def get_prompt(self, key: str, default: Any = None, language: Optional[str] = None) -> Any:
         """
