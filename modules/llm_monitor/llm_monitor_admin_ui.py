@@ -362,7 +362,32 @@ def show_rate_limits_tab(monitor):
         st.info("No providers with rate limits configured")
         return
 
-    selected_provider = st.selectbox("Select Provider", providers_with_limits)
+    # Get the current LLM from the LLM manager
+    try:
+        from shared.common import get_current_llm_info
+        current_llm_info = get_current_llm_info()
+        current_llm_type = current_llm_info.get('type') if current_llm_info else None
+
+        # Find the default index
+        default_index = 0
+        if current_llm_type and current_llm_type in providers_with_limits:
+            default_index = providers_with_limits.index(current_llm_type)
+        elif providers_with_limits:
+            # Try to find by name as fallback
+            current_llm_name = current_llm_info.get('name') if current_llm_info else None
+            for i, provider in enumerate(providers_with_limits):
+                if current_llm_name and current_llm_name.lower() in provider.lower():
+                    default_index = i
+                    break
+    except Exception as e:
+        log("debug", f"Could not get current LLM for default selection: {e}")
+        default_index = 0
+
+    selected_provider = st.selectbox(
+        "Select Provider",
+        providers_with_limits,
+        index=default_index
+    )
 
     if selected_provider:
         st.write(f"**{selected_provider.title()} Rate Limits**")
@@ -385,18 +410,14 @@ def show_rate_limits_tab(monitor):
         # Show current usage
         st.subheader("Current Usage")
 
-        # Check if there are any rate limit records in the database
-        with monitor.db.get_session() as session:
-            today = datetime.utcnow().strftime("%Y-%m-%d")
-            total_records = session.query(RateLimitUsageTable).filter_by(
-                period_date=today,
-                provider=selected_provider
-            ).count()
-
-            if total_records == 0:
-                st.info(f"No rate limit usage records found for today. Make some LLM calls with free providers first!")
-
         usage = monitor.get_rate_limit_usage(selected_provider, selected_provider)
+
+        # Check if there are any tracked usage records (aggregated table or call-log fallback)
+        if usage:
+            daily_requests = usage.get("daily", {}).get("requests", 0)
+            daily_tokens = usage.get("daily", {}).get("tokens", 0)
+            if daily_requests == 0 and daily_tokens == 0:
+                st.info("No rate limit usage records found for today. Make some LLM calls with free providers first!")
 
         if usage and usage.get("limits"):
             # Display usage with simple metrics

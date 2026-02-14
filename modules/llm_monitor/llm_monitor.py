@@ -343,43 +343,77 @@ class LLMMonitor:
                         }
                     }
 
-                # Get daily usage
-                daily_usage = session.query(RateLimitUsageTable).filter_by(
-                    provider=provider,
-                    model=model,
-                    period_date=today,
-                    period_hour=None,
-                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
-                ).first()
+                tracked_user_id = user_id if self.rate_limit_tracking.get("track_per_user", False) else None
 
-                # Get hourly usage
-                hourly_usage = session.query(RateLimitUsageTable).filter_by(
-                    provider=provider,
-                    model=model,
-                    period_date=today,
-                    period_hour=current_hour,
-                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
-                ).first()
+                # Rate limits are configured per provider, not per concrete model name.
+                # Aggregate usage across all models for the selected provider.
+                daily_totals = session.query(
+                    func.coalesce(func.sum(RateLimitUsageTable.requests_count), 0).label("requests"),
+                    func.coalesce(func.sum(RateLimitUsageTable.tokens_count), 0).label("tokens")
+                ).filter(
+                    RateLimitUsageTable.provider == provider,
+                    RateLimitUsageTable.period_date == today,
+                    RateLimitUsageTable.period_hour.is_(None),
+                    RateLimitUsageTable.user_id == tracked_user_id
+                ).one()
+
+                hourly_totals = session.query(
+                    func.coalesce(func.sum(RateLimitUsageTable.requests_count), 0).label("requests"),
+                    func.coalesce(func.sum(RateLimitUsageTable.tokens_count), 0).label("tokens")
+                ).filter(
+                    RateLimitUsageTable.provider == provider,
+                    RateLimitUsageTable.period_date == today,
+                    RateLimitUsageTable.period_hour == current_hour,
+                    RateLimitUsageTable.user_id == tracked_user_id
+                ).one()
+
+                # Fallback: rate_limit_info is often empty and older data may not have
+                # aggregated rows in rate_limit_usage. In that case, derive usage directly
+                # from llm_call records while keeping config-based limits.
+                if daily_totals.requests == 0 and daily_totals.tokens == 0:
+                    daily_call_query = session.query(
+                        func.count(LLMCallTable.id).label("requests"),
+                        func.coalesce(func.sum(LLMCallTable.total_tokens), 0).label("tokens")
+                    ).filter(
+                        LLMCallTable.llm_type == provider,
+                        func.date(LLMCallTable.timestamp) == today
+                    )
+                    if tracked_user_id:
+                        daily_call_query = daily_call_query.filter(LLMCallTable.user_id == tracked_user_id)
+                    daily_totals = daily_call_query.one()
+
+                if hourly_totals.requests == 0 and hourly_totals.tokens == 0:
+                    hourly_call_query = session.query(
+                        func.count(LLMCallTable.id).label("requests"),
+                        func.coalesce(func.sum(LLMCallTable.total_tokens), 0).label("tokens")
+                    ).filter(
+                        LLMCallTable.llm_type == provider,
+                        func.date(LLMCallTable.timestamp) == today,
+                        func.strftime('%H', LLMCallTable.timestamp) == f"{current_hour:02d}"
+                    )
+                    if tracked_user_id:
+                        hourly_call_query = hourly_call_query.filter(LLMCallTable.user_id == tracked_user_id)
+                    hourly_totals = hourly_call_query.one()
 
                 result = {
                     "provider": provider,
                     "model": model,
                     "limits": limits,
                     "daily": {
-                        "requests": daily_usage.requests_count if daily_usage else 0,
-                        "tokens": daily_usage.tokens_count if daily_usage else 0,
+                        "requests": int(daily_totals.requests or 0),
+                        "tokens": int(daily_totals.tokens or 0),
                         "requests_limit": limits.get("rpd") if limits.get("rpd", 0) > 0 else None,
                         "tokens_limit": limits.get("tpd") if limits.get("tpd", 0) > 0 else None,
-                        "requests_reset_at": daily_usage.requests_reset_at.isoformat() if daily_usage and daily_usage.requests_reset_at else None,
-                        "tokens_reset_at": daily_usage.tokens_reset_at.isoformat() if daily_usage and daily_usage.tokens_reset_at else None,
+                        "requests_reset_at": None,
+                        "tokens_reset_at": None,
                     },
                     "hourly": {
-                        "requests": hourly_usage.requests_count if hourly_usage else 0,
-                        "tokens": hourly_usage.tokens_count if hourly_usage else 0,
+                        "requests": int(hourly_totals.requests or 0),
+                        "tokens": int(hourly_totals.tokens or 0),
                         "requests_limit": limits.get("rpm") if limits.get("rpm", 0) > 0 else None,
                         "tokens_limit": limits.get("tpm") if limits.get("tpm", 0) > 0 else None,
-                        "requests_reset_at": hourly_usage.requests_reset_at.isoformat() if hourly_usage and hourly_usage.requests_reset_at else None,
-                        "tokens_reset_at": hourly_usage.tokens_reset_at.isoformat() if hourly_usage and hourly_usage.tokens_reset_at else None,
+                        "requests_reset_at": None,
+                        "tokens_reset_at": None,
                     }
                 }
 
