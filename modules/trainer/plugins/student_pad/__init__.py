@@ -349,7 +349,7 @@ class StudentPadPlugin(TrainerPlugin):
         return [render_pad_overview]
 
     def export_config(self, trainer_id: str) -> Optional[Dict]:
-        """Export all student pads for this trainer (current versions only)."""
+        """Export all student pads for this trainer (current versions only) with student_id."""
         trainer_manager = get_trainer_manager()
         students = trainer_manager.get_trainer_students(trainer_id)
 
@@ -357,6 +357,7 @@ class StudentPadPlugin(TrainerPlugin):
         for student in students:
             student_data = {
                 'student_name': student.get('name', student['id']),
+                'student_id': student['id'],  # Explicitly include student_id
                 'updated_at': datetime.utcnow().isoformat()
             }
 
@@ -405,19 +406,10 @@ class StudentPadPlugin(TrainerPlugin):
         return success
 
 
-    # Add these methods to the StudentPadPlugin class in __init__.py
-
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Export all student pad history events (all versions of student and teacher notes).
         Each version change becomes a separate event in chronological order.
-
-        Args:
-            trainer_id: The trainer's ID
-            student_id: Optional student ID to filter history for a specific student
-
-        Returns:
-            List of event dictionaries with timestamps for each note version
         """
         db = get_db_manager()
         events = []
@@ -450,7 +442,7 @@ class StudentPadPlugin(TrainerPlugin):
                 student = user_manager.get_user(note.user_id)
                 student_name = student.get('name', 'Unknown') if student else 'Unknown'
 
-                # Create event
+                # Create event - removed content_preview as it's legacy
                 event = {
                     'timestamp': note.updated_at.isoformat() if note.updated_at else datetime.utcnow().isoformat(),
                     'type': event_type,
@@ -466,10 +458,6 @@ class StudentPadPlugin(TrainerPlugin):
                     'updated_at': note.updated_at.isoformat() if note.updated_at else None,
                     'metadata': note.note_metadata or {}
                 }
-
-                # Add content preview for display purposes
-                if note.content:
-                    event['content_preview'] = note.content[:100] + "..." if len(note.content) > 100 else note.content
 
                 events.append(event)
 
@@ -627,7 +615,7 @@ class StudentPadPlugin(TrainerPlugin):
                 _("Select Student"),
                 options=list(student_options.keys()),
                 format_func=lambda x: student_options[x],
-                key=f"pad_history_student_select_{self.id}"  # Unique key with plugin ID
+                key=f"pad_history_student_select_{self.id}"
             )
 
             # Note type filter - with unique key
@@ -636,7 +624,7 @@ class StudentPadPlugin(TrainerPlugin):
                 options=['all', 'student', 'teacher'],
                 format_func=lambda x: _("All Notes") if x == 'all' else (_("Student Notes") if x == 'student' else _("Teacher Notes")),
                 horizontal=True,
-                key=f"pad_history_note_type_{self.id}"  # Unique key with plugin ID
+                key=f"pad_history_note_type_{self.id}"
             )
 
             # Get history
@@ -667,7 +655,7 @@ class StudentPadPlugin(TrainerPlugin):
 
             for idx, event in enumerate(events):
                 with st.container():
-                    cols = st.columns([2, 1, 3, 1])
+                    cols = st.columns([2, 1, 2, 3])
 
                     with cols[0]:
                         # Timestamp
@@ -678,34 +666,32 @@ class StudentPadPlugin(TrainerPlugin):
                             st.write(event['timestamp'])
 
                     with cols[1]:
-                        # Student name
-                        st.write(event.get('student_name', event.get('student_id', 'Unknown')))
+                        # Student name (truncated)
+                        name = event.get('student_name', event.get('student_id', 'Unknown'))
+                        st.write(name[:15] + "..." if len(name) > 15 else name)
 
                     with cols[2]:
-                        # Preview
+                        # Note type and version
                         if event.get('note_type') == 'student':
                             icon = "📝"
-                            label = _("Student Note")
+                            label = _("Student")
                         else:
                             icon = "👨‍🏫"
-                            label = _("Teacher Note")
+                            label = _("Teacher")
 
-                        version_info = f" (v{event.get('version', 1)})"
+                        version_info = f"v{event.get('version', 1)}"
                         if event.get('is_current'):
-                            version_info += " - " + _("Current")
+                            version_info += " ✓"
 
-                        st.write(f"{icon} **{label}**{version_info}")
-
-                        preview = event.get('content_preview', '')
-                        if preview:
-                            st.caption(preview)
+                        st.write(f"{icon} {label} {version_info}")
 
                     with cols[3]:
-                        # Version indicator
-                        if not event.get('is_current'):
-                            st.write("📚 " + _("Historical"))
+                        # Content preview
+                        content = event.get('content', '')
+                        if content:
+                            preview = content[:50] + "..." if len(content) > 50 else content
+                            st.caption(preview)
 
-                # Add a unique key to the divider to avoid Streamlit key conflicts
                 st.divider()
 
         return [(_("Notes History"), render_history_viewer)]

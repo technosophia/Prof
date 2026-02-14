@@ -284,6 +284,35 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
     with col1:
         if st.button("Export Configuration", key="export_config", use_container_width=True):
             yaml_content = trainer_manager.export_configuration(trainer_id)
+
+            # Show preview of configuration before download
+            with st.expander("📋 Preview Configuration", expanded=True):
+                try:
+                    preview_data = yaml.safe_load(yaml_content)
+
+                    # Display configuration summary
+                    st.subheader("Configuration Summary")
+
+                    # Trainer section
+                    trainer_config = preview_data.get('trainer', {})
+                    st.markdown("**Trainer Configuration:**")
+                    st.json({
+                        'trainer_id': trainer_config.get('trainer_id'),
+                        'exported_at': trainer_config.get('exported_at'),
+                        'system_prompt': trainer_config.get('system_prompt', '')[:100] + '...' if len(trainer_config.get('system_prompt', '')) > 100 else trainer_config.get('system_prompt', '')
+                    })
+
+                    # Plugins section
+                    plugins = preview_data.get('plugins', {})
+                    if plugins:
+                        st.markdown("**Active Plugins:**")
+                        for plugin_id, plugin_config in plugins.items():
+                            with st.expander(f"🔌 {plugin_id}", expanded=False):
+                                st.json(plugin_config)
+
+                except Exception as e:
+                    st.error(f"Preview error: {str(e)}")
+
             st.download_button(
                 label="Download Configuration YAML",
                 data=yaml_content,
@@ -309,6 +338,17 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                 with st.expander("Preview Configuration", expanded=False):
                     try:
                         preview_data = yaml.safe_load(yaml_content)
+
+                        # Show what will be imported
+                        st.subheader("Configuration to Import")
+
+                        trainer_config = preview_data.get('trainer', {})
+                        st.markdown("**Trainer Configuration:**")
+                        st.write(f"System Prompt: {trainer_config.get('system_prompt', 'Not set')[:200]}")
+
+                        plugins = preview_data.get('plugins', {})
+                        if plugins:
+                            st.markdown(f"**Plugins:** {', '.join(plugins.keys())}")
                         st.json(preview_data)
                     except:
                         st.text(yaml_content[:500] + "...")
@@ -322,7 +362,8 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                 st.error(f"Import error: {str(e)}")
 
     st.divider()
-    st.subheader("History Export")
+    st.subheader("Full History Export (Configuration + Events)")
+    st.caption("This export includes both your trainer configuration and all historical events.")
 
     # Get students for selection
     students = trainer_manager.get_trainer_students(trainer_id)
@@ -348,8 +389,8 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                 key="preview_history_checkbox"
             )
 
-            if st.button("Generate History Export", key="generate_history_btn", use_container_width=True):
-                with st.spinner("Generating history export..."):
+            if st.button("Generate Full History Export", key="generate_history_btn", use_container_width=True):
+                with st.spinner("Generating full history export..."):
                     student_id = None if selected_student == 'all' else selected_student
                     yaml_content = trainer_manager.export_history(trainer_id, student_id)
 
@@ -361,10 +402,10 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
 
         with col2:
             uploaded_history = st.file_uploader(
-                "Select History YAML",
+                "Select Full History YAML",
                 type=['yaml', 'yml'],
                 key="history_upload_trainer",
-                help="Upload a previously exported history YAML"
+                help="Upload a previously exported full history YAML (includes configuration)"
             )
 
             if uploaded_history is not None:
@@ -377,21 +418,23 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
 
         # Show preview if available
         if 'history_export_content' in st.session_state:
-            with st.expander("📋 Preview History Export", expanded=True):
+            with st.expander("📋 Preview Full History Export", expanded=True):
                 yaml_content = st.session_state['history_export_content']
 
                 try:
                     preview_data = yaml.safe_load(yaml_content)
 
+                    # Check if it's a full history export with configuration
+                    has_config = 'configuration' in preview_data
+
                     # Display summary stats
                     st.subheader("Export Summary")
+
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total Events", preview_data.get('event_count', 0))
+                        st.metric("Export Type", "Full History" if has_config else "Events Only")
                     with col2:
-                        # Count unique event types
-                        event_types = set(e.get('type') for e in preview_data.get('events', []))
-                        st.metric("Event Types", len(event_types))
+                        st.metric("Total Events", preview_data.get('event_count', 0))
                     with col3:
                         # Count students
                         students_in_export = set(e.get('student_id') for e in preview_data.get('events', []) if e.get('student_id'))
@@ -404,13 +447,18 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                             last_date = events[-1].get('timestamp', '')[:10]
                             st.metric("Date Range", f"{first_date} to {last_date}")
 
-                    # Show sample of events
-                    st.subheader("Sample Events (First 5)")
-                    sample_events = preview_data.get('events', [])[:5]
+                    # Configuration preview section
+                    if has_config:
+                        with st.expander("⚙️ Configuration Preamble", expanded=False):
+                            st.json(preview_data.get('configuration', {}))
+
+                    # Events preview
+                    st.subheader("Event Timeline (First 10 Events)")
+                    sample_events = preview_data.get('events', [])[:10]
 
                     for i, event in enumerate(sample_events):
                         with st.container():
-                            cols = st.columns([2, 1, 2, 3])
+                            cols = st.columns([2, 1.5, 2, 3])
 
                             with cols[0]:
                                 # Timestamp
@@ -421,16 +469,18 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                                     st.write(event.get('timestamp', '')[:16])
 
                             with cols[1]:
-                                # Type
+                                # Type with icons
                                 event_type = event.get('type', 'unknown')
                                 if 'user_message' in event_type:
-                                    st.write("👤 User")
+                                    st.write("👤 User Msg")
                                 elif 'assistant_message' in event_type:
                                     st.write("🤖 Assistant")
                                 elif 'student_note' in event_type:
                                     st.write("📝 Student Note")
                                 elif 'teacher_note' in event_type:
                                     st.write("👨‍🏫 Teacher Note")
+                                elif 'plugin' in event_type:
+                                    st.write("🔌 Plugin Event")
                                 else:
                                     st.write(event_type[:15])
 
@@ -440,6 +490,8 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                                     st.write(event.get('student_name'))
                                 elif event.get('plugin_id') and event.get('plugin_id') != 'core.conversation':
                                     st.write(f"Plugin: {event.get('plugin_id')}")
+                                else:
+                                    st.write("-")
 
                             with cols[3]:
                                 # Preview
@@ -452,18 +504,18 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
 
                         st.divider()
 
-                    if len(preview_data.get('events', [])) > 5:
-                        st.caption(f"... and {len(preview_data.get('events', [])) - 5} more events")
+                    if len(preview_data.get('events', [])) > 10:
+                        st.caption(f"... and {len(preview_data.get('events', [])) - 10} more events")
 
                     # Download button
                     student_name = st.session_state.get('history_export_student_name', 'all')
-                    filename = f"trainer_history_{trainer_id}"
+                    filename = f"trainer_full_history_{trainer_id}"
                     if student_name != 'all':
                         filename += f"_{student_name.replace(' ', '_').lower()}"
                     filename += ".yaml"
 
                     st.download_button(
-                        label="📥 Download History YAML",
+                        label="📥 Download Full History YAML",
                         data=yaml_content,
                         file_name=filename,
                         mime="text/yaml",
@@ -489,26 +541,41 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
 
                     # Display summary
                     st.subheader("Import Summary")
-                    col1, col2, col3 = st.columns(3)
+
+                    has_config = 'configuration' in preview_data
+
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Events to Import", preview_data.get('event_count', 0))
+                        st.metric("File Type", "Full History" if has_config else "Events Only")
                     with col2:
-                        st.metric("Exported At", preview_data.get('exported_at', '')[:10])
+                        st.metric("Events to Import", preview_data.get('event_count', 0))
                     with col3:
+                        st.metric("Exported At", preview_data.get('exported_at', '')[:10])
+                    with col4:
                         if preview_data.get('student_id'):
-                            st.metric("Student", "Single Student")
+                            st.metric("Scope", "Single Student")
                         else:
-                            st.metric("Student", "All Students")
+                            st.metric("Scope", "All Students")
+
+                    # Show configuration if present
+                    if has_config:
+                        with st.expander("⚙️ Configuration to Import", expanded=False):
+                            st.json(preview_data.get('configuration', {}))
+                            st.info("This configuration will be imported and applied.")
 
                     # Warning about duplicates
-                    st.warning("⚠️ Importing history may create duplicate conversations and events. Please review before proceeding.")
+                    st.warning("⚠️ Importing full history will:")
+                    if has_config:
+                        st.warning("• Replace current configuration with imported configuration")
+                    st.warning("• Add events which may create duplicate conversations")
+                    st.warning("Please review before proceeding.")
 
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("✅ Confirm Import", key="confirm_import_btn", use_container_width=True):
-                            with st.spinner("Importing history..."):
+                            with st.spinner("Importing full history..."):
                                 if trainer_manager.import_history(trainer_id, yaml_content):
-                                    st.success("History imported successfully!")
+                                    st.success("Full history imported successfully!")
                                     if 'history_import_preview' in st.session_state:
                                         del st.session_state['history_import_preview']
                                     st.rerun()
@@ -528,7 +595,7 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
 
     # History statistics
     st.divider()
-    st.subheader("History Statistics")
+    st.subheader("Current History Statistics")
 
     col1, col2, col3 = st.columns(3)
 

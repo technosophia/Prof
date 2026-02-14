@@ -60,11 +60,15 @@ class TrainerManager:
         """Export trainer and plugins configuration as YAML."""
         from .plugin_base import get_plugin_manager
 
+        # Get the actual system prompt, not just the key
+        from shared.common import get_prompt
+        system_prompt = get_prompt('trainer.teacher.system_prompt')
+
         config = {
             'trainer': {
                 'exported_at': datetime.utcnow().isoformat(),
                 'trainer_id': trainer_id,
-                'system_prompt_key': 'teacher.system_prompt'
+                'system_prompt': system_prompt,  # Export the actual prompt, not the key
             },
             'plugins': {}
         }
@@ -109,14 +113,14 @@ class TrainerManager:
 
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> str:
         """
-        Export complete history including conversations and plugin events.
+        Export complete history including configuration, conversations and plugin events.
 
         Args:
             trainer_id: The trainer's ID
             student_id: Optional student ID to filter history for a specific student
 
         Returns:
-            YAML string containing chronologically sorted events
+            YAML string containing configuration and chronologically sorted events
         """
         from .plugin_base import get_plugin_manager
 
@@ -155,7 +159,7 @@ class TrainerManager:
                             'plugin_id': 'core.conversation'
                         }
 
-                        # Add message metadata if available - FIX: use 'metadata' not 'msg_metadata'
+                        # Add message metadata if available
                         if hasattr(msg, 'metadata') and msg.metadata:
                             event['metadata'] = msg.metadata
                         elif hasattr(msg, 'msg_metadata') and msg.msg_metadata:  # Fallback for backward compatibility
@@ -183,11 +187,18 @@ class TrainerManager:
         # Sort events chronologically
         events.sort(key=lambda x: x.get('timestamp', ''))
 
-        # Build complete export structure
+        # Get configuration export
+        config_yaml = self.export_configuration(trainer_id)
+        config_data = yaml.safe_load(config_yaml)
+
+        # Build complete export structure with configuration as preamble
         export_data = {
             'exported_at': datetime.utcnow().isoformat(),
             'trainer_id': trainer_id,
             'student_id': student_id,
+            'export_type': 'full_history_with_config',
+            'version': '1.0',
+            'configuration': config_data,  # Configuration as preamble
             'event_count': len(events),
             'events': events
         }
@@ -196,11 +207,11 @@ class TrainerManager:
 
     def import_history(self, trainer_id: str, yaml_content: str) -> bool:
         """
-        Import complete history including conversations and plugin events.
+        Import complete history including configuration and events.
 
         Args:
             trainer_id: The trainer's ID
-            yaml_content: YAML string containing events to import
+            yaml_content: YAML string containing configuration and events to import
 
         Returns:
             True if import successful, False otherwise
@@ -210,11 +221,25 @@ class TrainerManager:
         try:
             config = yaml.safe_load(yaml_content)
 
-            if not config or 'events' not in config:
-                log("error", "Invalid history export: missing events")
+            if not config:
+                log("error", "Invalid history export: empty file")
                 return False
 
-            events = config.get('events', [])
+            # Check if this is a full history export with configuration
+            if 'configuration' in config:
+                log("info", "Importing full history with configuration")
+
+                # First import the configuration
+                config_success = self.import_configuration(trainer_id, yaml.dump(config['configuration']))
+                if not config_success:
+                    log("warning", "Configuration import had issues, continuing with events")
+
+                # Then import events
+                events = config.get('events', [])
+            else:
+                # Legacy format - just events
+                log("info", "Importing legacy history format (no configuration)")
+                events = config.get('events', []) if 'events' in config else []
 
             # Group events by plugin for processing
             plugin_events = {}
@@ -257,16 +282,12 @@ class TrainerManager:
                         'metadata': event.get('metadata', {})
                     })
 
-                # Recreate conversations (this would need to be implemented in conversation_manager)
-                # You might want to add a method to conversation_manager to import conversations
+                # TODO: Implement conversation import in conversation_manager
+                # For now, just log
                 for student_id, conversations in student_conversations.items():
                     for conv_id, conv_data in conversations.items():
                         # Sort messages by timestamp
                         conv_data['messages'].sort(key=lambda x: x.get('timestamp', ''))
-
-                        # Create conversation if it doesn't exist
-                        # This assumes you have a method to import conversations
-                        # If not, you might need to create one
                         log("info", f"Would import conversation {conv_id} for student {student_id} with {len(conv_data['messages'])} messages")
 
             # Process plugin events
@@ -286,6 +307,7 @@ class TrainerManager:
         except Exception as e:
             log("error", f"Failed to import history: {e}", exc_info=True)
             return False
+
 
     def set_plugin_active(self, trainer_id: str, plugin_id: str,
                          active: bool) -> bool:
