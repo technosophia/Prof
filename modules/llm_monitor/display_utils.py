@@ -475,18 +475,17 @@ def render_system_overview(monitor):
         if monitor.rate_limit_tracking.get("enabled", True):
             st.subheader("⏱️ Rate Limit Status")
 
-            # Check for free providers with rate limits
-            free_providers = [p for p in monitor.cost_config.keys()
-                            if monitor.is_free_provider(p) and p in monitor.rate_limits_config]
+            # Check for providers with rate limits configured
+            providers_with_limits = [p for p in monitor.rate_limits_config.keys()]
 
-            if free_providers:
-                tabs = st.tabs([p.title() for p in free_providers])
+            if providers_with_limits:
+                tabs = st.tabs([p.title() for p in providers_with_limits])
 
-                for i, provider in enumerate(free_providers):
+                for i, provider in enumerate(providers_with_limits):
                     with tabs[i]:
                         render_rate_limit_summary(monitor, provider)
             else:
-                st.info("No free providers with rate limits configured")
+                st.info("No providers with rate limits configured")
 
         # Create DataFrame for visualization
         if recent_calls:

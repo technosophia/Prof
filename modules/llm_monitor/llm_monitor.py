@@ -132,9 +132,27 @@ class LLMMonitor:
         return total_tokens
 
     def is_free_provider(self, llm_type: str) -> bool:
-        """Check if the provider is free (no cost)."""
+        """Check if the provider is free (no cost).
+
+        A provider is considered free if:
+        1. It has explicit is_free: true in config, OR
+        2. Both input and output costs are 0
+        """
         provider_config = self.cost_config.get(llm_type, {})
-        return provider_config.get("is_free", False)
+
+        # Check explicit is_free flag first
+        if provider_config.get("is_free", False):
+            return True
+
+        # Otherwise, check if both costs are 0
+        input_cost = provider_config.get("input_cost_per_million_tokens", None)
+        output_cost = provider_config.get("output_cost_per_million_tokens", None)
+
+        # If both costs are explicitly set to 0, it's a free provider
+        if input_cost == 0 and output_cost == 0:
+            return True
+
+        return False
 
     def calculate_cost(self, llm_type: str, input_tokens: int, output_tokens: int) -> Dict[str, float]:
         """Calculate cost based on token usage (per million tokens)."""
@@ -183,82 +201,109 @@ class LLMMonitor:
     def update_rate_limit_usage(self, provider: str, model: str,
                                tokens_used: int, user_id: Optional[str] = None,
                                rate_limit_headers: Optional[Dict] = None):
-        """Update rate limit usage for a provider using estimated tokens."""
+        """Update rate limit usage for a provider using estimated tokens.
+
+        Rate limits are tracked whenever they're configured, regardless of whether
+        the provider is free or paid. This allows tracking free tier limits on
+        providers that also offer paid plans.
+        """
         if not self.rate_limit_tracking.get("enabled", True):
             return
 
-        # Only track for free providers
-        if not self.is_free_provider(provider):
-            return
-
         try:
+            # Check if rate limits are configured for this provider/model
+            # We check for limits first - if none exist, no need to track
+            limits = self.get_rate_limits(provider, model, "free")
+            if not limits:
+                limits = self.get_rate_limits(provider, model, "developer")
+
+            # Only track if we have limits configured
+            if not limits:
+                log("debug", f"No rate limits configured for {provider}/{model}, skipping tracking")
+                return
+
             with self.db.get_session() as session:
-                today = datetime.utcnow().strftime("%Y-%m-%d")
-                current_hour = datetime.utcnow().hour
-
-                # Get the rate limits for this model to know what limits exist
-                limits = self.get_rate_limits(provider, model, "free")
-                if not limits:
-                    # Try developer plan as fallback
-                    limits = self.get_rate_limits(provider, model, "developer")
-
-                # Only track if we have limits configured
-                if not limits:
-                    log("debug", f"No rate limits configured for {provider}/{model}, skipping tracking")
-                    return
-
-                # Update daily usage
-                daily_usage = session.query(RateLimitUsageTable).filter_by(
-                    provider=provider,
-                    model=model,
-                    period_date=today,
-                    period_hour=None,
-                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
-                ).first()
-
-                if not daily_usage:
-                    daily_usage = RateLimitUsageTable(
-                        provider=provider,
-                        model=model,
-                        plan_type="free",  # Default to free plan
-                        period_date=today,
-                        user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
-                    )
-                    session.add(daily_usage)
-
-                daily_usage.requests_count += 1
-                daily_usage.tokens_count += tokens_used
-
-                # Update hourly usage
-                hourly_usage = session.query(RateLimitUsageTable).filter_by(
-                    provider=provider,
-                    model=model,
-                    period_date=today,
-                    period_hour=current_hour,
-                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
-                ).first()
-
-                if not hourly_usage:
-                    hourly_usage = RateLimitUsageTable(
-                        provider=provider,
-                        model=model,
-                        plan_type="free",
-                        period_date=today,
-                        period_hour=current_hour,
-                        user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
-                    )
-                    session.add(hourly_usage)
-
-                hourly_usage.requests_count += 1
-                hourly_usage.tokens_count += tokens_used
-
-                # No need for rate limit headers - we just track our estimated usage
-
+                self._update_rate_limit_usage_internal(
+                    session, provider, model, tokens_used, user_id
+                )
                 session.commit()
-                log("debug", f"Updated rate limit usage for {provider}/{model}: +1 request, +{tokens_used} tokens")
 
         except Exception as e:
             log("error", f"Failed to update rate limit usage: {e}", exc_info=True)
+
+    def _update_rate_limit_usage_internal(self, session: Session, provider: str,
+                                         model: str, tokens_used: int,
+                                         user_id: Optional[str] = None):
+        """Internal method to update rate limit usage within an existing session.
+
+        This method doesn't commit - it's the caller's responsibility.
+        """
+        try:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            current_hour = datetime.utcnow().hour
+
+            # Get the rate limits for this model to know what limits exist
+            limits = self.get_rate_limits(provider, model, "free")
+            if not limits:
+                # Try developer plan as fallback
+                limits = self.get_rate_limits(provider, model, "developer")
+
+            # Only track if we have limits configured
+            if not limits:
+                log("debug", f"No rate limits configured for {provider}/{model}, skipping tracking")
+                return
+
+            # Update daily usage
+            daily_usage = session.query(RateLimitUsageTable).filter_by(
+                provider=provider,
+                model=model,
+                period_date=today,
+                period_hour=None,
+                user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+            ).first()
+
+            if not daily_usage:
+                daily_usage = RateLimitUsageTable(
+                    provider=provider,
+                    model=model,
+                    plan_type="free",  # Default to free plan
+                    period_date=today,
+                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                )
+                session.add(daily_usage)
+
+            daily_usage.requests_count += 1
+            daily_usage.tokens_count += tokens_used
+
+            # Update hourly usage
+            hourly_usage = session.query(RateLimitUsageTable).filter_by(
+                provider=provider,
+                model=model,
+                period_date=today,
+                period_hour=current_hour,
+                user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+            ).first()
+
+            if not hourly_usage:
+                hourly_usage = RateLimitUsageTable(
+                    provider=provider,
+                    model=model,
+                    plan_type="free",
+                    period_date=today,
+                    period_hour=current_hour,
+                    user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
+                )
+                session.add(hourly_usage)
+
+            hourly_usage.requests_count += 1
+            hourly_usage.tokens_count += tokens_used
+
+            # No need for rate limit headers - we just track our estimated usage
+            log("debug", f"Updated rate limit usage for {provider}/{model}: +1 request, +{tokens_used} tokens")
+
+        except Exception as e:
+            log("error", f"Failed to update rate limit usage (internal): {e}", exc_info=True)
+            raise  # Re-raise so the parent can handle rollback
 
     def get_rate_limit_usage(self, provider: str, model: str,
                             user_id: Optional[str] = None) -> Dict[str, Any]:
@@ -467,15 +512,21 @@ class LLMMonitor:
                                                input_tokens or 0, output_tokens or 0,
                                                costs["total_cost"])
 
-                # Update rate limit usage for free providers
-                if self.is_free_provider(data["llm_type"]):
-                    log("debug", f"Tracking rate limit for free provider: {data['llm_type']}/{data['model']} with {total_tokens} tokens")
-                    self.update_rate_limit_usage(
+                # Update rate limit usage if limits are configured
+                # Check if rate limits exist for this provider/model
+                rate_limits_exist = (
+                    self.get_rate_limits(data["llm_type"], data["model"], "free") or
+                    self.get_rate_limits(data["llm_type"], data["model"], "developer")
+                )
+
+                if rate_limits_exist:
+                    log("debug", f"Tracking rate limit for {data['llm_type']}/{data['model']} with {total_tokens} tokens")
+                    self._update_rate_limit_usage_internal(
+                        session=session,
                         provider=data["llm_type"],
                         model=data["model"],
                         tokens_used=total_tokens,
                         user_id=user_id
-                        # No rate_limit_headers parameter needed
                     )
 
                 # Commit all changes

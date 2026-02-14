@@ -75,14 +75,13 @@ def inject_ui_sidebar():
                 else:
                     st.caption("💰 Cost: Free")
 
-        # Rate limit summary (always show for free providers)
+        # Rate limit summary (show for providers with rate limits configured)
         if monitor.rate_limit_tracking.get("enabled", True):
-            free_providers = [p for p in monitor.cost_config.keys()
-                            if monitor.is_free_provider(p) and p in monitor.rate_limits_config]
+            providers_with_limits = [p for p in monitor.rate_limits_config.keys()]
 
-            if free_providers:
+            if providers_with_limits:
                 with st.expander("⏱️ Rate Limits", expanded=False):
-                    for provider in free_providers:
+                    for provider in providers_with_limits:
                         st.write(f"**{provider.title()}**")
 
                         # Get rate limit usage for this provider
@@ -186,17 +185,16 @@ def inject_ui_main_footer():
                 st.info("No LLM calls yet")
 
         with tab2:
-            # Show rate limits for free providers
+            # Show rate limits for providers with limits configured
             if monitor.rate_limit_tracking.get("enabled", True):
-                free_providers = [p for p in monitor.cost_config.keys()
-                                if monitor.is_free_provider(p) and p in monitor.rate_limits_config]
+                providers_with_limits = [p for p in monitor.rate_limits_config.keys()]
 
-                if free_providers:
-                    for provider in free_providers:
+                if providers_with_limits:
+                    for provider in providers_with_limits:
                         with st.expander(f"📊 {provider.title()} Rate Limits", expanded=True):
                             render_rate_limit_summary(monitor, provider)
                 else:
-                    st.info("No free providers with rate limits configured")
+                    st.info("No providers with rate limits configured")
             else:
                 st.info("Rate limit tracking is disabled")
 

@@ -384,7 +384,7 @@ def show_rate_limits_tab(monitor):
                         "TPD": limits.get("tpd")
                     }
 
-                    # Ensure numeric fields are either int/float or None (not strings)
+                    # Ensure numeric fields are either int/float or 0 (not strings or None)
                     for field in ["RPM", "RPD", "TPM", "TPD"]:
                         val = row[field]
                         if val is not None:
@@ -392,18 +392,16 @@ def show_rate_limits_tab(monitor):
                                 # Convert to int if possible
                                 row[field] = int(val)
                             except (ValueError, TypeError):
-                                row[field] = None
-                        # Keep as None, don't convert to "N/A" string
+                                row[field] = 0
+                        else:
+                            row[field] = 0
 
                     limits_data.append(row)
 
                 if limits_data:
                     df_limits = pd.DataFrame(limits_data)
-
-                    # Replace None with empty string for display
-                    df_display = df_limits.fillna('')
                     st.write("**Rate Limits Configuration:**")
-                    st.dataframe(df_display, width='stretch')
+                    st.dataframe(df_limits, width='stretch')
 
                 # Show current usage
                 st.subheader("Current Usage")
@@ -505,15 +503,28 @@ def show_configuration_tab(monitor):
         for plan_type, models in plans.items():
             for model, limits in models.items():
                 if model != "default":
-                    rate_limit_data.append({
+                    row = {
                         "Provider": provider,
                         "Plan": plan_type,
                         "Model": model,
-                        "RPM": limits.get("rpm", "N/A"),
-                        "RPD": limits.get("rpd", "N/A"),
-                        "TPM": limits.get("tpm", "N/A"),
-                        "TPD": limits.get("tpd", "N/A")
-                    })
+                        "RPM": limits.get("rpm"),
+                        "RPD": limits.get("rpd"),
+                        "TPM": limits.get("tpm"),
+                        "TPD": limits.get("tpd")
+                    }
+
+                    # Convert None values to 0 for display purposes
+                    # This prevents Arrow serialization errors
+                    for field in ["RPM", "RPD", "TPM", "TPD"]:
+                        if row[field] is None:
+                            row[field] = 0
+                        else:
+                            try:
+                                row[field] = int(row[field])
+                            except (ValueError, TypeError):
+                                row[field] = 0
+
+                    rate_limit_data.append(row)
 
     if rate_limit_data:
         df_rate_limits = pd.DataFrame(rate_limit_data)
@@ -660,15 +671,22 @@ def test_rate_limit_tracking(monitor):
 
                     data.append(row)
 
-                # Create DataFrame - pandas will handle the types automatically
+                # Create DataFrame with proper type handling
                 df = pd.DataFrame(data)
 
-                # Replace None with empty string for display
-                df_display = df.fillna('')
+                # Convert Hour to int where not None, otherwise 0
+                if 'Hour' in df.columns:
+                    df['Hour'] = df['Hour'].fillna(-1).astype(int)  # Use -1 to indicate "Daily"
+                    df['Hour'] = df['Hour'].replace(-1, 0)  # Or just use 0
 
-                # Display the raw DataFrame first to verify
+                # Ensure numeric columns are proper integers
+                for col in ['Requests', 'Tokens']:
+                    if col in df.columns:
+                        df[col] = df[col].fillna(0).astype(int)
+
+                # Display the DataFrame
                 st.write("**Raw Rate Limit Data:**")
-                st.dataframe(df_display, width='stretch')
+                st.dataframe(df, width='stretch')
 
                 # Also show summary stats
                 total_requests = df['Requests'].sum() if 'Requests' in df else 0
