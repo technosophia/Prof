@@ -13,6 +13,8 @@ import importlib.util
 import inspect
 
 from shared.common import log, _, get_config
+from modules.trainer.training_context import get_training_context, TrainingContext
+
 
 
 @dataclass
@@ -106,6 +108,50 @@ class TrainerPlugin(ABC):
         """
         return True
 
+
+    def get_training_context(self, trainer_id: str) -> TrainingContext:
+        """
+        Get the training context for the current trainer.
+
+        This is the main method plugins should use to access training
+        program and other contextual information.
+
+        Args:
+            trainer_id: The trainer's ID
+
+        Returns:
+            TrainingContext object containing program and other data
+        """
+        return get_training_context(trainer_id)
+
+    def get_training_program(self, trainer_id: str) -> str:
+        """
+        Convenience method to get just the training program text.
+
+        Args:
+            trainer_id: The trainer's ID
+
+        Returns:
+            The training program as a string
+        """
+        return self.get_training_context(trainer_id).training_program
+
+    def with_context(self, trainer_id: str, func: Callable[[TrainingContext], Any]) -> Any:
+        """
+        Execute a function with the training context injected.
+
+        This is a convenience method for plugins that need to perform
+        multiple operations with the training context.
+
+        Args:
+            trainer_id: The trainer's ID
+            func: Function that takes a TrainingContext and returns something
+
+        Returns:
+            The result of func(context)
+        """
+        context = self.get_training_context(trainer_id)
+        return func(context)
 
 class PluginDataProvider(Protocol):
     """Protocol for plugins that provide data access methods."""

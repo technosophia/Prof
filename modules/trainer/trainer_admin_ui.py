@@ -265,13 +265,46 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
             widget()
 
 def _render_configuration_tab():
-    """Render the configuration tab."""
+    """Render the configuration tab with training program."""
+    from modules.trainer.training_context import get_training_context, set_training_program
+
     st.subheader("System Prompt")
 
     current_prompt = get_prompt('trainer.teacher.system_prompt')
-
     st.info(current_prompt)
     st.caption("System prompt is configured via import/export or configuration files.")
+
+    st.divider()
+    st.subheader("Training Program")
+
+    # Get current training program
+    trainer_id = st.session_state.current_user['id']
+    context = get_training_context(trainer_id)
+
+    # Editable text area for training program
+    new_program = st.text_area(
+        "Training Program Content",
+        value=context.training_program,
+        height=200,
+        help="This program defines the training approach and will be available to all plugins via TrainingContext"
+    )
+
+    # Save button
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("Save Training Program", type="primary", use_container_width=True):
+            set_training_program(trainer_id, new_program)
+            st.success("Training program saved successfully!")
+            st.rerun()
+
+    with col2:
+        if st.button("Reset to Default", use_container_width=True):
+            default_program = get_prompt('teacher.training_program')
+            set_training_program(trainer_id, default_program)
+            st.success("Reset to default training program!")
+            st.rerun()
+
+    st.caption("The training program is exported in the configuration YAML and available to all active plugins.")
 
 
 def _render_import_export_tab(trainer_id: str, trainer_manager):

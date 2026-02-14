@@ -11,6 +11,7 @@ from shared.common import (
     get_db_manager, get_user_manager, get_conversation_manager,
     log, _
 )
+from modules.trainer.training_context import export_training_context, import_training_context, set_training_program
 
 
 class TrainerManager:
@@ -64,11 +65,15 @@ class TrainerManager:
         from shared.common import get_prompt
         system_prompt = get_prompt('trainer.teacher.system_prompt')
 
+        # Get training context
+        training_context = export_training_context(trainer_id)
+
         config = {
             'trainer': {
                 'exported_at': datetime.utcnow().isoformat(),
                 'trainer_id': trainer_id,
                 'system_prompt': system_prompt,  # Export the actual prompt, not the key
+                'training_context': training_context,  # Add training context
             },
             'plugins': {}
         }
@@ -88,6 +93,17 @@ class TrainerManager:
         try:
             config = yaml.safe_load(yaml_content)
 
+            # Import training context if present
+            trainer_config = config.get('trainer', {})
+            if 'training_context' in trainer_config:
+                import_success = import_training_context(trainer_id, trainer_config['training_context'])
+                if not import_success:
+                    log("warning", "Training context import had issues, using defaults")
+
+            # Also check for direct training_program (backward compatibility)
+            elif 'training_program' in trainer_config:
+                set_training_program(trainer_id, trainer_config['training_program'])
+
             plugin_manager = get_plugin_manager()
             for plugin_id, plugin_config in config.get('plugins', {}).items():
                 plugin = plugin_manager.get_plugin(plugin_id)
@@ -98,6 +114,7 @@ class TrainerManager:
         except Exception as e:
             log("error", f"Failed to import configuration: {e}", exc_info=True)
             return False
+
 
     def is_plugin_active(self, trainer_id: str, plugin_id: str) -> bool:
         """Check if a plugin is active for this trainer."""
