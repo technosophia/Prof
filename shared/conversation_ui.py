@@ -124,6 +124,8 @@ def inject_ui_sidebar():
         log("info", "Creating new conversation")
         st.session_state.show_new_conversation_form = True
         st.session_state.editing_conversation_id = None
+        # Switch to chat page when starting new conversation
+        st.session_state.current_page = "chat"
         st.rerun()
 
     try:
@@ -167,6 +169,8 @@ def inject_ui_sidebar():
                 ):
                     # Load this conversation
                     st.session_state.current_conversation_id = conv['id']
+                    # Switch to chat page when selecting a conversation
+                    st.session_state.current_page = "chat"
                     try:
                         conversation = get_conversation_manager().get_conversation(conv['id'], include_messages=True)
                         if conversation:
@@ -182,6 +186,8 @@ def inject_ui_sidebar():
                 if st.button("✏️", key=f"edit_{conv_key}", help=_("edit_conversation_title")):
                     st.session_state.editing_conversation_id = conv['id']
                     st.session_state.show_new_conversation_form = True
+                    # Switch to chat page when editing conversation
+                    st.session_state.current_page = "chat"
                     st.rerun()
 
         # Show current conversation info
@@ -250,8 +256,6 @@ def render_conversation_form():
                                 )
                                 if conversation:
                                     st.session_state.conversation_messages = conversation.messages
-                        else:
-                            st.error(_("update_failed"))
                     else:
                         # Create new conversation
                         # Extract only serializable parts from llm_info
@@ -287,6 +291,8 @@ def render_conversation_form():
                     # Reset form state
                     st.session_state.show_new_conversation_form = False
                     st.session_state.editing_conversation_id = None
+                    # Ensure we're on the chat page after creating/editing
+                    st.session_state.current_page = "chat"
                     st.rerun()
                 except Exception as e:
                     st.error(_("error_processing_message").format(error=str(e)))
@@ -295,6 +301,8 @@ def render_conversation_form():
         if cancel:
             st.session_state.show_new_conversation_form = False
             st.session_state.editing_conversation_id = None
+            # Switch back to chat page when canceling
+            st.session_state.current_page = "chat"
             st.rerun()
 
 
