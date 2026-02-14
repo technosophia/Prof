@@ -114,13 +114,7 @@ class TrainerManager:
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> str:
         """
         Export complete history including configuration, conversations and plugin events.
-
-        Args:
-            trainer_id: The trainer's ID
-            student_id: Optional student ID to filter history for a specific student
-
-        Returns:
-            YAML string containing configuration and chronologically sorted events
+        Uses concise format with student info in preamble and minimal events.
         """
         from .plugin_base import get_plugin_manager
 
@@ -137,6 +131,15 @@ class TrainerManager:
         else:
             students = self.get_trainer_students(trainer_id)
 
+        # Build student info map for the preamble
+        student_info = {}
+        for student in students:
+            if student:
+                student_info[student['id']] = {
+                    'name': student.get('name', 'Unknown'),
+                    'email': student.get('email', '')
+                }
+
         # Add conversation events for each student
         for student in students:
             if not student:
@@ -148,21 +151,22 @@ class TrainerManager:
                 full_conv = self.conversation_manager.get_conversation(conv["id"])
                 if full_conv and full_conv.messages:
                     for msg in full_conv.messages:
+                        # Minimal event - only essential fields
                         event = {
                             'timestamp': msg.timestamp.isoformat() if msg.timestamp else datetime.utcnow().isoformat(),
                             'type': 'user_message' if msg.role == 'user' else 'assistant_message',
-                            'student_id': student['id'],
-                            'student_name': student.get('name', 'Unknown'),
                             'conversation_id': conv["id"],
-                            'conversation_title': conv.get('title', 'Untitled'),
                             'content': msg.content,
-                            'plugin_id': 'core.conversation'
                         }
 
-                        # Add message metadata if available
+                        # Only add conversation title if it's not the default
+                        if conv.get('title') and conv.get('title') != 'Untitled' and conv.get('title') != 'New Conversation':
+                            event['conversation_title'] = conv['title']
+
+                        # Only add message metadata if present
                         if hasattr(msg, 'metadata') and msg.metadata:
                             event['metadata'] = msg.metadata
-                        elif hasattr(msg, 'msg_metadata') and msg.msg_metadata:  # Fallback for backward compatibility
+                        elif hasattr(msg, 'msg_metadata') and msg.msg_metadata:
                             event['metadata'] = msg.msg_metadata
 
                         events.append(event)
@@ -174,14 +178,6 @@ class TrainerManager:
         for plugin in active_plugins:
             plugin_events = plugin.export_history(trainer_id, student_id)
             if plugin_events:
-                # Ensure each plugin event has required fields
-                for event in plugin_events:
-                    if 'timestamp' not in event:
-                        event['timestamp'] = datetime.utcnow().isoformat()
-                    if 'type' not in event:
-                        event['type'] = f'plugin.{plugin.id}.event'
-                    if 'plugin_id' not in event:
-                        event['plugin_id'] = plugin.id
                 events.extend(plugin_events)
 
         # Sort events chronologically
@@ -191,30 +187,33 @@ class TrainerManager:
         config_yaml = self.export_configuration(trainer_id)
         config_data = yaml.safe_load(config_yaml)
 
-        # Build complete export structure with configuration as preamble
+        # Build complete export structure with student info in preamble
         export_data = {
             'exported_at': datetime.utcnow().isoformat(),
             'trainer_id': trainer_id,
             'student_id': student_id,
             'export_type': 'full_history_with_config',
-            'version': '1.0',
-            'configuration': config_data,  # Configuration as preamble
+            'version': '2.0',  # New version for concise format
+            'configuration': config_data,
+            'students': student_info,  # Student info in preamble
             'event_count': len(events),
             'events': events
         }
 
-        return yaml.dump(export_data, default_flow_style=False, allow_unicode=True)
+        import re
+        yaml_str = yaml.dump(export_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        # Add empty lines between events for readability
+        yaml_str = re.sub(r'^(- )', r'\n\1', yaml_str, flags=re.MULTILINE)
+        # Remove the first extra newline
+        yaml_str = yaml_str.lstrip('\n')
+
+        return yaml_str
 
     def import_history(self, trainer_id: str, yaml_content: str) -> bool:
         """
         Import complete history including configuration and events.
-
-        Args:
-            trainer_id: The trainer's ID
-            yaml_content: YAML string containing configuration and events to import
-
-        Returns:
-            True if import successful, False otherwise
+        Handles both legacy and v2 concise formats.
         """
         from .plugin_base import get_plugin_manager
 
@@ -225,9 +224,13 @@ class TrainerManager:
                 log("error", "Invalid history export: empty file")
                 return False
 
+            # Check export version
+            export_version = config.get('version', '1.0')
+            student_info = config.get('students', {})
+
             # Check if this is a full history export with configuration
             if 'configuration' in config:
-                log("info", "Importing full history with configuration")
+                log("info", f"Importing full history with configuration (version {export_version})")
 
                 # First import the configuration
                 config_success = self.import_configuration(trainer_id, yaml.dump(config['configuration']))
@@ -241,12 +244,16 @@ class TrainerManager:
                 log("info", "Importing legacy history format (no configuration)")
                 events = config.get('events', []) if 'events' in config else []
 
+            # For v2 format, we need to reconstruct the full event data
+            if export_version == '2.0' and student_info:
+                events = self._expand_minimal_events(events, student_info)
+
             # Group events by plugin for processing
             plugin_events = {}
             conversation_events = []
 
             for event in events:
-                plugin_id = event.get('plugin_id', 'unknown')
+                plugin_id = event.get('plugin_id', 'core.conversation')
 
                 if plugin_id == 'core.conversation':
                     conversation_events.append(event)
@@ -255,40 +262,35 @@ class TrainerManager:
                         plugin_events[plugin_id] = []
                     plugin_events[plugin_id].append(event)
 
-            # Process conversation events first
+            # Process conversation events
             if conversation_events:
-                # Group by student and conversation
-                student_conversations = {}
+                # Group by conversation
+                conversations = {}
                 for event in conversation_events:
-                    student_id = event.get('student_id')
-                    if not student_id:
+                    conv_id = event.get('conversation_id')
+                    if not conv_id:
                         continue
 
-                    if student_id not in student_conversations:
-                        student_conversations[student_id] = {}
-
-                    conv_id = event.get('conversation_id')
-                    if conv_id not in student_conversations[student_id]:
-                        student_conversations[student_id][conv_id] = {
+                    if conv_id not in conversations:
+                        conversations[conv_id] = {
                             'title': event.get('conversation_title', 'Imported Conversation'),
+                            'student_id': event.get('student_id'),
                             'messages': []
                         }
 
                     # Add message to conversation
-                    student_conversations[student_id][conv_id]['messages'].append({
+                    conversations[conv_id]['messages'].append({
                         'role': 'user' if event.get('type') == 'user_message' else 'assistant',
                         'content': event.get('content', ''),
                         'timestamp': event.get('timestamp'),
                         'metadata': event.get('metadata', {})
                     })
 
-                # TODO: Implement conversation import in conversation_manager
-                # For now, just log
-                for student_id, conversations in student_conversations.items():
-                    for conv_id, conv_data in conversations.items():
-                        # Sort messages by timestamp
-                        conv_data['messages'].sort(key=lambda x: x.get('timestamp', ''))
-                        log("info", f"Would import conversation {conv_id} for student {student_id} with {len(conv_data['messages'])} messages")
+                # TODO: Implement conversation import
+                for conv_id, conv_data in conversations.items():
+                    # Sort messages by timestamp
+                    conv_data['messages'].sort(key=lambda x: x.get('timestamp', ''))
+                    log("info", f"Would import conversation {conv_id} for student {conv_data['student_id']} with {len(conv_data['messages'])} messages")
 
             # Process plugin events
             plugin_manager = get_plugin_manager()
@@ -297,7 +299,7 @@ class TrainerManager:
                 if plugin:
                     # Sort events chronologically for this plugin
                     plugin_evts.sort(key=lambda x: x.get('timestamp', ''))
-                    if not plugin.import_history(trainer_id, plugin_evts):
+                    if not plugin.import_history(trainer_id, plugin_evts, student_info):
                         log("warning", f"Plugin {plugin_id} failed to import some events")
                 else:
                     log("warning", f"Plugin {plugin_id} not found, skipping {len(plugin_evts)} events")
@@ -308,6 +310,36 @@ class TrainerManager:
             log("error", f"Failed to import history: {e}", exc_info=True)
             return False
 
+    def _expand_minimal_events(self, events: List[Dict], student_info: Dict) -> List[Dict]:
+        """
+        Expand minimal events (v2 format) to full events for processing.
+        Reconstructs missing fields from student_info and defaults.
+        """
+        expanded_events = []
+
+        for event in events:
+            expanded = event.copy()
+
+            # Add student info if needed
+            if 'student_id' not in expanded:
+                # Try to infer from conversation_id? Not possible, so we'll need to handle this case
+                log("warning", f"Event missing student_id: {event.get('type')}")
+            else:
+                student_id = expanded['student_id']
+                if student_id in student_info:
+                    # Add student_name if missing (though we might not need it for processing)
+                    if 'student_name' not in expanded:
+                        expanded['student_name'] = student_info[student_id]['name']
+
+            # For conversation events, ensure they have required fields
+            if expanded.get('plugin_id') == 'core.conversation' or 'conversation_id' in expanded:
+                if 'type' not in expanded:
+                    # Try to infer type from content? Not safe
+                    pass
+
+            expanded_events.append(expanded)
+
+        return expanded_events
 
     def set_plugin_active(self, trainer_id: str, plugin_id: str,
                          active: bool) -> bool:

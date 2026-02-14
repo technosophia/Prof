@@ -72,44 +72,38 @@ class TrainerPlugin(ABC):
     @abstractmethod
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Export plugin-specific history events.
+        Export plugin-specific history events in minimal format.
 
         Each event should be a dictionary with at minimum:
         - timestamp: ISO format datetime
         - type: event type (e.g., 'plugin.event_name')
         - plugin_id: this plugin's ID
 
-        Additional fields are plugin-specific.
+        Additional fields should be kept to a minimum. Information that can be
+        inferred from configuration (like student names) should not be included.
 
         Args:
             trainer_id: The trainer's ID
             student_id: Optional student ID to filter history for a specific student
 
         Returns:
-            List of event dictionaries
+            List of minimal event dictionaries
         """
         return []
 
     @abstractmethod
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]]) -> bool:
+    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
         """
         Import plugin-specific history events.
 
         Args:
             trainer_id: The trainer's ID
-            events: List of event dictionaries to import
+            events: List of minimal event dictionaries to import
+            student_info: Optional dictionary with student information for reconstruction
 
         Returns:
             True if import successful, False otherwise
         """
-        return True
-
-    def on_activate(self, trainer_id: str) -> bool:
-        """Called when plugin is activated for a trainer."""
-        return True
-
-    def on_deactivate(self, trainer_id: str) -> bool:
-        """Called when plugin is deactivated for a trainer."""
         return True
 
 

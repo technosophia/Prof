@@ -408,8 +408,8 @@ class StudentPadPlugin(TrainerPlugin):
 
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Export all student pad history events (all versions of student and teacher notes).
-        Each version change becomes a separate event in chronological order.
+        Export all student pad history events in minimal format.
+        Each version change becomes a separate event.
         """
         db = get_db_manager()
         events = []
@@ -421,11 +421,11 @@ class StudentPadPlugin(TrainerPlugin):
             if student_id:
                 query = query.filter_by(user_id=student_id)
 
-            # Get all notes (all versions, both student and teacher notes)
+            # Get all notes (all versions)
             notes = query.order_by(StudentNote.updated_at).all()
 
             for note in notes:
-                # Determine event type based on plugin_id
+                # Determine event type
                 if note.plugin_id == self.id or note.plugin_id == "core":
                     event_type = 'plugin.student_pad.student_note'
                     note_type = 'student'
@@ -433,46 +433,45 @@ class StudentPadPlugin(TrainerPlugin):
                     event_type = 'plugin.student_pad.teacher_note'
                     note_type = 'teacher'
                 else:
-                    # Skip notes from other plugins
                     continue
 
-                # Get student name for better readability
-                from shared.common import get_user_manager
-                user_manager = get_user_manager()
-                student = user_manager.get_user(note.user_id)
-                student_name = student.get('name', 'Unknown') if student else 'Unknown'
-
-                # Create event - removed content_preview as it's legacy
+                # Minimal event - only essential fields
                 event = {
                     'timestamp': note.updated_at.isoformat() if note.updated_at else datetime.utcnow().isoformat(),
                     'type': event_type,
                     'plugin_id': self.id,
                     'student_id': note.user_id,
-                    'student_name': student_name,
                     'note_id': note.id,
                     'note_type': note_type,
-                    'version': note.version,
-                    'is_current': note.is_current == 1,
                     'content': note.content,
-                    'created_at': note.created_at.isoformat() if hasattr(note, 'created_at') and note.created_at else note.updated_at.isoformat() if note.updated_at else None,
-                    'updated_at': note.updated_at.isoformat() if note.updated_at else None,
-                    'metadata': note.note_metadata or {}
                 }
+
+                # Only add version if not default (version 1)
+                if note.version != 1:
+                    event['version'] = note.version
+
+                # Only add is_current if not default (default is false for history export)
+                # In history export, we typically export all versions, so is_current is not needed
+                # but if it's the current version, we might want to mark it
+                if note.is_current == 1:
+                    event['is_current'] = True
+
+                # Only add metadata if present
+                if note.note_metadata:
+                    event['metadata'] = note.note_metadata
 
                 events.append(event)
 
         return events
 
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]]) -> bool:
+    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
         """
-        Import student pad history events, recreating all note versions.
+        Import student pad history events, handling both legacy and minimal formats.
 
         Args:
             trainer_id: The trainer's ID
             events: List of event dictionaries to import
-
-        Returns:
-            True if import successful, False otherwise
+            student_info: Optional dictionary with student information for reconstruction
         """
         db = get_db_manager()
 
@@ -481,8 +480,8 @@ class StudentPadPlugin(TrainerPlugin):
                 # Filter events for this plugin
                 pad_events = [e for e in events if e.get('plugin_id') == self.id]
 
-                # Group events by student and note type for better processing
-                student_notes = {}  # (student_id, note_type) -> list of events
+                # Group events by student and note type
+                student_notes = {}  # (student_id, plugin_id) -> list of events
 
                 for event in pad_events:
                     student_id = event.get('student_id')
@@ -496,14 +495,16 @@ class StudentPadPlugin(TrainerPlugin):
                     if key not in student_notes:
                         student_notes[key] = []
 
-                    student_notes[key].append(event)
+                    # Reconstruct full event data from minimal format
+                    full_event = self._expand_minimal_event(event, student_info)
+                    student_notes[key].append(full_event)
 
                 # Process each student's notes
                 for (student_id, plugin_id), note_events in student_notes.items():
-                    # Sort events by timestamp to preserve history order
+                    # Sort events by timestamp
                     note_events.sort(key=lambda x: x.get('timestamp', ''))
 
-                    # First, mark all existing notes as not current
+                    # Mark all existing notes as historical
                     existing_notes = session.query(StudentNote).filter_by(
                         user_id=student_id,
                         trainer_id=trainer_id,
@@ -515,24 +516,15 @@ class StudentPadPlugin(TrainerPlugin):
 
                     # Recreate all versions
                     for event in note_events:
-                        # Parse timestamps
-                        created_at = None
-                        updated_at = None
-
+                        # Parse timestamps - use timestamp for both created and updated
+                        timestamp = None
                         try:
-                            if event.get('created_at'):
-                                created_at = datetime.fromisoformat(event['created_at'].replace('Z', '+00:00'))
-                            if event.get('updated_at'):
-                                updated_at = datetime.fromisoformat(event['updated_at'].replace('Z', '+00:00'))
+                            if event.get('timestamp'):
+                                timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
                         except (ValueError, TypeError):
-                            # If parsing fails, use current time
-                            now = datetime.utcnow()
-                            if not created_at:
-                                created_at = now
-                            if not updated_at:
-                                updated_at = now
+                            timestamp = datetime.utcnow()
 
-                        # Check if this note version already exists (by ID)
+                        # Check if this note version already exists
                         note_id = event.get('note_id')
                         existing = None
                         if note_id:
@@ -548,8 +540,8 @@ class StudentPadPlugin(TrainerPlugin):
                                 plugin_id=plugin_id,
                                 version=event.get('version', 1),
                                 is_current=1 if event.get('is_current', False) else 0,
-                                created_at=created_at,
-                                updated_at=updated_at,
+                                created_at=timestamp,  # Use timestamp for created_at
+                                updated_at=timestamp,  # Use same timestamp for updated_at
                                 note_metadata=event.get('metadata', {})
                             )
                             session.add(note)
@@ -558,34 +550,12 @@ class StudentPadPlugin(TrainerPlugin):
                             existing.content = event.get('content', existing.content)
                             existing.version = event.get('version', existing.version)
                             existing.is_current = 1 if event.get('is_current', False) else 0
-                            existing.updated_at = updated_at
+                            existing.updated_at = timestamp
                             if event.get('metadata'):
                                 existing.note_metadata = event['metadata']
 
-                    # Ensure exactly one note is marked as current
-                    current_notes = session.query(StudentNote).filter_by(
-                        user_id=student_id,
-                        trainer_id=trainer_id,
-                        plugin_id=plugin_id,
-                        is_current=1
-                    ).all()
-
-                    if len(current_notes) > 1:
-                        # If multiple current notes, keep the most recent one
-                        current_notes.sort(key=lambda x: x.updated_at or datetime.min, reverse=True)
-                        for i, note in enumerate(current_notes):
-                            if i == 0:
-                                # Keep first as current
-                                continue
-                            note.is_current = 0
-                    elif len(current_notes) == 0 and note_events:
-                        # If no current note but we have events, set the most recent as current
-                        most_recent = max(note_events, key=lambda x: x.get('timestamp', ''))
-                        note_id = most_recent.get('note_id')
-                        if note_id:
-                            note = session.query(StudentNote).filter_by(id=note_id).first()
-                            if note:
-                                note.is_current = 1
+                    # Ensure exactly one current note
+                    self._ensure_single_current_note(session, student_id, trainer_id, plugin_id, note_events)
 
                 session.commit()
                 return True
@@ -593,6 +563,62 @@ class StudentPadPlugin(TrainerPlugin):
         except Exception as e:
             log("error", f"Failed to import student pad history: {e}", exc_info=True)
             return False
+
+    def _expand_minimal_event(self, event: Dict, student_info: Dict = None) -> Dict:
+        """
+        Expand a minimal event to full event data for import.
+        Reconstructs missing fields with defaults.
+        """
+        expanded = event.copy()
+
+        # Ensure required fields exist
+        if 'version' not in expanded:
+            expanded['version'] = 1
+
+        if 'is_current' not in expanded:
+            expanded['is_current'] = False
+
+        if 'metadata' not in expanded:
+            expanded['metadata'] = {}
+
+        # Use timestamp for created_at and updated_at if not present
+        if 'timestamp' in expanded:
+            if 'created_at' not in expanded:
+                expanded['created_at'] = expanded['timestamp']
+            if 'updated_at' not in expanded:
+                expanded['updated_at'] = expanded['timestamp']
+
+        # Add student_name from student_info if available
+        if student_info and expanded.get('student_id') in student_info:
+            if 'student_name' not in expanded:
+                expanded['student_name'] = student_info[expanded['student_id']]['name']
+
+        return expanded
+
+    def _ensure_single_current_note(self, session, student_id: str, trainer_id: str, plugin_id: str, note_events: List[Dict]):
+        """Ensure exactly one note is marked as current after import."""
+        current_notes = session.query(StudentNote).filter_by(
+            user_id=student_id,
+            trainer_id=trainer_id,
+            plugin_id=plugin_id,
+            is_current=1
+        ).all()
+
+        if len(current_notes) > 1:
+            # If multiple current notes, keep the most recent one
+            current_notes.sort(key=lambda x: x.updated_at or datetime.min, reverse=True)
+            for i, note in enumerate(current_notes):
+                if i == 0:
+                    continue
+                note.is_current = 0
+        elif len(current_notes) == 0 and note_events:
+            # If no current note, set the most recent as current
+            most_recent = max(note_events, key=lambda x: x.get('timestamp', ''))
+            note_id = most_recent.get('note_id')
+            if note_id:
+                note = session.query(StudentNote).filter_by(id=note_id).first()
+                if note:
+                    note.is_current = 1
 
     def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add a history viewer tab for teachers."""
