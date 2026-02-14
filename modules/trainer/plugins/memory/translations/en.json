@@ -1,0 +1,32 @@
+{
+  "trainer_plugin_memory": {
+    "pedagogical_memory": "🧠 Pedagogical Memory",
+    "last_updated": "Last updated: {time}",
+    "older_versions": "older versions",
+    "current_memory": "Current Memory",
+    "analysis_details": "Analysis Details",
+    "messages_analyzed": "Messages analyzed",
+    "conversations": "Conversations",
+    "period": "Period",
+    "no_memory_yet": "No pedagogical memory yet. Click 'Refresh with LLM' to analyze conversations.",
+    "refresh_with_llm": "🔄 Refresh with LLM",
+    "edit_manually": "✏️ Edit Manually",
+    "analyzing_conversations": "Analyzing conversations...",
+    "memory_updated": "✅ Memory updated successfully!",
+    "failed_to_update": "❌ Failed to update memory",
+    "edit_memory": "Edit Pedagogical Memory",
+    "memory_content": "Memory content",
+    "save": "💾 Save",
+    "cancel": "Cancel",
+    "memory_saved": "✅ Memory saved!",
+    "memory_overview": "🧠 Memory Overview",
+    "refresh_all_memories": "🔄 Refresh All Memories",
+    "refreshing_all": "Refreshing all memories...",
+    "refresh_all_placeholder": "This would refresh all memories asynchronously in production",
+    "refresh": "🔄 Refresh",
+    "refresh_triggered": "Refresh triggered (async in production)",
+    "no_memory": "No memory",
+    "older": "older",
+    "memory_history": "Memory History"
+  }
+}

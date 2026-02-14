@@ -41,6 +41,20 @@ class TrainerPlugin(ABC):
         """Initialize the plugin. Called once at module startup."""
         pass
 
+    def on_activate(self, trainer_id: str) -> None:
+        """
+        Called when the plugin is activated for a specific trainer.
+        Override this to perform setup when plugin is turned on.
+        """
+        pass
+
+    def on_deactivate(self, trainer_id: str) -> None:
+        """
+        Called when the plugin is deactivated for a specific trainer.
+        Override this to perform cleanup when plugin is turned off.
+        """
+        pass
+
     def get_admin_tabs(self, trainer_id: str) -> List[tuple]:
         """
         Return list of (tab_name: str, render_function: callable) for admin UI.
