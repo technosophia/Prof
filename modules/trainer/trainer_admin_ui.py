@@ -100,7 +100,7 @@ def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
     active_plugins = plugin_manager.get_plugins_by_hook(trainer_id, "render_student_widgets")
 
     if not active_plugins:
-        st.info(_("No active plugins provide student views. Activate plugins in the Plugins tab."))
+        st.info("No active plugins provide student views. Activate plugins in the Plugins tab.")
         return
 
     # Create a tab for each plugin that provides student widgets
@@ -114,7 +114,7 @@ def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
             plugin_tabs_data.append((tab_name, widgets, plugin))
 
     if not plugin_tabs_data:
-        st.info(_("Active plugins don't provide student views for this student."))
+        st.info("Active plugins don't provide student views for this student.")
         return
 
     # Create tabs with plugin names
@@ -188,9 +188,9 @@ def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager)
             if st.session_state.get(f'selected_student_{trainer_id}') == student['id']:
                 # Use a generic expander title without plugin-specific knowledge
                 student_name = st.session_state.get(f'selected_student_name_{trainer_id}', '')
-                with st.expander(f"📋 {student_name} - " + _("Student Details"), expanded=True):
+                with st.expander(f"📋 {student_name} - Student Details", expanded=True):
                     # Create tabs for basic profile and plugin-specific views
-                    tab_names = [_("Profile")]
+                    tab_names = ["Profile"]
 
                     # Get active plugins that implement student widgets
                     active_plugins = plugin_manager.get_plugins_by_hook(trainer_id, "render_student_widgets")
@@ -204,19 +204,19 @@ def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager)
                     with detail_tabs[0]:
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.write("**" + _("Student Information") + ":**")
+                            st.write("**Student Information:**")
                             st.write(f"ID: {student['id']}")
                             st.write(f"Email: {student.get('email', 'N/A')}")
                             if student.get('last_active'):
                                 last_active = student['last_active']
                                 if hasattr(last_active, 'strftime'):
                                     last_active = last_active.strftime('%Y-%m-%d %H:%M')
-                                st.write(f"{_('Last Active')}: {last_active}")
+                                st.write(f"Last Active: {last_active}")
 
                         with col2:
-                            st.write("**" + _("Statistics") + ":**")
-                            st.write(f"{_('Conversations')}: {student.get('conversation_count', 0)}")
-                            st.write(f"{_('Total Messages')}: {student.get('total_messages', 0)}")
+                            st.write("**Statistics:**")
+                            st.write(f"Conversations: {student.get('conversation_count', 0)}")
+                            st.write(f"Total Messages: {student.get('total_messages', 0)}")
 
                     # Plugin-specific tabs (starting from index 1)
                     plugin_idx = 1
