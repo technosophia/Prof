@@ -115,6 +115,7 @@ from core.config import load_all_configs, Config, _load_config
 from core.database import Base as _Base, get_db_manager as _get_db_manager, init_database as _init_database
 from .users import UserRole as _UserRole, get_user_manager as _get_user_manager
 from .conversation import Message as _Message, get_conversation_manager as _get_conversation_manager
+from .conversation import UserMessageCallback
 from .prompt_manager import get_prompt_manager as _get_prompt_manager, load_all_prompts as _load_all_prompts
 from .prompt_manager import is_multilingual as _is_multilingual, set_default_language as _set_default_language
 from .settings import UserSettingsManager
@@ -208,6 +209,18 @@ Message = _Message
 @st.cache_resource
 def get_conversation_manager():
     return _get_conversation_manager()
+
+def register_user_message_callback(callback: UserMessageCallback) -> None:
+    """Register a callback to be triggered when a user message is added."""
+    get_conversation_manager().register_user_message_callback(callback)
+
+def unregister_user_message_callback(callback: UserMessageCallback) -> bool:
+    """Unregister a user message callback."""
+    return get_conversation_manager().unregister_user_message_callback(callback)
+
+def clear_user_message_callbacks() -> None:
+    """Remove all registered user message callbacks."""
+    get_conversation_manager().clear_user_message_callbacks()
 
 def cleanup_user_conversations(user_id: str) -> bool:
     """Cleanup all conversations for a user before deletion."""

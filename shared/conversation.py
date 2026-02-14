@@ -1,66 +1,9 @@
-# file name: shared/conversation.py
+# file name: shared/conversation.py (additions at the beginning of the class)
 """
 Conversation management with database backend.
 Handles multiple conversations per user with LLM interactions.
-
-[agent]
-
-## Conversation objects
-Conversation object structure returned by ConversationManager.get_conversation():
-
-{
-    "id": str,                          # Unique conversation identifier (UUID)
-    "user_id": str,                     # ID of the user who owns the conversation
-    "title": str,                      # Conversation title, cannot be empty
-    "created_at": str,                 # ISO 8601 datetime string of creation
-    "updated_at": str,                # ISO 8601 datetime string of last update
-    "is_active": bool,               # Whether conversation is active (soft delete flag)
-    "metadata": Dict[str, Any],      # Conversation metadata (created_via, etc.)
-    "system_prompt": Optional[str],  # Custom system prompt for this conversation
-    "llm_config": Dict[str, Any],   # LLM configuration used (model, temperature, etc.)
-    "messages": List[Dict]          # Array of message objects (empty if include_messages=False)
-}
-
-Message object structure within the messages array:
-
-{
-    "role": str,                    # One of: "user", "assistant", "system"
-    "content": str,                # Message content/body
-    "timestamp": str,             # ISO 8601 datetime string
-    "tokens": Optional[int],      # Token count for this message (if tracked)
-    "llm_id": Optional[str],     # ID of the LLM that generated this message (assistant only)
-    "metadata": Dict[str, Any]   # Message metadata (empty dict if none)
-}
-
-Related conversation summary (get_conversation_summary()):
-{
-    "id": str,                    # Conversation ID
-    "title": str,               # Conversation title
-    "message_count": int,       # Total number of messages
-    "total_tokens": int,       # Sum of tokens across all messages
-    "created_at": str,        # ISO 8601 creation timestamp
-    "updated_at": str,        # ISO 8601 last update timestamp
-    "llm_usage": Dict[str, int],  # Map of LLM IDs to message counts
-    "last_user_message": Optional[str],  # Content of most recent user message
-    "metadata": Dict[str, Any]  # Conversation metadata
-}
-
-User conversations list (get_user_conversations()):
-{
-    "id": str,                    # Conversation ID
-    "user_id": str,             # Owner user ID
-    "title": str,              # Conversation title
-    "created_at": str,        # ISO 8601 creation timestamp
-    "updated_at": str,        # ISO 8601 last update timestamp
-    "is_active": bool,       # Active status
-    "message_count": int,    # Number of messages in conversation
-    "last_message_at": Optional[str],  # ISO 8601 of most recent message
-    "system_prompt": Optional[str],    # Custom system prompt
-    "llm_config": Dict[str, Any],      # LLM configuration
-    "metadata": Dict[str, Any]         # Conversation metadata
-}
-
 """
+
 import uuid
 import json
 from typing import Dict, List, Optional, Any, Callable
@@ -195,6 +138,13 @@ class Conversation:
             messages=messages
         )
 
+# Define callback type for user message events
+UserMessageCallback = Callable[[str, List[Message]], None]
+"""Callback type for user message events.
+Args:
+    conversation_id: The ID of the conversation
+    messages: Full conversation history including the new message
+"""
 
 class ConversationManager:
     """Manages conversation operations."""
@@ -210,7 +160,55 @@ class ConversationManager:
         # Initialize only once
         if not hasattr(self, '_initialized'):
             self.db = get_db_manager()
+            self._user_message_callbacks: List[UserMessageCallback] = []
             self._initialized = True
+
+    def register_user_message_callback(self, callback: UserMessageCallback) -> None:
+        """
+        Register a callback to be triggered when a user message is added.
+
+        Args:
+            callback: Function that takes (conversation_id, messages) as arguments
+        """
+        if callback not in self._user_message_callbacks:
+            self._user_message_callbacks.append(callback)
+            log("debug", f"Registered user message callback: {callback.__name__ if hasattr(callback, '__name__') else 'anonymous'}")
+
+    def unregister_user_message_callback(self, callback: UserMessageCallback) -> bool:
+        """
+        Unregister a previously registered callback.
+
+        Args:
+            callback: The callback function to remove
+
+        Returns:
+            bool: True if callback was found and removed, False otherwise
+        """
+        if callback in self._user_message_callbacks:
+            self._user_message_callbacks.remove(callback)
+            log("debug", f"Unregistered user message callback: {callback.__name__ if hasattr(callback, '__name__') else 'anonymous'}")
+            return True
+        return False
+
+    def clear_user_message_callbacks(self) -> None:
+        """Remove all registered user message callbacks."""
+        count = len(self._user_message_callbacks)
+        self._user_message_callbacks.clear()
+        log("debug", f"Cleared {count} user message callbacks")
+
+    def _trigger_user_message_callbacks(self, conversation_id: str, messages: List[Message]) -> None:
+        """
+        Trigger all registered callbacks for a user message event.
+
+        Args:
+            conversation_id: The ID of the conversation
+            messages: Full conversation history including the new message
+        """
+        for callback in self._user_message_callbacks:
+            try:
+                callback(conversation_id, messages)
+            except Exception as e:
+                log("error", f"Error in user message callback: {e}", exc_info=True)
 
     def _ensure_tables_exist(self):
         """Ensure the conversation tables exist."""
@@ -360,11 +358,22 @@ class ConversationManager:
             return conversations
 
     def add_message(self, conversation_id: str, message: Message) -> str:
-        """Add a message to a conversation."""
+        """
+        Add a message to a conversation.
+        Triggers callbacks only for user messages.
+
+        Args:
+            conversation_id: The ID of the conversation
+            message: The message to add
+
+        Returns:
+            str: The ID of the newly created message
+        """
         # Ensure tables exist before adding
         self._ensure_tables_exist()
 
         message_id = str(uuid.uuid4())
+        is_user_message = (message.role == "user")
 
         with self.db.get_session() as session:
             # Check if conversation exists
@@ -387,6 +396,21 @@ class ConversationManager:
 
             # Update conversation's updated_at timestamp
             conversation.updated_at = datetime.utcnow()
+
+            # If this is a user message, we need to get the full history for callbacks
+            if is_user_message and self._user_message_callbacks:
+                # We need to commit first to ensure the message is in the database
+                session.commit()
+
+                # Get the full conversation history (outside the session to avoid detached instances)
+                conversation_with_messages = self.get_conversation(conversation_id, include_messages=True)
+
+                if conversation_with_messages:
+                    # Trigger callbacks with the conversation ID and full message history
+                    self._trigger_user_message_callbacks(
+                        conversation_id,
+                        conversation_with_messages.messages
+                    )
 
         log("debug", f"Added {message.role} message to conversation {conversation_id}")
         return message_id
