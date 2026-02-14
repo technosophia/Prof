@@ -279,7 +279,7 @@ class UserManager:
         with self.db.get_session() as session:
             user_count = session.query(UserTable).count()
             if user_count > 0:
-                log("info", "Users already exist, skipping auto-import")
+                log("debug", "Users already exist, skipping auto-import")
                 return True
 
         # Get config
@@ -289,7 +289,7 @@ class UserManager:
         # Check if auto-import is configured
         auto_import_config = config.get("database.auto_import_users")
         if not auto_import_config or not auto_import_config.get("enabled", False):
-            log("info", "Auto-import not enabled in config")
+            log("debug", "Auto-import not enabled in config")
             return True
 
         import_file = auto_import_config.get("file")
@@ -361,7 +361,7 @@ class UserManager:
 
         # Check if auto-import is configured
         if config.get("database.auto_import_users.enabled", False):
-            log("info", "Auto-import is configured, using it instead of create_default_users")
+            log("debug", "Auto-import is configured, using it instead of create_default_users")
             success = self.auto_import_users_from_config()
             if success:
                 return True

@@ -70,6 +70,8 @@ async def generate_llm_response(user_message, conversation_history, current_llm_
         error_msg = f"Error calling LLM: {str(e)}"
         log("error", error_msg, exc_info=True)
         st.session_state.streaming_active = False
+        # Use translated error message for user-facing error
+        st.error(_("error_llm_call").format(error=str(e)))
         raise Exception(error_msg)
 
 
@@ -110,15 +112,15 @@ def inject_ui_sidebar():
     # Only show if user is logged in
     if not st.session_state.current_user:
         log("debug", "No current user, skipping conversation sidebar")
-        st.warning("Please log in to access your conversations.")
+        st.warning(_("login_required_warning"))
         return False
 
     log("debug", f"Current user: {st.session_state.current_user.get('name')} (ID: {st.session_state.current_user.get('id')})")
 
-    st.title("💬 Conversations")
+    st.title(_("conversations_title"))
 
     # Button to create new conversation
-    if st.button("➕ New Conversation", type="primary", width='stretch'):
+    if st.button(_("new_conversation_button"), type="primary", use_container_width=True):
         log("info", "Creating new conversation")
         st.session_state.show_new_conversation_form = True
         st.session_state.editing_conversation_id = None
@@ -137,10 +139,10 @@ def inject_ui_sidebar():
     except Exception as e:
         log("error", f"Error getting user conversations: {e}", exc_info=True)
         user_conversations = []
-        st.error(f"Error loading conversations: {str(e)}")
+        st.error(_("error_loading_conversations").format(error=str(e)))
 
     if user_conversations:
-        st.subheader("Your Conversations")
+        st.subheader(_("your_conversations"))
 
         # Display conversations as selectable items
         for conv in user_conversations:
@@ -159,8 +161,8 @@ def inject_ui_sidebar():
                 if st.button(
                     button_label,
                     key=f"select_{conv_key}",
-                    help=f"Select this conversation ({conv['message_count']} messages)",
-                    width='stretch',
+                    help=_("select_conversation").format(count=conv['message_count']),
+                    use_container_width=True,
                     type="primary" if is_current else "secondary"
                 ):
                     # Load this conversation
@@ -172,12 +174,12 @@ def inject_ui_sidebar():
                         log("info", f"Loaded conversation: {conv['title']} ({conv['id']})")
                     except Exception as e:
                         log("error", f"Error loading conversation {conv['id']}: {e}")
-                        st.error(f"Error loading conversation: {str(e)}")
+                        st.error(_("error_loading_conversation").format(error=str(e)))
                     st.rerun()
 
             with col2:
                 # Button to edit conversation title
-                if st.button("✏️", key=f"edit_{conv_key}", help="Edit conversation title"):
+                if st.button("✏️", key=f"edit_{conv_key}", help=_("edit_conversation_title")):
                     st.session_state.editing_conversation_id = conv['id']
                     st.session_state.show_new_conversation_form = True
                     st.rerun()
@@ -189,10 +191,10 @@ def inject_ui_sidebar():
                 None
             )
             if current_conv:
-                st.info(f"**Current:** {current_conv['title']}")
-                st.caption(f"Messages: {current_conv['message_count']}")
+                st.info(_("current_conversation_info").format(title=current_conv['title']))
+                st.caption(_("messages_count").format(count=current_conv['message_count']))
     else:
-        st.info("No conversations yet. Create your first one!")
+        st.info(_("no_conversations_yet"))
 
     return True
 
@@ -202,7 +204,7 @@ def render_conversation_form():
     st.divider()
 
     if st.session_state.editing_conversation_id:
-        st.subheader("✏️ Edit Conversation Title")
+        st.subheader(_("edit_conversation"))
         # Get current title for editing
         current_conv = get_conversation_manager().get_conversation(
             st.session_state.editing_conversation_id,
@@ -210,21 +212,21 @@ def render_conversation_form():
         )
         default_title = current_conv.title if current_conv else "My Conversation"
     else:
-        st.subheader("➕ Create New Conversation")
+        st.subheader(_("create_conversation"))
         default_title = st.session_state.new_conversation_title
 
     with st.form("conversation_form"):
-        title = st.text_input("Conversation Title *", value=default_title)
+        title = st.text_input(_("conversation_title_label"), value=default_title)
 
         col1, col2 = st.columns(2)
         with col1:
-            submit = st.form_submit_button("💾 Save", type="primary")
+            submit = st.form_submit_button(_("save_button"), type="primary")
         with col2:
-            cancel = st.form_submit_button("❌ Cancel")
+            cancel = st.form_submit_button(_("cancel_button"))
 
         if submit:
             if not title.strip():
-                st.error("Conversation title is required")
+                st.error(_("conversation_title_required"))
             else:
                 try:
                     current_llm_info = get_current_llm_info()
@@ -236,7 +238,7 @@ def render_conversation_form():
                             title.strip()
                         )
                         if success:
-                            st.success("Conversation updated successfully!")
+                            st.success(_("conversation_updated_success"))
                             log("info", f"Conversation title updated: {title.strip()}")
 
                             # If we're editing the current conversation, update session state
@@ -249,7 +251,7 @@ def render_conversation_form():
                                 if conversation:
                                     st.session_state.conversation_messages = conversation.messages
                         else:
-                            st.error("Failed to update conversation")
+                            st.error(_("update_failed"))
                     else:
                         # Create new conversation
                         # Extract only serializable parts from llm_info
@@ -275,7 +277,7 @@ def render_conversation_form():
                             system_prompt=None,
                             llm_config=llm_config
                         )
-                        st.success(f"Conversation created successfully!")
+                        st.success(_("conversation_created_success"))
                         log("info", f"Conversation created: {title.strip()} (ID: {conversation_id})")
 
                         # Set as current conversation
@@ -287,7 +289,7 @@ def render_conversation_form():
                     st.session_state.editing_conversation_id = None
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error: {str(e)}")
+                    st.error(_("error_processing_message").format(error=str(e)))
                     log("error", f"Conversation form error: {str(e)}")
 
         if cancel:
@@ -304,7 +306,7 @@ def inject_ui_main_content():
 
     # If no user is logged in
     if not st.session_state.get('current_user'):
-        st.info("👤 Please log in to start chatting.")
+        st.info(_("no_conversation_selected"))
         return True
 
     # Check if we need to show the new conversation form
@@ -316,7 +318,7 @@ def inject_ui_main_content():
     if (st.session_state.get('current_user') and
         not st.session_state.get('current_conversation_id')):
         st.divider()
-        st.info("💬 Select a conversation from the sidebar or create a new one to start chatting.")
+        st.info(_("select_conversation_from_sidebar"))
         return True
 
     # Only render if we're on chat page and user is logged in with a conversation
@@ -342,7 +344,7 @@ def show_conversation_interface():
             st.subheader(f"💬 {current_conv.title}")
         with col2:
             # Refresh button
-            if st.button("🔄 Refresh", help="Reload conversation from database"):
+            if st.button(_("refresh_button"), help=_("refresh_help")):
                 conversation = get_conversation_manager().get_conversation(
                     st.session_state.current_conversation_id,
                     include_messages=True
@@ -352,18 +354,18 @@ def show_conversation_interface():
                 st.rerun()
         with col3:
             # Clear button
-            if st.button("🗑️ Clear", help="Clear all messages in this conversation"):
+            if st.button(_("clear_button"), help=_("clear_help")):
                 if get_conversation_manager().clear_conversation_messages(st.session_state.current_conversation_id):
                     st.session_state.conversation_messages = []
-                    st.success("Conversation cleared")
+                    st.success(_("clear_success"))
                     st.rerun()
         with col4:
             # Regenerate button
             has_messages = len(st.session_state.conversation_messages) > 0
             last_is_assistant = has_messages and st.session_state.conversation_messages[-1].role == "assistant"
 
-            if st.button("🔄 Regenerate",
-                       help="Regenerate the last assistant response",
+            if st.button(_("regenerate_button"),
+                       help=_("regenerate_help"),
                        disabled=not (has_messages and last_is_assistant),
                        type="secondary"):
                 # Set regeneration flag and trigger regeneration
@@ -371,8 +373,8 @@ def show_conversation_interface():
                 st.rerun()
         with col5:
             # Delete conversation button
-            if st.button("🗑️ Delete",
-                        help="Delete this conversation permanently",
+            if st.button(_("delete_button"),
+                        help=_("delete_help"),
                         type="secondary"):
                 st.session_state.show_delete_conversation_dialog = True
                 st.rerun()
@@ -393,7 +395,7 @@ def show_conversation_interface():
                         # Show which LLM generated this response
                         if message.llm_id:
                             # You might want to get the LLM name from the manager
-                            st.caption(f"Generated by: {message.llm_id}")
+                            st.caption(_("generated_by").format(llm_name=message.llm_id))
 
                         # Add regenerate button for each assistant message
                         if i == len(st.session_state.conversation_messages) - 1:
@@ -401,7 +403,7 @@ def show_conversation_interface():
                             with col_a:
                                 if st.button("🔄",
                                            key=f"regenerate_{i}",
-                                           help="Regenerate this response"):
+                                           help=_("regenerate_this_response")):
                                     st.session_state.regenerating_message_id = i
                                     st.rerun()
 
@@ -439,7 +441,7 @@ def show_conversation_interface():
                         st.write(user_message)
 
                     # Generate new response
-                    with st.spinner("Regenerating response..."):
+                    with st.spinner(_("thinking")):
                         response, llm_id = asyncio.run(
                             generate_llm_response(
                                 user_message,
@@ -470,8 +472,8 @@ def show_conversation_interface():
                     st.rerun()
 
                 except Exception as e:
-                    error_msg = f"Error regenerating response: {str(e)}"
-                    log("error", error_msg, exc_info=True)
+                    error_msg = _("error_regenerating").format(error=str(e))
+                    log("error", f"Error regenerating response: {str(e)}", exc_info=True)
                     st.error(error_msg)
                     # Restore original messages if regeneration failed
                     conversation = get_conversation_manager().get_conversation(
@@ -482,30 +484,30 @@ def show_conversation_interface():
                         st.session_state.conversation_messages = conversation.messages
                     st.rerun()
             else:
-                st.error("Could not find user message to regenerate from")
+                st.error(_("user_message_not_found"))
                 st.session_state.regenerating_message_id = None
                 st.rerun()
 
         # Delete conversation dialog
         if st.session_state.get('show_delete_conversation_dialog'):
             st.divider()
-            st.error("🗑️ Delete Conversation")
-            st.warning(f"Are you sure you want to delete '{current_conv.title}'?")
-            st.warning("This action cannot be undone!")
+            st.error(_("delete_conversation_title"))
+            st.warning(_("delete_conversation_confirmation").format(title=current_conv.title))
+            st.warning(_("delete_conversation_warning"))
 
             col_del1, col_del2 = st.columns(2)
             with col_del1:
-                if st.button("✅ Yes, Delete", type="primary"):
+                if st.button(_("yes_delete"), type="primary"):
                     if get_conversation_manager().delete_conversation(st.session_state.current_conversation_id):
-                        st.success(f"Conversation '{current_conv.title}' deleted!")
+                        st.success(_("conversation_deleted").format(title=current_conv.title))
                         st.session_state.current_conversation_id = None
                         st.session_state.conversation_messages = []
                         st.session_state.show_delete_conversation_dialog = False
                         st.rerun()
                     else:
-                        st.error("Failed to delete conversation")
+                        st.error(_("delete_failed"))
             with col_del2:
-                if st.button("❌ Cancel"):
+                if st.button(_("no_cancel")):
                     st.session_state.show_delete_conversation_dialog = False
                     st.rerun()
 
@@ -545,7 +547,7 @@ def show_conversation_interface():
                 current_llm_info = get_current_llm_info()
 
                 # Generate LLM response with conversation history
-                with st.spinner("Thinking..."):
+                with st.spinner(_("thinking")):
                     response, llm_id = asyncio.run(
                         generate_llm_response(
                             user_message.strip(),
@@ -572,7 +574,7 @@ def show_conversation_interface():
                     with st.chat_message("assistant"):
                         st.markdown(response)
                         if current_llm_info:
-                            st.caption(f"Generated by: {current_llm_info.get('name', 'Unknown LLM')}")
+                            st.caption(_("generated_by").format(llm_name=current_llm_info.get('name', 'Unknown LLM')))
 
                 log("info", f"LLM response received and saved (LLM: {llm_id})")
 
@@ -580,11 +582,11 @@ def show_conversation_interface():
                 st.rerun()
 
             except Exception as e:
-                error_msg = f"Error processing message: {str(e)}"
-                log("error", error_msg, exc_info=True)
+                error_msg = _("error_processing_message").format(error=str(e))
+                log("error", f"Error processing message: {str(e)}", exc_info=True)
                 st.error(error_msg)
     else:
-        st.warning("Conversation not found. Please select another conversation.")
+        st.warning(_("conversation_not_found"))
         st.session_state.current_conversation_id = None
         st.session_state.conversation_messages = []
         st.rerun()
