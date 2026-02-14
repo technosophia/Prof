@@ -1,0 +1,9 @@
+{
+  "id": "suggest",
+  "name": "Smart Suggestions",
+  "version": "1.0.0",
+  "description": "Generates helpful suggestions for students based on their conversations",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "learning"
+}

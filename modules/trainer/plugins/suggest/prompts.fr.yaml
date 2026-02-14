@@ -1,0 +1,9 @@
+generate: |
+  Basé sur la conversation suivante, générez UNE suggestion utile pour l'étudiant.
+  La suggestion peut être une question, une invite d'apprentissage ou une recommandation de ressource qui l'aiderait à progresser.
+
+  Conversation :
+  {conversation}
+
+  Générez une suggestion unique et concise (max 100 caractères). Soyez spécifique et utile.
+  Suggestion :

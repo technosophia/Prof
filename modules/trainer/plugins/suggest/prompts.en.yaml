@@ -1,0 +1,9 @@
+generate: |
+  Based on the following conversation, generate ONE helpful suggestion for the student.
+  The suggestion should be a question, learning prompt, or resource recommendation that would help them progress.
+
+  Conversation:
+  {conversation}
+
+  Generate a single, concise suggestion (max 100 characters). Be specific and helpful.
+  Suggestion:
