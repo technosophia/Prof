@@ -242,7 +242,7 @@ class StudentPadPlugin(TrainerPlugin):
         def render_teacher_student_pad():
             student_id = student['id']
 
-            st.markdown("### 📝 " + _("trainer_plugin_student_pad.student_notes"))
+            st.markdown("### 📝 Student Notes")
 
             # Get student notes using helper
             current_content = self._get_student_note(student_id, trainer_id)
@@ -259,26 +259,26 @@ class StudentPadPlugin(TrainerPlugin):
             # Metadata row
             col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
-                st.caption(_("trainer_plugin_student_pad.last_updated") + f" {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             with col2:
                 if current_content:
-                    st.caption(f"📄 {len(current_content)} " + _("trainer_plugin_student_pad.characters"))
+                    st.caption(f"📄 {len(current_content)} characters")
             with col3:
                 if student_version_count > 0:
-                    st.caption(f"📚 {student_version_count} " + _("trainer_plugin_student_pad.older_versions"))
+                    st.caption(f"📚 {student_version_count} older versions")
 
             # Read-only display of student's notes
             if current_content:
-                st.markdown("**" + _("trainer_plugin_student_pad.student_personal_notes") + "**")
+                st.markdown("**Student's personal notes:**")
                 st.markdown(current_content)
 
                 # Add a note about AI context and version count
                 if student_version_count > 0:
-                    st.caption(_("trainer_plugin_student_pad.version_history_note").format(count=student_version_count))
+                    st.caption(f"There are {student_version_count} previous versions available in history.")
                 else:
-                    st.caption(_("trainer_plugin_student_pad.ai_context_note"))
+                    st.caption("✨ These notes are automatically shared with the AI teacher to provide context for your conversations.")
             else:
-                st.info(_("trainer_plugin_student_pad.no_student_notes_yet"))
+                st.info("This student hasn't written any notes yet.")
 
             # Add a visual separator
             st.divider()
@@ -286,27 +286,27 @@ class StudentPadPlugin(TrainerPlugin):
             # Teacher's private notes section (separate from student's pad)
             col1, col2 = st.columns([3, 1])
             with col1:
-                st.markdown("**" + _("trainer_plugin_student_pad.teacher_private_notes") + "**")
+                st.markdown("**Teacher's private notes:**")
             with col2:
                 if teacher_version_count > 0:
-                    st.caption(f"📚 {teacher_version_count} " + _("trainer_plugin_student_pad.older_versions"))
+                    st.caption(f"📚 {teacher_version_count} older versions")
 
-            st.caption(_("trainer_plugin_student_pad.teacher_notes_visibility_note"))
+            st.caption("These notes are only visible to you and the AI teacher. The student cannot see them.")
 
             teacher_note_content = st.text_area(
-                _("trainer_plugin_student_pad.teacher_notes_placeholder"),
+                "Private notes (visible to AI, not to student)",
                 value=teacher_notes or "",
                 height=150,
                 key=f"teacher_notes_{student_id}",
-                help=_("trainer_plugin_student_pad.teacher_notes_help")
+                help="These notes will guide the AI teacher's responses to this student"
             )
 
-            if st.button(_("trainer_plugin_student_pad.save_private_notes"), key=f"save_teacher_notes_{student_id}"):
+            if st.button("Save private notes", key=f"save_teacher_notes_{student_id}"):
                 if self._save_student_note(student_id, trainer_id, teacher_note_content, "teacher_notes"):
-                    st.success(_("trainer_plugin_student_pad.teacher_notes_saved"))
+                    st.success("Private notes saved! The AI teacher will use these to personalize responses.")
                     st.rerun()
                 else:
-                    st.error(_("trainer_plugin_student_pad.failed_to_save_teacher_notes"))
+                    st.error("Failed to save private notes")
 
         return [render_teacher_student_pad]
 
@@ -314,7 +314,7 @@ class StudentPadPlugin(TrainerPlugin):
         """Add pad widget to dashboard overview."""
         def render_pad_overview():
             st.markdown("---")
-            st.subheader("📝 " + _("trainer_plugin_student_pad.notes_overview"))
+            st.subheader("📝 Student Notes Overview")
 
             for student in students[:3]:  # Show only first 3 to avoid clutter
                 student_id = student['id']
@@ -330,21 +330,21 @@ class StudentPadPlugin(TrainerPlugin):
                     col1, col2 = st.columns(2)
                     with col1:
                         version_text = f" ({student_version_count} older)" if student_version_count > 0 else ""
-                        st.caption(f"📝 " + _("trainer_plugin_student_pad.student") + f": {len(current_content)} " + _("trainer_plugin_student_pad.chars") + version_text)
+                        st.caption(f"📝 Student: {len(current_content)} chars" + version_text)
                         if current_content:
                             preview = current_content[:100] + ("..." if len(current_content) > 100 else "")
                             st.markdown(preview)
                         else:
-                            st.caption(_("trainer_plugin_student_pad.no_student_notes"))
+                            st.caption("No student notes")
 
                     with col2:
                         version_text = f" ({teacher_version_count} older)" if teacher_version_count > 0 else ""
-                        st.caption(f"👨‍🏫 " + _("trainer_plugin_student_pad.teacher") + f": {len(teacher_notes)} " + _("trainer_plugin_student_pad.chars") + version_text)
+                        st.caption(f"👨‍🏫 Teacher: {len(teacher_notes)} chars" + version_text)
                         if teacher_notes:
                             preview = teacher_notes[:100] + ("..." if len(teacher_notes) > 100 else "")
                             st.markdown(preview)
                         else:
-                            st.caption(_("trainer_plugin_student_pad.no_teacher_notes"))
+                            st.caption("No teacher notes")
 
         return [render_pad_overview]
 
@@ -624,13 +624,13 @@ class StudentPadPlugin(TrainerPlugin):
         """Add a history viewer tab for teachers."""
 
         def render_history_viewer():
-            st.subheader("📜 " + _("trainer_plugin_student_pad.notes_history"))
+            st.subheader("📜 Notes History")
 
             trainer_manager = get_trainer_manager()
             students = trainer_manager.get_trainer_students(trainer_id)
 
             if not students:
-                st.info(_("No students available."))
+                st.info("No students available.")
                 return
 
             # Student selector - with unique key including plugin ID
@@ -638,7 +638,7 @@ class StudentPadPlugin(TrainerPlugin):
             student_options['all'] = "All Students"
 
             selected_student = st.selectbox(
-                _("Select Student"),
+                "Select Student",
                 options=list(student_options.keys()),
                 format_func=lambda x: student_options[x],
                 key=f"pad_history_student_select_{self.id}"
@@ -646,9 +646,9 @@ class StudentPadPlugin(TrainerPlugin):
 
             # Note type filter - with unique key
             note_type_filter = st.radio(
-                _("Note Type"),
+                "Note Type",
                 options=['all', 'student', 'teacher'],
-                format_func=lambda x: _("All Notes") if x == 'all' else (_("Student Notes") if x == 'student' else _("Teacher Notes")),
+                format_func=lambda x: "All Notes" if x == 'all' else ("Student Notes" if x == 'student' else "Teacher Notes"),
                 horizontal=True,
                 key=f"pad_history_note_type_{self.id}"
             )
@@ -658,7 +658,7 @@ class StudentPadPlugin(TrainerPlugin):
             events = self.export_history(trainer_id, student_id)
 
             if not events:
-                st.info(_("No history available for the selected criteria."))
+                st.info("No history available for the selected criteria.")
                 return
 
             # Filter by note type
@@ -668,16 +668,16 @@ class StudentPadPlugin(TrainerPlugin):
             # Display statistics
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric(_("Total Events"), len(events))
+                st.metric("Total Events", len(events))
             with col2:
                 student_count = len(set(e.get('student_id') for e in events))
-                st.metric(_("Students"), student_count)
+                st.metric("Students", student_count)
             with col3:
                 version_count = sum(1 for e in events if not e.get('is_current', False))
-                st.metric(_("Historical Versions"), version_count)
+                st.metric("Historical Versions", version_count)
 
             # Display timeline
-            st.subheader(_("Timeline"))
+            st.subheader("Timeline")
 
             for idx, event in enumerate(events):
                 with st.container():
@@ -700,10 +700,10 @@ class StudentPadPlugin(TrainerPlugin):
                         # Note type and version
                         if event.get('note_type') == 'student':
                             icon = "📝"
-                            label = _("Student")
+                            label = "Student"
                         else:
                             icon = "👨‍🏫"
-                            label = _("Teacher")
+                            label = "Teacher"
 
                         version_info = f"v{event.get('version', 1)}"
                         if event.get('is_current'):
@@ -720,7 +720,7 @@ class StudentPadPlugin(TrainerPlugin):
 
                 st.divider()
 
-        return [(_("Notes History"), render_history_viewer)]
+        return [("Notes History", render_history_viewer)]
 
 # Plugin entry point - must be named 'plugin'
 plugin = StudentPadPlugin

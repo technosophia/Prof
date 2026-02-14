@@ -12,7 +12,7 @@ import asyncio
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, and_, desc
 from shared.common import (
     Base, get_db_manager, get_prompt, register_llm_context_callback,
-    log, _, get_conversation_manager, get_llm_manager, get_current_llm_id
+    log, get_conversation_manager, get_llm_manager, get_current_llm_id
 )
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
@@ -351,7 +351,7 @@ class MemoryPlugin(TrainerPlugin):
             student_id = student['id']
             student_name = student.get('name', student_id)
 
-            st.markdown("### 🧠 " + _("trainer_plugin_memory.pedagogical_memory"))
+            st.markdown("### 🧠 Pedagogical Memory")
 
             # Get current memory and stats
             memory_data = self._get_memory_with_metadata(student_id, trainer_id)
@@ -362,10 +362,10 @@ class MemoryPlugin(TrainerPlugin):
             with col1:
                 if memory_data:
                     last_updated = memory_data['updated_at'].strftime('%Y-%m-%d %H:%M')
-                    st.caption(_("trainer_plugin_memory.last_updated").format(time=last_updated))
+                    st.caption(f"Last updated: {last_updated}")
             with col2:
                 if version_count > 0:
-                    st.caption(f"📚 {version_count} " + _("trainer_plugin_memory.older_versions"))
+                    st.caption(f"📚 {version_count} older versions")
             with col3:
                 if memory_data and memory_data['source'].startswith('llm:'):
                     llm_id = memory_data['source'].split(':')[1]
@@ -373,27 +373,27 @@ class MemoryPlugin(TrainerPlugin):
 
             # Display current memory
             if memory_data and memory_data['content']:
-                st.markdown("**" + _("trainer_plugin_memory.current_memory") + "**")
+                st.markdown("**Current Memory**")
                 st.info(memory_data['content'])
 
                 # Show metadata if available
                 if memory_data['metadata']:
-                    with st.expander(_("trainer_plugin_memory.analysis_details")):
+                    with st.expander("Analysis Details"):
                         meta = memory_data['metadata']
-                        st.caption(f"📊 {_('trainer_plugin_memory.messages_analyzed')}: {meta.get('messages_analyzed', 0)}")
-                        st.caption(f"💬 {_('trainer_plugin_memory.conversations')}: {meta.get('conversations', 0)}")
+                        st.caption(f"📊 Messages analyzed: {meta.get('messages_analyzed', 0)}")
+                        st.caption(f"💬 Conversations: {meta.get('conversations', 0)}")
                         if meta.get('first_message') and meta.get('last_message'):
-                            st.caption(f"📅 {_('trainer_plugin_memory.period')}: {meta['first_message'][:10]} → {meta['last_message'][:10]}")
+                            st.caption(f"📅 Period: {meta['first_message'][:10]} → {meta['last_message'][:10]}")
             else:
-                st.info(_("trainer_plugin_memory.no_memory_yet"))
+                st.info("No pedagogical memory yet. Click 'Refresh with LLM' to analyze conversations.")
 
             # Action buttons
             col1, col2 = st.columns(2)
             with col1:
-                if st.button(_("trainer_plugin_memory.refresh_with_llm"),
+                if st.button("🔄 Refresh with LLM",
                             key=f"refresh_memory_{student_id}",
                             use_container_width=True):
-                    with st.spinner(_("trainer_plugin_memory.analyzing_conversations")):
+                    with st.spinner("Analyzing conversations..."):
                         # Run async refresh in sync context
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
@@ -403,13 +403,13 @@ class MemoryPlugin(TrainerPlugin):
                         loop.close()
 
                         if success:
-                            st.success(_("trainer_plugin_memory.memory_updated"))
+                            st.success("✅ Memory updated successfully!")
                             st.rerun()
                         else:
-                            st.error(_("trainer_plugin_memory.failed_to_update"))
+                            st.error("❌ Failed to update memory")
 
             with col2:
-                if st.button(_("trainer_plugin_memory.edit_manually"),
+                if st.button("✏️ Edit Manually",
                             key=f"edit_memory_{student_id}",
                             use_container_width=True):
                     st.session_state[f"editing_memory_{student_id}"] = True
@@ -417,23 +417,23 @@ class MemoryPlugin(TrainerPlugin):
             # Manual editing form
             if st.session_state.get(f"editing_memory_{student_id}", False):
                 with st.form(key=f"manual_memory_form_{student_id}"):
-                    st.markdown("**" + _("trainer_plugin_memory.edit_memory") + "**")
+                    st.markdown("**Edit Pedagogical Memory**")
 
                     new_memory = st.text_area(
-                        _("trainer_plugin_memory.memory_content"),
+                        "Memory content",
                         value=memory_data['content'] if memory_data else "",
                         height=200
                     )
 
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.form_submit_button(_("trainer_plugin_memory.save")):
+                        if st.form_submit_button("💾 Save"):
                             if self._save_memory(student_id, trainer_id, new_memory, "manual"):
-                                st.success(_("trainer_plugin_memory.memory_saved"))
+                                st.success("✅ Memory saved!")
                                 st.session_state[f"editing_memory_{student_id}"] = False
                                 st.rerun()
                     with col2:
-                        if st.form_submit_button(_("trainer_plugin_memory.cancel")):
+                        if st.form_submit_button("Cancel"):
                             st.session_state[f"editing_memory_{student_id}"] = False
                             st.rerun()
 
@@ -443,15 +443,15 @@ class MemoryPlugin(TrainerPlugin):
         """Add memory overview to dashboard."""
         def render_memory_overview():
             st.markdown("---")
-            st.subheader("🧠 " + _("trainer_plugin_memory.memory_overview"))
+            st.subheader("🧠 Memory Overview")
 
             # Quick refresh all button
-            if st.button(_("trainer_plugin_memory.refresh_all_memories"),
+            if st.button("🔄 Refresh All Memories",
                         key="refresh_all_memories",
                         use_container_width=True):
-                with st.spinner(_("trainer_plugin_memory.refreshing_all")):
+                with st.spinner("Refreshing all memories..."):
                     # This would be async in production - simplified for demo
-                    st.info(_("trainer_plugin_memory.refresh_all_placeholder"))
+                    st.info("This would refresh all memories asynchronously in production")
 
             # Show memory status for each student
             for student in students[:5]:  # Limit to 5 for dashboard
@@ -469,19 +469,19 @@ class MemoryPlugin(TrainerPlugin):
                             preview = memory_data['content'][:150] + "..."
                             st.markdown(preview)
                         else:
-                            st.caption(_("trainer_plugin_memory.no_memory"))
+                            st.caption("No memory")
 
                     with col2:
                         if memory_data:
                             st.caption(f"📚 v{memory_data['version']}")
                             if version_count > 0:
-                                st.caption(f"📜 +{version_count} " + _("trainer_plugin_memory.older"))
+                                st.caption(f"📜 +{version_count} older")
 
                             # Quick refresh button for this student
-                            if st.button(_("trainer_plugin_memory.refresh"),
+                            if st.button("🔄 Refresh",
                                         key=f"dash_refresh_{student_id}"):
                                 # Simplified - would be async
-                                st.info(_("trainer_plugin_memory.refresh_triggered"))
+                                st.info("Refresh triggered (async in production)")
 
         return [render_memory_overview]
 
@@ -638,13 +638,13 @@ class MemoryPlugin(TrainerPlugin):
     def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add memory history viewer."""
         def render_history_viewer():
-            st.subheader("📜 " + _("trainer_plugin_memory.memory_history"))
+            st.subheader("📜 Memory History")
 
             trainer_manager = get_trainer_manager()
             students = trainer_manager.get_trainer_students(trainer_id)
 
             if not students:
-                st.info(_("No students available."))
+                st.info("No students available.")
                 return
 
             # Student selector
@@ -652,7 +652,7 @@ class MemoryPlugin(TrainerPlugin):
             student_options['all'] = "All Students"
 
             selected = st.selectbox(
-                _("Select Student"),
+                "Select Student",
                 options=list(student_options.keys()),
                 format_func=lambda x: student_options[x],
                 key="memory_history_select"
@@ -662,7 +662,7 @@ class MemoryPlugin(TrainerPlugin):
             events = self.export_history(trainer_id, student_id)
 
             if not events:
-                st.info(_("No memory history available."))
+                st.info("No memory history available.")
                 return
 
             # Display timeline
@@ -699,7 +699,7 @@ class MemoryPlugin(TrainerPlugin):
 
                 st.divider()
 
-        return [(_("Memory History"), render_history_viewer)]
+        return [("Memory History", render_history_viewer)]
 
 
 # Plugin entry point
