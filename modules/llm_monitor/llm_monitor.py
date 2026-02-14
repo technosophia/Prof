@@ -252,12 +252,21 @@ class LLMMonitor:
                     model=model,
                     plan_type="free",  # Default to free plan
                     period_date=today,
+                    requests_count=0,  # Initialize to 0
+                    tokens_count=0,    # Initialize to 0
                     user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
                 )
                 session.add(daily_usage)
 
+            # Ensure values are not None before incrementing
+            if daily_usage.requests_count is None:
+                daily_usage.requests_count = 0
+            if daily_usage.tokens_count is None:
+                daily_usage.tokens_count = 0
+
             daily_usage.requests_count += 1
             daily_usage.tokens_count += tokens_used
+            daily_usage.last_updated = datetime.utcnow()
 
             # Update hourly usage
             hourly_usage = session.query(RateLimitUsageTable).filter_by(
@@ -275,14 +284,23 @@ class LLMMonitor:
                     plan_type="free",
                     period_date=today,
                     period_hour=current_hour,
+                    requests_count=0,  # Initialize to 0
+                    tokens_count=0,    # Initialize to 0
                     user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
                 )
                 session.add(hourly_usage)
 
+            # Ensure values are not None before incrementing
+            if hourly_usage.requests_count is None:
+                hourly_usage.requests_count = 0
+            if hourly_usage.tokens_count is None:
+                hourly_usage.tokens_count = 0
+
             hourly_usage.requests_count += 1
             hourly_usage.tokens_count += tokens_used
+            hourly_usage.last_updated = datetime.utcnow()
 
-            log("debug", f"Updated rate limit usage for {provider}: +1 request, +{tokens_used} tokens")
+            log("debug", f"Updated rate limit usage for {provider}: +1 request, +{tokens_used} tokens (daily: {daily_usage.requests_count}/{limits.get('rpd', '∞')}, hourly: {hourly_usage.requests_count}/{limits.get('rpm', '∞')})")
 
         except Exception as e:
             log("error", f"Failed to update rate limit usage (internal): {e}", exc_info=True)
@@ -495,12 +513,13 @@ class LLMMonitor:
                                                input_tokens or 0, output_tokens or 0,
                                                costs["total_cost"])
 
-                # Update rate limit usage if limits are configured
+                # ALWAYS update rate limit usage based on config limits
+                # Check if rate limits are configured for this provider
                 limits = self.get_rate_limits(data["llm_type"], data["model"])
                 has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
 
                 if has_limits:
-                    log("debug", f"Tracking rate limit for {data['llm_type']} with {total_tokens} tokens")
+                    log("debug", f"Tracking rate limit for {data['llm_type']} with {total_tokens} tokens (limits: {limits})")
                     self._update_rate_limit_usage_internal(
                         session=session,
                         provider=data["llm_type"],
@@ -508,6 +527,8 @@ class LLMMonitor:
                         tokens_used=total_tokens,
                         user_id=user_id
                     )
+                else:
+                    log("debug", f"No rate limits configured for {data['llm_type']}, skipping tracking")
 
                 # Commit all changes
                 session.commit()
