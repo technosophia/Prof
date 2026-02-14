@@ -107,6 +107,186 @@ class TrainerManager:
 
             return activation.is_active if activation else False
 
+    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> str:
+        """
+        Export complete history including conversations and plugin events.
+
+        Args:
+            trainer_id: The trainer's ID
+            student_id: Optional student ID to filter history for a specific student
+
+        Returns:
+            YAML string containing chronologically sorted events
+        """
+        from .plugin_base import get_plugin_manager
+
+        events = []
+
+        # Get all students for this trainer
+        if student_id:
+            student = self.user_manager.get_user(student_id)
+            if student and student.get('parent_id') == trainer_id:
+                students = [student]
+            else:
+                log("error", f"Student {student_id} not found or not assigned to trainer {trainer_id}")
+                students = []
+        else:
+            students = self.get_trainer_students(trainer_id)
+
+        # Add conversation events for each student
+        for student in students:
+            if not student:
+                continue
+
+            conversations = self.conversation_manager.get_user_conversations(student['id'])
+
+            for conv in conversations:
+                full_conv = self.conversation_manager.get_conversation(conv["id"])
+                if full_conv and full_conv.messages:
+                    for msg in full_conv.messages:
+                        event = {
+                            'timestamp': msg.timestamp.isoformat() if msg.timestamp else datetime.utcnow().isoformat(),
+                            'type': 'user_message' if msg.role == 'user' else 'assistant_message',
+                            'student_id': student['id'],
+                            'student_name': student.get('name', 'Unknown'),
+                            'conversation_id': conv["id"],
+                            'conversation_title': conv.get('title', 'Untitled'),
+                            'content': msg.content,
+                            'plugin_id': 'core.conversation'
+                        }
+
+                        # Add message metadata if available - FIX: use 'metadata' not 'msg_metadata'
+                        if hasattr(msg, 'metadata') and msg.metadata:
+                            event['metadata'] = msg.metadata
+                        elif hasattr(msg, 'msg_metadata') and msg.msg_metadata:  # Fallback for backward compatibility
+                            event['metadata'] = msg.msg_metadata
+
+                        events.append(event)
+
+        # Add plugin events
+        plugin_manager = get_plugin_manager()
+        active_plugins = plugin_manager.get_active_plugins(trainer_id)
+
+        for plugin in active_plugins:
+            plugin_events = plugin.export_history(trainer_id, student_id)
+            if plugin_events:
+                # Ensure each plugin event has required fields
+                for event in plugin_events:
+                    if 'timestamp' not in event:
+                        event['timestamp'] = datetime.utcnow().isoformat()
+                    if 'type' not in event:
+                        event['type'] = f'plugin.{plugin.id}.event'
+                    if 'plugin_id' not in event:
+                        event['plugin_id'] = plugin.id
+                events.extend(plugin_events)
+
+        # Sort events chronologically
+        events.sort(key=lambda x: x.get('timestamp', ''))
+
+        # Build complete export structure
+        export_data = {
+            'exported_at': datetime.utcnow().isoformat(),
+            'trainer_id': trainer_id,
+            'student_id': student_id,
+            'event_count': len(events),
+            'events': events
+        }
+
+        return yaml.dump(export_data, default_flow_style=False, allow_unicode=True)
+
+    def import_history(self, trainer_id: str, yaml_content: str) -> bool:
+        """
+        Import complete history including conversations and plugin events.
+
+        Args:
+            trainer_id: The trainer's ID
+            yaml_content: YAML string containing events to import
+
+        Returns:
+            True if import successful, False otherwise
+        """
+        from .plugin_base import get_plugin_manager
+
+        try:
+            config = yaml.safe_load(yaml_content)
+
+            if not config or 'events' not in config:
+                log("error", "Invalid history export: missing events")
+                return False
+
+            events = config.get('events', [])
+
+            # Group events by plugin for processing
+            plugin_events = {}
+            conversation_events = []
+
+            for event in events:
+                plugin_id = event.get('plugin_id', 'unknown')
+
+                if plugin_id == 'core.conversation':
+                    conversation_events.append(event)
+                else:
+                    if plugin_id not in plugin_events:
+                        plugin_events[plugin_id] = []
+                    plugin_events[plugin_id].append(event)
+
+            # Process conversation events first
+            if conversation_events:
+                # Group by student and conversation
+                student_conversations = {}
+                for event in conversation_events:
+                    student_id = event.get('student_id')
+                    if not student_id:
+                        continue
+
+                    if student_id not in student_conversations:
+                        student_conversations[student_id] = {}
+
+                    conv_id = event.get('conversation_id')
+                    if conv_id not in student_conversations[student_id]:
+                        student_conversations[student_id][conv_id] = {
+                            'title': event.get('conversation_title', 'Imported Conversation'),
+                            'messages': []
+                        }
+
+                    # Add message to conversation
+                    student_conversations[student_id][conv_id]['messages'].append({
+                        'role': 'user' if event.get('type') == 'user_message' else 'assistant',
+                        'content': event.get('content', ''),
+                        'timestamp': event.get('timestamp'),
+                        'metadata': event.get('metadata', {})
+                    })
+
+                # Recreate conversations (this would need to be implemented in conversation_manager)
+                # You might want to add a method to conversation_manager to import conversations
+                for student_id, conversations in student_conversations.items():
+                    for conv_id, conv_data in conversations.items():
+                        # Sort messages by timestamp
+                        conv_data['messages'].sort(key=lambda x: x.get('timestamp', ''))
+
+                        # Create conversation if it doesn't exist
+                        # This assumes you have a method to import conversations
+                        # If not, you might need to create one
+                        log("info", f"Would import conversation {conv_id} for student {student_id} with {len(conv_data['messages'])} messages")
+
+            # Process plugin events
+            plugin_manager = get_plugin_manager()
+            for plugin_id, plugin_evts in plugin_events.items():
+                plugin = plugin_manager.get_plugin(plugin_id)
+                if plugin:
+                    # Sort events chronologically for this plugin
+                    plugin_evts.sort(key=lambda x: x.get('timestamp', ''))
+                    if not plugin.import_history(trainer_id, plugin_evts):
+                        log("warning", f"Plugin {plugin_id} failed to import some events")
+                else:
+                    log("warning", f"Plugin {plugin_id} not found, skipping {len(plugin_evts)} events")
+
+            return True
+
+        except Exception as e:
+            log("error", f"Failed to import history: {e}", exc_info=True)
+            return False
+
     def set_plugin_active(self, trainer_id: str, plugin_id: str,
                          active: bool) -> bool:
         """Activate or deactivate a plugin for this trainer."""

@@ -20,7 +20,7 @@ Dependencies:
 
 UI Injection Points:
 - Admin tab (for masters): inject_ui_admin_tab() in trainer_admin_ui.py
-- Student pad (for normal users): inject_ui_main_header() in plugins/student_pad/student_pad_ui.py
+- Widgets for plugins
 
 File Naming Convention:
 - *_ui.py files contain injection points for the main application

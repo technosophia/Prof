@@ -405,5 +405,310 @@ class StudentPadPlugin(TrainerPlugin):
         return success
 
 
+    # Add these methods to the StudentPadPlugin class in __init__.py
+
+    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Export all student pad history events (all versions of student and teacher notes).
+        Each version change becomes a separate event in chronological order.
+
+        Args:
+            trainer_id: The trainer's ID
+            student_id: Optional student ID to filter history for a specific student
+
+        Returns:
+            List of event dictionaries with timestamps for each note version
+        """
+        db = get_db_manager()
+        events = []
+
+        with db.get_session() as session:
+            # Build query
+            query = session.query(StudentNote).filter_by(trainer_id=trainer_id)
+
+            if student_id:
+                query = query.filter_by(user_id=student_id)
+
+            # Get all notes (all versions, both student and teacher notes)
+            notes = query.order_by(StudentNote.updated_at).all()
+
+            for note in notes:
+                # Determine event type based on plugin_id
+                if note.plugin_id == self.id or note.plugin_id == "core":
+                    event_type = 'plugin.student_pad.student_note'
+                    note_type = 'student'
+                elif note.plugin_id == "teacher_notes":
+                    event_type = 'plugin.student_pad.teacher_note'
+                    note_type = 'teacher'
+                else:
+                    # Skip notes from other plugins
+                    continue
+
+                # Get student name for better readability
+                from shared.common import get_user_manager
+                user_manager = get_user_manager()
+                student = user_manager.get_user(note.user_id)
+                student_name = student.get('name', 'Unknown') if student else 'Unknown'
+
+                # Create event
+                event = {
+                    'timestamp': note.updated_at.isoformat() if note.updated_at else datetime.utcnow().isoformat(),
+                    'type': event_type,
+                    'plugin_id': self.id,
+                    'student_id': note.user_id,
+                    'student_name': student_name,
+                    'note_id': note.id,
+                    'note_type': note_type,
+                    'version': note.version,
+                    'is_current': note.is_current == 1,
+                    'content': note.content,
+                    'created_at': note.created_at.isoformat() if hasattr(note, 'created_at') and note.created_at else note.updated_at.isoformat() if note.updated_at else None,
+                    'updated_at': note.updated_at.isoformat() if note.updated_at else None,
+                    'metadata': note.note_metadata or {}
+                }
+
+                # Add content preview for display purposes
+                if note.content:
+                    event['content_preview'] = note.content[:100] + "..." if len(note.content) > 100 else note.content
+
+                events.append(event)
+
+        return events
+
+    def import_history(self, trainer_id: str, events: List[Dict[str, Any]]) -> bool:
+        """
+        Import student pad history events, recreating all note versions.
+
+        Args:
+            trainer_id: The trainer's ID
+            events: List of event dictionaries to import
+
+        Returns:
+            True if import successful, False otherwise
+        """
+        db = get_db_manager()
+
+        try:
+            with db.get_session() as session:
+                # Filter events for this plugin
+                pad_events = [e for e in events if e.get('plugin_id') == self.id]
+
+                # Group events by student and note type for better processing
+                student_notes = {}  # (student_id, note_type) -> list of events
+
+                for event in pad_events:
+                    student_id = event.get('student_id')
+                    if not student_id:
+                        continue
+
+                    note_type = event.get('note_type', 'student')
+                    plugin_id = self.id if note_type == 'student' else 'teacher_notes'
+
+                    key = (student_id, plugin_id)
+                    if key not in student_notes:
+                        student_notes[key] = []
+
+                    student_notes[key].append(event)
+
+                # Process each student's notes
+                for (student_id, plugin_id), note_events in student_notes.items():
+                    # Sort events by timestamp to preserve history order
+                    note_events.sort(key=lambda x: x.get('timestamp', ''))
+
+                    # First, mark all existing notes as not current
+                    existing_notes = session.query(StudentNote).filter_by(
+                        user_id=student_id,
+                        trainer_id=trainer_id,
+                        plugin_id=plugin_id
+                    ).all()
+
+                    for note in existing_notes:
+                        note.is_current = 0
+
+                    # Recreate all versions
+                    for event in note_events:
+                        # Parse timestamps
+                        created_at = None
+                        updated_at = None
+
+                        try:
+                            if event.get('created_at'):
+                                created_at = datetime.fromisoformat(event['created_at'].replace('Z', '+00:00'))
+                            if event.get('updated_at'):
+                                updated_at = datetime.fromisoformat(event['updated_at'].replace('Z', '+00:00'))
+                        except (ValueError, TypeError):
+                            # If parsing fails, use current time
+                            now = datetime.utcnow()
+                            if not created_at:
+                                created_at = now
+                            if not updated_at:
+                                updated_at = now
+
+                        # Check if this note version already exists (by ID)
+                        note_id = event.get('note_id')
+                        existing = None
+                        if note_id:
+                            existing = session.query(StudentNote).filter_by(id=note_id).first()
+
+                        if not existing:
+                            # Create new note version
+                            note = StudentNote(
+                                id=note_id or str(uuid.uuid4()),
+                                user_id=student_id,
+                                trainer_id=trainer_id,
+                                content=event.get('content', ''),
+                                plugin_id=plugin_id,
+                                version=event.get('version', 1),
+                                is_current=1 if event.get('is_current', False) else 0,
+                                created_at=created_at,
+                                updated_at=updated_at,
+                                note_metadata=event.get('metadata', {})
+                            )
+                            session.add(note)
+                        else:
+                            # Update existing note
+                            existing.content = event.get('content', existing.content)
+                            existing.version = event.get('version', existing.version)
+                            existing.is_current = 1 if event.get('is_current', False) else 0
+                            existing.updated_at = updated_at
+                            if event.get('metadata'):
+                                existing.note_metadata = event['metadata']
+
+                    # Ensure exactly one note is marked as current
+                    current_notes = session.query(StudentNote).filter_by(
+                        user_id=student_id,
+                        trainer_id=trainer_id,
+                        plugin_id=plugin_id,
+                        is_current=1
+                    ).all()
+
+                    if len(current_notes) > 1:
+                        # If multiple current notes, keep the most recent one
+                        current_notes.sort(key=lambda x: x.updated_at or datetime.min, reverse=True)
+                        for i, note in enumerate(current_notes):
+                            if i == 0:
+                                # Keep first as current
+                                continue
+                            note.is_current = 0
+                    elif len(current_notes) == 0 and note_events:
+                        # If no current note but we have events, set the most recent as current
+                        most_recent = max(note_events, key=lambda x: x.get('timestamp', ''))
+                        note_id = most_recent.get('note_id')
+                        if note_id:
+                            note = session.query(StudentNote).filter_by(id=note_id).first()
+                            if note:
+                                note.is_current = 1
+
+                session.commit()
+                return True
+
+        except Exception as e:
+            log("error", f"Failed to import student pad history: {e}", exc_info=True)
+            return False
+
+    def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+        """Add a history viewer tab for teachers."""
+
+        def render_history_viewer():
+            st.subheader("📜 " + _("trainer_plugin_student_pad.notes_history"))
+
+            trainer_manager = get_trainer_manager()
+            students = trainer_manager.get_trainer_students(trainer_id)
+
+            if not students:
+                st.info(_("No students available."))
+                return
+
+            # Student selector - with unique key including plugin ID
+            student_options = {student['id']: student.get('name', 'Unknown') for student in students}
+            student_options['all'] = "All Students"
+
+            selected_student = st.selectbox(
+                _("Select Student"),
+                options=list(student_options.keys()),
+                format_func=lambda x: student_options[x],
+                key=f"pad_history_student_select_{self.id}"  # Unique key with plugin ID
+            )
+
+            # Note type filter - with unique key
+            note_type_filter = st.radio(
+                _("Note Type"),
+                options=['all', 'student', 'teacher'],
+                format_func=lambda x: _("All Notes") if x == 'all' else (_("Student Notes") if x == 'student' else _("Teacher Notes")),
+                horizontal=True,
+                key=f"pad_history_note_type_{self.id}"  # Unique key with plugin ID
+            )
+
+            # Get history
+            student_id = None if selected_student == 'all' else selected_student
+            events = self.export_history(trainer_id, student_id)
+
+            if not events:
+                st.info(_("No history available for the selected criteria."))
+                return
+
+            # Filter by note type
+            if note_type_filter != 'all':
+                events = [e for e in events if e.get('note_type') == note_type_filter]
+
+            # Display statistics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(_("Total Events"), len(events))
+            with col2:
+                student_count = len(set(e.get('student_id') for e in events))
+                st.metric(_("Students"), student_count)
+            with col3:
+                version_count = sum(1 for e in events if not e.get('is_current', False))
+                st.metric(_("Historical Versions"), version_count)
+
+            # Display timeline
+            st.subheader(_("Timeline"))
+
+            for idx, event in enumerate(events):
+                with st.container():
+                    cols = st.columns([2, 1, 3, 1])
+
+                    with cols[0]:
+                        # Timestamp
+                        try:
+                            ts = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+                            st.write(ts.strftime('%Y-%m-%d %H:%M'))
+                        except:
+                            st.write(event['timestamp'])
+
+                    with cols[1]:
+                        # Student name
+                        st.write(event.get('student_name', event.get('student_id', 'Unknown')))
+
+                    with cols[2]:
+                        # Preview
+                        if event.get('note_type') == 'student':
+                            icon = "📝"
+                            label = _("Student Note")
+                        else:
+                            icon = "👨‍🏫"
+                            label = _("Teacher Note")
+
+                        version_info = f" (v{event.get('version', 1)})"
+                        if event.get('is_current'):
+                            version_info += " - " + _("Current")
+
+                        st.write(f"{icon} **{label}**{version_info}")
+
+                        preview = event.get('content_preview', '')
+                        if preview:
+                            st.caption(preview)
+
+                    with cols[3]:
+                        # Version indicator
+                        if not event.get('is_current'):
+                            st.write("📚 " + _("Historical"))
+
+                # Add a unique key to the divider to avoid Streamlit key conflicts
+                st.divider()
+
+        return [(_("Notes History"), render_history_viewer)]
+
 # Plugin entry point - must be named 'plugin'
 plugin = StudentPadPlugin

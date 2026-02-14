@@ -177,6 +177,7 @@ def setup_test_environment():
 
     # Store original CWD
     original_cwd = os.getcwd()
+    temp_path = ""
 
     # Change to project root if needed
     if original_cwd != PROJECT_ROOT:
