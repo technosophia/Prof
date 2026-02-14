@@ -49,7 +49,7 @@ def inject_ui_admin_tab():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("🔄 Upgrade to Latest", use_container_width=True,
+            if st.button("🔄 Upgrade to Latest", width='stretch',
                         disabled=not status['needs_upgrade']):
                 with st.spinner("Running migrations..."):
                     if db_manager.check_and_upgrade_schema():
@@ -59,7 +59,7 @@ def inject_ui_admin_tab():
                         st.error("❌ Upgrade failed - check logs")
 
         with col2:
-            if st.button("⬇️ Downgrade One Step", use_container_width=True,
+            if st.button("⬇️ Downgrade One Step", width='stretch',
                         disabled=not status['current_revision']):
                 with st.spinner("Downgrading..."):
                     # Run downgrade via alembic directly
@@ -80,7 +80,7 @@ def inject_ui_admin_tab():
                         st.error(f"❌ Error: {e}")
 
         with col3:
-            if st.button("📋 Show Migration History", use_container_width=True):
+            if st.button("📋 Show Migration History", width='stretch'):
                 st.session_state.show_migration_history = True
 
         # Migration history
@@ -115,7 +115,7 @@ def inject_ui_admin_tab():
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("📝 Auto-Detect Changes", use_container_width=True,
+            if st.button("📝 Auto-Detect Changes", width='stretch',
                         disabled=not migration_message):
                 if migration_message:
                     with st.spinner("Creating migration..."):
@@ -128,7 +128,7 @@ def inject_ui_admin_tab():
                     st.warning("Please enter a migration description")
 
         with col2:
-            if st.button("⚙️ Create Empty Migration", use_container_width=True,
+            if st.button("⚙️ Create Empty Migration", width='stretch',
                         disabled=not migration_message):
                 if migration_message:
                     with st.spinner("Creating empty migration..."):
@@ -146,7 +146,7 @@ def inject_ui_admin_tab():
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("💾 Stamp Current Database", use_container_width=True):
+            if st.button("💾 Stamp Current Database", width='stretch'):
                 with st.spinner("Stamping database..."):
                     if db_manager.stamp_database():
                         st.success("✅ Database stamped with head revision")
@@ -155,7 +155,7 @@ def inject_ui_admin_tab():
                         st.error("❌ Failed to stamp database")
 
         with col2:
-            if st.button("📁 Show Migration Files", use_container_width=True):
+            if st.button("📁 Show Migration Files", width='stretch'):
                 project_root = Path(__file__).parent.parent
                 versions_dir = project_root / "alembic" / "versions"
 

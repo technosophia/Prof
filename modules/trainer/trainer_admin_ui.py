@@ -281,14 +281,14 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Export YAML", use_container_width=True):
+        if st.button("Export YAML", width='stretch'):
             yaml_content = trainer_manager.export_configuration(trainer_id)
             st.download_button(
                 label="Download YAML",
                 data=yaml_content,
                 file_name=f"trainer_config_{trainer_id}.yaml",
                 mime="text/yaml",
-                use_container_width=True
+                width='stretch'
             )
 
     with col2:
@@ -301,7 +301,7 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
         if uploaded_file is not None:
             try:
                 yaml_content = uploaded_file.read().decode('utf-8')
-                if st.button("Import", use_container_width=True):
+                if st.button("Import", width='stretch'):
                     if trainer_manager.import_configuration(trainer_id, yaml_content):
                         st.success("Configuration imported successfully!")
                     else:

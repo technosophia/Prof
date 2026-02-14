@@ -726,7 +726,7 @@ def _render_export_section():
     with col_export2:
         st.caption(" ")
         st.caption(" ")
-        if st.button("📥 Generate Export", type="primary", use_container_width=True):
+        if st.button("📥 Generate Export", type="primary", width='stretch'):
             _execute_export(include_children, selected_user_ids)
 
     # Display download button if export data is available
@@ -736,7 +736,7 @@ def _render_export_section():
             data=st.session_state.export_json_data,
             file_name=st.session_state.export_filename,
             mime="application/json",
-            use_container_width=True
+            width='stretch'
         )
 
 
@@ -807,7 +807,7 @@ def _process_import_file(uploaded_file):
             _render_import_preview(import_data["users"])
 
         # Import button
-        if st.button("🚀 Import Users", type="primary", use_container_width=True):
+        if st.button("🚀 Import Users", type="primary", width='stretch'):
             _execute_import(import_data, overwrite, validate_only)
 
     except json.JSONDecodeError:
