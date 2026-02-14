@@ -130,9 +130,9 @@ def show_user_stats_tab(monitor):
             # Filter by date range if needed
             if date_range != "All time":
                 days_map = {
+                    "Last 24h": 1,
                     "Last 7 days": 7,
-                    "Last 30 days": 30,
-                    "Last 90 days": 90
+                    "Last 30 days": 30
                 }
                 days = days_map.get(date_range, 7) if date_range in days_map else 1
                 cutoff_date = datetime.utcnow() - timedelta(days=days)
@@ -185,25 +185,20 @@ def show_user_stats_tab(monitor):
                 st.write("---")
                 st.subheader("⏱️ User Rate Limit Usage")
 
-                free_providers = [p for p in monitor.cost_config.keys()
-                                if monitor.is_free_provider(p) and p in monitor.rate_limits_config]
+                # Get providers that have rate limits
+                providers_with_limits = []
+                for provider, config in monitor.llm_configs.items():
+                    has_limits = any(config.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+                    if has_limits:
+                        providers_with_limits.append(provider)
 
-                if free_providers:
-                    for provider in free_providers:
-                        provider_limits = monitor.rate_limits_config.get(provider, {})
+                if providers_with_limits:
+                    for provider in providers_with_limits:
+                        usage = monitor.get_rate_limit_usage(provider, provider, user_id=selected_user_id)
 
-                        for plan_type in provider_limits:
-                            plan_limits = provider_limits[plan_type]
-
-                            for model in plan_limits:
-                                if model == "default":
-                                    continue
-
-                                usage = monitor.get_rate_limit_usage(provider, model, user_id=selected_user_id)
-
-                                if usage and usage.get("limits"):
-                                    st.write(f"**{provider} - {model}**")
-                                    render_rate_limit_gauge(usage)
+                        if usage and usage.get("limits"):
+                            st.write(f"**{provider}**")
+                            render_rate_limit_gauge(usage)
 
             st.write("---")
             st.write("### ⚠️ Clear User Logs")
@@ -253,8 +248,8 @@ def show_call_logs_tab(monitor):
             user_filter = st.text_input("User ID", "")
 
     with col2:
-        # LLM type filter
-        llm_types = ["All types"] + list(monitor.cost_config.keys())
+        # LLM type filter - use llm_configs keys instead of cost_config
+        llm_types = ["All types"] + list(monitor.llm_configs.keys())
         llm_type_filter = st.selectbox("LLM Type", llm_types)
         llm_type_filter = None if llm_type_filter == "All types" else llm_type_filter
 
@@ -356,118 +351,99 @@ def show_rate_limits_tab(monitor):
         st.warning("Rate limit tracking is disabled. Enable it in the configuration.")
         return
 
-    # Provider selection
-    providers = list(monitor.rate_limits_config.keys())
-    selected_provider = st.selectbox("Select Provider", providers)
+    # Get all providers that have any rate limits configured
+    providers_with_limits = []
+    for provider, config in monitor.llm_configs.items():
+        has_limits = any(config.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+        if has_limits:
+            providers_with_limits.append(provider)
+
+    if not providers_with_limits:
+        st.info("No providers with rate limits configured")
+        return
+
+    selected_provider = st.selectbox("Select Provider", providers_with_limits)
 
     if selected_provider:
         st.write(f"**{selected_provider.title()} Rate Limits**")
 
-        provider_limits = monitor.rate_limits_config.get(selected_provider, {})
+        provider_config = monitor.get_llm_config(selected_provider)
 
-        for plan_type in provider_limits:
-            with st.expander(f"{plan_type.title()} Plan", expanded=True):
-                plan_limits = provider_limits[plan_type]
+        # Display limits table
+        limits_data = [{
+            "Provider": selected_provider,
+            "RPM": provider_config.get("rpm", 0),
+            "RPD": provider_config.get("rpd", 0),
+            "TPM": provider_config.get("tpm", 0),
+            "TPD": provider_config.get("tpd", 0)
+        }]
 
-                # Display limits table - clean data types
-                limits_data = []
-                for model, limits in plan_limits.items():
-                    if model == "default":
-                        continue
+        df_limits = pd.DataFrame(limits_data)
+        st.write("**Rate Limits Configuration:**")
+        st.dataframe(df_limits, width='stretch')
 
-                    # Create a row with proper types - handle None values properly
-                    row = {
-                        "Model": str(model),
-                        "RPM": limits.get("rpm"),
-                        "RPD": limits.get("rpd"),
-                        "TPM": limits.get("tpm"),
-                        "TPD": limits.get("tpd")
-                    }
+        # Show current usage
+        st.subheader("Current Usage")
 
-                    # Ensure numeric fields are either int/float or 0 (not strings or None)
-                    for field in ["RPM", "RPD", "TPM", "TPD"]:
-                        val = row[field]
-                        if val is not None:
-                            try:
-                                # Convert to int if possible
-                                row[field] = int(val)
-                            except (ValueError, TypeError):
-                                row[field] = 0
-                        else:
-                            row[field] = 0
+        # Check if there are any rate limit records in the database
+        with monitor.db.get_session() as session:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            total_records = session.query(RateLimitUsageTable).filter_by(
+                period_date=today,
+                provider=selected_provider
+            ).count()
 
-                    limits_data.append(row)
+            if total_records == 0:
+                st.info(f"No rate limit usage records found for today. Make some LLM calls with free providers first!")
 
-                if limits_data:
-                    df_limits = pd.DataFrame(limits_data)
-                    st.write("**Rate Limits Configuration:**")
-                    st.dataframe(df_limits, width='stretch')
+        usage = monitor.get_rate_limit_usage(selected_provider, selected_provider)
 
-                # Show current usage
-                st.subheader("Current Usage")
+        if usage and usage.get("limits"):
+            # Display usage with simple metrics
+            col1, col2 = st.columns(2)
 
-                # Check if there are any rate limit records in the database
-                with monitor.db.get_session() as session:
-                    today = datetime.utcnow().strftime("%Y-%m-%d")
-                    total_records = session.query(RateLimitUsageTable).filter_by(
-                        period_date=today
-                    ).count()
+            with col1:
+                # Daily Requests
+                daily_req = usage["daily"]["requests"]
+                daily_req_limit = usage["daily"]["requests_limit"]
+                if daily_req_limit and daily_req_limit > 0:
+                    st.metric("Daily Requests", f"{daily_req} / {daily_req_limit}")
+                    if daily_req_limit > 0:
+                        st.progress(min(daily_req / daily_req_limit, 1.0))
+                else:
+                    st.metric("Daily Requests", f"{daily_req} / Unlimited")
 
-                    if total_records == 0:
-                        st.info(f"No rate limit usage records found for today. Make some LLM calls with free providers first!")
+                # Hourly Requests
+                hourly_req = usage["hourly"]["requests"]
+                hourly_req_limit = usage["hourly"]["requests_limit"]
+                if hourly_req_limit and hourly_req_limit > 0:
+                    st.metric("Hourly Requests", f"{hourly_req} / {hourly_req_limit}")
+                    if hourly_req_limit > 0:
+                        st.progress(min(hourly_req / hourly_req_limit, 1.0))
+                else:
+                    st.metric("Hourly Requests", f"{hourly_req} / Unlimited")
 
-                for model in [m for m in plan_limits.keys() if m != "default"]:
-                    usage = monitor.get_rate_limit_usage(selected_provider, model)
+            with col2:
+                # Daily Tokens
+                daily_tokens = usage["daily"]["tokens"]
+                daily_tokens_limit = usage["daily"]["tokens_limit"]
+                if daily_tokens_limit and daily_tokens_limit > 0:
+                    st.metric("Daily Tokens", f"{daily_tokens:,} / {daily_tokens_limit:,}")
+                    if daily_tokens_limit > 0:
+                        st.progress(min(daily_tokens / daily_tokens_limit, 1.0))
+                else:
+                    st.metric("Daily Tokens", f"{daily_tokens:,} / Unlimited")
 
-                    if usage and usage.get("limits"):
-                        st.write(f"**Model: {model}**")
+                # Hourly Tokens
+                hourly_tokens = usage["hourly"]["tokens"]
+                hourly_tokens_limit = usage["hourly"]["tokens_limit"]
+                if hourly_tokens_limit and hourly_tokens_limit > 0:
+                    st.metric("Hourly Tokens", f"{hourly_tokens:,} / {hourly_tokens_limit:,}")
+                    if hourly_tokens_limit > 0:
+                        st.progress(min(hourly_tokens / hourly_tokens_limit, 1.0))
+                else:
+                    st.metric("Hourly Tokens", f"{hourly_tokens:,} / Unlimited")
 
-                        # Display usage with simple metrics, no complex formatting
-                        col1, col2 = st.columns(2)
-
-                        with col1:
-                            # Daily Requests
-                            daily_req = usage["daily"]["requests"]
-                            daily_req_limit = usage["daily"]["requests_limit"]
-                            if daily_req_limit and daily_req_limit > 0:
-                                st.metric("Daily Requests", f"{daily_req} / {daily_req_limit}")
-                                if daily_req_limit > 0:
-                                    st.progress(min(daily_req / daily_req_limit, 1.0))
-                            else:
-                                st.metric("Daily Requests", f"{daily_req} / Unlimited")
-
-                            # Hourly Requests
-                            hourly_req = usage["hourly"]["requests"]
-                            hourly_req_limit = usage["hourly"]["requests_limit"]
-                            if hourly_req_limit and hourly_req_limit > 0:
-                                st.metric("Hourly Requests", f"{hourly_req} / {hourly_req_limit}")
-                                if hourly_req_limit > 0:
-                                    st.progress(min(hourly_req / hourly_req_limit, 1.0))
-                            else:
-                                st.metric("Hourly Requests", f"{hourly_req} / Unlimited")
-
-                        with col2:
-                            # Daily Tokens
-                            daily_tokens = usage["daily"]["tokens"]
-                            daily_tokens_limit = usage["daily"]["tokens_limit"]
-                            if daily_tokens_limit and daily_tokens_limit > 0:
-                                st.metric("Daily Tokens", f"{daily_tokens:,} / {daily_tokens_limit:,}")
-                                if daily_tokens_limit > 0:
-                                    st.progress(min(daily_tokens / daily_tokens_limit, 1.0))
-                            else:
-                                st.metric("Daily Tokens", f"{daily_tokens:,} / Unlimited")
-
-                            # Hourly Tokens
-                            hourly_tokens = usage["hourly"]["tokens"]
-                            hourly_tokens_limit = usage["hourly"]["tokens_limit"]
-                            if hourly_tokens_limit and hourly_tokens_limit > 0:
-                                st.metric("Hourly Tokens", f"{hourly_tokens:,} / {hourly_tokens_limit:,}")
-                                if hourly_tokens_limit > 0:
-                                    st.progress(min(hourly_tokens / hourly_tokens_limit, 1.0))
-                            else:
-                                st.metric("Hourly Tokens", f"{hourly_tokens:,} / Unlimited")
-
-                        st.divider()
 
 def show_configuration_tab(monitor):
     """Render the configuration tab."""
@@ -477,12 +453,13 @@ def show_configuration_tab(monitor):
     st.write("**Current Cost Configuration (per million tokens)**")
 
     config_data = []
-    for llm_type, costs in monitor.cost_config.items():
+    for llm_type, config in monitor.llm_configs.items():
+        is_free = config.get("input_cost_per_million_tokens", 0) == 0 and config.get("output_cost_per_million_tokens", 0) == 0
         config_data.append({
             "LLM Type": llm_type,
-            "Type": "Free" if costs.get("is_free", False) else "Paid",
-            "Input Cost per Million": costs.get("input_cost_per_million_tokens", 0),
-            "Output Cost per Million": costs.get("output_cost_per_million_tokens", 0)
+            "Type": "Free" if is_free else "Paid",
+            "Input Cost per Million": config.get("input_cost_per_million_tokens", 0),
+            "Output Cost per Million": config.get("output_cost_per_million_tokens", 0)
         })
 
     if config_data:
@@ -499,32 +476,14 @@ def show_configuration_tab(monitor):
     st.write("**Rate Limits Configuration**")
 
     rate_limit_data = []
-    for provider, plans in monitor.rate_limits_config.items():
-        for plan_type, models in plans.items():
-            for model, limits in models.items():
-                if model != "default":
-                    row = {
-                        "Provider": provider,
-                        "Plan": plan_type,
-                        "Model": model,
-                        "RPM": limits.get("rpm"),
-                        "RPD": limits.get("rpd"),
-                        "TPM": limits.get("tpm"),
-                        "TPD": limits.get("tpd")
-                    }
-
-                    # Convert None values to 0 for display purposes
-                    # This prevents Arrow serialization errors
-                    for field in ["RPM", "RPD", "TPM", "TPD"]:
-                        if row[field] is None:
-                            row[field] = 0
-                        else:
-                            try:
-                                row[field] = int(row[field])
-                            except (ValueError, TypeError):
-                                row[field] = 0
-
-                    rate_limit_data.append(row)
+    for llm_type, config in monitor.llm_configs.items():
+        rate_limit_data.append({
+            "LLM Type": llm_type,
+            "RPM": config.get("rpm", 0),
+            "RPD": config.get("rpd", 0),
+            "TPM": config.get("tpm", 0),
+            "TPD": config.get("tpd", 0)
+        })
 
     if rate_limit_data:
         df_rate_limits = pd.DataFrame(rate_limit_data)
@@ -565,8 +524,7 @@ def show_configuration_tab(monitor):
 
     **Rate Limits:**
     - **Groq Free:** 30 RPM, 1,000 RPD, 12K TPM, 100K TPD
-    - **Groq Developer:** 60 RPM, 2,000 RPD, 24K TPM, 200K TPD
-    - **Gemini Free:** Varies by model (2-15 RPM)
+    - **Gemini Free:** 15 RPM, 1.5M TPM, 1,500 RPD
     """)
 
     # Database info
@@ -630,6 +588,7 @@ def show_configuration_tab(monitor):
         else:
             st.button("🔥 Clear ALL Logs", disabled=True, help="Check the confirmation box first")
 
+
 def test_rate_limit_tracking(monitor):
     """Test function to manually verify rate limit tracking."""
     st.subheader("🧪 Verify Rate Limit Tracking")
@@ -652,35 +611,24 @@ def test_rate_limit_tracking(monitor):
             if usage_records:
                 data = []
                 for record in usage_records:
-                    # Create row with clean data types - NO STRINGS IN NUMERIC COLUMNS
+                    # Create row with clean data types
                     row = {
                         "Provider": str(record.provider) if record.provider else "",
                         "Model": str(record.model) if record.model else "",
                         "Period": "Hourly" if record.period_hour is not None else "Daily",
-                        "Hour": record.period_hour,  # Keep as int or None
-                        "Requests": record.requests_count,  # Keep as int
-                        "Tokens": record.tokens_count,  # Keep as int
-                        "Last Updated": record.last_updated  # Keep as datetime
+                        "Hour": record.period_hour,
+                        "Requests": record.requests_count,
+                        "Tokens": record.tokens_count,
+                        "Last Updated": record.last_updated
                     }
-
-                    # Ensure numeric fields are actual numbers or None
-                    for field in ["Hour", "Requests", "Tokens"]:
-                        if row[field] is None:
-                            # Keep as None, will be handled by fillna
-                            pass
 
                     data.append(row)
 
                 # Create DataFrame with proper type handling
                 df = pd.DataFrame(data)
 
-                # Convert Hour to int where not None, otherwise 0
-                if 'Hour' in df.columns:
-                    df['Hour'] = df['Hour'].fillna(-1).astype(int)  # Use -1 to indicate "Daily"
-                    df['Hour'] = df['Hour'].replace(-1, 0)  # Or just use 0
-
                 # Ensure numeric columns are proper integers
-                for col in ['Requests', 'Tokens']:
+                for col in ['Hour', 'Requests', 'Tokens']:
                     if col in df.columns:
                         df[col] = df[col].fillna(0).astype(int)
 
@@ -705,6 +653,7 @@ def test_rate_limit_tracking(monitor):
     except Exception as e:
         st.error(f"Error querying rate limit data: {str(e)}")
         log("error", f"Test rate limit error: {e}", exc_info=True)
+
 
 def inject_ui_admin_tab():
     """Register the LLM Monitor admin tab using the injection mechanism.

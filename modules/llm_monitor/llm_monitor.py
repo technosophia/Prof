@@ -39,14 +39,16 @@ class LLMMonitor:
             self.config = get_config().get("modules.llm_monitor", {})
             self.db = get_db_manager()
             self._ensure_tables_exist()
-            self.cost_config = self.config.get("costs", {})
-            self.rate_limits_config = self.config.get("rate_limits", {})
+
+            # Get LLM configurations from the new structure
+            self.llm_configs = self.config.get("llms", {})
+
             self.enabled = self.config.get("enabled", True)
             self.auto_collect = self.config.get("auto_collect", True)
             self.rate_limit_tracking = self.config.get("rate_limit_tracking", {"enabled": True})
             self._token_encoder_cache = {}
             self._initialized = True
-            log("info", "LLMMonitor initialized with rate limit tracking")
+            log("info", "LLMMonitor initialized with flat configuration structure")
 
     def _ensure_tables_exist(self):
         """Ensure monitoring tables exist."""
@@ -131,42 +133,30 @@ class LLMMonitor:
 
         return total_tokens
 
+    def get_llm_config(self, llm_id: str) -> Dict[str, Any]:
+        """Get configuration for a specific LLM by its ID."""
+        return self.llm_configs.get(llm_id, {})
+
     def is_free_provider(self, llm_type: str) -> bool:
         """Check if the provider is free (no cost).
 
-        A provider is considered free if:
-        1. It has explicit is_free: true in config, OR
-        2. Both input and output costs are 0
+        A provider is considered free if both input and output costs are 0.
         """
-        provider_config = self.cost_config.get(llm_type, {})
+        llm_config = self.get_llm_config(llm_type)
 
-        # Check explicit is_free flag first
-        if provider_config.get("is_free", False):
-            return True
+        # Check if both costs are 0 or not present
+        input_cost = llm_config.get("input_cost_per_million_tokens", 0)
+        output_cost = llm_config.get("output_cost_per_million_tokens", 0)
 
-        # Otherwise, check if both costs are 0
-        input_cost = provider_config.get("input_cost_per_million_tokens", None)
-        output_cost = provider_config.get("output_cost_per_million_tokens", None)
-
-        # If both costs are explicitly set to 0, it's a free provider
-        if input_cost == 0 and output_cost == 0:
-            return True
-
-        return False
+        # If both costs are 0, it's a free provider
+        return input_cost == 0 and output_cost == 0
 
     def calculate_cost(self, llm_type: str, input_tokens: int, output_tokens: int) -> Dict[str, float]:
         """Calculate cost based on token usage (per million tokens)."""
-        if self.is_free_provider(llm_type):
-            return {
-                "input_cost": 0.0,
-                "output_cost": 0.0,
-                "total_cost": 0.0
-            }
+        llm_config = self.get_llm_config(llm_type)
 
-        costs = self.cost_config.get(llm_type, {})
-
-        input_cost_per_million = costs.get("input_cost_per_million_tokens", 0)
-        output_cost_per_million = costs.get("output_cost_per_million_tokens", 0)
+        input_cost_per_million = llm_config.get("input_cost_per_million_tokens", 0)
+        output_cost_per_million = llm_config.get("output_cost_per_million_tokens", 0)
 
         input_cost = (input_tokens / 1_000_000) * input_cost_per_million
         output_cost = (output_tokens / 1_000_000) * output_cost_per_million
@@ -178,25 +168,21 @@ class LLMMonitor:
             "total_cost": total_cost
         }
 
-    def get_rate_limits(self, provider: str, model: str, plan_type: str = "free") -> Dict[str, Any]:
-        """Get rate limits for a specific provider and model."""
-        if provider not in self.rate_limits_config:
-            return {}
+    def get_rate_limits(self, provider: str, model: str) -> Dict[str, Any]:
+        """Get rate limits for a specific provider and model.
 
-        provider_limits = self.rate_limits_config[provider]
+        Note: The model parameter is kept for backward compatibility, but rate limits
+        are now configured per LLM ID rather than per model.
+        """
+        llm_config = self.get_llm_config(provider)
 
-        if plan_type not in provider_limits:
-            plan_type = "free"  # Default to free
-
-        plan_limits = provider_limits[plan_type]
-
-        # Try to get model-specific limits, fallback to default
-        if model in plan_limits:
-            return plan_limits[model]
-        elif "default" in plan_limits:
-            return plan_limits["default"]
-        else:
-            return {}
+        # Extract rate limit fields
+        return {
+            "rpm": llm_config.get("rpm", 0),
+            "rpd": llm_config.get("rpd", 0),
+            "tpm": llm_config.get("tpm", 0),
+            "tpd": llm_config.get("tpd", 0)
+        }
 
     def update_rate_limit_usage(self, provider: str, model: str,
                                tokens_used: int, user_id: Optional[str] = None,
@@ -211,15 +197,14 @@ class LLMMonitor:
             return
 
         try:
-            # Check if rate limits are configured for this provider/model
-            # We check for limits first - if none exist, no need to track
-            limits = self.get_rate_limits(provider, model, "free")
-            if not limits:
-                limits = self.get_rate_limits(provider, model, "developer")
+            # Check if rate limits are configured for this provider
+            limits = self.get_rate_limits(provider, model)
 
-            # Only track if we have limits configured
-            if not limits:
-                log("debug", f"No rate limits configured for {provider}/{model}, skipping tracking")
+            # Only track if we have non-zero limits configured
+            has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+
+            if not has_limits:
+                log("debug", f"No rate limits configured for {provider}, skipping tracking")
                 return
 
             with self.db.get_session() as session:
@@ -242,15 +227,14 @@ class LLMMonitor:
             today = datetime.utcnow().strftime("%Y-%m-%d")
             current_hour = datetime.utcnow().hour
 
-            # Get the rate limits for this model to know what limits exist
-            limits = self.get_rate_limits(provider, model, "free")
-            if not limits:
-                # Try developer plan as fallback
-                limits = self.get_rate_limits(provider, model, "developer")
+            # Get the rate limits for this provider to know what limits exist
+            limits = self.get_rate_limits(provider, model)
 
-            # Only track if we have limits configured
-            if not limits:
-                log("debug", f"No rate limits configured for {provider}/{model}, skipping tracking")
+            # Only track if we have non-zero limits configured
+            has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+
+            if not has_limits:
+                log("debug", f"No rate limits configured for {provider}, skipping tracking")
                 return
 
             # Update daily usage
@@ -298,8 +282,7 @@ class LLMMonitor:
             hourly_usage.requests_count += 1
             hourly_usage.tokens_count += tokens_used
 
-            # No need for rate limit headers - we just track our estimated usage
-            log("debug", f"Updated rate limit usage for {provider}/{model}: +1 request, +{tokens_used} tokens")
+            log("debug", f"Updated rate limit usage for {provider}: +1 request, +{tokens_used} tokens")
 
         except Exception as e:
             log("error", f"Failed to update rate limit usage (internal): {e}", exc_info=True)
@@ -313,13 +296,13 @@ class LLMMonitor:
                 today = datetime.utcnow().strftime("%Y-%m-%d")
                 current_hour = datetime.utcnow().hour
 
-                # Get limits for this model
-                limits = self.get_rate_limits(provider, model, "free")
-                if not limits:
-                    limits = self.get_rate_limits(provider, model, "developer")
+                # Get limits for this provider
+                limits = self.get_rate_limits(provider, model)
 
-                # If no limits found, return empty but with structure
-                if not limits:
+                # Check if any limits are configured
+                has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+
+                if not has_limits:
                     return {
                         "provider": provider,
                         "model": model,
@@ -367,16 +350,16 @@ class LLMMonitor:
                     "daily": {
                         "requests": daily_usage.requests_count if daily_usage else 0,
                         "tokens": daily_usage.tokens_count if daily_usage else 0,
-                        "requests_limit": limits.get("rpd"),
-                        "tokens_limit": limits.get("tpd"),
+                        "requests_limit": limits.get("rpd") if limits.get("rpd", 0) > 0 else None,
+                        "tokens_limit": limits.get("tpd") if limits.get("tpd", 0) > 0 else None,
                         "requests_reset_at": daily_usage.requests_reset_at.isoformat() if daily_usage and daily_usage.requests_reset_at else None,
                         "tokens_reset_at": daily_usage.tokens_reset_at.isoformat() if daily_usage and daily_usage.tokens_reset_at else None,
                     },
                     "hourly": {
                         "requests": hourly_usage.requests_count if hourly_usage else 0,
                         "tokens": hourly_usage.tokens_count if hourly_usage else 0,
-                        "requests_limit": limits.get("rpm"),
-                        "tokens_limit": limits.get("tpm"),
+                        "requests_limit": limits.get("rpm") if limits.get("rpm", 0) > 0 else None,
+                        "tokens_limit": limits.get("tpm") if limits.get("tpm", 0) > 0 else None,
                         "requests_reset_at": hourly_usage.requests_reset_at.isoformat() if hourly_usage and hourly_usage.requests_reset_at else None,
                         "tokens_reset_at": hourly_usage.tokens_reset_at.isoformat() if hourly_usage and hourly_usage.tokens_reset_at else None,
                     }
@@ -513,14 +496,11 @@ class LLMMonitor:
                                                costs["total_cost"])
 
                 # Update rate limit usage if limits are configured
-                # Check if rate limits exist for this provider/model
-                rate_limits_exist = (
-                    self.get_rate_limits(data["llm_type"], data["model"], "free") or
-                    self.get_rate_limits(data["llm_type"], data["model"], "developer")
-                )
+                limits = self.get_rate_limits(data["llm_type"], data["model"])
+                has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
 
-                if rate_limits_exist:
-                    log("debug", f"Tracking rate limit for {data['llm_type']}/{data['model']} with {total_tokens} tokens")
+                if has_limits:
+                    log("debug", f"Tracking rate limit for {data['llm_type']} with {total_tokens} tokens")
                     self._update_rate_limit_usage_internal(
                         session=session,
                         provider=data["llm_type"],
@@ -548,13 +528,17 @@ class LLMMonitor:
                 model=model
             ).first()
 
+            llm_config = self.get_llm_config(provider)
+            input_cost_per_million = llm_config.get("input_cost_per_million_tokens", 0)
+            output_cost_per_million = llm_config.get("output_cost_per_million_tokens", 0)
+
             if summary:
                 summary.total_calls += 1
                 summary.total_input_tokens += input_tokens
                 summary.total_output_tokens += output_tokens
                 summary.total_tokens += (input_tokens + output_tokens)
-                summary.total_input_cost += (input_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("input_cost_per_million_tokens", 0)
-                summary.total_output_cost += (output_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("output_cost_per_million_tokens", 0)
+                summary.total_input_cost += (input_tokens / 1_000_000) * input_cost_per_million
+                summary.total_output_cost += (output_tokens / 1_000_000) * output_cost_per_million
                 summary.total_cost += total_cost
             else:
                 summary = DailyCostSummaryTable(
@@ -565,8 +549,8 @@ class LLMMonitor:
                     total_input_tokens=input_tokens,
                     total_output_tokens=output_tokens,
                     total_tokens=(input_tokens + output_tokens),
-                    total_input_cost=(input_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("input_cost_per_million_tokens", 0),
-                    total_output_cost=(output_tokens / 1_000_000) * self.cost_config.get(provider, {}).get("output_cost_per_million_tokens", 0),
+                    total_input_cost=(input_tokens / 1_000_000) * input_cost_per_million,
+                    total_output_cost=(output_tokens / 1_000_000) * output_cost_per_million,
                     total_cost=total_cost
                 )
                 session.add(summary)

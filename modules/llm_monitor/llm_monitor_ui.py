@@ -3,6 +3,8 @@ LLM Monitor User Interface
 Provides sidebar switch and footer display for LLM monitoring with rate limit tracking.
 """
 import streamlit as st
+import pandas as pd
+import plotly.express as px
 from datetime import datetime, timedelta
 from shared.common import log
 from shared.common import _
@@ -77,7 +79,12 @@ def inject_ui_sidebar():
 
         # Rate limit summary (show for providers with rate limits configured)
         if monitor.rate_limit_tracking.get("enabled", True):
-            providers_with_limits = [p for p in monitor.rate_limits_config.keys()]
+            # Get all providers that have any rate limits configured
+            providers_with_limits = []
+            for provider, config in monitor.llm_configs.items():
+                has_limits = any(config.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+                if has_limits:
+                    providers_with_limits.append(provider)
 
             if providers_with_limits:
                 with st.expander("⏱️ Rate Limits", expanded=False):
@@ -85,40 +92,30 @@ def inject_ui_sidebar():
                         st.write(f"**{provider.title()}**")
 
                         # Get rate limit usage for this provider
-                        provider_limits = monitor.rate_limits_config.get(provider, {})
+                        usage = monitor.get_rate_limit_usage(provider, provider)
 
-                        for plan_type in provider_limits:
-                            if plan_type == "free":
-                                plan_limits = provider_limits[plan_type]
+                        if usage and usage.get("limits"):
+                            # Compact display
+                            limits = usage.get("limits", {})
 
-                                for model in plan_limits:
-                                    if model == "default":
-                                        continue
+                            if limits.get("rpm", 0) > 0:
+                                hourly_requests = usage.get("hourly", {}).get("requests", 0)
+                                hourly_limit = limits.get("rpm", 30)
+                                pct = (hourly_requests / hourly_limit) * 100
 
-                                    usage = monitor.get_rate_limit_usage(provider, model)
+                                # Color-coded progress bar
+                                if pct < 70:
+                                    bar_color = "green"
+                                elif pct < 90:
+                                    bar_color = "orange"
+                                else:
+                                    bar_color = "red"
 
-                                    if usage and usage.get("limits"):
-                                        # Compact display
-                                        limits = usage.get("limits", {})
-
-                                        if limits.get("rpm"):
-                                            hourly_requests = usage.get("hourly", {}).get("requests", 0)
-                                            hourly_limit = limits.get("rpm", 30)
-                                            pct = (hourly_requests / hourly_limit) * 100
-
-                                            # Color-coded progress bar
-                                            if pct < 70:
-                                                bar_color = "green"
-                                            elif pct < 90:
-                                                bar_color = "orange"
-                                            else:
-                                                bar_color = "red"
-
-                                            st.caption(f"**{model}**")
-                                            st.progress(
-                                                pct / 100,
-                                                text=f"Requests: {hourly_requests}/{hourly_limit} ({pct:.0f}%)"
-                                            )
+                                st.caption(f"**{provider}**")
+                                st.progress(
+                                    pct / 100,
+                                    text=f"Requests: {hourly_requests}/{hourly_limit} ({pct:.0f}%)"
+                                )
 
     return None
 
@@ -187,11 +184,19 @@ def inject_ui_main_footer():
         with tab2:
             # Show rate limits for providers with limits configured
             if monitor.rate_limit_tracking.get("enabled", True):
-                providers_with_limits = [p for p in monitor.rate_limits_config.keys()]
+                # Get all providers that have any rate limits configured
+                providers_with_limits = []
+                for provider, config in monitor.llm_configs.items():
+                    has_limits = any(config.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+                    if has_limits:
+                        providers_with_limits.append(provider)
 
                 if providers_with_limits:
                     for provider in providers_with_limits:
                         with st.expander(f"📊 {provider.title()} Rate Limits", expanded=True):
+                            # Use the updated render_rate_limit_summary function
+                            # Note: render_rate_limit_summary should also be updated to use the new structure
+                            from modules.llm_monitor.display_utils import render_rate_limit_summary
                             render_rate_limit_summary(monitor, provider)
                 else:
                     st.info("No providers with rate limits configured")
@@ -199,7 +204,11 @@ def inject_ui_main_footer():
                 st.info("Rate limit tracking is disabled")
 
         # Monthly cost summary (for paid providers)
-        if any(not monitor.is_free_provider(p) for p in monitor.cost_config.keys()):
+        paid_providers = [p for p, config in monitor.llm_configs.items()
+                         if config.get("input_cost_per_million_tokens", 0) > 0 or
+                            config.get("output_cost_per_million_tokens", 0) > 0]
+
+        if paid_providers:
             st.divider()
             st.subheader("💰 Monthly Cost Summary")
 

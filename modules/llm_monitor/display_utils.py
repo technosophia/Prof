@@ -13,6 +13,7 @@ from shared.common import log
 from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable
 
+
 def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usage"):
     """Render a gauge chart for rate limit usage."""
     if not usage or not usage.get("limits"):
@@ -148,96 +149,104 @@ def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usag
                 fig.update_layout(height=250)
                 st.plotly_chart(fig, width='stretch')
 
+
 def render_rate_limit_summary(monitor, provider: str = "groq"):
     """Render a summary of rate limit usage for a provider."""
     if not monitor.rate_limit_tracking.get("enabled", True):
         st.info("Rate limit tracking is disabled")
         return
 
-    # Get all models for this provider
-    provider_limits = monitor.rate_limits_config.get(provider, {})
+    # Get configuration for this provider
+    provider_config = monitor.get_llm_config(provider)
 
-    if not provider_limits:
-        st.info(f"No rate limit configuration found for {provider}")
+    if not provider_config:
+        st.info(f"No configuration found for {provider}")
         return
 
-    for plan_type in provider_limits:
-        with st.expander(f"📊 {plan_type.title()} Plan", expanded=plan_type == "free"):
-            plan_limits = provider_limits[plan_type]
+    # Check if any rate limits are configured
+    limits = {
+        "rpm": provider_config.get("rpm", 0),
+        "rpd": provider_config.get("rpd", 0),
+        "tpm": provider_config.get("tpm", 0),
+        "tpd": provider_config.get("tpd", 0)
+    }
 
-            for model in plan_limits:
-                if model == "default":
-                    continue
+    has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
 
-                usage = monitor.get_rate_limit_usage(provider, model)
+    if not has_limits:
+        st.info(f"No rate limits configured for {provider}")
+        return
 
-                if usage and usage.get("limits"):
-                    st.subheader(f"Model: {model}")
+    usage = monitor.get_rate_limit_usage(provider, provider)
 
-                    col1, col2, col3 = st.columns(3)
+    if usage and usage.get("limits"):
+        st.subheader(f"Provider: {provider}")
 
-                    with col1:
-                        if usage["daily"].get("requests_limit"):
-                            daily_req = usage["daily"]["requests"]
-                            daily_req_limit = usage["daily"]["requests_limit"]
-                            if daily_req_limit > 0:
-                                daily_req_pct = (daily_req / daily_req_limit) * 100
+        col1, col2, col3 = st.columns(3)
 
-                                st.metric(
-                                    "Daily Requests",
-                                    f"{daily_req} / {daily_req_limit}",
-                                    delta=f"{daily_req_pct:.1f}% used",
-                                    delta_color="inverse"
-                                )
+        with col1:
+            if usage["daily"].get("requests_limit"):
+                daily_req = usage["daily"]["requests"]
+                daily_req_limit = usage["daily"]["requests_limit"]
+                if daily_req_limit > 0:
+                    daily_req_pct = (daily_req / daily_req_limit) * 100
 
-                    with col2:
-                        if usage["hourly"].get("requests_limit"):
-                            hourly_req = usage["hourly"]["requests"]
-                            hourly_req_limit = usage["hourly"]["requests_limit"]
-                            if hourly_req_limit > 0:
-                                hourly_req_pct = (hourly_req / hourly_req_limit) * 100
+                    st.metric(
+                        "Daily Requests",
+                        f"{daily_req} / {daily_req_limit}",
+                        delta=f"{daily_req_pct:.1f}% used",
+                        delta_color="inverse"
+                    )
 
-                                st.metric(
-                                    "Hourly Requests",
-                                    f"{hourly_req} / {hourly_req_limit}",
-                                    delta=f"{hourly_req_pct:.1f}% used",
-                                    delta_color="inverse"
-                                )
+        with col2:
+            if usage["hourly"].get("requests_limit"):
+                hourly_req = usage["hourly"]["requests"]
+                hourly_req_limit = usage["hourly"]["requests_limit"]
+                if hourly_req_limit > 0:
+                    hourly_req_pct = (hourly_req / hourly_req_limit) * 100
 
-                    with col3:
-                        if usage["daily"].get("tokens_limit"):
-                            daily_tokens = usage["daily"]["tokens"]
-                            daily_tokens_limit = usage["daily"]["tokens_limit"]
-                            if daily_tokens_limit > 0:
-                                daily_tokens_pct = (daily_tokens / daily_tokens_limit) * 100
+                    st.metric(
+                        "Hourly Requests",
+                        f"{hourly_req} / {hourly_req_limit}",
+                        delta=f"{hourly_req_pct:.1f}% used",
+                        delta_color="inverse"
+                    )
 
-                                st.metric(
-                                    "Daily Tokens",
-                                    f"{daily_tokens:,} / {daily_tokens_limit:,}",
-                                    delta=f"{daily_tokens_pct:.1f}% used",
-                                    delta_color="inverse"
-                                )
+        with col3:
+            if usage["daily"].get("tokens_limit"):
+                daily_tokens = usage["daily"]["tokens"]
+                daily_tokens_limit = usage["daily"]["tokens_limit"]
+                if daily_tokens_limit > 0:
+                    daily_tokens_pct = (daily_tokens / daily_tokens_limit) * 100
 
-                    # Add progress bars for visual representation
-                    if usage["daily"].get("requests_limit") and usage["daily"]["requests_limit"] > 0:
-                        st.progress(
-                            usage["daily"]["requests"] / usage["daily"]["requests_limit"],
-                            text=f"Daily Requests: {(usage['daily']['requests'] / usage['daily']['requests_limit'] * 100):.1f}%"
-                        )
+                    st.metric(
+                        "Daily Tokens",
+                        f"{daily_tokens:,} / {daily_tokens_limit:,}",
+                        delta=f"{daily_tokens_pct:.1f}% used",
+                        delta_color="inverse"
+                    )
 
-                    if usage["hourly"].get("requests_limit") and usage["hourly"]["requests_limit"] > 0:
-                        st.progress(
-                            usage["hourly"]["requests"] / usage["hourly"]["requests_limit"],
-                            text=f"Hourly Requests: {(usage['hourly']['requests'] / usage['hourly']['requests_limit'] * 100):.1f}%"
-                        )
+        # Add progress bars for visual representation
+        if usage["daily"].get("requests_limit") and usage["daily"]["requests_limit"] > 0:
+            st.progress(
+                usage["daily"]["requests"] / usage["daily"]["requests_limit"],
+                text=f"Daily Requests: {(usage['daily']['requests'] / usage['daily']['requests_limit'] * 100):.1f}%"
+            )
 
-                    if usage["daily"].get("tokens_limit") and usage["daily"]["tokens_limit"] > 0:
-                        st.progress(
-                            usage["daily"]["tokens"] / usage["daily"]["tokens_limit"],
-                            text=f"Daily Tokens: {(usage['daily']['tokens'] / usage['daily']['tokens_limit'] * 100):.1f}%"
-                        )
+        if usage["hourly"].get("requests_limit") and usage["hourly"]["requests_limit"] > 0:
+            st.progress(
+                usage["hourly"]["requests"] / usage["hourly"]["requests_limit"],
+                text=f"Hourly Requests: {(usage['hourly']['requests'] / usage['hourly']['requests_limit'] * 100):.1f}%"
+            )
 
-                    st.divider()
+        if usage["daily"].get("tokens_limit") and usage["daily"]["tokens_limit"] > 0:
+            st.progress(
+                usage["daily"]["tokens"] / usage["daily"]["tokens_limit"],
+                text=f"Daily Tokens: {(usage['daily']['tokens'] / usage['daily']['tokens_limit'] * 100):.1f}%"
+            )
+
+        st.divider()
+
 
 def render_llm_call_details(call: dict):
     """Render detailed information about an LLM call."""
@@ -268,8 +277,9 @@ def render_llm_call_details(call: dict):
         if monitor.is_free_provider(call['llm_type']):
             st.write(f"**Cost:** Free")
         else:
+            llm_config = monitor.get_llm_config(call['llm_type'])
             st.write(f"**Cost:** ${call['total_cost']:.6f}")
-            st.write(f"**Rate:** ${monitor.cost_config.get(call['llm_type'], {}).get('input_cost_per_million_tokens', 0):.2f}/M input, ${monitor.cost_config.get(call['llm_type'], {}).get('output_cost_per_million_tokens', 0):.2f}/M output")
+            st.write(f"**Rate:** ${llm_config.get('input_cost_per_million_tokens', 0):.2f}/M input, ${llm_config.get('output_cost_per_million_tokens', 0):.2f}/M output")
 
         if call['duration_ms']:
             st.write(f"**Duration:** {call['duration_ms']}ms")
@@ -475,8 +485,12 @@ def render_system_overview(monitor):
         if monitor.rate_limit_tracking.get("enabled", True):
             st.subheader("⏱️ Rate Limit Status")
 
-            # Check for providers with rate limits configured
-            providers_with_limits = [p for p in monitor.rate_limits_config.keys()]
+            # Get all providers that have any rate limits configured
+            providers_with_limits = []
+            for provider, config in monitor.llm_configs.items():
+                has_limits = any(config.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
+                if has_limits:
+                    providers_with_limits.append(provider)
 
             if providers_with_limits:
                 tabs = st.tabs([p.title() for p in providers_with_limits])
