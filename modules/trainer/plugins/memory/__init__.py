@@ -16,7 +16,6 @@ from shared.common import (
 )
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
-from modules.trainer.training_context import get_training_context
 
 
 # Database model (will be created by plugin initialization)
@@ -227,9 +226,10 @@ class MemoryPlugin(TrainerPlugin):
     async def _analyze_with_llm(self, trainer_id: str, student_id: str,
                                 old_memory: str, new_messages: List[Dict]) -> Optional[str]:
         """Use LLM to analyze conversations and update memory."""
-        # Get training context for the program
-        training_context = get_training_context(trainer_id)
-        training_program = training_context.training_program
+        # Get training program from trainer's configuration
+        training_program = get_prompt('trainer.teacher.training_program')
+        # Note: This is trainer-specific because get_prompt respects the current trainer's context
+        # The prompts system should be storing per-trainer values
 
         # Format conversations for prompt
         conversations_text = ""
@@ -342,6 +342,31 @@ class MemoryPlugin(TrainerPlugin):
 
         # Return as system message at the top of context
         return (context, "system", "top")
+
+    def get_context(self, student_id: str) -> Dict[str, str]:
+        """
+        Get plugin-specific context information for a student.
+
+        Returns a dictionary with the student's pedagogical memory
+        (the last generated memory content, no metadata).
+        """
+        # Get the student's trainer (parent)
+        from shared.common import get_user_manager
+        user_manager = get_user_manager()
+        user = user_manager.get_user(student_id)
+
+        if not user or not user.get('parent_id'):
+            return {}
+
+        trainer_id = user['parent_id']
+
+        # Get current memory content
+        memory = self._get_current_memory(student_id, trainer_id)
+
+        if memory:
+            return {"🧠 Pedagogical Memory": memory}
+
+        return {}
 
     # ============= UI RENDERING =============
 

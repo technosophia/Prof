@@ -48,7 +48,7 @@ class StudentPadPlugin(TrainerPlugin):
             log("error", f"Failed to create/update StudentNote table: {e}")
             # Continue anyway - table might already exist
 
-        # Register context callbacks
+        # Register context callbacks (keeping for backward compatibility)
         register_llm_context_callback(self.get_student_notes_context)
         register_llm_context_callback(self.get_teacher_notes_context)
         return True
@@ -135,6 +135,39 @@ class StudentPadPlugin(TrainerPlugin):
         except Exception as e:
             log("error", f"Failed to save student note: {e}", exc_info=True)
             return False
+
+    def get_context(self, student_id: str) -> Dict[str, str]:
+        """
+        Get plugin-specific context information for a student.
+
+        Returns a dictionary with the last student note and teacher note
+        formatted with appropriate labels.
+        """
+        # Get the student's trainer (parent)
+        from shared.common import get_user_manager
+        user_manager = get_user_manager()
+        user = user_manager.get_user(student_id)
+
+        if not user or not user.get('parent_id'):
+            return {}
+
+        trainer_id = user['parent_id']
+
+        # Get student notes
+        student_notes = self._get_student_note(student_id, trainer_id)
+        teacher_notes = self._get_student_note(student_id, trainer_id, "teacher_notes")
+
+        context = {}
+
+        # Add student notes to context if they exist
+        if student_notes:
+            context["📝 Student's Personal Notes"] = student_notes
+
+        # Add teacher notes to context if they exist
+        if teacher_notes:
+            context["👨‍🏫 Teacher's Private Notes"] = teacher_notes
+
+        return context
 
     def get_student_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
         """

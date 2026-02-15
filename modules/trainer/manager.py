@@ -9,9 +9,9 @@ import yaml
 import json
 from shared.common import (
     get_db_manager, get_user_manager, get_conversation_manager,
-    log, _
+    log, _, get_prompt
 )
-from modules.trainer.training_context import export_training_context, import_training_context, set_training_program
+from modules.trainer.plugin_base import get_plugin_manager
 
 
 class TrainerManager:
@@ -57,23 +57,63 @@ class TrainerManager:
                     return None
         return None
 
+    def get_all_contexts(self, student_id: str) -> Dict[str, Dict[str, str]]:
+        """
+        Get all context information for a student from all active plugins.
+
+        This method aggregates context from all active plugins for the trainer
+        who owns this student, and includes the training program at the top.
+
+        Args:
+            student_id: The student's ID
+
+        Returns:
+            Dictionary with plugin IDs as keys and their context dictionaries as values,
+            plus a special 'training_program' key at the top.
+        """
+        # Get the student's trainer (parent)
+        student = self.user_manager.get_user(student_id)
+        if not student:
+            log("error", f"Student {student_id} not found")
+            return {}
+
+        trainer_id = student.get('parent_id')
+        if not trainer_id:
+            log("error", f"Student {student_id} has no trainer assigned")
+            return {}
+
+        # Start with training program context
+        contexts = {
+            'Training Program': {
+                'Training Program': get_prompt('trainer.teacher.training_program')
+            }
+        }
+
+        # Get all active plugins for this trainer
+        plugin_manager = get_plugin_manager()
+        active_plugins = plugin_manager.get_active_plugins(trainer_id)
+
+        # Collect context from each plugin
+        for plugin in active_plugins:
+            plugin_context = plugin.get_context(student_id)
+            if plugin_context:  # Only add if plugin returned non-empty context
+                contexts[plugin.manifest.name] = plugin_context
+
+        return contexts
+
     def export_configuration(self, trainer_id: str) -> str:
         """Export trainer and plugins configuration as YAML."""
         from .plugin_base import get_plugin_manager
 
         # Get the actual system prompt, not just the key
-        from shared.common import get_prompt
         system_prompt = get_prompt('trainer.teacher.system_prompt')
-
-        # Get training context
-        training_context = export_training_context(trainer_id)
 
         config = {
             'trainer': {
                 'exported_at': datetime.utcnow().isoformat(),
                 'trainer_id': trainer_id,
                 'system_prompt': system_prompt,  # Export the actual prompt, not the key
-                'training_context': training_context,  # Add training context
+                'training_program': get_prompt('trainer.teacher.training_program'),
             },
             'plugins': {}
         }
@@ -89,20 +129,17 @@ class TrainerManager:
     def import_configuration(self, trainer_id: str, yaml_content: str) -> bool:
         """Import trainer and plugins configuration from YAML."""
         from .plugin_base import get_plugin_manager
+        from shared.common import update_prompt
 
         try:
             config = yaml.safe_load(yaml_content)
 
-            # Import training context if present
+            # Import training program if present
             trainer_config = config.get('trainer', {})
-            if 'training_context' in trainer_config:
-                import_success = import_training_context(trainer_id, trainer_config['training_context'])
-                if not import_success:
-                    log("warning", "Training context import had issues, using defaults")
-
-            # Also check for direct training_program (backward compatibility)
-            elif 'training_program' in trainer_config:
-                set_training_program(trainer_id, trainer_config['training_program'])
+            if 'training_program' in trainer_config:
+                # Update the prompt in the database
+                update_prompt('trainer.teacher.training_program', trainer_config['training_program'])
+                log("info", f"Imported training program for trainer {trainer_id}")
 
             plugin_manager = get_plugin_manager()
             for plugin_id, plugin_config in config.get('plugins', {}).items():

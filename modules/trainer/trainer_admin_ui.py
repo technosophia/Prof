@@ -7,6 +7,7 @@ Must be in a file ending with _ui.py with inject_ui_admin_tab() function.
 import streamlit as st
 import yaml
 from typing import Optional, Dict, Any, List, Callable
+from datetime import datetime
 
 from shared.common import (
     _, get_user_manager, get_config, get_prompt, get_db_manager,
@@ -64,7 +65,7 @@ def inject_ui_admin_tab():
 
         # Configuration tab
         with tabs[2]:
-            _render_configuration_tab()
+            _render_configuration_tab(trainer_id, trainer_manager, plugin_manager)
 
         # Import/Export tab
         with tabs[3]:
@@ -264,9 +265,8 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
         for widget in widgets:
             widget()
 
-def _render_configuration_tab():
-    """Render the configuration tab with training program."""
-    from modules.trainer.training_context import get_training_context, set_training_program
+def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
+    """Render the configuration tab with training program and student context."""
 
     st.subheader("System Prompt")
 
@@ -278,15 +278,14 @@ def _render_configuration_tab():
     st.subheader("Training Program")
 
     # Get current training program
-    trainer_id = st.session_state.current_user['id']
-    context = get_training_context(trainer_id)
+    current_program = get_prompt('trainer.teacher.training_program')
 
     # Editable text area for training program
     new_program = st.text_area(
         "Training Program Content",
-        value=context.training_program,
+        value=current_program,
         height=200,
-        help="This program defines the training approach and will be available to all plugins via TrainingContext"
+        help="This program defines the training approach and will be available to all plugins"
     )
 
     # Save button
@@ -306,6 +305,51 @@ def _render_configuration_tab():
 
     st.caption("The training program is exported in the configuration YAML and available to all active plugins.")
 
+    st.divider()
+    st.subheader("Student Context Preview")
+    st.caption("View the aggregated context information for a student from all active plugins.")
+
+    # Get students for selection
+    students = trainer_manager.get_trainer_students(trainer_id)
+
+    if students:
+        # Create a mapping of student IDs to display names
+        student_options = {student['id']: student.get('name', 'Unknown') for student in students}
+
+        selected_student_id = st.selectbox(
+            "Select Student to View Context",
+            options=list(student_options.keys()),
+            format_func=lambda x: student_options[x],
+            key="context_student_select"
+        )
+
+        if selected_student_id:
+            # Get all contexts for the selected student
+            contexts = trainer_manager.get_all_contexts(selected_student_id)
+
+            if contexts:
+                # Create tabs for each context source
+                context_sources = list(contexts.keys())
+                context_tabs = st.tabs(context_sources)
+
+                for i, source in enumerate(context_sources):
+                    with context_tabs[i]:
+                        context_data = contexts[source]
+
+                        # Display as a nice table
+                        if context_data:
+                            # Convert to list of dicts for table display
+                            table_data = []
+                            for key, value in context_data.items():
+                                table_data.append({"Context Key": key, "Context Value": value})
+
+                            st.table(table_data)
+                        else:
+                            st.info(f"No context data available from {source}")
+            else:
+                st.info("No context information available for this student.")
+    else:
+        st.info("No students available to view context.")
 
 def _render_import_export_tab(trainer_id: str, trainer_manager):
     """Render the import/export tab with history support and preview."""
@@ -332,7 +376,8 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                     st.json({
                         'trainer_id': trainer_config.get('trainer_id'),
                         'exported_at': trainer_config.get('exported_at'),
-                        'system_prompt': trainer_config.get('system_prompt', '')[:100] + '...' if len(trainer_config.get('system_prompt', '')) > 100 else trainer_config.get('system_prompt', '')
+                        'system_prompt': trainer_config.get('system_prompt', '')[:100] + '...' if len(trainer_config.get('system_prompt', '')) > 100 else trainer_config.get('system_prompt', ''),
+                        'training_program': trainer_config.get('training_program', '')[:100] + '...' if len(trainer_config.get('training_program', '')) > 100 else trainer_config.get('training_program', '')
                     })
 
                     # Plugins section
@@ -378,6 +423,7 @@ def _render_import_export_tab(trainer_id: str, trainer_manager):
                         trainer_config = preview_data.get('trainer', {})
                         st.markdown("**Trainer Configuration:**")
                         st.write(f"System Prompt: {trainer_config.get('system_prompt', 'Not set')[:200]}")
+                        st.write(f"Training Program: {trainer_config.get('training_program', 'Not set')[:200]}")
 
                         plugins = preview_data.get('plugins', {})
                         if plugins:
