@@ -12,6 +12,7 @@ import json
 import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean, and_
+from sqlalchemy.orm.attributes import flag_modified
 from shared.common import Base, get_db_manager, get_prompt, log, _
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
@@ -72,14 +73,21 @@ class StudentSuggestion(Base):
 
     def add_interaction(self, action: str, details: dict = None):
         """Add an interaction to the history."""
-        if not self.interaction_history:
+        # Initialize interaction_history if it's None
+        if self.interaction_history is None:
             self.interaction_history = []
 
-        self.interaction_history.append({
+        # Create the interaction record
+        interaction = {
             'action': action,
             'timestamp': datetime.utcnow().isoformat(),
             'details': details or {}
-        })
+        }
+
+        # Add to history
+        self.interaction_history.append(interaction)
+
+        log("info", f"Added {action} interaction to suggestion {getattr(self, 'id', 'new')}. History now has {len(self.interaction_history)} entries")
 
         # Update corresponding timestamp fields
         now = datetime.utcnow()
@@ -103,6 +111,13 @@ class StudentSuggestion(Base):
             self.created_at = now
         elif action == 'expired':
             self.is_displayed = False
+        elif action == 'edited':
+            # Just log the edit, no state change
+            pass
+        elif action == 'conversation_associated':
+            # Just log the association, no state change
+            pass
+        flag_modified(self, "interaction_history")
 
         return self.interaction_history
 
@@ -260,21 +275,7 @@ class SuggestPlugin(TrainerPlugin):
             # Save the suggestion
             db = get_db_manager()
             with db.get_session() as session:
-                # Get current config to update last suggestion index
-                config = session.query(StudentSuggestionConfig).filter_by(
-                    student_id=student_id,
-                    trainer_id=trainer_id
-                ).first()
-
-                if config and source == "auto":
-                    # Count current user messages
-                    user_message_count = sum(1 for msg in messages if msg.role == "user")
-                    config.last_suggestion_index = user_message_count
-                    config.updated_at = datetime.utcnow()
-                    session.add(config)
-
-                # Create new suggestion (expires in 7 days by default)
-                now = datetime.utcnow()
+                # ... (previous config code)
 
                 # Initialize related_conversation_ids with the current conversation
                 related_ids = [conversation_id] if conversation_id else []
@@ -288,25 +289,25 @@ class SuggestPlugin(TrainerPlugin):
                     source=source,
                     created_at=now,
                     expires_at=now + timedelta(days=7),
-                    related_conversation_ids=related_ids,  # Set this properly
+                    related_conversation_ids=related_ids,
                     suggestion_metadata={
                         'trigger_message_count': len(messages) if source == "auto" else 0,
                         'conversation_id': conversation_id,
                         'teacher_id': trainer_id if source == "teacher" else None
                     },
-                    interaction_history=[]
+                    interaction_history=[]  # Initialize empty list
                 )
 
-                # Add creation interaction
+                # Add creation interaction - this will now work because interaction_history is initialized
                 suggestion_record.add_interaction('created', {
                     'source': source,
                     'conversation_id': conversation_id
                 })
 
                 session.add(suggestion_record)
-                session.commit()
+                session.commit()  # Commit the creation with its interaction
 
-                log("info", f"Generated {source} suggestion for student {student_id}: {suggestion[:50]}...")
+                log("debug", f"Generated {source} suggestion for student {student_id}: {suggestion[:50]}...")
                 return True
 
         except Exception as e:
@@ -375,11 +376,11 @@ class SuggestPlugin(TrainerPlugin):
             ).order_by(StudentSuggestion.created_at.desc()).first()
 
             if suggestion:
-                # Mark as displayed and add view interaction
+                # Mark as displayed and add view interaction if not already viewed
                 if not suggestion.is_displayed:
                     suggestion.add_interaction('viewed')
                     suggestion.is_displayed = True
-                    session.commit()
+                    session.commit()  # Commit the view interaction
 
                 return {
                     'id': suggestion.id,
@@ -399,6 +400,7 @@ class SuggestPlugin(TrainerPlugin):
                 suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
                 if suggestion:
                     suggestion.add_interaction('dismissed')
+                    # No need for flag_modified here - it's in add_interaction
                     session.commit()
                     return True
             return False
@@ -423,8 +425,12 @@ class SuggestPlugin(TrainerPlugin):
                             suggestion.related_conversation_ids = []
                         if created_conv_id not in suggestion.related_conversation_ids:
                             suggestion.related_conversation_ids.append(created_conv_id)
+                            # Flag this field too
+                            flag_modified(suggestion, "related_conversation_ids")
+                            details['added_to_related'] = True
 
                     suggestion.add_interaction('used', details)
+                    # flag_modified for interaction_history is handled inside add_interaction
                     session.commit()
                     return True
             return False
@@ -445,17 +451,41 @@ class SuggestPlugin(TrainerPlugin):
 
                     if conversation_id not in suggestion.related_conversation_ids:
                         suggestion.related_conversation_ids.append(conversation_id)
+                        # Flag this field
+                        flag_modified(suggestion, "related_conversation_ids")
 
                         suggestion.add_interaction('conversation_associated', {
                             'conversation_id': conversation_id
                         })
+                        # flag_modified for interaction_history is handled inside add_interaction
+
                         session.commit()
-                        log("info", f"Associated conversation {conversation_id} with suggestion {suggestion_id}")
+                        log("debug", f"Associated conversation {conversation_id} with suggestion {suggestion_id}")
                     return True
             return False
         except Exception as e:
             log("error", f"Failed to associate conversation: {e}")
             return False
+
+    def debug_check_suggestion(self, suggestion_id: str):
+        """Debug function to check what's in the database for a suggestion."""
+        db = get_db_manager()
+        with db.get_session() as session:
+            suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
+            if suggestion:
+                log("info", f"=== DEBUG for suggestion {suggestion_id} ===")
+                log("info", f"Content: {suggestion.content[:50]}...")
+                log("info", f"is_displayed: {suggestion.is_displayed}")
+                log("info", f"is_clicked: {suggestion.is_clicked}")
+                log("info", f"is_dismissed: {suggestion.is_dismissed}")
+                log("info", f"viewed_at: {suggestion.viewed_at}")
+                log("info", f"used_at: {suggestion.used_at}")
+                log("info", f"dismissed_at: {suggestion.dismissed_at}")
+                log("info", f"interaction_history: {suggestion.interaction_history}")
+                log("info", f"interaction_history type: {type(suggestion.interaction_history)}")
+                log("info", f"interaction_history length: {len(suggestion.interaction_history) if suggestion.interaction_history else 0}")
+                return suggestion
+        return None
 
     def delete_suggestion_by_teacher(self, suggestion_id: str) -> bool:
         """Mark a suggestion as deleted by teacher."""
@@ -465,7 +495,7 @@ class SuggestPlugin(TrainerPlugin):
                 suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
                 if suggestion:
                     suggestion.add_interaction('deleted')
-                    session.commit()
+                    session.commit()  # Commit the delete interaction
                     return True
             return False
         except Exception as e:
@@ -836,10 +866,42 @@ class SuggestPlugin(TrainerPlugin):
                                 st.markdown(f"**Suggestion:** {sugg.content}")
 
                                 # Show interaction history if requested
+                                # Show interaction history if requested
                                 if st.checkbox("Show history", key=f"{sugg_key}_show_history"):
-                                    for interaction in sugg.interaction_history:
-                                        details = f" - {interaction['details']}" if interaction.get('details') else ""
-                                        st.text(f"{interaction['timestamp'][:16]}: {interaction['action']}{details}")
+                                    if sugg.interaction_history and len(sugg.interaction_history) > 0:
+                                        for i, interaction in enumerate(sugg.interaction_history):
+                                            action = interaction.get('action', 'unknown')
+                                            timestamp = interaction.get('timestamp', '')[:16] if interaction.get('timestamp') else 'unknown'
+                                            details = interaction.get('details', {})
+
+                                            # Format details nicely
+                                            details_str = ""
+                                            if details:
+                                                if 'conversation_id' in details:
+                                                    # Try to get conversation title
+                                                    conv = conv_manager.get_conversation(details['conversation_id'])
+                                                    conv_title = conv.title if conv else "Unknown"
+                                                    details_str = f" - {conv_title[:30]} ({details['conversation_id'][:8]}...)"
+                                                elif 'previous_content' in details:
+                                                    details_str = f" - Was: {details['previous_content'][:50]}..."
+                                                else:
+                                                    details_str = f" - {details}"
+
+                                            # Add icons for different actions
+                                            action_icon = {
+                                                'created': '🆕',
+                                                'viewed': '👁️',
+                                                'used': '✅',
+                                                'dismissed': '✗',
+                                                'deleted': '🗑️',
+                                                'edited': '✏️',
+                                                'conversation_associated': '🔗',
+                                                'expired': '⌛'
+                                            }.get(action, '📝')
+
+                                            st.text(f"{action_icon} {timestamp}: {action}{details_str}")
+                                    else:
+                                        st.text("No interaction history available")
 
                             with col2:
                                 # Show state
