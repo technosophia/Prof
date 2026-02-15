@@ -124,7 +124,7 @@ from shared.common import init_user_manager
 from shared.common import get_prompt_manager
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
-from shared.common import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # Import UI registry system
 from shared.ui_registry import UIRegistry

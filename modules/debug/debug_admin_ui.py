@@ -15,7 +15,7 @@ import streamlit as st
 import asyncio
 import json
 from shared.common import _, log, get_config, get_user_manager
-from shared.common import llm_generate, get_current_llm_info
+from shared.common import llm_conversation_generate, get_current_llm_info
 
 
 # Try to import ui_registry for injection point debugging
@@ -144,7 +144,7 @@ def show_text_llm_tab():
                 # Call the LLM
                 with st.spinner(f"Asking {current_llm_info.get('name')}..."):
                     response = asyncio.run(
-                        llm_generate(
+                        llm_conversation_generate(
                             llm_question.strip(),
                             stream_callback
                         )

@@ -9,7 +9,7 @@ import json
 import pytest
 from unittest.mock import patch, Mock
 
-from shared.common import get_available_llms, set_current_llm, llm_generate, get_llm_manager
+from shared.common import get_available_llms, set_current_llm, llm_conversation_generate, get_llm_manager
 
 class TestLLMManager:
     """Test LLM Manager functionality."""
@@ -86,8 +86,8 @@ class TestPublicInterface:
         assert len(llms) > 0
 
     @pytest.mark.asyncio
-    async def test_llm_generate_public(self):
-        """Test public llm_generate function."""
+    async def test_llm_conversation_generate_public(self):
+        """Test public llm_conversation_generate function."""
         # Set to mock LLM first
         llms = get_available_llms()
         mock_llms = [llm_info for llm_info in llms if llm_info["type"] == "mock"]
@@ -96,6 +96,6 @@ class TestPublicInterface:
         mock_id = mock_llms[0]["id"]
         set_current_llm(mock_id)
 
-        response = await llm_generate("Public interface test")
+        response = await llm_conversation_generate("Public interface test")
         assert isinstance(response, str)
         assert len(response) > 0

@@ -129,17 +129,12 @@ class TrainerManager:
     def import_configuration(self, trainer_id: str, yaml_content: str) -> bool:
         """Import trainer and plugins configuration from YAML."""
         from .plugin_base import get_plugin_manager
-        from shared.common import update_prompt
 
         try:
             config = yaml.safe_load(yaml_content)
 
             # Import training program if present
             trainer_config = config.get('trainer', {})
-            if 'training_program' in trainer_config:
-                # Update the prompt in the database
-                update_prompt('trainer.teacher.training_program', trainer_config['training_program'])
-                log("info", f"Imported training program for trainer {trainer_id}")
 
             plugin_manager = get_plugin_manager()
             for plugin_id, plugin_config in config.get('plugins', {}).items():

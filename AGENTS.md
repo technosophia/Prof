@@ -248,7 +248,7 @@ Manages multiple LLM providers and models with unified interface. Supports strea
 
 **Exported functions:**
 - `get_llm_manager()`: Get global LLM manager instance
-- `llm_generate()` / `llm()`: Generate response from current LLM
+- `llm_conversation_generate()` / `llm()`: Generate response from current LLM
 - `set_current_llm()`: Switch active LLM
 - `get_available_llms()`: List all configured LLMs
 - `get_current_llm_info()`: Get current LLM details
@@ -305,7 +305,7 @@ Unified interface for multiple Large Language Models (Ollama, Gemini, Groq) with
 
 #### Initialization and Setup
 ```python
-from shared.common import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # LLM manager is automatically initialized with app config
 # No manual initialization needed
@@ -316,14 +316,14 @@ from shared.common import llm_generate, set_current_llm, get_available_llms, get
 import asyncio
 
 # Simple text generation
-response = await llm_generate("Hello, how are you?")
+response = await llm_conversation_generate("Hello, how are you?")
 print(response)
 
 # With streaming (real-time response)
 def stream_callback(chunk):
     print(chunk, end="", flush=True)
 
-response = await llm_generate("Tell me a story", stream_callback)
+response = await llm_conversation_generate("Tell me a story", stream_callback)
 ```
 
 ### Context injection
@@ -492,4 +492,3 @@ User conversations list (get_user_conversations()):
     "llm_config": Dict[str, Any],      # LLM configuration
     "metadata": Dict[str, Any]         # Conversation metadata
 }
-

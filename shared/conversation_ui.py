@@ -14,7 +14,7 @@ import streamlit as st
 import asyncio
 from datetime import datetime
 from shared.common import _, log, get_config, Message, get_conversation_manager
-from shared.common import llm_generate, get_current_llm_info
+from shared.common import llm_conversation_generate, get_current_llm_info
 from typing import List, Dict, Optional, Tuple, Any, Callable
 from shared.ui_registry import UIRegistry
 from shared.common import get_conversation_manager
@@ -55,8 +55,8 @@ async def generate_llm_response(user_message, conversation_history, current_llm_
         if st.session_state.current_user:
             user_id = st.session_state.current_user['id']
 
-        # Use llm_generate with conversation history and RAG context
-        response = await llm_generate(
+        # Use llm_conversation_generate with conversation history and RAG context
+        response = await llm_conversation_generate(
             user_message.strip(),
             stream_callback,
             conversation_history=llm_history,

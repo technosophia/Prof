@@ -262,7 +262,7 @@ class MemoryPlugin(TrainerPlugin):
                 {"role": "user", "content": user_prompt}
             ]
 
-            response = await llm_manager.generate_response(
+            response = await llm_manager.internal_response(
                 llm_id if llm_id != "unknown" else None,
                 messages
             )

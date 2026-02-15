@@ -11,7 +11,7 @@ Unified interface for multiple Large Language Models (Ollama, Gemini, Groq) with
 
 #### Initialization and Setup
 ```python
-from shared.common import llm_generate, set_current_llm, get_available_llms, get_current_llm_info
+from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # LLM manager is automatically initialized with app config
 # No manual initialization needed
@@ -22,14 +22,14 @@ from shared.common import llm_generate, set_current_llm, get_available_llms, get
 import asyncio
 
 # Simple text generation
-response = await llm_generate("Hello, how are you?")
+response = await llm_conversation_generate("Hello, how are you?")
 print(response)
 
 # With streaming (real-time response)
 def stream_callback(chunk):
     print(chunk, end="", flush=True)
 
-response = await llm_generate("Tell me a story", stream_callback)
+response = await llm_conversation_generate("Tell me a story", stream_callback)
 ```
 
 ### Context injection
@@ -511,9 +511,9 @@ class LLMManager:
         if user_id and (self.llm_callbacks or self.context_callbacks):
             messages = self._add_llm_context(user_id, messages)
 
-        return await self.generate_response(self.current_llm, messages, stream_callback)
+        return await self.internal_response(self.current_llm, messages, stream_callback)
 
-    async def generate_response(self, llm_id: str, messages: list,
+    async def internal_response(self, llm_id: str, messages: list,
                                stream_callback: Optional[Callable] = None) -> str:
         """Generate response from selected LLM."""
         log("info", f"Generating response with LLM: {llm_id}")

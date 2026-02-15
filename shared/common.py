@@ -62,7 +62,7 @@ Manages multiple LLM providers and models with unified interface. Supports strea
 
 **Exported functions:**
 - `get_llm_manager()`: Get global LLM manager instance
-- `llm_generate()` / `llm()`: Generate response from current LLM
+- `llm_conversation_generate()` / `llm()`: Generate response from current LLM
 - `set_current_llm()`: Switch active LLM
 - `get_available_llms()`: List all configured LLMs
 - `get_current_llm_info()`: Get current LLM details
@@ -255,7 +255,7 @@ def get_llm_manager():
     return LLMManager(get_config())
 
 # Update public functions with backward compatibility
-async def llm_generate(message: str,
+async def llm_conversation_generate(message: str,
                       stream_callback: Optional[Callable] = None,
                       conversation_history: Optional[List[Dict]] = None,
                       user_id: Optional[str] = None) -> str:  # Added user_id parameter
@@ -337,7 +337,7 @@ def unregister_llm_context_callback(callback_func: Callable[[str, List[Dict]], T
     manager.unregister_context_callback(callback_func)
 
 # Alias for backward compatibility - maintains old interface
-llm = llm_generate
+llm = llm_conversation_generate
 
 
 # Prompt Management ============================================

@@ -17,7 +17,7 @@ from shared.common import Base, get_db_manager, get_prompt, log, _
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 from shared.conversation import get_conversation_manager, Message
-from shared.common import llm_generate
+from shared.common import llm_conversation_generate
 
 
 # ============= DATABASE MODEL =============
@@ -307,9 +307,9 @@ class SuggestPlugin(TrainerPlugin):
                 {"role": "user", "content": prompt}
             ]
 
-            # Call LLM directly using generate_response
+            # Call LLM directly using internal_response
             llm_manager = get_llm_manager()
-            suggestion = await llm_manager.generate_response(
+            suggestion = await llm_manager.internal_response(
                 llm_id=llm_id,
                 messages=messages_for_llm,
                 stream_callback=None  # No streaming needed for suggestions
