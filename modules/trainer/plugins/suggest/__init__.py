@@ -293,14 +293,30 @@ class SuggestPlugin(TrainerPlugin):
                 training_context=training_context_text
             )
 
-            # Call LLM to generate suggestion (async)
-            suggestion = await llm_generate(
-                message=prompt,
-                user_id=student_id,
+            # Get current LLM ID
+            from shared.common import get_current_llm_id
+            try:
+                llm_id = get_current_llm_id()
+            except ValueError:
+                log("error", "No LLM configured for suggestion generation")
+                return False
+
+            # Prepare messages for LLM (just the user prompt, no conversation history)
+            messages_for_llm = [
+                {"role": "system", "content": get_prompt('trainer.teacher.system_prompt')},
+                {"role": "user", "content": prompt}
+            ]
+
+            # Call LLM directly using generate_response
+            llm_manager = get_llm_manager()
+            suggestion = await llm_manager.generate_response(
+                llm_id=llm_id,
+                messages=messages_for_llm,
+                stream_callback=None  # No streaming needed for suggestions
             )
 
-            if not suggestion:
-                log("warning", f"Failed to generate suggestion for student {student_id}")
+            if not suggestion or suggestion.startswith("Error"):
+                log("warning", f"Failed to generate suggestion for student {student_id}: {suggestion}")
                 return False
 
             # Clean up the suggestion
@@ -349,14 +365,14 @@ class SuggestPlugin(TrainerPlugin):
                     interaction_history=[]  # Initialize empty list
                 )
 
-                # Add creation interaction - this will now work because interaction_history is initialized
+                # Add creation interaction
                 suggestion_record.add_interaction('created', {
                     'source': source,
                     'conversation_id': conversation_id
                 })
 
                 session.add(suggestion_record)
-                session.commit()  # Commit the creation with its interaction
+                session.commit()
 
                 log("debug", f"Generated {source} suggestion for student {student_id}: {suggestion[:50]}...")
                 return True
