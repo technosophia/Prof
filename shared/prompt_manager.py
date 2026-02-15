@@ -301,6 +301,124 @@ class PromptManager:
 
         return default
 
+    def save_prompt(self, key: str, new_value: Any, language: Optional[str] = None) -> bool:
+        """
+        Save a modified prompt back to its original file.
+
+        Args:
+            key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+            new_value: New value for the prompt
+            language: Language code for multilingual mode
+
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        # Determine the language and module path
+        if self._is_multilingual:
+            lang = language or self._default_language
+            if lang not in self._multilingual_prompts:
+                log("error", f"Language '{lang}' not available")
+                return False
+            prompts_dict = self._multilingual_prompts[lang]
+        else:
+            lang = None
+            prompts_dict = self._prompts
+
+        # Find the source file for this prompt
+        keys = key.split(".")
+        module_prefix = keys[0]  # First part is the module name
+
+        if self._is_multilingual and lang:
+            source_key = f"{module_prefix}:{lang}"
+            # Also try without module prefix for root-level prompts
+            if source_key not in self._source_files:
+                source_key = f"root:{lang}"
+        else:
+            source_key = module_prefix
+            if source_key not in self._source_files:
+                source_key = "root"
+
+        source_file = self._source_files.get(source_key)
+        if not source_file:
+            log("error", f"Could not find source file for key '{key}' (source_key: {source_key})")
+            return False
+
+        # Navigate to the location of the prompt
+        current = prompts_dict
+        path_to_parent = keys[:-1]  # All keys except the last one
+        last_key = keys[-1]
+
+        for k in path_to_parent:
+            if k in current and isinstance(current[k], dict):
+                current = current[k]
+            else:
+                log("error", f"Path not found: {'.'.join(path_to_parent)}")
+                return False
+
+        # Update the in-memory value
+        if last_key in current:
+            current[last_key] = new_value
+        else:
+            log("error", f"Key '{last_key}' not found in path")
+            return False
+
+        # Now save the entire file
+        try:
+            # Load the current file content
+            with open(source_file, 'r', encoding='utf-8') as f:
+                file_content = yaml.safe_load(f) or {}
+
+            # Navigate to the correct location in the file structure
+            # We need to reconstruct the path relative to the module root
+            # Remove the module prefix from the path if it exists
+            if len(keys) > 1:
+                # Get the path within the module
+                if keys[0] == module_prefix:
+                    # For module-level prompts, the file already has the module structure
+                    file_current = file_content
+                    for k in keys[1:-1]:  # Skip module prefix and last key
+                        if k not in file_current:
+                            file_current[k] = {}
+                        file_current = file_current[k]
+                    file_current[keys[-1]] = new_value
+                else:
+                    # For nested structures
+                    file_current = file_content
+                    for k in keys[:-1]:
+                        if k not in file_current:
+                            file_current[k] = {}
+                        file_current = file_current[k]
+                    file_current[keys[-1]] = new_value
+            else:
+                # Root-level key
+                file_content[keys[0]] = new_value
+
+            # Write back to file
+            with open(source_file, 'w', encoding='utf-8') as f:
+                yaml.dump(file_content, f, default_flow_style=False, allow_unicode=True, indent=2)
+
+            log("info", f"Successfully saved prompt '{key}' to {source_file}")
+            return True
+
+        except Exception as e:
+            log("error", f"Error saving prompt to {source_file}: {e}")
+            return False
+
+    def reload_prompts(self):
+        """Reload all prompts from files."""
+        self._loaded = False
+        self._prompts.clear()
+        self._multilingual_prompts.clear()
+        self._source_files.clear()
+        self._available_languages.clear()
+
+        # Determine project root
+        shared_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(shared_dir)
+
+        self.load_all_prompts(root_dir)
+        log("info", "Prompts reloaded successfully")
+
     def _get_prompt_from_dict(self, prompts_dict: Dict, key: str, default: Any) -> Any:
         """Get a prompt from a specific dictionary using dot notation."""
         keys = key.split(".")
@@ -482,6 +600,24 @@ def get_prompt(key: str, default: Any = None, language: Optional[str] = None) ->
         Prompt value or default
     """
     return get_prompt_manager().get_prompt(key, default, language)
+
+def save_prompt(key: str, new_value: Any, language: Optional[str] = None) -> bool:
+    """
+    Convenience function to save a modified prompt.
+
+    Args:
+        key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+        new_value: New value for the prompt
+        language: Language code for multilingual mode
+
+    Returns:
+        bool: True if saved successfully, False otherwise
+    """
+    return get_prompt_manager().save_prompt(key, new_value, language)
+
+def reload_prompts():
+    """Reload all prompts from files."""
+    return get_prompt_manager().reload_prompts()
 
 def get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]:
     """Get all loaded prompts."""

@@ -389,6 +389,24 @@ def get_prompt(key: str, default: Any = None, language: Optional[str] = None) ->
     """
     return get_prompt_manager().get_prompt(key, default, language)
 
+def save_prompt(key: str, new_value: Any, language: Optional[str] = None) -> bool:
+    """
+    Convenience function to save a modified prompt.
+
+    Args:
+        key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+        new_value: New value for the prompt
+        language: Language code for multilingual mode
+
+    Returns:
+        bool: True if saved successfully, False otherwise
+    """
+    return get_prompt_manager().save_prompt(key, new_value, language)
+
+def reload_prompts():
+    """Reload all prompts from files."""
+    return get_prompt_manager().reload_prompts()
+
 def get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]:
     """Get all loaded prompts."""
     manager = get_prompt_manager()

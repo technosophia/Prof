@@ -16,6 +16,29 @@ from shared.common import (
 from modules.trainer.manager import get_trainer_manager
 from modules.trainer.plugin_base import get_plugin_manager
 
+def set_training_program(trainer_id: str, program_content: str):
+    """Save training program using prompt manager."""
+    from shared.common import save_prompt, get_prompt_manager
+
+    try:
+        # Save using the full prompt key
+        success = save_prompt('trainer.teacher.training_program', program_content, language='en')
+
+        if success:
+            log("info", f"Training program saved successfully for trainer {trainer_id}")
+
+            # Reload prompts to ensure all components see the update
+            pm = get_prompt_manager()
+            pm.reload_prompts()
+
+            return True
+        else:
+            log("error", f"Failed to save training program for trainer {trainer_id}")
+            return False
+
+    except Exception as e:
+        log("error", f"Error saving training program: {str(e)}")
+        return False
 
 def inject_ui_admin_tab():
     """

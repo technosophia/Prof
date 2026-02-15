@@ -16,31 +16,133 @@ from shared.common import (
 )
 
 
-def format_prompt_for_display(prompt_value, prompt_path="", max_height=400, language=None):
+def format_prompt_for_display(prompt_value, prompt_path="", full_module_path="", max_height=400, language=None, editable=False, instance_id=""):
     """Format a prompt value for display in Streamlit."""
-    # Create a unique key based on the path and language
+    # Create a truly unique base key
     lang_suffix = f"_{language}" if language else ""
-    key = f"prompt_display_{prompt_path.replace('.', '_')}{lang_suffix}"
+    path_clean = prompt_path.replace('.', '_')
+    base_key = f"prompt_{path_clean}{lang_suffix}"
 
-    if isinstance(prompt_value, str):
-        height = min(max_height, max(100, len(prompt_value) // 4))
-        return st.text_area(
-            "Prompt Content:",
-            value=prompt_value,
-            height=height,
-            key=key,
-            disabled=True
-        )
-    elif isinstance(prompt_value, dict):
-        yaml_str = yaml.dump(prompt_value, default_flow_style=False, allow_unicode=True, indent=2)
-        return st.code(yaml_str, language="yaml")
-    elif isinstance(prompt_value, list):
-        for i, item in enumerate(prompt_value):
-            st.markdown(f"- {item}")
-        return None
-    else:
-        return st.write(prompt_value, key=key)
+    # Add instance_id for list view items to ensure uniqueness
+    if instance_id:
+        base_key = f"{base_key}_{instance_id}"
 
+    # State management keys
+    edit_key = f"edit_mode_{base_key}"
+    if edit_key not in st.session_state:
+        st.session_state[edit_key] = False
+
+    # Create a container for this prompt to isolate its elements
+    container = st.container()
+
+    with container:
+        # Create columns for edit button and content
+        col1, col2 = st.columns([10, 1])
+
+        with col2:
+            # Ensure button key is unique
+            button_key = f"btn_{base_key}"
+            if st.button("✏️" if not st.session_state[edit_key] else "💾", key=button_key, help="Edit/Save"):
+                st.session_state[edit_key] = not st.session_state[edit_key]
+                st.rerun()
+
+        with col1:
+            if isinstance(prompt_value, str):
+                height = min(max_height, max(100, len(prompt_value) // 4))
+
+                if editable and st.session_state[edit_key]:
+                    # Edit mode - ensure text area key is unique
+                    text_key = f"edit_text_{base_key}"
+                    new_value = st.text_area(
+                        "Edit Prompt:",
+                        value=prompt_value,
+                        height=height,
+                        key=text_key,
+                    )
+
+                    # Save button with unique key
+                    save_key = f"save_{base_key}"
+                    if st.button("💾 Save Changes", key=save_key):
+                        from shared.common import save_prompt
+
+                        # IMPORTANT FIX: Use full_module_path + prompt_path to construct the full key
+                        if full_module_path:
+                            # If we have a full module path (e.g., "trainer.teacher"), combine with relative prompt path
+                            if prompt_path:
+                                full_key = f"{full_module_path}.{prompt_path}"
+                            else:
+                                full_key = full_module_path
+                        else:
+                            full_key = prompt_path
+
+                        if save_prompt(full_key, new_value, language):
+                            st.success(f"✅ Prompt '{full_key}' saved successfully!")
+                            st.session_state[edit_key] = False
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Failed to save prompt '{full_key}'")
+                    return new_value
+                else:
+                    # View mode - ensure text area key is unique
+                    text_key = f"view_text_{base_key}"
+                    return st.text_area(
+                        "Prompt Content:",
+                        value=prompt_value,
+                        height=height,
+                        key=text_key,
+                        disabled=True
+                    )
+
+            elif isinstance(prompt_value, dict):
+                yaml_str = yaml.dump(prompt_value, default_flow_style=False, allow_unicode=True, indent=2)
+
+                if editable and st.session_state[edit_key]:
+                    # Edit mode for YAML
+                    yaml_key = f"edit_yaml_{base_key}"
+                    new_value = st.text_area(
+                        "Edit YAML:",
+                        value=yaml_str,
+                        height=400,
+                        key=yaml_key,
+                    )
+
+                    save_key = f"save_yaml_{base_key}"
+                    if st.button("💾 Save Changes", key=save_key):
+                        try:
+                            parsed = yaml.safe_load(new_value)
+                            from shared.common import save_prompt
+
+                            # IMPORTANT FIX: Use full_module_path + prompt_path to construct the full key
+                            if full_module_path:
+                                if prompt_path:
+                                    full_key = f"{full_module_path}.{prompt_path}"
+                                else:
+                                    full_key = full_module_path
+                            else:
+                                full_key = prompt_path
+
+                            if save_prompt(full_key, parsed, language):
+                                st.success(f"✅ Prompt '{full_key}' saved successfully!")
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Failed to save prompt '{full_key}'")
+                        except yaml.YAMLError as e:
+                            st.error(f"Invalid YAML: {e}")
+                    return parsed
+                else:
+                    # View mode for YAML
+                    yaml_key = f"view_yaml_{base_key}"
+                    return st.code(yaml_str, language="yaml", key=yaml_key)
+
+            elif isinstance(prompt_value, list):
+                for i, item in enumerate(prompt_value):
+                    st.markdown(f"- {item}")
+                return None
+            else:
+                # For other types (int, float, bool)
+                display_key = f"display_{base_key}"
+                return st.write(prompt_value, key=display_key)
 
 def show_prompt_admin_content():
     """Display the Prompt Manager admin content."""
@@ -110,7 +212,7 @@ def show_prompt_admin_content():
     # Module selector
     st.header("Module Selection")
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         selected_module = st.selectbox(
             "Select a module:",
@@ -121,6 +223,13 @@ def show_prompt_admin_content():
     with col2:
         st.write("")  # Spacing
         if st.button("🔄 Refresh", width='stretch'):
+            st.rerun()
+
+    with col3:
+        if st.button("🔄 Reload All", help="Reload all prompts from files"):
+            from shared.common import reload_prompts
+            reload_prompts()
+            st.success("Prompts reloaded from files!")
             st.rerun()
 
     if selected_module:
@@ -154,7 +263,7 @@ def show_prompt_admin_content():
             # Tree view (expandable sections)
             st.subheader("Prompt Tree View")
 
-            def display_prompt_tree(data: dict, path: str = "", depth: int = 0):
+            def display_prompt_tree(data: dict, path: str = "", depth: int = 0, module_prefix: str = ""):
                 if not data:
                     return
 
@@ -164,16 +273,24 @@ def show_prompt_admin_content():
 
                     if isinstance(value, dict):
                         with st.expander(f"{indent}📁 **{key}**", expanded=depth < 2):
-                            display_prompt_tree(value, current_path, depth + 1)
+                            display_prompt_tree(value, current_path, depth + 1, module_prefix)
                     else:
                         st.markdown(f"{indent}**{key}**")
-                        format_prompt_for_display(value, f'tree_{current_path}', language=selected_language)
+                        # Pass the full module path for constructing the complete key
+                        format_prompt_for_display(
+                            value,
+                            current_path,
+                            full_module_path=module_prefix,  # Add this
+                            language=selected_language,
+                            editable=True,
+                            instance_id=f"tree_{depth}_{key}"
+                        )
                         st.divider()
 
-            display_prompt_tree(module_prompts)
+            # Then call it with:
+            display_prompt_tree(module_prompts, module_prefix=selected_module)
 
         with tab2:
-            # List view (flat list of all prompts with keys)
             st.subheader("All Prompts (Flat List)")
 
             def flatten_prompts(data: dict, prefix: str = ""):
@@ -189,10 +306,18 @@ def show_prompt_admin_content():
             flat_prompts = flatten_prompts(module_prompts)
 
             if flat_prompts:
-                for key in sorted(flat_prompts.keys()):
+                for idx, (key, value) in enumerate(sorted(flat_prompts.items())):
                     with st.expander(f"🔑 `{key}`", expanded=False):
                         st.code(key, language="text")
-                        format_prompt_for_display(flat_prompts[key], f'list_{key}', language=selected_language)
+                        # Pass the full module path plus the relative key
+                        format_prompt_for_display(
+                            value,
+                            key,
+                            full_module_path=selected_module,  # Add this
+                            language=selected_language,
+                            editable=True,
+                            instance_id=f"list_{idx}"
+                        )
             else:
                 st.info("No leaf prompts found in this module.")
 
