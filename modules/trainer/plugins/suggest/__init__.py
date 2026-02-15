@@ -176,7 +176,7 @@ class SuggestPlugin(TrainerPlugin):
         try:
             if not messages:
                 return
-
+            log("debug", "Received user message")
             # Get the conversation to find the student
             conv_manager = get_conversation_manager()
             conversation = conv_manager.get_conversation(conversation_id)
@@ -210,11 +210,19 @@ class SuggestPlugin(TrainerPlugin):
             user_message_count = sum(1 for msg in messages if msg.role == "user")
             last_index = config.get('last_suggestion_index', 0)
             interval = config.get('message_interval', 5)
+            log("debug", f"User message count: {user_message_count}, last index: {last_index}, interval: {interval}")
 
             # Check if we should generate a new suggestion
             if user_message_count - last_index >= interval:
-                # Run async generation in background
-                asyncio.create_task(
+                # Create a new event loop for this thread
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                # Run the async generation synchronously
+                loop.run_until_complete(
                     self._generate_suggestion_async(
                         student_id,
                         trainer_id,
@@ -223,6 +231,8 @@ class SuggestPlugin(TrainerPlugin):
                         source="auto"
                     )
                 )
+                loop.close()
+                log("debug", "Suggestion generated ...? ")
 
         except Exception as e:
             log("error", f"Error in suggestion callback: {e}", exc_info=True)
@@ -275,7 +285,20 @@ class SuggestPlugin(TrainerPlugin):
             # Save the suggestion
             db = get_db_manager()
             with db.get_session() as session:
-                # ... (previous config code)
+                config = session.query(StudentSuggestionConfig).filter_by(
+                    student_id=student_id,
+                    trainer_id=trainer_id
+                ).first()
+
+                if config and source == "auto":
+                    # Count current user messages
+                    user_message_count = sum(1 for msg in messages if msg.role == "user")
+                    config.last_suggestion_index = user_message_count
+                    config.updated_at = datetime.utcnow()
+                    session.add(config)
+
+                # Create new suggestion (expires in 7 days by default)
+                now = datetime.utcnow()
 
                 # Initialize related_conversation_ids with the current conversation
                 related_ids = [conversation_id] if conversation_id else []
