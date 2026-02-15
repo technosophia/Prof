@@ -1,9 +1,14 @@
 generate: |
-  Basé sur la conversation suivante, générez UNE suggestion utile pour l'étudiant.
-  La suggestion peut être une question, une invite d'apprentissage ou une recommandation de ressource qui l'aiderait à progresser.
+  Basé sur la conversation suivante et le contexte de formation, générez UNE suggestion utile pour l'étudiant.
+  La suggestion peut être une question, une invite d'apprentissage ou une recommandation de ressource qui l'aiderait
+  à progresser dans son programme de formation.
 
   Conversation :
   {conversation}
 
-  Générez une suggestion unique et concise (max 100 caractères). Soyez spécifique et utile.
+  Contexte de formation :
+  {training_context}
+
+  Générez une suggestion unique et concise (max 100 caractères) qui soit spécifique à la conversation actuelle de l'étudiant
+  et alignée avec son contexte de formation. Soyez spécifique et utile.
   Suggestion :

@@ -1,9 +1,14 @@
 generate: |
-  Based on the following conversation, generate ONE helpful suggestion for the student.
-  The suggestion should be a question, learning prompt, or resource recommendation that would help them progress.
+  Based on the following conversation and training context, generate ONE helpful suggestion for the student.
+  The suggestion should be a question, learning prompt, or resource recommendation that would help them progress
+  within their training program.
 
   Conversation:
   {conversation}
 
-  Generate a single, concise suggestion (max 100 characters). Be specific and helpful.
+  Training Context:
+  {training_context}
+
+  Generate a single, concise suggestion (max 100 characters) that is specific to the student's current conversation
+  and aligned with their training context. Be specific and helpful.
   Suggestion:

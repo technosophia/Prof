@@ -241,7 +241,7 @@ class SuggestPlugin(TrainerPlugin):
                                         conversation_id: str, messages: List[Message],
                                         source: str = "auto") -> bool:
         """
-        Generate a suggestion using LLM based on conversation context.
+        Generate a suggestion using LLM based on conversation context and training program.
         Async version to be called from callback.
         """
         try:
@@ -254,20 +254,44 @@ class SuggestPlugin(TrainerPlugin):
                 role = "Student" if msg.role == "user" else "Teacher"
                 conversation_text += f"{role}: {msg.content}\n\n"
 
+            # Get training context from trainer manager
+            trainer_manager = get_trainer_manager()
+            training_context = trainer_manager.get_all_contexts(student_id)
+
+            # Format training context as a readable string
+            context_parts = []
+            for context_name, context_data in training_context.items():
+                context_parts.append(f"\n=== {context_name} ===")
+                if isinstance(context_data, dict):
+                    for key, value in context_data.items():
+                        context_parts.append(f"{key}: {value}")
+                else:
+                    context_parts.append(str(context_data))
+
+            training_context_text = "\n".join(context_parts)
+
             # Get the suggestion prompt
             suggestion_prompt = get_prompt(
                 'trainer.plugins.suggest.generate',
-                """Based on the following conversation, generate ONE helpful suggestion for the student.
-                The suggestion should be a question, learning prompt, or resource recommendation that would help them progress.
+                """Based on the following conversation and training context, generate ONE helpful suggestion for the student.
+                The suggestion should be a question, learning prompt, or resource recommendation that would help them progress
+                within their training program.
 
                 Conversation:
                 {conversation}
 
-                Generate a single, concise suggestion (max 100 characters). Be specific and helpful.
+                Training Context:
+                {training_context}
+
+                Generate a single, concise suggestion (max 100 characters) that is specific to the student's current conversation
+                and aligned with their training context. Be specific and helpful.
                 Suggestion:"""
             )
 
-            prompt = suggestion_prompt.format(conversation=conversation_text)
+            prompt = suggestion_prompt.format(
+                conversation=conversation_text,
+                training_context=training_context_text
+            )
 
             # Call LLM to generate suggestion (async)
             suggestion = await llm_generate(
@@ -303,6 +327,14 @@ class SuggestPlugin(TrainerPlugin):
                 # Initialize related_conversation_ids with the current conversation
                 related_ids = [conversation_id] if conversation_id else []
 
+                # Store the training context used for this suggestion in metadata
+                suggestion_metadata = {
+                    'trigger_message_count': len(messages) if source == "auto" else 0,
+                    'conversation_id': conversation_id,
+                    'teacher_id': trainer_id if source == "teacher" else None,
+                    'training_context_used': list(training_context.keys())  # Store which contexts were used
+                }
+
                 suggestion_record = StudentSuggestion(
                     student_id=student_id,
                     trainer_id=trainer_id,
@@ -313,11 +345,7 @@ class SuggestPlugin(TrainerPlugin):
                     created_at=now,
                     expires_at=now + timedelta(days=7),
                     related_conversation_ids=related_ids,
-                    suggestion_metadata={
-                        'trigger_message_count': len(messages) if source == "auto" else 0,
-                        'conversation_id': conversation_id,
-                        'teacher_id': trainer_id if source == "teacher" else None
-                    },
+                    suggestion_metadata=suggestion_metadata,
                     interaction_history=[]  # Initialize empty list
                 )
 
@@ -542,6 +570,12 @@ class SuggestPlugin(TrainerPlugin):
             # Create a unique key for this suggestion
             suggestion_key = f"suggest_{suggestion['id']}"
 
+            # Get only the first line for display, strip whitespace
+            display_content = suggestion['content'].split('\n')[0].strip()
+            # If the first line is empty, use the full content
+            if not display_content:
+                display_content = suggestion['content'].strip()
+
             # Create a container for the banner
             with st.container():
                 # Style the banner
@@ -576,7 +610,7 @@ class SuggestPlugin(TrainerPlugin):
                     source_icon = "👤" if suggestion['source'] == 'auto' else "👨‍🏫"
                     st.markdown(f"""
                     <div class="suggestion-banner">
-                        <div class="suggestion-content">{source_icon} {suggestion['content']}</div>
+                        <div class="suggestion-content">{source_icon} {display_content}</div>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -587,13 +621,13 @@ class SuggestPlugin(TrainerPlugin):
                         conv_manager = get_conversation_manager()
                         new_conv_id = conv_manager.create_conversation(
                             user_id=student_id,
-                            title=suggestion['content'][:50],  # Truncate for title
+                            title=display_content[:50],  # Use first line for title too
                             system_prompt=None  # Use default
                         )
-                        # Add the suggestion as the first user message
+                        # Add the FULL suggestion as the first user message
                         conv_manager.add_message(
                             new_conv_id,
-                            Message(role="user", content=suggestion['content'])
+                            Message(role="user", content=suggestion['content'])  # Full content
                         )
 
                         # Mark as used with the created conversation
