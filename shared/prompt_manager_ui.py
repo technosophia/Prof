@@ -80,7 +80,7 @@ def show_prompt_admin_content():
         modules = list_modules_with_prompts()
 
     # Debug: Log what we found
-    log("info", f"Multilingual mode: {multilingual}, Available languages: {available_langs}, Modules: {modules}, Selected language: {selected_language}")
+    log("debug", f"Multilingual mode: {multilingual}, Available languages: {available_langs}, Modules: {modules}, Selected language: {selected_language}")
 
     if not modules:
         if multilingual:
