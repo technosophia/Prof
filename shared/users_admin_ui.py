@@ -16,10 +16,20 @@ How to check user role : user.get("role") in [UserRole.ADMIN.value, UserRole.MAS
 """
 
 import streamlit as st
-from datetime import datetime
-from typing import Dict, Any, List
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+import json
 from shared.common import _, log, get_config, get_user_manager, UserRole
 
+
+def is_production_mode() -> bool:
+    """Check if we're in production mode (not local and not test)."""
+    config = get_config()
+    local_mode = config.get("app.local_mode", False)
+    test_mode = config.get("app.test_mode", False) or "pytest" in str(st.__file__)
+
+    # Production mode = not local and not test
+    return not (local_mode or test_mode)
 
 
 def can_access_admin_tab(user: Dict[str, Any]) -> bool:
@@ -43,6 +53,7 @@ def show_users_admin_content():
 
     user_role = current_user.get("role")
     user_id = current_user.get("id")
+    production_mode = is_production_mode()
 
     st.header("👥 User Administration")
     st.caption(f"Role: {user_role.capitalize()} | Viewing users you can manage")
@@ -53,6 +64,11 @@ def show_users_admin_content():
     # Create main tabs
     if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
         tab_names = ["📋 Manage Users", "➕ Create User"]
+
+        # Add Activity Logs tab for production mode
+        if production_mode:
+            tab_names.append("📊 Activity Logs")
+
         if user_role == UserRole.ADMIN.value:
             tab_names.append("📦 Import/Export")
 
@@ -60,23 +76,152 @@ def show_users_admin_content():
 
         # Tab 1: Manage Users
         with tabs[0]:
-            _render_user_management_tab(current_user, user_role, user_id, manageable_users)
+            _render_user_management_tab(current_user, user_role, user_id, manageable_users, production_mode)
 
         # Tab 2: Create User
         with tabs[1]:
-            _render_create_user_tab(current_user, user_role)
+            _render_create_user_tab(current_user, user_role, production_mode)
 
-        # Tab 3: Import/Export (Admin only)
-        if user_role == UserRole.ADMIN.value and len(tabs) > 2:
+        # Tab 3: Activity Logs (if in production mode)
+        if production_mode and len(tabs) > 2 and tab_names[2] == "📊 Activity Logs":
             with tabs[2]:
-                _render_import_export_tab()
+                _render_activity_logs_tab(current_user, user_role, user_id)
+
+        # Tab 4: Import/Export (Admin only)
+        if user_role == UserRole.ADMIN.value:
+            # Find the import/export tab index
+            import_export_idx = 2 if not production_mode else 3
+            if len(tabs) > import_export_idx:
+                with tabs[import_export_idx]:
+                    _render_import_export_tab(current_user)
 
     else:  # Should not happen due to can_access_admin_tab check
         st.info("No users found that you can manage.")
 
 
+def _render_activity_logs_tab(current_user: Dict[str, Any], user_role: str, user_id: str):
+    """Render the activity logs tab for production mode."""
+    st.subheader("📊 User Activity Logs")
+
+    # Filters
+    col_filter1, col_filter2, col_filter3 = st.columns(3)
+
+    with col_filter1:
+        # Filter by action type
+        action_options = ["All Actions", "login", "logout", "create_user", "update_user",
+                         "delete_user", "generate_reset_code", "reset_password", "switch_user"]
+        selected_action = st.selectbox("Action Type", action_options)
+
+    with col_filter2:
+        # Filter by user
+        if user_role == UserRole.ADMIN.value:
+            user_options = ["All Users"] + [u["name"] for u in get_user_manager().get_all_users()]
+            selected_user_filter = st.selectbox("User", user_options)
+        else:
+            selected_user_filter = None
+
+    with col_filter3:
+        # Date range
+        date_range = st.selectbox("Time Period", ["Last 24 hours", "Last 7 days", "Last 30 days", "All time"])
+
+    # Determine date filter
+    days_map = {
+        "Last 24 hours": 1,
+        "Last 7 days": 7,
+        "Last 30 days": 30,
+        "All time": None
+    }
+    days = days_map.get(date_range)
+
+    # Get logs
+    user_manager = get_user_manager()
+
+    # Build filter parameters
+    filter_params = {
+        "current_user_id": user_id,
+        "limit": 200
+    }
+
+    if selected_action and selected_action != "All Actions":
+        filter_params["action"] = selected_action
+
+    if selected_user_filter and selected_user_filter != "All Users":
+        # Find user ID for the selected name
+        all_users = user_manager.get_all_users_dict()
+        target_user_id = None
+        for uid, u in all_users.items():
+            if u["name"] == selected_user_filter:
+                target_user_id = uid
+                break
+        if target_user_id:
+            filter_params["user_id"] = target_user_id
+
+    logs = user_manager.get_user_action_logs(**filter_params)
+
+    # Filter by date if needed
+    if days:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        logs = [log for log in logs if datetime.fromisoformat(log["timestamp"]) >= cutoff]
+
+    # Display logs
+    if not logs:
+        st.info("No activity logs found.")
+        return
+
+    st.write(f"Showing {len(logs)} log entries")
+
+    # Display logs in a table
+    for log_entry in logs:
+        with st.container():
+            cols = st.columns([2, 1.5, 2, 3])
+
+            with cols[0]:
+                timestamp = datetime.fromisoformat(log_entry["timestamp"])
+                st.write(f"**{timestamp.strftime('%Y-%m-%d %H:%M:%S')}**")
+
+            with cols[1]:
+                status = "✅" if log_entry["success"] else "❌"
+                st.write(f"{status} {log_entry['action'].replace('_', ' ').title()}")
+
+            with cols[2]:
+                user_display = log_entry.get("username") or log_entry.get("user_id", "System")
+                if log_entry.get("target_username"):
+                    user_display += f" → {log_entry['target_username']}"
+                st.write(user_display)
+
+            with cols[3]:
+                if log_entry.get("details"):
+                    details = log_entry["details"]
+                    if isinstance(details, dict):
+                        # Show a preview of important details
+                        if "reason" in details:
+                            st.caption(f"Reason: {details['reason']}")
+                        elif "changes" in details:
+                            changed_fields = list(details.get("changes", {}).keys())
+                            st.caption(f"Changed: {', '.join(changed_fields)}")
+                if log_entry.get("error_message"):
+                    st.error(log_entry["error_message"])
+
+            st.divider()
+
+    # Export logs button
+    if st.button("📥 Export Logs", width='stretch'):
+        export_data = {
+            "exported_at": datetime.utcnow().isoformat(),
+            "logs": logs
+        }
+        json_str = json.dumps(export_data, indent=2, default=str)
+        st.download_button(
+            label="⬇️ Download JSON",
+            data=json_str,
+            file_name=f"activity_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json"
+        )
+
+
 def _render_user_management_tab(current_user: Dict[str, Any], user_role: str,
-                               user_id: str, manageable_users: List[Dict[str, Any]]):
+                               user_id: str, manageable_users: List[Dict[str, Any]],
+                               production_mode: bool):
     """Render the user management tab with user list and operations."""
     st.subheader("📋 User List")
 
@@ -91,30 +236,31 @@ def _render_user_management_tab(current_user: Dict[str, Any], user_role: str,
             if user_role == UserRole.MASTER.value and user["id"] == user_id:
                 continue
 
-            _render_user_row(current_user, user_role, user)
+            _render_user_row(current_user, user_role, user, production_mode)
 
         # Show current user info for masters
         if user_role == UserRole.MASTER.value:
-            _render_master_account_section(current_user, user_id)
+            _render_master_account_section(current_user, user_id, production_mode)
 
         # Delete confirmation dialog
-        _render_delete_confirmation(current_user)
+        _render_delete_confirmation(current_user, production_mode)
 
         # View user details
-        _render_user_details()
+        _render_user_details(production_mode)
 
         # Edit user form
-        _render_edit_user_form(current_user)
+        _render_edit_user_form(current_user, production_mode)
 
     except Exception as e:
         st.error(f"❌ Error loading users: {str(e)}")
         log("error", f"Error in users admin UI: {e}")
 
 
-def _render_user_row(current_user: Dict[str, Any], user_role: str, user: Dict[str, Any]):
+def _render_user_row(current_user: Dict[str, Any], user_role: str,
+                    user: Dict[str, Any], production_mode: bool):
     """Render a single user row in the user list."""
     with st.container():
-        cols = st.columns([3, 2, 1, 1, 1])
+        cols = st.columns([3, 2, 1, 1, 2])
 
         with cols[0]:
             st.write(f"**{user['name']}**")
@@ -134,6 +280,13 @@ def _render_user_row(current_user: Dict[str, Any], user_role: str, user: Dict[st
             role = user.get('role', 'normal')
             role_emoji = "👑" if role == UserRole.ADMIN.value else "⭐" if role == UserRole.MASTER.value else "👤"
             st.caption(f"{role_emoji} {role}")
+
+            # Password status (production mode only)
+            if production_mode:
+                if user.get('has_password'):
+                    st.caption("🔒 Password set")
+                else:
+                    st.caption("⚠️ No password")
 
             # Language
             if user.get('profile', {}).get('language'):
@@ -158,10 +311,36 @@ def _render_user_row(current_user: Dict[str, Any], user_role: str, user: Dict[st
                 st.rerun()
 
         with cols[4]:
-            # Delete button with permissions check
-            _render_delete_button(current_user, user)
+            # Action buttons based on production mode
+            if production_mode:
+                # Generate reset code button (for admin/master)
+                if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+                    if user['id'] != current_user['id']:  # Can't generate for self?
+                        if st.button("🔑 Reset Code",
+                                   key=f"reset_{user['id']}",
+                                   help=f"Generate password reset code for {user['name']}",
+                                   width='stretch'):
+                            _generate_reset_code(user['id'], current_user['id'])
+            else:
+                # Delete button (local/test mode only)
+                _render_delete_button(current_user, user)
 
         st.divider()
+
+
+def _generate_reset_code(target_user_id: str, requesting_user_id: str):
+    """Generate a password reset code for a user."""
+    user_manager = get_user_manager()
+    reset_code = user_manager.generate_reset_code(target_user_id, requesting_user_id)
+
+    if reset_code:
+        target_user = user_manager.get_user(target_user_id)
+        st.success(f"✅ Reset code generated for {target_user['name']}")
+        st.info(f"🔑 **Reset Code:** `{reset_code}`")
+        st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+        st.rerun()
+    else:
+        st.error("❌ Failed to generate reset code")
 
 
 def _render_delete_button(current_user: Dict[str, Any], user: Dict[str, Any]):
@@ -192,7 +371,7 @@ def _set_user_to_delete(user: Dict[str, Any]):
     st.session_state.show_delete_confirm = True
 
 
-def _render_master_account_section(current_user: Dict[str, Any], user_id: str):
+def _render_master_account_section(current_user: Dict[str, Any], user_id: str, production_mode: bool):
     """Render the master account section with children information."""
     with st.expander("👑 Your Master Account", expanded=False):
         cols = st.columns([4, 1])
@@ -201,6 +380,9 @@ def _render_master_account_section(current_user: Dict[str, Any], user_id: str):
             st.caption(f"🆔 {current_user['id']}")
             if current_user.get('email'):
                 st.caption(f"📧 {current_user['email']}")
+
+            if production_mode:
+                st.caption("🔒 " + ("Password set" if current_user.get('has_password') else "No password set"))
 
             # Children count
             children = get_user_manager().get_children(user_id)
@@ -216,7 +398,7 @@ def _render_master_account_section(current_user: Dict[str, Any], user_id: str):
                 st.rerun()
 
 
-def _render_delete_confirmation(current_user: Dict[str, Any]):
+def _render_delete_confirmation(current_user: Dict[str, Any], production_mode: bool):
     """Render delete confirmation dialog."""
     if st.session_state.get('show_delete_confirm') and st.session_state.get('user_to_delete'):
         user_to_delete = st.session_state.user_to_delete
@@ -232,14 +414,14 @@ def _render_delete_confirmation(current_user: Dict[str, Any]):
         col_confirm1, col_confirm2 = st.columns(2)
         with col_confirm1:
             if st.button("✅ Yes, Delete", type="primary", width='stretch'):
-                _execute_user_deletion(user_to_delete, current_user)
+                _execute_user_deletion(user_to_delete, current_user, production_mode)
 
         with col_confirm2:
             if st.button("❌ Cancel", width='stretch'):
                 _clear_delete_confirmation()
 
 
-def _execute_user_deletion(user_to_delete: Dict[str, Any], current_user: Dict[str, Any]):
+def _execute_user_deletion(user_to_delete: Dict[str, Any], current_user: Dict[str, Any], production_mode: bool):
     """Execute the user deletion operation."""
     try:
         success = get_user_manager().delete_user(user_to_delete['id'], current_user['id'])
@@ -262,7 +444,7 @@ def _clear_delete_confirmation():
     st.session_state.user_to_delete = None
 
 
-def _render_user_details():
+def _render_user_details(production_mode: bool):
     """Render user details view."""
     if st.session_state.get('viewing_user_id'):
         user_id_to_view = st.session_state.viewing_user_id
@@ -274,7 +456,7 @@ def _render_user_details():
 
             col1, col2 = st.columns(2)
             with col1:
-                _render_user_basic_info(user_to_view)
+                _render_user_basic_info(user_to_view, production_mode)
 
             with col2:
                 _render_user_profile_preferences(user_to_view)
@@ -288,7 +470,7 @@ def _render_user_details():
                 st.rerun()
 
 
-def _render_user_basic_info(user: Dict[str, Any]):
+def _render_user_basic_info(user: Dict[str, Any], production_mode: bool):
     """Render basic user information."""
     st.write("**Basic Information**")
     st.write(f"**ID:** {user['id']}")
@@ -296,6 +478,9 @@ def _render_user_basic_info(user: Dict[str, Any]):
     st.write(f"**Email:** {user.get('email') or 'Not set'}")
     st.write(f"**Role:** {user['role']}")
     st.write(f"**Status:** {'🟢 Active' if user['is_active'] else '🔴 Inactive'}")
+
+    if production_mode:
+        st.write(f"**Password:** {'✅ Set' if user.get('has_password') else '❌ Not set'}")
 
     if user.get('parent_name'):
         st.write(f"**Parent:** {user['parent_name']}")
@@ -325,7 +510,7 @@ def _render_user_children(user_id: str):
             st.write(f"- {child['name']} ({child['role']})")
 
 
-def _render_edit_user_form(current_user: Dict[str, Any]):
+def _render_edit_user_form(current_user: Dict[str, Any], production_mode: bool):
     """Render the edit user form."""
     if not st.session_state.get('editing_user_id'):
         return
@@ -342,7 +527,7 @@ def _render_edit_user_form(current_user: Dict[str, Any]):
     st.subheader(title)
 
     with st.form("edit_user_form"):
-        edit_data = _render_edit_form_fields(current_user, user_to_edit, is_editing_self)
+        edit_data = _render_edit_form_fields(current_user, user_to_edit, is_editing_self, production_mode)
 
         col_ebtn1, col_ebtn2, col_ebtn3 = st.columns([1, 1, 2])
         with col_ebtn1:
@@ -351,7 +536,7 @@ def _render_edit_user_form(current_user: Dict[str, Any]):
             cancel_edit = st.form_submit_button("❌ Cancel")
 
         if submit_edit:
-            _process_edit_submission(current_user, user_id_to_edit, is_editing_self, edit_data)
+            _process_edit_submission(current_user, user_id_to_edit, is_editing_self, edit_data, production_mode)
 
         if cancel_edit:
             st.session_state.editing_user_id = None
@@ -359,7 +544,7 @@ def _render_edit_user_form(current_user: Dict[str, Any]):
 
 
 def _render_edit_form_fields(current_user: Dict[str, Any], user_to_edit: Dict[str, Any],
-                            is_editing_self: bool) -> Dict[str, Any]:
+                            is_editing_self: bool, production_mode: bool) -> Dict[str, Any]:
     """Render edit form fields and return the collected data."""
     col_e1, col_e2 = st.columns(2)
     with col_e1:
@@ -369,6 +554,22 @@ def _render_edit_form_fields(current_user: Dict[str, Any], user_to_edit: Dict[st
 
     edit_role = user_to_edit.get('role')
     selected_parent = user_to_edit.get('parent_id')
+
+    # Password reset section (production mode only)
+    if production_mode and not is_editing_self:
+        st.subheader("Password Management")
+        if st.checkbox("Reset user's password", key="reset_pw_check"):
+            col_reset1, col_reset2 = st.columns(2)
+            with col_reset1:
+                new_pw = st.text_input("New Password", type="password", key="admin_new_pw")
+            with col_reset2:
+                confirm_new_pw = st.text_input("Confirm New Password", type="password", key="admin_confirm_pw")
+
+            if new_pw and new_pw == confirm_new_pw:
+                st.session_state.admin_new_password = new_pw
+                st.success("✅ Password will be updated")
+            else:
+                st.warning("Passwords do not match")
 
     # Role editing (only for admin editing other users)
     if current_user['role'] == UserRole.ADMIN.value and not is_editing_self:
@@ -437,22 +638,23 @@ def _render_role_parent_edit_fields(user_to_edit: Dict[str, Any], current_role: 
     return edit_role, selected_parent
 
 
-def _render_create_user_tab(current_user: Dict[str, Any], user_role: str):
+def _render_create_user_tab(current_user: Dict[str, Any], user_role: str, production_mode: bool):
     """Render the create user tab."""
     st.subheader("➕ Create New User")
 
     with st.form("create_user_form", clear_on_submit=True):
-        user_data = _render_create_user_form_fields(current_user, user_role)
+        user_data = _render_create_user_form_fields(current_user, user_role, production_mode)
 
         col_btn1, col_btn2 = st.columns([1, 3])
         with col_btn1:
             submit_create = st.form_submit_button("Create User", type="primary")
 
         if submit_create:
-            _process_create_user_submission(user_data)
+            _process_create_user_submission(user_data, current_user, production_mode)
 
 
-def _render_create_user_form_fields(current_user: Dict[str, Any], user_role: str) -> Dict[str, Any]:
+def _render_create_user_form_fields(current_user: Dict[str, Any], user_role: str,
+                                   production_mode: bool) -> Dict[str, Any]:
     """Render create user form fields and return the collected data."""
     col1, col2 = st.columns(2)
     with col1:
@@ -461,6 +663,20 @@ def _render_create_user_form_fields(current_user: Dict[str, Any], user_role: str
     with col2:
         new_email = st.text_input("Email",
                                 help="Optional email address")
+
+    # Password setup for production mode
+    set_password = None
+    if production_mode:
+        st.write("**Password Setup**")
+        col_pw1, col_pw2 = st.columns(2)
+        with col_pw1:
+            set_password = st.text_input("Set Password (optional)", type="password",
+                                       help="Leave empty to generate a reset code")
+        with col_pw2:
+            confirm_password = st.text_input("Confirm Password", type="password")
+
+        if set_password and set_password != confirm_password:
+            st.warning("Passwords do not match")
 
     # Role selection
     col_role, col_parent = st.columns(2)
@@ -489,7 +705,8 @@ def _render_create_user_form_fields(current_user: Dict[str, Any], user_role: str
         "email": new_email,
         "role": new_role,
         "parent_id": selected_parent,
-        "profile": profile
+        "profile": profile,
+        "password": set_password if production_mode and set_password else None
     }
 
 
@@ -601,7 +818,9 @@ def _render_preference_field(field_name: str, field_config: Dict[str, Any],
         )
 
 
-def _process_create_user_submission(user_data: Dict[str, Any]):
+def _process_create_user_submission(user_data: Dict[str, Any],
+                                   current_user: Dict[str, Any],
+                                   production_mode: bool):
     """Process the create user form submission."""
     if not user_data["name"] or not user_data["name"].strip():
         st.error("Username is required!")
@@ -609,15 +828,24 @@ def _process_create_user_submission(user_data: Dict[str, Any]):
         st.error("Normal users must have a parent!")
     else:
         try:
-            user_id = get_user_manager().create_user(
+            user_manager = get_user_manager()
+            user_id, reset_code = user_manager.create_user(
                 name=user_data["name"].strip(),
                 role=user_data["role"],
                 email=user_data["email"].strip() if user_data["email"] else None,
                 parent_id=user_data["parent_id"] if user_data["parent_id"] else None,
-                profile=user_data["profile"]
+                profile=user_data["profile"],
+                password=user_data.get("password"),
+                requesting_user_id=current_user['id']
             )
 
-            st.success(f"✅ User '{user_data['name'].strip()}' created successfully!")
+            if production_mode and not user_data.get("password") and reset_code:
+                st.success(f"✅ User '{user_data['name'].strip()}' created successfully!")
+                st.info(f"🔑 **Reset Code:** `{reset_code}`")
+                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+            else:
+                st.success(f"✅ User '{user_data['name'].strip()}' created successfully!")
+
             log("info", f"Created user: {user_data['name']} (ID: {user_id}, Role: {user_data['role']})")
             st.rerun()
         except ValueError as e:
@@ -628,7 +856,8 @@ def _process_create_user_submission(user_data: Dict[str, Any]):
 
 
 def _process_edit_submission(current_user: Dict[str, Any], user_id_to_edit: str,
-                            is_editing_self: bool, edit_data: Dict[str, Any]):
+                            is_editing_self: bool, edit_data: Dict[str, Any],
+                            production_mode: bool):
     """Process the edit user form submission."""
     if not edit_data["name"] or not edit_data["name"].strip():
         st.error("Username is required!")
@@ -650,6 +879,18 @@ def _process_edit_submission(current_user: Dict[str, Any], user_id_to_edit: str,
                     updates["parent_id"] = edit_data["parent_id"]
                 else:
                     updates["parent_id"] = None
+
+            # Handle password reset in production mode
+            if production_mode and not is_editing_self:
+                if st.session_state.get('reset_pw_check', False):
+                    if st.session_state.get('admin_new_password'):
+                        user_manager = get_user_manager()
+                        user_manager.set_password(
+                            user_id_to_edit,
+                            st.session_state.admin_new_password,
+                            current_user['id']
+                        )
+                        st.success("✅ Password updated successfully!")
 
             success = get_user_manager().update_user(
                 user_id_to_edit,
@@ -678,7 +919,7 @@ def _process_edit_submission(current_user: Dict[str, Any], user_id_to_edit: str,
             log("error", f"Error updating user: {e}")
 
 
-def _render_import_export_tab():
+def _render_import_export_tab(current_user: Dict[str, Any]):
     """Render the import/export tab for admin users."""
     st.subheader("📦 Import/Export Users")
 
@@ -686,13 +927,13 @@ def _render_import_export_tab():
     import_export_tab1, import_export_tab2 = st.tabs(["📤 Export Users", "📥 Import Users"])
 
     with import_export_tab1:
-        _render_export_section()
+        _render_export_section(current_user)
 
     with import_export_tab2:
-        _render_import_section()
+        _render_import_section(current_user)
 
 
-def _render_export_section():
+def _render_export_section(current_user: Dict[str, Any]):
     """Render the export section."""
     col_export1, col_export2 = st.columns([2, 1])
 
@@ -708,7 +949,7 @@ def _render_export_section():
 
         selected_user_ids = []
         if export_scope == "Selected users":
-            all_users_list = get_user_manager().get_all_users()
+            all_users_list = get_user_manager().get_all_users(current_user['id'])
             user_options = {u["id"]: f"{u['name']} ({u['role']})" for u in all_users_list}
             selected_user_ids = st.multiselect(
                 "Select users to export",
@@ -727,7 +968,7 @@ def _render_export_section():
         st.caption(" ")
         st.caption(" ")
         if st.button("📥 Generate Export", type="primary", width='stretch'):
-            _execute_export(include_children, selected_user_ids)
+            _execute_export(current_user, include_children, selected_user_ids)
 
     # Display download button if export data is available
     if st.session_state.get('export_json_data'):
@@ -740,12 +981,13 @@ def _render_export_section():
         )
 
 
-def _execute_export(include_children: bool, selected_user_ids: List[str]):
+def _execute_export(current_user: Dict[str, Any], include_children: bool, selected_user_ids: List[str]):
     """Execute the export operation."""
     try:
         export_data = get_user_manager().export_users(
             include_children=include_children,
-            user_ids=selected_user_ids if selected_user_ids else None
+            user_ids=selected_user_ids if selected_user_ids else None,
+            requesting_user_id=current_user['id']
         )
 
         # Convert to JSON string
@@ -762,7 +1004,7 @@ def _execute_export(include_children: bool, selected_user_ids: List[str]):
         log("error", f"Export failed: {e}")
 
 
-def _render_import_section():
+def _render_import_section(current_user: Dict[str, Any]):
     """Render the import section."""
     st.caption("Import users from a JSON export file")
 
@@ -775,10 +1017,10 @@ def _render_import_section():
     )
 
     if uploaded_file is not None:
-        _process_import_file(uploaded_file)
+        _process_import_file(uploaded_file, current_user)
 
 
-def _process_import_file(uploaded_file):
+def _process_import_file(uploaded_file, current_user: Dict[str, Any]):
     """Process the uploaded import file."""
     try:
         import_data = json.load(uploaded_file)
@@ -808,7 +1050,7 @@ def _process_import_file(uploaded_file):
 
         # Import button
         if st.button("🚀 Import Users", type="primary", width='stretch'):
-            _execute_import(import_data, overwrite, validate_only)
+            _execute_import(import_data, overwrite, validate_only, current_user)
 
     except json.JSONDecodeError:
         st.error("❌ Invalid JSON file")
@@ -833,14 +1075,16 @@ def _render_import_preview(users: List[Dict[str, Any]]):
             st.caption(f"... and {len(users) - 10} more users")
 
 
-def _execute_import(import_data: Dict[str, Any], overwrite: bool, validate_only: bool):
+def _execute_import(import_data: Dict[str, Any], overwrite: bool, validate_only: bool,
+                   current_user: Dict[str, Any]):
     """Execute the import operation."""
     try:
         with st.spinner("Importing users..."):
             result = get_user_manager().import_users(
                 import_data,
                 overwrite_existing=overwrite,
-                validate_only=validate_only
+                validate_only=validate_only,
+                requesting_user_id=current_user['id']
             )
 
         # Display results

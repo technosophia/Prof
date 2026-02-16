@@ -31,8 +31,11 @@ get_all_users(), search_users(), and similar methods.
 
 """
 import uuid
-from typing import Dict, List, Optional, Any, Set
-from datetime import datetime
+import hashlib
+import secrets
+import json
+from typing import Dict, List, Optional, Any, Set, Tuple
+from datetime import datetime, timedelta
 from enum import Enum
 
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey
@@ -42,12 +45,29 @@ from core.logging import log
 from core.database import get_db_manager, Base
 
 
-
 class UserRole(Enum):
     """User roles enumeration."""
     ADMIN = "admin"
     MASTER = "master"
     NORMAL = "normal"
+
+
+class UserAction(Enum):
+    """User action types for logging."""
+    LOGIN = "login"
+    LOGOUT = "logout"
+    CREATE_USER = "create_user"
+    UPDATE_USER = "update_user"
+    DELETE_USER = "delete_user"
+    GENERATE_RESET_CODE = "generate_reset_code"
+    RESET_PASSWORD = "reset_password"
+    CHANGE_PASSWORD = "change_password"
+    SWITCH_USER = "switch_user"
+    EXPORT_USERS = "export_users"
+    IMPORT_USERS = "import_users"
+    VIEW_LOGS = "view_logs"
+    LOGIN_FAILED = "login_failed"
+    RESET_CODE_USED = "reset_code_used"
 
 
 class UserTable(Base):
@@ -57,17 +77,35 @@ class UserTable(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=True)
+    password_hash = Column(String, nullable=True)  # New: hashed password
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
-    role = Column(String, default=UserRole.NORMAL.value)  # New: role field
-    parent_id = Column(String, ForeignKey('users.id'), nullable=True)  # New: parent user
-    profile = Column(JSON, default={})  # For preferences and other data
+    role = Column(String, default=UserRole.NORMAL.value)
+    parent_id = Column(String, ForeignKey('users.id'), nullable=True)
+    profile = Column(JSON, default={})
     user_metadata = Column(JSON, default={})
+    reset_code = Column(String, nullable=True)  # New: temporary password reset code
+    reset_code_expires = Column(DateTime, nullable=True)  # New: reset code expiration
 
-    # Relationships - FIXED: removed duplicate backref
+    # Relationships
     parent = relationship("UserTable", remote_side=[id], backref="child_users")
-    # children property is available via backref: user.child_users
+
+
+class UserActionLog(Base):
+    """Log of user actions for auditing."""
+    __tablename__ = 'user_action_logs'
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey('users.id'), nullable=True)
+    username = Column(String, nullable=True)  # Denormalized for context if user deleted
+    action = Column(String, nullable=False)  # One of UserAction values
+    target_user_id = Column(String, nullable=True)  # If action involves another user
+    target_username = Column(String, nullable=True)  # Denormalized
+    details = Column(JSON, default={})  # Additional context (IP, user agent, etc.)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    success = Column(Boolean, default=True)  # Whether action succeeded
+    error_message = Column(String, nullable=True)  # If action failed
 
 
 class UserManager:
@@ -87,7 +125,8 @@ class UserManager:
             self._initialized = True
             # Initialize callback registry
             self._before_delete_callbacks = []
-            self._profile_preferences_callbacks = []  # New: for extensible preferences
+            self._profile_preferences_callbacks = []
+            self._ensure_action_log_table()
 
     def _ensure_table_exists(self):
         """Ensure the users table exists."""
@@ -103,6 +142,147 @@ class UserManager:
             log("error", f"Failed to ensure users table exists: {e}")
             return False
 
+    def _ensure_action_log_table(self):
+        """Ensure the user action log table exists."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            UserActionLog.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure action log table exists: {e}")
+            return False
+
+    def _hash_password(self, password: str) -> str:
+        """Hash a password using SHA-256 with salt."""
+        salt = secrets.token_hex(16)
+        hash_obj = hashlib.sha256((salt + password).encode())
+        return f"{salt}${hash_obj.hexdigest()}"
+
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        """Verify a password against its hash."""
+        if not password_hash or '$' not in password_hash:
+            return False
+        salt, hash_value = password_hash.split('$', 1)
+        check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+        return secrets.compare_digest(check_hash, hash_value)
+
+    def _generate_reset_code(self) -> str:
+        """Generate a secure random reset code."""
+        return secrets.token_urlsafe(32)  # 32 characters, URL-safe
+
+    def log_user_action(self, user_id: Optional[str], action: str,
+                       target_user_id: Optional[str] = None,
+                       target_username: Optional[str] = None,
+                       details: Optional[Dict] = None,
+                       success: bool = True,
+                       error_message: Optional[str] = None) -> bool:
+        """Log a user action for auditing."""
+        try:
+            self._ensure_action_log_table()
+
+            username = None
+            if user_id:
+                user = self.get_user(user_id)
+                if user:
+                    username = user.get("name")
+
+            target_username_resolved = target_username
+            if target_user_id and not target_username_resolved:
+                target = self.get_user(target_user_id)
+                if target:
+                    target_username_resolved = target.get("name")
+
+            log_entry = UserActionLog(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                username=username,
+                action=action,
+                target_user_id=target_user_id,
+                target_username=target_username_resolved,
+                details=details or {},
+                timestamp=datetime.utcnow(),
+                success=success,
+                error_message=error_message
+            )
+
+            with self.db.get_session() as session:
+                session.add(log_entry)
+                session.commit()
+
+            return True
+        except Exception as e:
+            log("error", f"Failed to log user action: {e}")
+            return False
+
+    def get_user_action_logs(self, user_id: Optional[str] = None,
+                            target_user_id: Optional[str] = None,
+                            action: Optional[str] = None,
+                            limit: int = 100,
+                            offset: int = 0,
+                            current_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get user action logs with filtering and permission checks."""
+        self._ensure_action_log_table()
+
+        with self.db.get_session() as session:
+            query = session.query(UserActionLog)
+
+            # Apply permission filtering if current_user_id provided
+            if current_user_id:
+                current_user = self.get_user(current_user_id)
+                if not current_user:
+                    return []
+
+                if current_user["role"] == UserRole.ADMIN.value:
+                    # Admin sees all logs
+                    pass
+                elif current_user["role"] == UserRole.MASTER.value:
+                    # Master sees logs for themselves and their children
+                    children = self.get_children(current_user_id)
+                    child_ids = [c["id"] for c in children]
+                    # Users whose logs can be seen: current_user + children
+                    visible_user_ids = [current_user_id] + child_ids
+
+                    query = query.filter(
+                        (UserActionLog.user_id.in_(visible_user_ids)) |
+                        (UserActionLog.target_user_id.in_(visible_user_ids))
+                    )
+                else:
+                    # Normal users see only their own logs
+                    query = query.filter(UserActionLog.user_id == current_user_id)
+
+            # Apply filters
+            if user_id:
+                query = query.filter(UserActionLog.user_id == user_id)
+            if target_user_id:
+                query = query.filter(UserActionLog.target_user_id == target_user_id)
+            if action:
+                query = query.filter(UserActionLog.action == action)
+
+            # Order by most recent first
+            query = query.order_by(UserActionLog.timestamp.desc())
+
+            # Apply pagination
+            query = query.limit(limit).offset(offset)
+
+            logs = []
+            for log_entry in query.all():
+                logs.append({
+                    "id": log_entry.id,
+                    "user_id": log_entry.user_id,
+                    "username": log_entry.username,
+                    "action": log_entry.action,
+                    "target_user_id": log_entry.target_user_id,
+                    "target_username": log_entry.target_username,
+                    "details": log_entry.details or {},
+                    "timestamp": log_entry.timestamp.isoformat() if log_entry.timestamp else None,
+                    "success": log_entry.success,
+                    "error_message": log_entry.error_message
+                })
+
+            return logs
+
     def init_default_users(self):
         """Initialize default users. Call this after database is initialized."""
         # First ensure the table exists
@@ -113,24 +293,48 @@ class UserManager:
         # Then create default users if needed
         return self.create_default_users()
 
-    def export_users(self, include_children: bool = False, user_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    def export_users(self, include_children: bool = False,
+                    user_ids: Optional[List[str]] = None,
+                    requesting_user_id: Optional[str] = None) -> Dict[str, Any]:
         """Export users to JSON-serializable dictionary.
 
         Args:
             include_children: Whether to include full child hierarchies
-            user_ids: Optional list of specific user IDs to export (None = all manageable by admin)
+            user_ids: Optional list of specific user IDs to export (None = all manageable by requesting_user)
+            requesting_user_id: ID of user requesting export (for permission checks and logging)
 
         Returns:
             Dictionary with users and metadata
         """
         self._ensure_table_exists()
 
+        # Check permissions if requesting_user_id provided
+        if requesting_user_id:
+            requesting_user = self.get_user(requesting_user_id)
+            if not requesting_user:
+                raise ValueError("Requesting user not found")
+
+            if requesting_user["role"] not in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+                raise PermissionError("Only admin and master users can export users")
+
         with self.db.get_session() as session:
             # Determine which users to export
             if user_ids:
+                # Filter to only users the requester can see
+                if requesting_user_id:
+                    manageable = self.get_manageable_users(requesting_user_id)
+                    manageable_ids = [u["id"] for u in manageable]
+                    user_ids = [uid for uid in user_ids if uid in manageable_ids]
+
                 users = session.query(UserTable).filter(UserTable.id.in_(user_ids)).all()
             else:
-                users = session.query(UserTable).all()
+                if requesting_user_id:
+                    # Get all manageable users
+                    manageable = self.get_manageable_users(requesting_user_id)
+                    manageable_ids = [u["id"] for u in manageable]
+                    users = session.query(UserTable).filter(UserTable.id.in_(manageable_ids)).all()
+                else:
+                    users = session.query(UserTable).all()
 
             export_data = {
                 "exported_at": datetime.utcnow().isoformat(),
@@ -141,27 +345,48 @@ class UserManager:
 
             for user in users:
                 user_dict = self._user_to_dict(user, include_children=include_children)
-                # Remove session-specific fields
-                user_dict.pop("last_login", None)
-                user_dict.pop("created_at", None)
+                # Remove sensitive fields
+                user_dict.pop("password_hash", None)
+                user_dict.pop("reset_code", None)
+                user_dict.pop("reset_code_expires", None)
                 export_data["users"].append(user_dict)
+
+            # Log the export
+            if requesting_user_id:
+                self.log_user_action(
+                    user_id=requesting_user_id,
+                    action=UserAction.EXPORT_USERS.value,
+                    details={"user_count": len(users), "include_children": include_children},
+                    success=True
+                )
 
             return export_data
 
     def import_users(self, import_data: Dict[str, Any],
                     overwrite_existing: bool = False,
-                    validate_only: bool = False) -> Dict[str, Any]:
+                    validate_only: bool = False,
+                    requesting_user_id: Optional[str] = None) -> Dict[str, Any]:
         """Import users from JSON data.
 
         Args:
             import_data: Dictionary with users data (format from export_users)
             overwrite_existing: Whether to overwrite existing users with same ID
             validate_only: Only validate the import data without saving
+            requesting_user_id: ID of user requesting import (for permission checks and logging)
 
         Returns:
             Dictionary with import results (success_count, failure_count, errors)
         """
         self._ensure_table_exists()
+
+        # Check permissions if requesting_user_id provided
+        if requesting_user_id:
+            requesting_user = self.get_user(requesting_user_id)
+            if not requesting_user:
+                raise ValueError("Requesting user not found")
+
+            if requesting_user["role"] != UserRole.ADMIN.value:
+                raise PermissionError("Only admin users can import users")
 
         result = {
             "success_count": 0,
@@ -243,7 +468,7 @@ class UserManager:
                             is_active=user_data.get("is_active", True),
                             profile=user_data.get("profile", {}),
                             user_metadata=user_data.get("metadata", {}),
-                            created_at=datetime.utcnow()  # Set to current time
+                            created_at=datetime.utcnow()
                         )
 
                         # Merge or add user
@@ -258,6 +483,18 @@ class UserManager:
                 if not validate_only:
                     session.commit()
                     log("info", f"Imported {result['success_count']} users, {result['failure_count']} failures")
+
+                    # Log the import
+                    if requesting_user_id:
+                        self.log_user_action(
+                            user_id=requesting_user_id,
+                            action=UserAction.IMPORT_USERS.value,
+                            details={
+                                "success_count": result["success_count"],
+                                "failure_count": result["failure_count"]
+                            },
+                            success=result["failure_count"] == 0
+                        )
 
             except Exception as e:
                 session.rollback()
@@ -381,11 +618,13 @@ class UserManager:
                 user_count = session.query(UserTable).count()
 
                 if user_count == 0:
-                    # Create admin user
+                    # Create admin user with default password
+                    admin_password = self._hash_password("admin123")
                     admin_user = UserTable(
                         id="admin",
                         name="System Administrator",
                         email="admin@example.com",
+                        password_hash=admin_password,
                         role=UserRole.ADMIN.value,
                         parent_id=None,
                         created_at=datetime.utcnow(),
@@ -400,6 +639,7 @@ class UserManager:
                         id="master1",
                         name="Master User 1",
                         email="master1@example.com",
+                        password_hash=self._hash_password("master123"),
                         role=UserRole.MASTER.value,
                         parent_id=None,
                         created_at=datetime.utcnow(),
@@ -413,6 +653,7 @@ class UserManager:
                         id="master2",
                         name="Master User 2",
                         email="master2@example.com",
+                        password_hash=self._hash_password("master123"),
                         role=UserRole.MASTER.value,
                         parent_id=None,
                         created_at=datetime.utcnow(),
@@ -427,6 +668,7 @@ class UserManager:
                         id="normal1_m1",
                         name="Normal User 1 (Master 1)",
                         email="normal1_m1@example.com",
+                        password_hash=self._hash_password("normal123"),
                         role=UserRole.NORMAL.value,
                         parent_id="master1",
                         created_at=datetime.utcnow(),
@@ -440,6 +682,7 @@ class UserManager:
                         id="normal2_m1",
                         name="Normal User 2 (Master 1)",
                         email="normal2_m1@example.com",
+                        password_hash=self._hash_password("normal123"),
                         role=UserRole.NORMAL.value,
                         parent_id="master1",
                         created_at=datetime.utcnow(),
@@ -454,6 +697,7 @@ class UserManager:
                         id="normal1_m2",
                         name="Test User 1",
                         email="normal1_m2@example.com",
+                        password_hash=self._hash_password("normal123"),
                         role=UserRole.NORMAL.value,
                         parent_id="master2",
                         created_at=datetime.utcnow(),
@@ -467,6 +711,7 @@ class UserManager:
                         id="normal2_m2",
                         name="Test User 2",
                         email="normal2_m2@example.com",
+                        password_hash=self._hash_password("normal123"),
                         role=UserRole.NORMAL.value,
                         parent_id="master2",
                         created_at=datetime.utcnow(),
@@ -476,7 +721,7 @@ class UserManager:
                     )
                     session.add(normal2_m2)
 
-                    log("info", f"Created 7 default users: 1 admin, 2 masters, 4 normal users")
+                    log("info", f"Created 7 default users with passwords: 1 admin, 2 masters, 4 normal users")
                     return True
                 else:
                     log("debug", "Default users already exist, skipping creation")
@@ -498,7 +743,8 @@ class UserManager:
             "is_active": user.is_active,
             "profile": user.profile or {},
             "metadata": user.user_metadata or {},
-            "parent_name": user.parent.name if user.parent else None
+            "parent_name": user.parent.name if user.parent else None,
+            "has_password": user.password_hash is not None  # Indicate if user has a password set
         }
 
         if include_children and hasattr(user, 'child_users') and user.child_users:
@@ -531,6 +777,268 @@ class UserManager:
             if user:
                 return self._user_to_dict(user)
             return None
+
+    def authenticate_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+        """Authenticate a user by username and password.
+
+        Returns:
+            User dict if authentication successful, None otherwise
+        """
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter(
+                func.lower(UserTable.name) == username.lower()
+            ).first()
+
+            if not user:
+                self.log_user_action(
+                    user_id=None,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"username": username, "reason": "user_not_found"},
+                    success=False
+                )
+                return None
+
+            if not user.is_active:
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"reason": "inactive_account"},
+                    success=False
+                )
+                return None
+
+            if not user.password_hash:
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"reason": "no_password_set"},
+                    success=False
+                )
+                return None
+
+            if self._verify_password(password, user.password_hash):
+                # Update last login
+                user.last_login = datetime.utcnow()
+                session.commit()
+
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN.value,
+                    success=True
+                )
+
+                return self._user_to_dict(user)
+            else:
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"reason": "invalid_password"},
+                    success=False
+                )
+                return None
+
+    def generate_reset_code(self, user_id: str, requesting_user_id: Optional[str] = None) -> Optional[str]:
+        """Generate a password reset code for a user.
+
+        Args:
+            user_id: ID of user to generate code for
+            requesting_user_id: ID of user requesting the code (for permission checks)
+
+        Returns:
+            Reset code string if successful, None otherwise
+        """
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return None
+
+            # Check permissions if requesting_user_id provided
+            if requesting_user_id:
+                requesting_user = session.query(UserTable).filter_by(id=requesting_user_id).first()
+                if not requesting_user:
+                    return None
+
+                # Admin can generate for anyone
+                if requesting_user.role == UserRole.ADMIN.value:
+                    pass
+                # Master can generate for themselves and their children
+                elif requesting_user.role == UserRole.MASTER.value:
+                    if user_id != requesting_user_id and user.parent_id != requesting_user_id:
+                        return None
+                else:
+                    # Normal users cannot generate reset codes
+                    return None
+
+            # Generate reset code
+            reset_code = self._generate_reset_code()
+            user.reset_code = reset_code
+            user.reset_code_expires = datetime.utcnow() + timedelta(days=1)
+
+            session.commit()
+
+            self.log_user_action(
+                user_id=requesting_user_id or user_id,
+                action=UserAction.GENERATE_RESET_CODE.value,
+                target_user_id=user_id,
+                target_username=user.name,
+                success=True
+            )
+
+            return reset_code
+
+    def reset_password_with_code(self, username: str, reset_code: str, new_password: str) -> bool:
+        """Reset a user's password using a reset code.
+
+        Args:
+            username: Username of the user
+            reset_code: The reset code
+            new_password: New password to set
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter(
+                func.lower(UserTable.name) == username.lower()
+            ).first()
+
+            if not user:
+                self.log_user_action(
+                    user_id=None,
+                    action=UserAction.RESET_PASSWORD.value,
+                    details={"username": username, "reason": "user_not_found"},
+                    success=False
+                )
+                return False
+
+            if not user.reset_code or not user.reset_code_expires:
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.RESET_PASSWORD.value,
+                    details={"reason": "no_reset_code"},
+                    success=False
+                )
+                return False
+
+            if user.reset_code_expires < datetime.utcnow():
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.RESET_PASSWORD.value,
+                    details={"reason": "code_expired"},
+                    success=False
+                )
+                return False
+
+            if not secrets.compare_digest(user.reset_code, reset_code):
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.RESET_PASSWORD.value,
+                    details={"reason": "invalid_code"},
+                    success=False
+                )
+                return False
+
+            # Set new password
+            user.password_hash = self._hash_password(new_password)
+            user.reset_code = None
+            user.reset_code_expires = None
+
+            session.commit()
+
+            self.log_user_action(
+                user_id=user.id,
+                action=UserAction.RESET_PASSWORD.value,
+                target_user_id=user.id,
+                target_username=user.name,
+                success=True
+            )
+
+            return True
+
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
+        """Change a user's password (requires current password)."""
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return False
+
+            if not user.password_hash:
+                return False
+
+            if not self._verify_password(current_password, user.password_hash):
+                self.log_user_action(
+                    user_id=user_id,
+                    action=UserAction.CHANGE_PASSWORD.value,
+                    details={"reason": "invalid_current_password"},
+                    success=False
+                )
+                return False
+
+            user.password_hash = self._hash_password(new_password)
+            session.commit()
+
+            self.log_user_action(
+                user_id=user_id,
+                action=UserAction.CHANGE_PASSWORD.value,
+                success=True
+            )
+
+            return True
+
+    def set_password(self, user_id: str, new_password: str, requesting_user_id: Optional[str] = None) -> bool:
+        """Set a user's password directly (admin/master function).
+
+        Args:
+            user_id: ID of user to set password for
+            new_password: New password to set
+            requesting_user_id: ID of user performing the action (for permission checks)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return False
+
+            # Check permissions if requesting_user_id provided
+            if requesting_user_id:
+                requesting_user = session.query(UserTable).filter_by(id=requesting_user_id).first()
+                if not requesting_user:
+                    return False
+
+                # Admin can set for anyone
+                if requesting_user.role == UserRole.ADMIN.value:
+                    pass
+                # Master can set for themselves and their children
+                elif requesting_user.role == UserRole.MASTER.value:
+                    if user_id != requesting_user_id and user.parent_id != requesting_user_id:
+                        return False
+                else:
+                    return False
+
+            user.password_hash = self._hash_password(new_password)
+            session.commit()
+
+            self.log_user_action(
+                user_id=requesting_user_id or user_id,
+                action=UserAction.CHANGE_PASSWORD.value,
+                target_user_id=user_id,
+                target_username=user.name,
+                success=True
+            )
+
+            return True
 
     def get_all_users(self, current_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all users, with filtering based on current user's role."""
@@ -607,8 +1115,23 @@ class UserManager:
 
     def create_user(self, name: str, role: str = UserRole.NORMAL.value,
                    email: Optional[str] = None, parent_id: Optional[str] = None,
-                   profile: Optional[Dict] = None) -> str:
-        """Create a new user with validation."""
+                   profile: Optional[Dict] = None,
+                   password: Optional[str] = None,
+                   requesting_user_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+        """Create a new user with validation.
+
+        Args:
+            name: Username (required)
+            role: User role
+            email: Optional email
+            parent_id: Parent user ID (required for normal users)
+            profile: User profile preferences
+            password: Optional password (if not provided, will require reset)
+            requesting_user_id: ID of user creating this user (for permission checks and logging)
+
+        Returns:
+            Tuple of (user_id, reset_code) where reset_code is generated if no password provided
+        """
         # Validate name
         if not name or not name.strip():
             raise ValueError("User name cannot be empty")
@@ -632,26 +1155,54 @@ class UserManager:
                 if parent.role != UserRole.MASTER.value:
                     raise ValueError(f"Parent user must be a master, not {parent.role}")
 
+        # Check if username already exists
+        existing = self.get_user_by_name(name)
+        if existing:
+            raise ValueError(f"Username '{name}' already exists")
+
         self._ensure_table_exists()
 
         user_id = str(uuid.uuid4())
+        reset_code = None
 
         with self.db.get_session() as session:
+            # Hash password if provided
+            password_hash = None
+            if password:
+                password_hash = self._hash_password(password)
+            else:
+                # Generate reset code
+                reset_code = self._generate_reset_code()
+
             user = UserTable(
                 id=user_id,
                 name=name.strip(),
                 email=email,
+                password_hash=password_hash,
                 role=role,
                 parent_id=parent_id,
                 created_at=datetime.utcnow(),
                 is_active=True,
                 profile=profile or {"language": "en"},
-                user_metadata={"created_via": "ui"}
+                user_metadata={"created_via": "ui"},
+                reset_code=reset_code,
+                reset_code_expires=datetime.utcnow() + timedelta(days=1) if reset_code else None
             )
             session.add(user)
 
         log("info", f"Created user: {name.strip()} (ID: {user_id}, Role: {role})")
-        return user_id
+
+        # Log the creation
+        self.log_user_action(
+            user_id=requesting_user_id or user_id,
+            action=UserAction.CREATE_USER.value,
+            target_user_id=user_id,
+            target_username=name.strip(),
+            details={"role": role, "has_password": password is not None},
+            success=True
+        )
+
+        return user_id, reset_code
 
     def update_user(self, user_id: str, current_user_id: Optional[str] = None, **kwargs) -> bool:
         """Update user information with permission checks."""
@@ -667,6 +1218,13 @@ class UserManager:
                 current_user = session.query(UserTable).filter_by(id=current_user_id).first()
                 if not self.can_manage_user(current_user, user):
                     log("warning", f"User {current_user_id} cannot manage user {user_id}")
+                    self.log_user_action(
+                        user_id=current_user_id,
+                        action=UserAction.UPDATE_USER.value,
+                        target_user_id=user_id,
+                        details={"reason": "permission_denied"},
+                        success=False
+                    )
                     return False
 
             # Validate role changes
@@ -696,6 +1254,23 @@ class UserManager:
                     if user.role != UserRole.NORMAL.value:
                         raise ValueError("Only normal users can have a parent")
 
+            # Track changes for logging
+            changes = {}
+            for key, value in kwargs.items():
+                if key in ["password_hash", "reset_code", "reset_code_expires"]:
+                    continue  # Skip sensitive fields in logging
+
+                if key == "user_metadata":
+                    key_display = "metadata"
+                elif key == "key":
+                    key_display = key
+                else:
+                    key_display = key
+
+                old_value = getattr(user, key, None)
+                if old_value != value:
+                    changes[key_display] = {"old": str(old_value), "new": str(value)}
+
             # Update fields
             for key, value in kwargs.items():
                 if key == "user_metadata":
@@ -712,6 +1287,16 @@ class UserManager:
 
             if "last_login" in kwargs:
                 user.last_login = kwargs["last_login"]
+
+            # Log the update
+            self.log_user_action(
+                user_id=current_user_id or user_id,
+                action=UserAction.UPDATE_USER.value,
+                target_user_id=user_id,
+                target_username=user.name,
+                details={"changes": changes},
+                success=True
+            )
 
             return True
 
@@ -794,6 +1379,7 @@ class UserManager:
         self._ensure_table_exists()
 
         # Check permissions
+        target_user = None
         if current_user_id:
             with self.db.get_session() as session:
                 current_user = session.query(UserTable).filter_by(id=current_user_id).first()
@@ -802,7 +1388,19 @@ class UserManager:
                     return False
                 if not self.can_manage_user(current_user, target_user):
                     log("warning", f"User {current_user_id} cannot delete user {user_id}")
+                    self.log_user_action(
+                        user_id=current_user_id,
+                        action=UserAction.DELETE_USER.value,
+                        target_user_id=user_id,
+                        details={"reason": "permission_denied"},
+                        success=False
+                    )
                     return False
+        else:
+            # Get target user for logging
+            target_user_dict = self.get_user(user_id)
+            if not target_user_dict:
+                return False
 
         # Execute before_delete callbacks
         all_successful = True
@@ -827,6 +1425,16 @@ class UserManager:
 
             user_name = user.name
             session.delete(user)
+
+            # Log the deletion
+            self.log_user_action(
+                user_id=current_user_id or user_id,
+                action=UserAction.DELETE_USER.value,
+                target_user_id=user_id,
+                target_username=user_name,
+                success=True
+            )
+
             log("info", f"Deleted user: {user_name} (ID: {user_id})")
             return True
 
@@ -859,6 +1467,7 @@ class UserManager:
         """Get total number of users."""
         users = self.get_all_users(current_user_id)
         return len(users)
+
 
 def get_user_manager():
     return UserManager()

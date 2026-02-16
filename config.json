@@ -9,7 +9,9 @@
     "default_llm": "Groq Llama 3",
     "version": "1.0.0",
     "auto_login": true,
-    "auto_login_user": "master1"
+    "auto_login_user": "master1",
+    "local_mode": true,
+    "test_mode": false
   },
   "database": {
     "path": "data",

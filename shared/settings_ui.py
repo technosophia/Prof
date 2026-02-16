@@ -11,10 +11,21 @@ Provides user settings interface where users can customize:
 
 import streamlit as st
 from typing import Dict, Any, Optional, Tuple
-from shared.common import _, log, get_config, get_user_settings_manager
+from shared.common import _, log, get_config, get_user_settings_manager, get_user_manager
 from shared.common import get_available_llms, set_current_llm, get_current_llm_info
 from shared.common import get_available_languages
 from shared.common import UserRole
+
+
+def is_production_mode() -> bool:
+    """Check if we're in production mode (not local and not test)."""
+    config = get_config()
+    local_mode = config.get("app.local_mode", False)
+    test_mode = config.get("app.test_mode", False) or "pytest" in str(st.__file__)
+
+    # Production mode = not local and not test
+    return not (local_mode or test_mode)
+
 
 def get_llm_options() -> list:
     """Get available LLM options for dropdown."""
@@ -35,6 +46,7 @@ def get_llm_options() -> list:
 
     return options
 
+
 def show_settings_content():
     """Display the settings page content."""
     current_user = st.session_state.get("current_user")
@@ -43,9 +55,17 @@ def show_settings_content():
         st.error("Please log in to access settings.")
         return
 
+    production_mode = is_production_mode()
+    user_role = current_user.get("role")
+
+    # In production mode, normal users cannot access settings
+    if production_mode and user_role == UserRole.NORMAL.value:
+        st.error("You don't have permission to access settings.")
+        st.info("Please contact your master or administrator for assistance.")
+        return
+
     user_id = current_user.get("id")
     user_name = current_user.get("name")
-    user_role = current_user.get("role")
 
     st.header(f"⚙️ Settings for {user_name}")
 
@@ -59,7 +79,6 @@ def show_settings_content():
     # Get current settings
     current_settings = settings_manager.get_user_settings(user_id)
 
-    # Create tabs for different settings categories
     tab1, tab2, tab3, tab4 = st.tabs(["🌍 Language & LLM", "🤖 System Prompt", "⚡ Preferences", "📊 Info"])
 
     with tab1:
@@ -126,96 +145,102 @@ def show_settings_content():
                         st.write(f"**Status:** Available ✅")
 
     with tab2:
-        st.subheader("System Prompt Configuration")
+        if not production_mode or user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
 
-        st.write("#### Custom System Prompt")
-        st.caption("This prompt will be used to guide the AI's behavior and responses.")
+            st.subheader("System Prompt Configuration")
 
-        # Get current system prompt
-        current_prompt = current_settings.get("system_prompt", "")
+            st.write("#### Custom System Prompt")
+            st.caption("This prompt will be used to guide the AI's behavior and responses.")
 
-        # Text area for system prompt
-        system_prompt = st.text_area(
-            "Enter your custom system prompt",
-            value=current_prompt,
-            height=200,
-            placeholder="You are a helpful AI assistant. You provide clear, concise, and accurate information. You respond in the user's preferred language when possible.",
-            key="settings_system_prompt"
-        )
+            # Get current system prompt
+            current_prompt = current_settings.get("system_prompt", "")
 
-        # Prompt examples
-        with st.expander("💡 Prompt Examples"):
-            st.write("**General Assistant:**")
-            st.code("You are a helpful, respectful, and honest assistant. Always answer as helpfully as possible, while being safe.")
+            # Text area for system prompt
+            system_prompt = st.text_area(
+                "Enter your custom system prompt",
+                value=current_prompt,
+                height=200,
+                placeholder="You are a helpful AI assistant. You provide clear, concise, and accurate information. You respond in the user's preferred language when possible.",
+                key="settings_system_prompt"
+            )
 
-            st.write("**Language Teacher:**")
-            st.code("You are a language learning assistant. You help users learn languages through conversation, explanations, and exercises.")
+            # Prompt examples
+            with st.expander("💡 Prompt Examples"):
+                st.write("**General Assistant:**")
+                st.code("You are a helpful, respectful, and honest assistant. Always answer as helpfully as possible, while being safe.")
 
-            st.write("**Technical Expert:**")
-            st.code("You are a technical expert. You provide detailed, accurate technical explanations with code examples when appropriate.")
+                st.write("**Language Teacher:**")
+                st.code("You are a language learning assistant. You help users learn languages through conversation, explanations, and exercises.")
 
-        # Prompt length counter
-        prompt_length = len(system_prompt)
-        st.caption(f"Prompt length: {prompt_length} characters")
+                st.write("**Technical Expert:**")
+                st.code("You are a technical expert. You provide detailed, accurate technical explanations with code examples when appropriate.")
 
-        if prompt_length > 2000:
-            st.warning("⚠️ Long prompts may affect performance and token usage.")
+            # Prompt length counter
+            prompt_length = len(system_prompt)
+            st.caption(f"Prompt length: {prompt_length} characters")
+
+            if prompt_length > 2000:
+                st.warning("⚠️ Long prompts may affect performance and token usage.")
 
     with tab3:
-        st.subheader("General Preferences")
+        if not production_mode or user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
 
-        col1, col2 = st.columns(2)
+            st.subheader("General Preferences")
 
-        with col1:
-            # Temperature setting
-            temperature = st.slider(
-                "Temperature",
-                min_value=0.0,
-                max_value=2.0,
-                value=float(current_settings.get("temperature", 0.7)),
-                step=0.1,
-                help="Higher values make output more random, lower values more deterministic."
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Temperature setting
+                temperature = st.slider(
+                    "Temperature",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=float(current_settings.get("temperature", 0.7)),
+                    step=0.1,
+                    help="Higher values make output more random, lower values more deterministic."
+                )
+
+                # Max tokens
+                max_tokens = st.number_input(
+                    "Max Tokens per Response",
+                    min_value=100,
+                    max_value=4000,
+                    value=int(current_settings.get("max_tokens", 1000)),
+                    step=100,
+                    help="Maximum length of AI responses."
+                )
+
+            with col2:
+                # Auto-save
+                auto_save = st.toggle(
+                    "Auto-save Conversations",
+                    value=current_settings.get("auto_save", True),
+                    help="Automatically save conversation history."
+                )
+
+                # Notifications
+                notifications = st.toggle(
+                    "Enable Notifications",
+                    value=current_settings.get("notifications", True),
+                    help="Show notification messages."
+                )
+
+            # Theme selection
+            theme_options = ["light", "dark", "auto"]
+            current_theme = current_settings.get("theme", "light")
+            theme_idx = theme_options.index(current_theme) if current_theme in theme_options else 0
+
+            theme = st.selectbox(
+                "Interface Theme",
+                options=theme_options,
+                index=theme_idx,
+                format_func=lambda x: x.title(),
+                help="Choose your preferred color theme."
             )
 
-            # Max tokens
-            max_tokens = st.number_input(
-                "Max Tokens per Response",
-                min_value=100,
-                max_value=4000,
-                value=int(current_settings.get("max_tokens", 1000)),
-                step=100,
-                help="Maximum length of AI responses."
-            )
-
-        with col2:
-            # Auto-save
-            auto_save = st.toggle(
-                "Auto-save Conversations",
-                value=current_settings.get("auto_save", True),
-                help="Automatically save conversation history."
-            )
-
-            # Notifications
-            notifications = st.toggle(
-                "Enable Notifications",
-                value=current_settings.get("notifications", True),
-                help="Show notification messages."
-            )
-
-        # Theme selection
-        theme_options = ["light", "dark", "auto"]
-        current_theme = current_settings.get("theme", "light")
-        theme_idx = theme_options.index(current_theme) if current_theme in theme_options else 0
-
-        theme = st.selectbox(
-            "Interface Theme",
-            options=theme_options,
-            index=theme_idx,
-            format_func=lambda x: x.title(),
-            help="Choose your preferred color theme."
-        )
-
-    with tab4:
+    # Info tab is always visible
+    info_tab = tab4 if 'tab4' in locals() else (tab2 if 'tab2' in locals() else tab1)
+    with info_tab:
         st.subheader("User Information")
 
         col1, col2 = st.columns(2)
@@ -231,6 +256,13 @@ def show_settings_content():
 
             if current_user.get("parent_name"):
                 st.write(f"**Managed by:** {current_user.get('parent_name')}")
+
+            # Password status (production mode only)
+            if production_mode:
+                if current_user.get('has_password'):
+                    st.write("**Password:** ✅ Set")
+                else:
+                    st.write("**Password:** ⚠️ Not set - please reset")
 
         with col2:
             st.write("**Usage Statistics**")
@@ -250,31 +282,32 @@ def show_settings_content():
         with st.expander("View Raw Settings"):
             st.json(current_settings)
 
-        # Reset to defaults button
-        if st.button("🔄 Reset to Defaults", type="secondary"):
-            st.warning("This will reset all your settings to default values.")
-            col_reset1, col_reset2 = st.columns(2)
-            with col_reset1:
-                if st.button("✅ Confirm Reset"):
-                    default_reset = {
-                        "language": "en",
-                        "default_llm": None,
-                        "system_prompt": "",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                        "auto_save": True,
-                        "notifications": True,
-                        "theme": "light"
-                    }
-                    success = settings_manager.update_user_settings(user_id, default_reset)
-                    if success:
-                        st.success("Settings reset to defaults!")
+        # Reset to defaults button (only for admin/master in production mode, or all in local/test)
+        if not production_mode or user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+            if st.button("🔄 Reset to Defaults", type="secondary"):
+                st.warning("This will reset all your settings to default values.")
+                col_reset1, col_reset2 = st.columns(2)
+                with col_reset1:
+                    if st.button("✅ Confirm Reset"):
+                        default_reset = {
+                            "language": "en",
+                            "default_llm": None,
+                            "system_prompt": "",
+                            "temperature": 0.7,
+                            "max_tokens": 1000,
+                            "auto_save": True,
+                            "notifications": True,
+                            "theme": "light"
+                        }
+                        success = settings_manager.update_user_settings(user_id, default_reset)
+                        if success:
+                            st.success("Settings reset to defaults!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to reset settings.")
+                with col_reset2:
+                    if st.button("❌ Cancel"):
                         st.rerun()
-                    else:
-                        st.error("Failed to reset settings.")
-            with col_reset2:
-                if st.button("❌ Cancel"):
-                    st.rerun()
 
     # Save button at the bottom
     st.divider()
@@ -322,10 +355,12 @@ def show_settings_content():
     with col_save3:
         st.caption("Settings are saved per user and persist across sessions.")
 
+
 def inject_ui_settings_content():
     """Inject settings content."""
     st.write("Settings Content")
     return show_settings_content()
+
 
 def inject_ui_sidebar():
     """Add language and LLM selectors to sidebar that reflect user preferences."""
@@ -333,6 +368,12 @@ def inject_ui_sidebar():
     # Get current user
     current_user = st.session_state.get("current_user")
     if not current_user:
+        return None
+
+    production_mode = is_production_mode()
+
+    # In production mode, normal users don't see these settings in sidebar
+    if production_mode and current_user.get("role") == UserRole.NORMAL.value:
         return None
 
     # Get settings manager
@@ -442,6 +483,7 @@ def inject_ui_sidebar():
         st.caption(f"👤 User pref: 🤖 {llm_name}")
 
     return None
+
 
 def inject_ui_initialize():
     """Initialize settings module."""

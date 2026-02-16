@@ -1,7 +1,9 @@
 {
   "app": {
     "default_llm": "Mock LLM",
-    "auto_login": false
+    "auto_login": false,
+    "local_mode": true,
+    "test_mode": true
   },
   "database": {
     "path": "tests/data",

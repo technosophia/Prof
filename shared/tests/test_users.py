@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from unittest.mock import MagicMock, patch, Mock
 
-from shared.users import UserManager, UserTable, UserRole
+from shared.users import UserManager, UserTable, UserRole, UserAction
 
 
 class TestUserManager:
@@ -217,22 +217,28 @@ class TestUserManager:
         mock_query.filter_by.return_value.first.return_value = mock_parent
         self.mock_session.query.return_value = mock_query
 
-        with patch('uuid.uuid4', return_value=mock_uuid):
-            with patch('shared.users.log'):
-                user_id = self.user_manager.create_user(
-                    name="New User",
-                    role=UserRole.NORMAL.value,
-                    email="new@example.com",
-                    parent_id="master1",
-                    profile={"language": "fr"}
-                )
+        # Mock get_user_by_name to return None (username doesn't exist)
+        with patch.object(self.user_manager, 'get_user_by_name', return_value=None):
+            with patch('uuid.uuid4', return_value=mock_uuid):
+                with patch('shared.users.log'):
+                    user_id, reset_code = self.user_manager.create_user(
+                        name="New User",
+                        role=UserRole.NORMAL.value,
+                        email="new@example.com",
+                        parent_id="master1",
+                        profile={"language": "fr"}
+                    )
 
         # Verify the user ID matches
         assert user_id == test_uuid_str
-        self.mock_session.add.assert_called_once()
+        assert reset_code is not None  # Since no password provided, reset code should be generated
+
+        # Now add is called twice: once for user, once for action log
+        assert self.mock_session.add.call_count == 2
 
         # Verify the user object was created with correct data
-        added_user = self.mock_session.add.call_args[0][0]
+        # The first call should be the user
+        added_user = self.mock_session.add.call_args_list[0][0][0]
         assert added_user.name == "New User"
         assert added_user.email == "new@example.com"
         assert added_user.role == UserRole.NORMAL.value
@@ -240,26 +246,45 @@ class TestUserManager:
         assert added_user.profile == {"language": "fr"}
         assert added_user.is_active == True
 
+        # The second call should be the action log
+        added_log = self.mock_session.add.call_args_list[1][0][0]
+        assert added_log.action == UserAction.CREATE_USER.value
+        assert added_log.target_user_id == test_uuid_str
+        assert added_log.target_username == "New User"
+
     def test_create_user_admin(self):
         """Test creating an admin user."""
         test_uuid_str = '123e4567-e89b-12d3-a456-426614174000'
         mock_uuid = MagicMock()
         mock_uuid.__str__ = MagicMock(return_value=test_uuid_str)
 
-        with patch('uuid.uuid4', return_value=mock_uuid):
-            with patch('shared.users.log'):
-                user_id = self.user_manager.create_user(
-                    name="New Admin",
-                    role=UserRole.ADMIN.value,
-                    email="admin@example.com"
-                )
+        # Mock get_user_by_name to return None (username doesn't exist)
+        with patch.object(self.user_manager, 'get_user_by_name', return_value=None):
+            with patch('uuid.uuid4', return_value=mock_uuid):
+                with patch('shared.users.log'):
+                    user_id, reset_code = self.user_manager.create_user(
+                        name="New Admin",
+                        role=UserRole.ADMIN.value,
+                        email="admin@example.com"
+                    )
 
         assert user_id == test_uuid_str
-        self.mock_session.add.assert_called_once()
+        assert reset_code is not None  # Since no password provided, reset code should be generated
 
-        added_user = self.mock_session.add.call_args[0][0]
+        # Now add is called twice: once for user, once for action log
+        assert self.mock_session.add.call_count == 2
+
+        # Verify the user object was created with correct data
+        # The first call should be the user
+        added_user = self.mock_session.add.call_args_list[0][0][0]
         assert added_user.role == UserRole.ADMIN.value
         assert added_user.parent_id is None
+
+        # The second call should be the action log
+        added_log = self.mock_session.add.call_args_list[1][0][0]
+        assert added_log.action == UserAction.CREATE_USER.value
+        assert added_log.target_user_id == test_uuid_str
+        assert added_log.target_username == "New Admin"
 
     def test_create_user_empty_name(self):
         """Test user creation with empty name."""
@@ -322,26 +347,33 @@ class TestUserManager:
         mock_user.parent_id = 'master1'
         mock_user.profile = {"old": "value"}
         mock_user.user_metadata = {}
+        mock_user.name = "Test User"  # Add name for logging
 
-        # Setup query
+        # Setup query to return the user
         mock_query = MagicMock()
         mock_query.filter_by.return_value.first.return_value = mock_user
         self.mock_session.query.return_value = mock_query
 
-        success = self.user_manager.update_user(
-            'test1',
-            name='Updated Name',
-            profile={'language': 'fr'},
-            metadata={'new': 'metadata'}
-        )
+        # We need to handle the fact that log_user_action will create its own session
+        # and commit. Let's mock the logger to avoid extra commits in our test session
+        with patch('shared.users.get_user_manager') as mock_get_user_manager:
+            mock_user_manager = MagicMock()
+            mock_get_user_manager.return_value = mock_user_manager
+
+            success = self.user_manager.update_user(
+                'test1',
+                name='Updated Name',
+                profile={'language': 'fr'},
+                metadata={'new': 'metadata'}
+            )
 
         assert success == True
         assert mock_user.name == 'Updated Name'
         assert mock_user.profile == {'language': 'fr'}
         assert mock_user.user_metadata == {'new': 'metadata'}
 
-        # Commit should have been called by the context manager
-        self.mock_session.commit.assert_called_once()
+        # Verify the user update happened
+        self.mock_session.commit.assert_called()
 
     def test_update_user_role_change(self):
         """Test updating user role."""
