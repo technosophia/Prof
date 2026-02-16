@@ -79,6 +79,12 @@ class RAGManager:
         # Register callback for user deletion
         user_manager.register_before_delete_callback(self._handle_user_deletion)
 
+        if not self.has_any_documents():
+            log("info", "No existing documents found, running auto-import")
+            self.run_auto_import()
+        else:
+            log("info", f"Existing documents found ({len(self.documents)}), skipping auto-import")
+
         log("info", f"RAG Manager initialized with default engine: {self.default_engine}")
 
     def _init_caching(self):
@@ -639,6 +645,143 @@ class RAGManager:
         stats = engine.get_stats(user_id)
         stats['engine_type'] = engine_type
         return stats
+
+    def run_auto_import(self):
+        """
+        Run auto-import for documents defined in config.
+        This should be called once at application startup.
+        """
+        try:
+            rag_config = self.config.get("modules.rag_manager", {})
+            auto_import_configs = rag_config.get("auto_import", [])
+
+            if not auto_import_configs:
+                log("debug", "No auto-import configurations found")
+                return
+
+            log("info", f"Running auto-import for {len(auto_import_configs)} user configurations")
+
+            for user_config in auto_import_configs:
+                user_id = user_config.get("user_id")
+                files = user_config.get("files", [])
+
+                if not user_id or not files:
+                    log("warning", f"Invalid auto-import config: missing user_id or files: {user_config}")
+                    continue
+
+                # Check if user exists
+                user_info = user_manager.get_user(user_id)
+                if not user_info:
+                    log("warning", f"User {user_id} not found for auto-import, skipping")
+                    continue
+
+                self._auto_import_for_user(user_id, files)
+
+            log("info", "Auto-import completed")
+
+        except Exception as e:
+            log("error", f"Failed to run auto-import: {str(e)}", exc_info=True)
+
+    def _auto_import_for_user(self, user_id: str, files: List[Dict]):
+        """
+        Auto-import files for a specific user.
+
+        Two-pass process:
+        1. Import documents that don't exist yet
+        2. Index documents on specified engines if not already indexed
+        """
+        try:
+            # Get existing documents for this user
+            existing_docs = self.get_user_documents(user_id)
+            existing_filenames = {doc['original_filename'] for doc in existing_docs}
+
+            # First pass: Import new documents
+            imported_files = []
+            for file_config in files:
+                source_path = file_config.get("source_path")
+                original_filename = file_config.get("original_filename")
+                is_public = file_config.get("is_public", False)
+
+                if not source_path or not original_filename:
+                    log("warning", f"Invalid file config missing source_path or original_filename: {file_config}")
+                    continue
+
+                # Check if document already exists
+                if original_filename in existing_filenames:
+                    log("debug", f"Document {original_filename} already exists for user {user_id}")
+                    # Still track it for indexing pass
+                    imported_files.append(file_config)
+                    continue
+
+                # Check if source file exists
+                if not os.path.exists(source_path):
+                    log("warning", f"Source file not found: {source_path}")
+                    continue
+
+                # Upload the document
+                unique_filename = self.upload_document(
+                    source_path=source_path,
+                    original_filename=original_filename,
+                    user_id=user_id,
+                    is_public=is_public
+                )
+
+                if unique_filename:
+                    log("info", f"Auto-imported document {original_filename} for user {user_id}")
+                    imported_files.append(file_config)
+                else:
+                    log("error", f"Failed to auto-import document {original_filename} for user {user_id}")
+
+            # Second pass: Index documents on specified engines
+            for file_config in imported_files:
+                original_filename = file_config.get("original_filename")
+                engines_to_index = file_config.get("engines", [])
+
+                # Find the actual stored filename
+                stored_filename = None
+                for filename, metadata in self.documents.items():
+                    if (metadata.get('original_filename') == original_filename and
+                        metadata.get('uploaded_by') == user_id):
+                        stored_filename = filename
+                        break
+
+                if not stored_filename:
+                    log("warning", f"Could not find stored filename for {original_filename} (user {user_id})")
+                    continue
+
+                doc_info = self.documents.get(stored_filename, {})
+                existing_indexes = doc_info.get('indexed_in', {})
+
+                for engine_type in engines_to_index:
+                    # Check if already indexed with this engine
+                    if engine_type in existing_indexes:
+                        log("debug", f"Document {original_filename} already indexed with engine {engine_type}")
+                        continue
+
+                    # Check if engine exists and is enabled
+                    engine_config = self.config.get("modules.rag_manager.engines", {}).get(engine_type, {})
+                    if not engine_config.get("enabled", False):
+                        log("warning", f"Engine {engine_type} is not enabled, skipping index for {original_filename}")
+                        continue
+
+                    # Index the document
+                    success = self.index_document(stored_filename, engine_type, user_id)
+                    if success:
+                        log("info", f"Auto-indexed {original_filename} with engine {engine_type} for user {user_id}")
+                    else:
+                        log("error", f"Failed to auto-index {original_filename} with engine {engine_type} for user {user_id}")
+
+        except Exception as e:
+            log("error", f"Auto-import failed for user {user_id}: {str(e)}", exc_info=True)
+
+    def has_any_documents(self, user_id: Optional[str] = None) -> bool:
+        """
+        Check if there are any documents in the system.
+        If user_id is provided, check for that user only.
+        """
+        if user_id:
+            return len(self.get_user_documents(user_id)) > 0
+        return len(self.documents) > 0
 
 
 # Create a singleton instance
