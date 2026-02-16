@@ -778,8 +778,8 @@ class UserManager:
                 return self._user_to_dict(user)
             return None
 
-    def authenticate_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
-        """Authenticate a user by username and password.
+    def authenticate_user(self, user_id: str, password: str) -> Optional[Dict[str, Any]]:
+        """Authenticate a user by user_id and password.
 
         Returns:
             User dict if authentication successful, None otherwise
@@ -788,14 +788,14 @@ class UserManager:
 
         with self.db.get_session() as session:
             user = session.query(UserTable).filter(
-                func.lower(UserTable.id) == username.lower()
+                func.lower(UserTable.id) == user_id.lower()
             ).first()
 
             if not user:
                 self.log_user_action(
                     user_id=None,
                     action=UserAction.LOGIN_FAILED.value,
-                    details={"username": username, "reason": "user_not_found"},
+                    details={"user_id": user_id, "reason": "user_not_found"},
                     success=False
                 )
                 return None
@@ -890,33 +890,33 @@ class UserManager:
 
             return reset_code
 
-    def reset_password_with_code(self, username: str, reset_code: str, new_password: str) -> bool:
+    def reset_password_with_code(self, user_id: str, reset_code: str, new_password: str) -> bool:
         """Reset a user's password using a reset code.
 
         Args:
-            username: Username of the user
+            user_id: User ID of the user
             reset_code: The reset code
             new_password: New password to set
 
         Returns:
             True if successful, False otherwise
         """
-        log("info", f"Resetting password for user '{username}' '{reset_code}' '{new_password}'")
+        log("info", f"Resetting password for user '{user_id}' '{reset_code}' '{new_password}'")
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
             user = session.query(UserTable).filter(
-                func.lower(UserTable.id) == username.lower()
+                func.lower(UserTable.id) == user_id.lower()
             ).first()
 
             if not user:
                 self.log_user_action(
                     user_id=None,
                     action=UserAction.RESET_PASSWORD.value,
-                    details={"username": username, "reason": "user_not_found"},
+                    details={"username": user_id, "reason": "user_not_found"},
                     success=False
                 )
-                log("error", f"User '{username}' not found")
+                log("error", f"User '{user_id}' not found")
                 return False
 
             if not user.reset_code or not user.reset_code_expires:
@@ -926,7 +926,7 @@ class UserManager:
                     details={"reason": "no_reset_code"},
                     success=False
                 )
-                log("error", f"User '{username}' has no reset code")
+                log("error", f"User '{user_id}' has no reset code")
                 return False
 
             if user.reset_code_expires < datetime.utcnow():
@@ -936,7 +936,7 @@ class UserManager:
                     details={"reason": "code_expired"},
                     success=False
                 )
-                log("error", f"Reset code for user '{username}' has expired")
+                log("error", f"Reset code for user '{user_id}' has expired")
                 return False
 
             if not secrets.compare_digest(user.reset_code, reset_code):
@@ -946,7 +946,7 @@ class UserManager:
                     details={"reason": "invalid_code"},
                     success=False
                 )
-                log("error", f"Invalid reset code for user '{username}'")
+                log("error", f"Invalid reset code for user '{user_id}'")
                 return False
 
             # Set new password
