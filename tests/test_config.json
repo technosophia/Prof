@@ -1,6 +1,6 @@
 {
   "app": {
-    "test_default_llm": "Mock LLM",
+    "default_llm": "Mock LLM",
     "auto_login": false
   },
   "database": {
