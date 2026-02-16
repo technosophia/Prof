@@ -10,7 +10,7 @@
     "test_default_llm": "Mock LLM",
     "version": "1.0.0",
     "auto_login": true,
-    "auto_login_user": "master1"
+    "auto_login_user": "normal1_m1"
   },
   "database": {
     "path": "data",
@@ -21,6 +21,18 @@
       "file": "tests/initial_users.json",
       "overwrite": false,
       "description": "Auto-import users from JSON file if no users exist"
+    },
+    "auto_import_conversations": {
+      "enabled": true,
+      "files": [
+        {
+          "file": "tests/sample_conversation.yaml",
+          "user_id": "normal1_m1",
+          "description": "Sample conversation for normal user",
+          "overwrite": false
+        }
+      ],
+      "description": "Auto-import conversations from YAML files for specific users"
     }
   },
   "llms": {

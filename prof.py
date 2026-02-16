@@ -122,6 +122,7 @@ from shared.common import log, configure_logging_from_dict
 from shared.common import init_database, get_db_manager
 from shared.common import init_user_manager
 from shared.common import get_prompt_manager
+from shared.export_import import auto_import_conversations_from_config
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
@@ -146,10 +147,6 @@ if 'module_handler' not in st.session_state:
 # Use the session state module handler
 module_handler = st.session_state.module_handler
 
-# Initialize user manager with default users
-init_user_manager(create_default_users=True)
-get_prompt_manager()
-
 # Load active module UIs immediately
 active_modules = module_handler.get_active_modules()
 for module_name in active_modules:
@@ -171,6 +168,10 @@ try:
 except Exception as e:
     log("error", f"Database schema upgrade failed: {e}", exc_info=True)
     st.error(f"Database migration failed: {e}. Please check logs.")
+
+init_user_manager(create_default_users=True)
+get_prompt_manager()
+auto_import_conversations_from_config()
 
 # Initialize UI registry - do this here, not inside main()
 # The registry will be cached in session state

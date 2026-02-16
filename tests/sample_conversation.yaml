@@ -1,0 +1,39 @@
+version: "1.0"
+exported_at: "2026-02-16T04:55:00.000000"
+conversation_count: 1
+conversations:
+  - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+    title: Learning about meditation
+    created_at: "2026-02-16T04:30:00.000000"
+    updated_at: "2026-02-16T04:45:00.000000"
+    is_active: true
+    llm_config:
+      id: groq
+      name: Groq Llama 3
+      type: groq
+      model: llama-3.3-70b-versatile
+      available: true
+      description: Fast inference via Groq
+      enabled: true
+    messages:
+      - role: user
+        content: I've heard meditation can help with focus. Can you teach me the basics?
+        timestamp: "2026-02-16T04:30:15.123456"
+      - role: assistant
+        content: Of course. Meditation is simply the practice of training your attention and awareness. A great way to start is with a basic mindfulness meditation, where you focus on your natural breath.
+        timestamp: "2026-02-16T04:30:30.234567"
+        llm_id: groq
+      - role: user
+        content: Okay, I'm trying it now. My mind keeps wandering. Is that normal?
+        timestamp: "2026-02-16T04:35:20.345678"
+      - role: assistant
+        content: Absolutely, it's completely normal. The goal isn't to have an empty mind, but to notice when your mind wanders and gently bring your attention back to your breath without judgment.
+        timestamp: "2026-02-16T04:35:45.456789"
+        llm_id: groq
+      - role: user
+        content: That's reassuring. How long should I try to meditate for as a beginner?
+        timestamp: "2026-02-16T04:40:10.567890"
+      - role: assistant
+        content: Starting with just 5 to 10 minutes a day is perfect. Consistency is more important than duration, so even a short daily practice will build the habit and the benefits over time.
+        timestamp: "2026-02-16T04:40:30.678901"
+        llm_id: groq

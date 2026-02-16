@@ -9,6 +9,7 @@ Supports both individual conversations and bulk operations.
 import yaml
 import json
 import uuid
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
@@ -282,9 +283,10 @@ class ConversationImporter:
         try:
             # Parse YAML
             data = yaml.safe_load(yaml_data)
+            log("debug", f"Import conversation - data type: {type(data)}")
 
             # Check if this is a bulk export
-            if "conversations" in data and isinstance(data["conversations"], list):
+            if isinstance(data, dict) and "conversations" in data:
                 log("warning", "Bulk export detected in single conversation import")
                 return None
 
@@ -350,63 +352,56 @@ class ConversationImporter:
                                    preserve_ids: bool = False) -> Optional[str]:
         """Internal method to import a single conversation."""
         try:
+            log("debug", f"Importing single conversation: {conv_data.get('title', 'Untitled')}")
+            log("debug", f"Conversation data keys: {list(conv_data.keys())}")
+
             manager = get_conversation_manager()
 
             # Get llm_id from conversation config for backward compatibility
             conversation_llm_id = conv_data.get("llm_config", {}).get("id")
+            log("debug", f"Conversation LLM ID from config: {conversation_llm_id}")
 
-            # Generate new ID if not preserving
-            original_id = conv_data.get("id")
-            if preserve_ids and original_id:
-                # Check if conversation ID already exists
-                existing = manager.get_conversation(original_id, include_messages=False)
-                if existing:
-                    # Generate new ID to avoid conflict
-                    new_id = str(uuid.uuid4())
-                else:
-                    new_id = original_id
-            else:
-                new_id = str(uuid.uuid4())
+            # Prepare metadata for the new conversation
+            import_metadata = {
+                "imported": True,
+                "imported_from": conv_data.get("id"),
+                "imported_at": datetime.utcnow().isoformat(),
+                "import_format": "v2_with_llm_id" if any(
+                    msg.get("llm_id") for msg in conv_data.get("messages", [])
+                    if isinstance(msg, dict) and msg.get("role") == "assistant"
+                ) else "v1_legacy",
+                "created_via": "import"  # Override the default "ui"
+            }
 
-            # Create conversation
+            # Create conversation with metadata
             conversation_id = manager.create_conversation(
                 user_id=target_user_id,
                 title=conv_data["title"],
                 system_prompt=conv_data.get("system_prompt"),
-                llm_config=conv_data.get("llm_config", {})
+                llm_config=conv_data.get("llm_config", {}),
+                metadata=import_metadata  # Pass metadata here
             )
 
             if not conversation_id:
                 log("error", "Failed to create conversation during import")
                 return None
 
-            # Update conversation ID if we want to use a specific one
-            if preserve_ids and original_id and original_id != conversation_id:
-                # We need to update the conversation ID in the database
-                with manager.db.get_session() as session:
-                    # Get the newly created conversation
-                    conv = session.query(ConversationTable).filter_by(id=conversation_id).first()
-                    if conv:
-                        # Update to the original ID
-                        conv.id = original_id
-
-                        # Update all related messages
-                        session.query(MessageTable).filter_by(conversation_id=conversation_id).update(
-                            {"conversation_id": original_id}
-                        )
-
-                        session.commit()
-                        conversation_id = original_id
+            log("debug", f"Created conversation with ID: {conversation_id}")
 
             # Add messages if present
             messages = conv_data.get("messages", [])
-            for msg_data in messages:
+            log("debug", f"Adding {len(messages)} messages to conversation")
+
+            for i, msg_data in enumerate(messages):
                 # Convert to Message object
                 if isinstance(msg_data, dict):
+                    log("debug", f"Processing message {i+1}: role={msg_data.get('role')}")
+
                     # Handle backward compatibility: if llm_id is missing for assistant messages,
                     # use the conversation's llm_config id
                     if msg_data.get("role") == "assistant" and "llm_id" not in msg_data:
                         msg_data["llm_id"] = conversation_llm_id
+                        log("debug", f"Added LLM ID from conversation config: {conversation_llm_id}")
 
                     # Handle old export format where llm_id was in metadata
                     if msg_data.get("role") == "assistant" and not msg_data.get("llm_id"):
@@ -416,6 +411,7 @@ class ConversationImporter:
                             # Remove from metadata to avoid duplication
                             if "metadata" in msg_data:
                                 msg_data["metadata"].pop("llm_id", None)
+                            log("debug", f"Extracted LLM ID from metadata: {msg_data['llm_id']}")
 
                     message = Message.from_dict(msg_data)
                 else:
@@ -423,18 +419,6 @@ class ConversationImporter:
 
                 # Add message to conversation
                 manager.add_message(conversation_id, message)
-
-            # Update conversation metadata to include import info
-            with manager.db.get_session() as session:
-                conv = session.query(ConversationTable).filter_by(id=conversation_id).first()
-                if conv:
-                    metadata = conv.conv_metadata or {}
-                    metadata["imported_from"] = original_id
-                    metadata["imported_at"] = datetime.utcnow().isoformat()
-                    metadata["import_format"] = "v2_with_llm_id" if any(
-                        msg.get("llm_id") for msg in messages if isinstance(msg, dict) and msg.get("role") == "assistant"
-                    ) else "v1_legacy"
-                    conv.conv_metadata = metadata
 
             log("info", f"Imported conversation: {conv_data['title']} (ID: {conversation_id})")
             return conversation_id
@@ -477,9 +461,32 @@ def export_conversation_to_file(conversation_id: str, file_path: str) -> bool:
 
 def import_conversation_from_file(file_path: str, target_user_id: str) -> Optional[str]:
     """Convenience function to import conversation from file."""
+    log("debug", f"import_conversation_from_file called with: {file_path}, user: {target_user_id}")
+
+    if not os.path.exists(file_path):
+        log("error", f"File does not exist: {file_path}")
+        return None
+
     yaml_data = importer.load_from_file(file_path)
-    if yaml_data:
-        return importer.import_conversation(yaml_data, target_user_id)
+    if not yaml_data:
+        log("error", f"Failed to load YAML data from {file_path}")
+        return None
+
+    # Try as single conversation
+    conv_id = importer.import_conversation(yaml_data, target_user_id, preserve_ids=False)
+    if conv_id:
+        log("info", f"Successfully imported as single conversation: {conv_id}")
+        return conv_id
+
+    # If that fails, try as bulk
+    log("debug", "Single import failed, trying bulk import")
+    imported_ids = importer.import_bulk_conversations(yaml_data, target_user_id, preserve_ids=False)
+
+    if imported_ids:
+        log("info", f"Successfully imported {len(imported_ids)} conversations via bulk import")
+        return imported_ids[0]
+
+    log("error", "Both single and bulk import attempts failed")
     return None
 
 
@@ -497,3 +504,100 @@ def import_bulk_conversations_from_file(file_path: str, target_user_id: str) -> 
     if yaml_data:
         return importer.import_bulk_conversations(yaml_data, target_user_id)
     return []
+
+def auto_import_conversations_from_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+    """
+    Auto-import conversations from configured YAML files.
+    Only runs if there are NO conversations in the database.
+    Called during application startup after database and user manager are initialized.
+
+    Args:
+        config: Optional configuration dict. If not provided, loads from get_config()
+
+    Returns:
+        Dict with counts of imported, skipped, and error conversations
+    """
+    from shared.common import get_config, log
+    from shared.users import get_user_manager
+    from shared.conversation import get_conversation_manager
+    import os
+
+    if config is None:
+        config = get_config()
+
+    db_config = config.get("database", {})
+    auto_import_config = db_config.get("auto_import_conversations", {})
+
+    if not auto_import_config.get("enabled", False):
+        log("debug", "Auto-import conversations is disabled")
+        return {"imported": 0, "skipped": 0, "errors": 0}
+
+    files_config = auto_import_config.get("files", [])
+    if not files_config:
+        log("debug", "No conversation files configured for auto-import")
+        return {"imported": 0, "skipped": 0, "errors": 0}
+
+    # Check if there are ANY conversations in the database
+    conversation_manager = get_conversation_manager()
+    with conversation_manager.db.get_session() as session:
+        from shared.conversation import ConversationTable
+        conversation_count = session.query(ConversationTable).count()
+
+        if conversation_count > 0:
+            log("debug", f"Database already has {conversation_count} conversations, skipping auto-import")
+            return {"imported": 0, "skipped": 0, "errors": 0}
+
+    log("info", "No conversations found in database, proceeding with auto-import")
+
+    user_manager = get_user_manager()
+    imported_count = 0
+    error_count = 0
+
+    for file_config in files_config:
+        file_path = file_config.get("file")
+        user_id = file_config.get("user_id")
+        description = file_config.get("description", "Unnamed conversation")
+
+        log("info", f"Processing auto-import: file={file_path}, user={user_id}")
+
+        if not file_path or not user_id:
+            log("warning", f"Skipping auto-import: missing file or user_id in config: {file_config}")
+            error_count += 1
+            continue
+
+        # Check if file exists
+        if not os.path.exists(file_path):
+            log("warning", f"Auto-import conversation file not found: {file_path}")
+            error_count += 1
+            continue
+
+        # Check if user exists
+        user = user_manager.get_user(user_id)
+        if not user:
+            log("warning", f"Auto-import: user {user_id} not found, skipping conversation: {file_path}")
+            error_count += 1
+            continue
+
+        # Import the conversation
+        try:
+            log("info", f"Auto-importing conversation from {file_path} for user {user_id}: {description}")
+
+            from shared.export_import import import_conversation_from_file
+            conv_id = import_conversation_from_file(file_path, user_id)
+
+            if conv_id:
+                imported_count += 1
+                log("info", f"Successfully auto-imported conversation {conv_id} from {file_path}")
+            else:
+                log("error", f"Failed to import conversation from {file_path}")
+                error_count += 1
+
+        except Exception as e:
+            log("error", f"Error auto-importing conversation from {file_path}: {e}", exc_info=True)
+            error_count += 1
+
+    log("info", f"Auto-import conversations completed: {imported_count} imported, {error_count} errors")
+    return {
+        "imported": imported_count,
+        "errors": error_count
+    }

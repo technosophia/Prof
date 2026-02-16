@@ -228,7 +228,8 @@ class ConversationManager:
     def create_conversation(self, user_id: str, title: str,
                           system_prompt: Optional[str] = None,
                           llm_config: Optional[Dict] = None,
-                          initial_message: Optional[Message] = None) -> str:
+                          initial_message: Optional[Message] = None,
+                          metadata: Optional[Dict] = None) -> str:  # Add metadata parameter
         """Create a new conversation for a user."""
         # Validate user_id and title
         if not user_id or not user_id.strip():
@@ -250,7 +251,7 @@ class ConversationManager:
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
                 is_active=True,
-                conv_metadata={"created_via": "ui"},  # Use conv_metadata
+                conv_metadata=metadata or {"created_via": "ui"},  # Use provided metadata or default
                 system_prompt=system_prompt,
                 llm_config=llm_config or {}
             )
@@ -266,7 +267,8 @@ class ConversationManager:
                     content=initial_message.content,
                     timestamp=initial_message.timestamp or datetime.utcnow(),
                     tokens=initial_message.tokens,
-                    message_metadata=initial_message.metadata or {}  # Use message_metadata
+                    llm_id=initial_message.llm_id,
+                    message_metadata=initial_message.metadata or {}
                 )
                 session.add(message)
 
