@@ -65,135 +65,189 @@ def inject_ui_inside_conversation():
 
 
 def inject_ui_settings_content():
-    """Add bulk export/import options to settings."""
-    current_user = st.session_state.get("current_user")
-    if not current_user:
-        return None
+    """Legacy method - keep for backward compatibility but not used in new tab system."""
+    # This can be removed or kept as a placeholder
+    pass
 
-    user_id = current_user.get("id")
 
-    st.divider()
-    st.subheader("🗃️ Conversation Management")
+def inject_ui_settings_tab():
+    """Register the Export/Import settings tab using the new injection mechanism.
+    Returns: (tab_name, render_function) tuple."""
 
-    # Bulk export
-    st.write("#### Export All Conversations")
-    st.caption("Export all your conversations to a single YAML file")
+    def render_export_import_tab():
+        """Render the Export/Import tab content."""
+        current_user = st.session_state.get("current_user")
+        if not current_user:
+            st.info("Please log in to access export/import features.")
+            return
 
-    if st.button("📦 Export All Conversations",
-                type="secondary",
-                help="Export all conversations for backup"):
+        user_id = current_user.get("id")
 
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp:
-            file_path = tmp.name
+        st.header("📁 Export/Import Conversations")
 
-        # Export to file
-        success = export_all_conversations_to_file(user_id, file_path)
+        # Create two columns for Export and Import sections
+        col_export, col_import = st.columns(2)
 
-        if success:
-            # Read file and create download button
-            with open(file_path, 'rb') as f:
-                yaml_data = f.read()
+        with col_export:
+            st.subheader("💾 Export")
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"conversations_{current_user.get('name', 'user')}_{timestamp}.yaml"
+            # Single conversation export (if there's a current conversation)
+            if st.session_state.get("current_conversation_id"):
+                st.write("**Current Conversation**")
+                if st.button("Export Current Conversation", use_container_width=True):
+                    st.session_state.show_export_dialog = True
+                    st.rerun()
 
-            st.download_button(
-                label="⬇️ Download Export File",
-                data=yaml_data,
-                file_name=filename,
-                mime="application/x-yaml"
+            # Bulk export
+            st.write("**All Conversations**")
+            st.caption("Export all your conversations to a single YAML file")
+
+            if st.button("📦 Export All Conversations", type="secondary", use_container_width=True):
+                # Create temporary file
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp:
+                    file_path = tmp.name
+
+                # Export to file
+                success = export_all_conversations_to_file(user_id, file_path)
+
+                if success:
+                    # Read file and create download button
+                    with open(file_path, 'rb') as f:
+                        yaml_data = f.read()
+
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"conversations_{current_user.get('name', 'user')}_{timestamp}.yaml"
+
+                    st.download_button(
+                        label="⬇️ Download Export File",
+                        data=yaml_data,
+                        file_name=filename,
+                        mime="application/x-yaml",
+                        key="bulk_export_download"
+                    )
+
+                    # Clean up temp file
+                    try:
+                        os.unlink(file_path)
+                    except:
+                        pass
+                else:
+                    st.error("Failed to export conversations")
+
+        with col_import:
+            st.subheader("📂 Import")
+
+            # Single conversation import
+            st.write("**Import Conversation**")
+            uploaded_file = st.file_uploader(
+                "Choose a conversation file",
+                type=['yaml', 'yml'],
+                key="settings_import_file"
             )
 
-            # Clean up temp file
-            try:
-                os.unlink(file_path)
-            except:
-                pass
-        else:
-            st.error("Failed to export conversations")
+            if uploaded_file is not None:
+                # Preview
+                try:
+                    content = uploaded_file.getvalue().decode('utf-8')
+                    import yaml
+                    data = yaml.safe_load(content)
 
-    # Bulk import
-    st.write("#### Import Conversations")
-    st.caption("Import conversations from a YAML export file")
+                    with st.expander("Preview"):
+                        if "conversations" in data:
+                            st.write(f"**Bulk import:** {len(data['conversations'])} conversations")
+                        else:
+                            st.write(f"**Title:** {data.get('title', 'Untitled')}")
+                            st.write(f"**Messages:** {len(data.get('messages', []))}")
 
-    uploaded_file = st.file_uploader(
-        "Choose a YAML export file",
-        type=['yaml', 'yml'],
-        key="bulk_import_file"
-    )
+                    # Import button
+                    if st.button("📥 Import", type="primary", key="settings_import_btn"):
+                        # Save uploaded file temporarily
+                        with tempfile.NamedTemporaryFile(mode='wb', suffix='.yaml', delete=False) as tmp:
+                            tmp.write(uploaded_file.getvalue())
+                            file_path = tmp.name
 
-    if uploaded_file is not None:
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.yaml', delete=False) as tmp:
-            tmp.write(uploaded_file.getvalue())
-            file_path = tmp.name
+                        with st.spinner("Importing..."):
+                            # Try as single conversation first
+                            conv_id = import_conversation_from_file(file_path, user_id)
 
-        # Preview button
-        if st.button("👁️ Preview Import", type="secondary"):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+                            if conv_id:
+                                st.success(f"✅ Conversation imported successfully!")
+                                if st.button("Open Imported Conversation", key="open_imported"):
+                                    st.session_state.current_conversation_id = conv_id
+                                    st.rerun()
+                            else:
+                                # Try as bulk
+                                imported_ids = import_bulk_conversations_from_file(file_path, user_id)
+                                if imported_ids:
+                                    st.success(f"✅ Successfully imported {len(imported_ids)} conversations!")
+                                else:
+                                    st.error("❌ Failed to import conversation")
 
-                # Parse YAML for preview
-                import yaml
-                data = yaml.safe_load(content)
+                        # Clean up temp file
+                        try:
+                            os.unlink(file_path)
+                        except:
+                            pass
 
-                st.info("### Preview")
-                if "conversations" in data:
-                    st.write(f"**Conversations to import:** {len(data['conversations'])}")
-                    st.write(f"**Original user:** {data.get('user_id', 'Unknown')}")
+                except Exception as e:
+                    st.error(f"Error reading file: {str(e)}")
 
-                    with st.expander("View conversation list"):
-                        for conv in data["conversations"]:
-                            st.write(f"- **{conv.get('title', 'Untitled')}**")
-                            st.caption(f"  Messages: {len(conv.get('messages', []))}")
-                else:
-                    st.write("**Single conversation detected**")
-                    st.write(f"**Title:** {data.get('title', 'Untitled')}")
-                    st.write(f"**Messages:** {len(data.get('messages', []))}")
+            st.divider()
 
-            except Exception as e:
-                st.error(f"Failed to preview file: {str(e)}")
+            # Bulk import
+            st.write("**Bulk Import**")
+            st.caption("Import multiple conversations from a YAML export file")
 
-        # Import button
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📥 Import All", type="primary"):
-                with st.spinner("Importing conversations..."):
-                    imported_ids = import_bulk_conversations_from_file(file_path, user_id)
+            bulk_file = st.file_uploader(
+                "Choose export file",
+                type=['yaml', 'yml'],
+                key="settings_bulk_import_file"
+            )
 
-                    if imported_ids:
-                        st.success(f"✅ Successfully imported {len(imported_ids)} conversations!")
-                        log("info", f"Imported {len(imported_ids)} conversations for user {user_id}")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to import conversations")
+            if bulk_file is not None:
+                if st.button("📥 Import All", type="primary", key="settings_bulk_import_btn"):
+                    with tempfile.NamedTemporaryFile(mode='wb', suffix='.yaml', delete=False) as tmp:
+                        tmp.write(bulk_file.getvalue())
+                        file_path = tmp.name
 
-        with col2:
-            if st.button("Clear Upload"):
-                st.session_state.bulk_import_file = None
-                st.rerun()
+                    with st.spinner("Importing conversations..."):
+                        imported_ids = import_bulk_conversations_from_file(file_path, user_id)
 
-        # Clean up temp file
-        try:
-            os.unlink(file_path)
-        except:
-            pass
+                        if imported_ids:
+                            st.success(f"✅ Successfully imported {len(imported_ids)} conversations!")
+                            log("info", f"Imported {len(imported_ids)} conversations for user {user_id}")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to import conversations")
 
-    # Delete all conversations
-    st.divider()
-    st.write("#### 🗑️ Delete All Conversations")
-    st.warning("This action cannot be undone!")
-    st.caption("This will permanently delete ALL your conversations")
+                    # Clean up temp file
+                    try:
+                        os.unlink(file_path)
+                    except:
+                        pass
 
-    if st.button("Delete All My Conversations", type="secondary"):
-        st.session_state.show_delete_all_dialog = True
-        st.rerun()
+        # Delete All section at the bottom
+        st.divider()
+        st.subheader("🗑️ Delete All Conversations")
+        st.warning("This action cannot be undone!")
+        st.caption("This will permanently delete ALL your conversations")
 
-    # Render delete all dialog here in settings_content
-    if st.session_state.get("show_delete_all_dialog"):
-        render_delete_all_dialog(user_id)
+        if st.button("Delete All My Conversations", type="secondary"):
+            st.session_state.show_delete_all_dialog = True
+            st.rerun()
+
+        # Render delete all dialog if needed
+        if st.session_state.get("show_delete_all_dialog"):
+            render_delete_all_dialog(user_id)
+
+        # Render export/import dialogs if needed
+        if st.session_state.get("show_export_dialog"):
+            render_export_dialog(user_id)
+
+        if st.session_state.get("show_import_dialog"):
+            render_import_dialog(user_id)
+
+    return ("📁 Export/Import", render_export_import_tab)
 
 
 def inject_ui_main_content():
