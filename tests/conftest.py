@@ -30,9 +30,56 @@ def pytest_sessionfinish(session, exitstatus):
     _log("PYTEST SESSION FINISHED - FINAL CLEANUP")
     _log("="*50)
 
+    # Small delay to ensure all processes have released file handles
+    time.sleep(1)
+
     # Kill any remaining Streamlit processes
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True,
                    capture_output=True, timeout=5)
+
+def pytest_sessionstart(session):
+    """Initialize database at the VERY beginning of the test session."""
+    _log("\n=== SESSION START - INITIALIZING DATABASE ===")
+
+    # Get database path from config
+    db_config_path = get_config().get("database", {}).get("path", ".")
+    db_full_path = os.path.abspath(db_config_path)
+    db_path = os.path.join(db_config_path, "app.db")
+
+    # CRITICAL: Dispose of any existing database connections
+    if get_db_manager().is_initialized():
+        _log("Disposing of existing database connections...")
+        get_db_manager().dispose()
+
+    # Initialize database
+    _log(f"Initializing database at {db_path}...")
+    try:
+        init_database(use_memory=False, db_path=db_path)
+        _log("✓ Database initialized")
+    except Exception as e:
+        _log(f"⚠ Error initializing database: {e}", level="ERROR")
+        # Try one more time
+        get_db_manager().dispose()
+        init_database(use_memory=False, db_path=db_path)
+
+    # Clean database
+    if get_db_manager().is_initialized():
+        _log("Cleaning database...")
+        success = get_db_manager().empty_all_tables()
+        if success:
+            _log("✓ Database cleaned")
+        else:
+            _log("⚠ Could not clean database", level="WARNING")
+
+    # Create default users
+    _log("Creating default users...")
+    try:
+        get_user_manager()._create_default_users_fallback()
+        _log("✓ Default users created")
+    except Exception as e:
+        _log(f"⚠ Error creating default users: {e}", level="ERROR")
+
+    return db_full_path
 
 def pytest_bdd_before_step(request, feature, scenario, step, step_func):
     """Log step before execution."""
@@ -171,14 +218,17 @@ def setup_rag_test_data():
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
-    """Setup test environment before any tests run."""
+    """Setup test environment after database is initialized."""
     _log(f"\n=== TEST ENVIRONMENT SETUP ===")
     _log(f"Project root: {PROJECT_ROOT}")
 
     # Store original CWD
     original_cwd = os.getcwd()
     temp_path = ""
-    db_full_path = ""
+
+    # Get database path from config
+    db_config_path = get_config().get("database", {}).get("path", ".")
+    db_full_path = os.path.abspath(db_config_path)
 
     # Change to project root if needed
     if original_cwd != PROJECT_ROOT:
@@ -186,16 +236,12 @@ def setup_test_environment():
         _log(f"Changed CWD to: {PROJECT_ROOT}")
 
     try:
-        # Setup database FIRST
-        _log("\n=== DATABASE INITIALIZATION ===")
-        db_full_path = setup_database()
-
-        # Setup RAG data AFTER database is ready
+        # Setup RAG data (database already initialized in pytest_sessionstart)
         _log("\n=== RAG DATA INITIALIZATION ===")
         temp_path = setup_rag_test_data()
 
         yield {
-            "db_path": db_full_path,
+            "db_path": db_full_path,  # Still return db_path for backward compatibility
             "temp_path": temp_path
         }
 
@@ -208,7 +254,7 @@ def setup_test_environment():
             os.chdir(original_cwd)
         if os.path.exists(temp_path):
             os.unlink(temp_path)
-        cleanup_directory(db_full_path)
+
         # Clean up environment variables
         for var in ["TEST_MODE", "CONFIG_FILE", "PLAYWRIGHT_ASYNCIO"]:
             if var in os.environ:
@@ -268,6 +314,19 @@ def streamlit_server(setup_test_environment):
 
     # 1. Kill any stray processes
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
+
+    # CRITICAL FIX: Ensure database is fully initialized before starting Streamlit
+    db_path = os.path.join(setup_test_environment["db_path"], "app.db")
+    max_wait = 10
+    start_time = time.time()
+    while time.time() - start_time < max_wait:
+        if os.path.exists(db_path) and os.path.getsize(db_path) > 0:
+            _log(f"✓ Database file exists and has content: {db_path}")
+            break
+        _log(f"Waiting for database file to be created... ({int(time.time() - start_time)}s)")
+        time.sleep(0.5)
+    else:
+        _log(f"⚠ Database file not found after {max_wait}s, continuing anyway...")
 
     env = os.environ.copy()
     log_dir = os.path.join(PROJECT_ROOT, "tests", "logs")
