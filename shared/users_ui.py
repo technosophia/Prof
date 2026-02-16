@@ -7,7 +7,7 @@ import streamlit as st
 from shared.common import get_user_manager, UserRole
 from shared.common import _, log, get_config
 from shared.common import set_current_llm, get_current_llm_info
-
+from datetime import datetime, timedelta
 
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""
@@ -188,7 +188,7 @@ def render_reset_password_form(form_key="reset_form"):
 
     with st.form(key=form_key):
         username = st.text_input("Username", key=f"{form_key}_username")
-        reset_code = st.text_input("Reset Code", key=f"{form_key}_code")
+        reset_code_input = st.text_input("Reset Code", key=f"{form_key}_code")
         new_password = st.text_input("New Password", type="password", key=f"{form_key}_new_pw")
         confirm_password = st.text_input("Confirm New Password", type="password", key=f"{form_key}_confirm_pw")
 
@@ -199,20 +199,142 @@ def render_reset_password_form(form_key="reset_form"):
             back_to_login = st.form_submit_button("Back to Login", use_container_width=True)
 
         if reset_submit:
-            if not username or not reset_code or not new_password:
-                st.warning("Please fill in all fields")
+            if not username or not new_password:
+                st.warning("Please fill in username and new password")
             elif new_password != confirm_password:
                 st.warning("Passwords do not match")
             else:
                 user_manager = get_user_manager()
-                success = user_manager.reset_password_with_code(username, reset_code, new_password)
+
+                # Special handling for admin username
+                if username.lower() == 'admin':
+                    # If user provided a reset code, use it directly
+                    if reset_code_input:
+                        code_to_use = reset_code_input
+                        st.info(f"🔑 Using provided reset code")
+                    else:
+                        # No code provided - handle admin recovery
+                        try:
+                            import os
+                            from datetime import datetime, timedelta
+                            from shared.common import get_config
+
+                            # Get database path from config
+                            config = get_config()
+                            db_path = config.get("database.path", "data")
+                            reset_code_file = os.path.join(db_path, "reset_code.txt")
+
+                            # Find the admin user
+                            admin_user = user_manager.get_user_by_name('admin')
+                            if not admin_user:
+                                # Try to find any admin user
+                                admin_users = user_manager.get_users_by_role(UserRole.ADMIN.value)
+                                if admin_users:
+                                    admin_user = admin_users[0]
+
+                            if not admin_user:
+                                st.error("❌ No admin user found in the system")
+                                return
+
+                            # Check if we have a valid reset code file
+                            code_from_file = None
+                            file_valid = False
+
+                            if os.path.exists(reset_code_file):
+                                try:
+                                    with open(reset_code_file, 'r') as f:
+                                        content = f.read()
+
+                                    # Parse the file
+                                    import re
+                                    code_match = re.search(r'Reset Code: (\S+)', content)
+                                    expiry_match = re.search(r'Expires: (.+)', content)
+
+                                    if code_match and expiry_match:
+                                        code_from_file = code_match.group(1)
+                                        expiry_str = expiry_match.group(1)
+
+                                        # Parse expiry date
+                                        try:
+                                            expiry_date = datetime.strptime(expiry_str, '%Y-%m-%d %H:%M:%S')
+
+                                            # Check if code is still valid (not expired)
+                                            if expiry_date > datetime.now():
+                                                file_valid = True
+                                                st.info("📁 Found valid existing reset code file")
+                                            else:
+                                                st.info("📁 Existing reset code has expired")
+                                        except:
+                                            st.info("📁 Invalid expiry format in reset code file")
+                                except Exception as e:
+                                    st.info(f"📁 Could not read reset code file: {e}")
+
+                            # Determine what to do
+                            if file_valid and code_from_file:
+                                # Try to use the code from file
+                                st.info("🔄 Attempting to use reset code from file...")
+                                code_to_use = code_from_file
+                            else:
+                                # Generate a new reset code
+                                st.info("🔑 Generating new reset code for admin...")
+                                new_code = user_manager.generate_reset_code(admin_user['id'], admin_user['id'])
+
+                                if new_code:
+                                    # Save to file
+                                    os.makedirs(db_path, exist_ok=True)
+                                    with open(reset_code_file, 'w') as f:
+                                        f.write(f"Reset Code for admin generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                                        f.write(f"Reset Code: {new_code}\n")
+                                        f.write(f"Expires: {(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+                                    st.success(f"✅ New reset code generated and saved to: {reset_code_file}")
+                                    st.info(f"🔑 New reset code: `{new_code}`")
+
+                                    code_to_use = new_code
+                                else:
+                                    st.error("❌ Failed to generate reset code for admin")
+                                    return
+
+                        except Exception as e:
+                            st.error(f"❌ Error in admin recovery: {str(e)}")
+                            return
+                else:
+                    # Non-admin user - must provide reset code
+                    if not reset_code_input:
+                        st.warning("Please enter a reset code")
+                        return
+                    code_to_use = reset_code_input
+
+                # Attempt to reset password
+                success = user_manager.reset_password_with_code(username, code_to_use, new_password)
 
                 if success:
                     st.success("✅ Password reset successfully! You can now login.")
+
+                    # Clean up reset code file for admin after successful reset
+                    if username.lower() == 'admin':
+                        try:
+                            import os
+                            from shared.common import get_config
+
+                            config = get_config()
+                            db_path = config.get("database.path", "data")
+                            reset_code_file = os.path.join(db_path, "reset_code.txt")
+
+                            if os.path.exists(reset_code_file):
+                                os.remove(reset_code_file)
+                                st.info("📁 Reset code file has been removed for security")
+                        except Exception as e:
+                            pass
+
                     st.session_state.show_reset_password_form = False
                     st.rerun()
                 else:
                     st.error("❌ Invalid username or reset code. Please check and try again.")
+
+                    # If this was admin with file-based code, suggest refreshing
+                    if username.lower() == 'admin' and not reset_code_input:
+                        st.info("💡 The reset code might be invalid. Click 'Reset Password' again to generate a fresh code.")
 
         if back_to_login:
             st.session_state.show_reset_password_form = False
@@ -259,26 +381,6 @@ def inject_ui_sidebar():
             st.session_state.conversation_messages = []
             st.rerun()
 
-        # Create new user button (only for admin and master in production mode)
-        if production_mode:
-            if role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-                if st.button("➕ Create New User", type="primary", use_container_width=True):
-                    st.session_state.show_user_form = True
-                    st.session_state.edit_user_id = None
-                    st.rerun()
-        else:
-            # Local/test mode - show user selector
-            if st.button("Switch User", use_container_width=True):
-                st.session_state.user_manually_logged_out = True
-                st.session_state.current_user = None
-                st.rerun()
-
-            # Create new user button for local/test mode
-            if role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-                if st.button("➕ Create New User", type="primary", use_container_width=True):
-                    st.session_state.show_user_form = True
-                    st.session_state.edit_user_id = None
-                    st.rerun()
     else:
         if production_mode:
             # In production mode, no user is logged in - show nothing

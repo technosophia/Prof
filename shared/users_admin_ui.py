@@ -256,78 +256,6 @@ def _render_user_management_tab(current_user: Dict[str, Any], user_role: str,
         log("error", f"Error in users admin UI: {e}")
 
 
-def _render_user_row(current_user: Dict[str, Any], user_role: str,
-                    user: Dict[str, Any], production_mode: bool):
-    """Render a single user row in the user list."""
-    with st.container():
-        cols = st.columns([3, 2, 1, 1, 2])
-
-        with cols[0]:
-            st.write(f"**{user['name']}**")
-            if user.get('email'):
-                st.caption(f"📧 {user['email']}")
-            st.caption(f"🆔 {user['id']}")
-
-            # Show parent info
-            if user.get('parent_name'):
-                st.caption(f"👨‍👦 Parent: {user['parent_name']}")
-
-        with cols[1]:
-            # Status and role
-            status = "🟢 Active" if user.get('is_active', True) else "🔴 Inactive"
-            st.write(status)
-
-            role = user.get('role', 'normal')
-            role_emoji = "👑" if role == UserRole.ADMIN.value else "⭐" if role == UserRole.MASTER.value else "👤"
-            st.caption(f"{role_emoji} {role}")
-
-            # Password status (production mode only)
-            if production_mode:
-                if user.get('has_password'):
-                    st.caption("🔒 Password set")
-                else:
-                    st.caption("⚠️ No password")
-
-            # Language
-            if user.get('profile', {}).get('language'):
-                st.caption(f"🌐 {user['profile']['language']}")
-
-        with cols[2]:
-            # View details button
-            if st.button("👁️ View",
-                       key=f"view_{user['id']}",
-                       help=f"View details for {user['name']}",
-                       width='stretch'):
-                st.session_state.viewing_user_id = user['id']
-                st.rerun()
-
-        with cols[3]:
-            # Edit button
-            if st.button("✏️ Edit",
-                       key=f"edit_{user['id']}",
-                       help=f"Edit user {user['name']}",
-                       width='stretch'):
-                st.session_state.editing_user_id = user['id']
-                st.rerun()
-
-        with cols[4]:
-            # Action buttons based on production mode
-            if production_mode:
-                # Generate reset code button (for admin/master)
-                if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-                    if user['id'] != current_user['id']:  # Can't generate for self?
-                        if st.button("🔑 Reset Code",
-                                   key=f"reset_{user['id']}",
-                                   help=f"Generate password reset code for {user['name']}",
-                                   width='stretch'):
-                            _generate_reset_code(user['id'], current_user['id'])
-            else:
-                # Delete button (local/test mode only)
-                _render_delete_button(current_user, user)
-
-        st.divider()
-
-
 def _generate_reset_code(target_user_id: str, requesting_user_id: str):
     """Generate a password reset code for a user."""
     user_manager = get_user_manager()
@@ -338,7 +266,6 @@ def _generate_reset_code(target_user_id: str, requesting_user_id: str):
         st.success(f"✅ Reset code generated for {target_user['name']}")
         st.info(f"🔑 **Reset Code:** `{reset_code}`")
         st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
-        st.rerun()
     else:
         st.error("❌ Failed to generate reset code")
 
@@ -1121,6 +1048,152 @@ def _render_import_results(result: Dict[str, Any], validate_only: bool):
             if len(result["errors"]) > 20:
                 st.warning(f"... and {len(result['errors']) - 20} more errors")
 
+def _render_user_row(current_user: Dict[str, Any], user_role: str,
+                    user: Dict[str, Any], production_mode: bool):
+    """Render a single user row in the user list."""
+    with st.container():
+        cols = st.columns([3, 2, 1, 1, 2])
+
+        with cols[0]:
+            st.write(f"**{user['name']}**")
+            if user.get('email'):
+                st.caption(f"📧 {user['email']}")
+            st.caption(f"🆔 {user['id']}")
+
+            # Show parent info
+            if user.get('parent_name'):
+                st.caption(f"👨‍👦 Parent: {user['parent_name']}")
+
+        with cols[1]:
+            # Status and role
+            status = "🟢 Active" if user.get('is_active', True) else "🔴 Inactive"
+            st.write(status)
+
+            role = user.get('role', 'normal')
+            role_emoji = "👑" if role == UserRole.ADMIN.value else "⭐" if role == UserRole.MASTER.value else "👤"
+            st.caption(f"{role_emoji} {role}")
+
+            # Password status (production mode only)
+            if production_mode:
+                if user.get('has_password'):
+                    st.caption("🔒 Password set")
+                else:
+                    st.caption("⚠️ No password")
+
+            # Language
+            if user.get('profile', {}).get('language'):
+                st.caption(f"🌐 {user['profile']['language']}")
+
+        with cols[2]:
+            # View details button
+            if st.button("👁️ View",
+                       key=f"view_{user['id']}",
+                       help=f"View details for {user['name']}",
+                       width='stretch'):
+                st.session_state.viewing_user_id = user['id']
+                st.rerun()
+
+        with cols[3]:
+            # Edit button
+            if st.button("✏️ Edit",
+                       key=f"edit_{user['id']}",
+                       help=f"Edit user {user['name']}",
+                       width='stretch'):
+                st.session_state.editing_user_id = user['id']
+                st.rerun()
+
+        with cols[4]:
+            # Action buttons based on production mode
+            if production_mode:
+                # Check for existing reset code in database
+                user_manager = get_user_manager()
+                from sqlalchemy import create_engine
+                from core.database import get_db_manager
+
+                # Direct database query to check for reset code
+                db_manager = get_db_manager()
+                if db_manager.is_initialized():
+                    with db_manager.get_session() as session:
+                        from shared.users import UserTable
+                        db_user = session.query(UserTable).filter_by(id=user['id']).first()
+
+                        if db_user and db_user.reset_code and db_user.reset_code_expires:
+                            # Check if code is still valid (not expired)
+                            if db_user.reset_code_expires > datetime.utcnow():
+                                # Display the existing reset code
+                                st.info("🔑 Reset Code Available")
+                                with st.expander("Show Reset Code", expanded=False):
+                                    st.code(db_user.reset_code, language="text")
+                                    expiry = db_user.reset_code_expires.strftime('%Y-%m-%d %H:%M:%S')
+                                    st.caption(f"Expires: {expiry}")
+                            else:
+                                # Code expired, show button to generate new one
+                                if st.button("🔑 New Reset Code",
+                                           key=f"reset_{user['id']}",
+                                           help=f"Generate new password reset code for {user['name']}",
+                                           width='stretch'):
+                                    _generate_reset_code(user['id'], current_user['id'])
+                        else:
+                            # No reset code, show button to generate one
+                            if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+                                if st.button("🔑 Generate Code",
+                                           key=f"reset_{user['id']}",
+                                           help=f"Generate password reset code for {user['id']}",
+                                           width='stretch'):
+                                    _generate_reset_code(user['id'], current_user['id'])
+            else:
+                # Delete button (local/test mode only)
+                _render_delete_button(current_user, user)
+
+        st.divider()
+
+
+def _generate_reset_code(target_user_id: str, requesting_user_id: str):
+    """Generate a password reset code for a user."""
+    user_manager = get_user_manager()
+    reset_code = user_manager.generate_reset_code(target_user_id, requesting_user_id)
+
+    if reset_code:
+        target_user = user_manager.get_user(target_user_id)
+
+        # Special handling for admin user in production mode
+        if target_user and target_user.get('name', '').lower() == 'admin':
+            try:
+                import os
+                from datetime import datetime
+                from shared.common import get_config
+
+                # Get database path from config
+                config = get_config()
+                db_path = config.get("database.path", "data")
+
+                # Ensure directory exists
+                os.makedirs(db_path, exist_ok=True)
+
+                # Write reset code to file in database path
+                reset_code_file = os.path.join(db_path, "reset_code.txt")
+                with open(reset_code_file, 'w') as f:
+                    f.write(f"Reset Code for admin generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Reset Code: {reset_code}\n")
+                    f.write(f"Expires: {(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+                st.success(f"✅ Reset code generated for {target_user['name']}")
+                st.info(f"🔑 **Reset Code:** `{reset_code}`")
+                st.info(f"📁 Reset code has been saved to `{reset_code_file}`")
+                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+            except Exception as e:
+                st.success(f"✅ Reset code generated for {target_user['name']}")
+                st.info(f"🔑 **Reset Code:** `{reset_code}`")
+                st.warning(f"⚠️ Could not save to file: {str(e)}")
+                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+        else:
+            st.success(f"✅ Reset code generated for {target_user['name']}")
+            st.info(f"🔑 **Reset Code:** `{reset_code}`")
+            st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+
+        st.rerun()
+    else:
+        st.error("❌ Failed to generate reset code")
 
 def inject_ui_admin_tab():
     """Register the Users admin tab."""

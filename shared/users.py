@@ -788,7 +788,7 @@ class UserManager:
 
         with self.db.get_session() as session:
             user = session.query(UserTable).filter(
-                func.lower(UserTable.name) == username.lower()
+                func.lower(UserTable.id) == username.lower()
             ).first()
 
             if not user:
@@ -901,11 +901,12 @@ class UserManager:
         Returns:
             True if successful, False otherwise
         """
+        log("info", f"Resetting password for user '{username}' '{reset_code}' '{new_password}'")
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
             user = session.query(UserTable).filter(
-                func.lower(UserTable.name) == username.lower()
+                func.lower(UserTable.id) == username.lower()
             ).first()
 
             if not user:
@@ -915,6 +916,7 @@ class UserManager:
                     details={"username": username, "reason": "user_not_found"},
                     success=False
                 )
+                log("error", f"User '{username}' not found")
                 return False
 
             if not user.reset_code or not user.reset_code_expires:
@@ -924,6 +926,7 @@ class UserManager:
                     details={"reason": "no_reset_code"},
                     success=False
                 )
+                log("error", f"User '{username}' has no reset code")
                 return False
 
             if user.reset_code_expires < datetime.utcnow():
@@ -933,6 +936,7 @@ class UserManager:
                     details={"reason": "code_expired"},
                     success=False
                 )
+                log("error", f"Reset code for user '{username}' has expired")
                 return False
 
             if not secrets.compare_digest(user.reset_code, reset_code):
@@ -942,6 +946,7 @@ class UserManager:
                     details={"reason": "invalid_code"},
                     success=False
                 )
+                log("error", f"Invalid reset code for user '{username}'")
                 return False
 
             # Set new password
@@ -1467,6 +1472,53 @@ class UserManager:
         """Get total number of users."""
         users = self.get_all_users(current_user_id)
         return len(users)
+
+    def _user_to_dict(self, user: UserTable, include_children: bool = False) -> Dict[str, Any]:
+        """Convert SQLAlchemy user object to dictionary."""
+        result = {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "parent_id": user.parent_id,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "last_login": user.last_login.isoformat() if user.last_login else None,
+            "is_active": user.is_active,
+            "profile": user.profile or {},
+            "metadata": user.user_metadata or {},
+            "parent_name": user.parent.name if user.parent else None,
+            "has_password": user.password_hash is not None,
+        }
+
+        # Add reset code information safely - check if attributes exist first
+        if hasattr(user, 'reset_code') and hasattr(user, 'reset_code_expires'):
+            reset_code_info = {
+                "has_code": user.reset_code is not None and user.reset_code_expires is not None,
+                "expires_at": user.reset_code_expires.isoformat() if user.reset_code_expires else None,
+                "is_valid": False
+            }
+
+            # Only try to compare if reset_code_expires is a datetime
+            if user.reset_code_expires and isinstance(user.reset_code_expires, datetime):
+                reset_code_info["is_valid"] = user.reset_code_expires > datetime.utcnow()
+
+                # Only include the actual code if it's valid and we have it
+                if user.reset_code and reset_code_info["is_valid"]:
+                    reset_code_info["code"] = user.reset_code
+
+            result["reset_code_info"] = reset_code_info
+        else:
+            # If attributes don't exist, provide default values
+            result["reset_code_info"] = {
+                "has_code": False,
+                "expires_at": None,
+                "is_valid": False
+            }
+
+        if include_children and hasattr(user, 'child_users') and user.child_users:
+            result["children"] = [self._user_to_dict(child) for child in user.child_users]
+
+        return result
 
 
 def get_user_manager():
