@@ -4,11 +4,10 @@ New centralized configuration system.
 
 Key changes:
 - No Streamlit dependencies.
-- Automatic discovery and hierarchical merge of ALL config.json files.
-- Prefixes based on directory structure (e.g., modules/rag/config.json → prefix "modules.rag").
+- Automatic discovery and hierarchical merge of config files with different prefixes.
+- Prefixes based on directory structure (e.g., modules/rag/CONFIG_FILE → prefix "modules.rag").
 - Root config.json has no prefix (top-level keys).
-- In TEST_MODE, all */tests/test_config.json files are automatically loaded as partial overrides on the corresponding section.
-- Duplicate keys are impossible by design (hierarchical prefixes).
+- Additional prefix-based config files (e.g., local_config.json, test_config.json) are loaded as overrides.
 - Added get_section() and save_section() for module-specific read/write.
 - Removed singleton, duplicate checking, reload.
 """
@@ -16,9 +15,11 @@ Key changes:
 import json
 import sys
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from .logging import log
 
+# Constants for config file suffixes
+CONFIG_FILE = "config.json"
 
 class Config:
     def __init__(self):
@@ -171,28 +172,38 @@ class Config:
             return False
 
 
-def load_all_configs(root_dir: str, test_mode: bool = False) -> Config:
-    """Discover and load all configs automatically."""
-    config = Config()
+def load_all_configs(root_dir: str, additional_prefixes: Optional[List[str]] = None) -> Config:
+    """
+    Discover and load all configs automatically.
 
-    # 1. Load normal config.json files (skip tests directories)
+    Args:
+        root_dir: Root directory to start discovery from
+        additional_prefixes: List of config file suffixes to load (e.g., ['local', 'test'])
+                           The actual filenames will be {prefix}_config.json
+    """
+    config = Config()
+    additional_prefixes = additional_prefixes or []
+
+    # First pass: find all directories containing base config.json
+    base_config_dirs = []
     for dirpath, dirnames, filenames in os.walk(root_dir):
         if "tests" in dirnames:
             dirnames.remove("tests")  # prevent recursion into tests/
-        if "config.json" in filenames:
+        if CONFIG_FILE in filenames:
             rel_path = os.path.relpath(dirpath, root_dir)
             prefix_parts = rel_path.split(os.sep) if rel_path != "." else []
-            file_path = os.path.join(dirpath, "config.json")
+            base_config_dirs.append((dirpath, prefix_parts))
+
+            # Load base config first
+            file_path = os.path.join(dirpath, CONFIG_FILE)
             config.load_file(file_path, prefix_parts)
 
-    # 2. In TEST_MODE: load */tests/test_config.json as partial overrides
-    if test_mode:
-        for dirpath, dirnames, filenames in os.walk(root_dir):
-            if os.path.basename(dirpath) == "tests" and "test_config.json" in filenames:
-                parent_dir = os.path.dirname(dirpath)
-                rel_path = os.path.relpath(parent_dir, root_dir)
-                prefix_parts = rel_path.split(os.sep) if rel_path != "." else []
-                file_path = os.path.join(dirpath, "test_config.json")
+    # Second pass: load additional prefixed config files where base config exists
+    for prefix in additional_prefixes:
+        config_file = f"{prefix}_{CONFIG_FILE}"
+        for dirpath, prefix_parts in base_config_dirs:
+            file_path = os.path.join(dirpath, config_file)
+            if os.path.exists(file_path):
                 config.load_file(file_path, prefix_parts)
 
     return config
@@ -217,10 +228,17 @@ def _load_config() -> Config:
         if not root_dir or not os.path.exists(root_dir):
             raise ValueError(f"Invalid root_dir: {root_dir}")
 
-        test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
-        log("info", f"_load_config: test_mode = {test_mode}")
+        # Determine additional prefixes to load
+        additional_prefixes = ['local']  # Always load local configs
 
-        config = load_all_configs(root_dir, test_mode)
+        test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
+        if test_mode:
+            additional_prefixes.append('tests/test')
+
+        log("info", f"_load_config: test_mode = {test_mode}")
+        log("info", f"_load_config: additional_prefixes = {additional_prefixes}")
+
+        config = load_all_configs(root_dir, additional_prefixes)
         log("info", f"_load_config: config loaded successfully, has {len(config)} top-level sections")
 
         return config
@@ -231,7 +249,11 @@ def _load_config() -> Config:
         # Return a minimal default config as fallback
         from core.config import Config
         fallback_config = Config()
-        fallback_config.load_file("config.json", [])  # Try to load root config directly
+
+        # Try to load root config directly
+        root_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), CONFIG_FILE)
+        if os.path.exists(root_config_path):
+            fallback_config.load_file(root_config_path, [])
 
         log("warning", f"Using fallback configuration due to error: {e}")
         return fallback_config

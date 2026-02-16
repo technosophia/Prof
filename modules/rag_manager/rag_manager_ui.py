@@ -13,7 +13,7 @@ from shared.common import _, log, get_config, get_prompt
 from shared.common import register_llm_callback, unregister_llm_callback
 from typing import List, Dict, Optional
 from modules.rag_manager import rag_manager
-
+from core.config import CONFIG_FILE
 
 
 def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
@@ -461,7 +461,7 @@ def inject_ui_sidebar():
         if st.button("Apply Changes", type="secondary", width='stretch'):
             if selected_engine != current_default:
                 # Try to update the RAG module config file
-                rag_config_path = Path(__file__).parent / "config.json"
+                rag_config_path = Path(__file__).parent / CONFIG_FILE
 
                 try:
                     # Load current RAG config

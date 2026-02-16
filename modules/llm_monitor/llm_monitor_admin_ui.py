@@ -534,7 +534,7 @@ def show_configuration_tab(monitor):
 
     # Configuration notes
     st.info("""
-    **Note:** Cost and rate limit configuration is loaded from `modules/llm_monitor/config.json`.
+    **Note:** Cost and rate limit configuration is loaded from `modules/llm_monitor/CONFIG_FILE`.
     To modify costs or rate limits, edit the configuration file directly.
 
     **Cost Sources (per million tokens):**

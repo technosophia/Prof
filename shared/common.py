@@ -5,7 +5,7 @@ Module Development Guide: Config, Logging, Translation, Database, Users, Convers
 ## Core Systems
 
 ### Configuration System (`core/config.py`)
-Centralized configuration management with dot-notation access. Automatically discovers and merges config.json files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
+Centralized configuration management with dot-notation access. Automatically discovers and merges CONFIG_FILE files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
 
 **Exported functions:**
 - `get_config()`: Access the global configuration object
@@ -169,7 +169,7 @@ def get_section(prefix: str = "") -> dict:
 
 
 def save_config(prefix: str = "", data: dict | None = None) -> bool:
-    """Convenient wrapper to save a module/section back to its config.json."""
+    """Convenient wrapper to save a module/section back to its CONFIG_FILE."""
     if data is None:
         raise ValueError("save_config requires the data dict to save")
     return get_config().save_section(prefix, data)

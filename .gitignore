@@ -2,6 +2,7 @@ venv
 .log
 __pycache__
 old
+local_config.json
 .env
 .pytest_cache
 data

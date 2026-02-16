@@ -195,7 +195,7 @@ def show_config_tab():
 
     if not debug_config:
         st.warning("⚠️ Debug configuration not found! The 'debug' section is missing from the configuration.")
-        st.info("Make sure your config.json has a 'debug' section or that the debug module's config was loaded.")
+        st.info("Make sure your CONFIG_FILE has a 'debug' section or that the debug module's config was loaded.")
     else:
         # Check specific debug configuration keys
         missing_keys = []

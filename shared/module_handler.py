@@ -18,7 +18,7 @@ Module Requirements:
 1. Must be placed in modules/ directory as a subdirectory
 2. Must contain a module.json file with metadata
 3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration with main App
-4. Can include config.json for module-specific configuration
+4. Can include CONFIG_FILE for module-specific configuration
 5. Can include translation/xx.json for language-specific translations
 6. Can include prompts.xx.json for language-specific prompts
 7. Can include tests in the test/ directory for pytest automatic testing
@@ -46,6 +46,7 @@ from typing import Dict, List, Optional, Set
 from pathlib import Path
 import streamlit as st
 from shared.common import log
+from core.config import CONFIG_FILE
 
 def _compute_modules_signature() -> str:
     """Compute a signature based on module directories and key file modification times."""
@@ -63,7 +64,7 @@ def _compute_modules_signature() -> str:
             ui_path = module_dir / f"{name}_ui.py"
             ui_mtime = ui_path.stat().st_mtime if ui_path.exists() else 0.0
 
-            cfg_path = module_dir / "config.json"
+            cfg_path = module_dir / CONFIG_FILE
             cfg_mtime = cfg_path.stat().st_mtime if cfg_path.exists() else 0.0
 
             sig_parts.append(f"{name}:{mj_mtime:.0f}:{ui_mtime:.0f}:{cfg_mtime:.0f}")
@@ -98,7 +99,7 @@ def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
             ui_file = module_dir / f"{module_name}_ui.py"
             has_ui = ui_file.exists()
 
-            config_file = module_dir / "config.json"
+            config_file = module_dir / CONFIG_FILE
             has_config = config_file.exists()
 
             potential[module_name] = {

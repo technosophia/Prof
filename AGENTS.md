@@ -191,7 +191,7 @@ Module Development Guide: Config, Logging, Translation, Database, Users, Convers
 ## Core Systems
 
 ### Configuration System (`core/config.py`)
-Centralized configuration management with dot-notation access. Automatically discovers and merges config.json files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
+Centralized configuration management with dot-notation access. Automatically discovers and merges CONFIG_FILE files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
 
 **Exported functions:**
 - `get_config()`: Access the global configuration object
@@ -377,7 +377,7 @@ Module Requirements:
 1. Must be placed in modules/ directory as a subdirectory
 2. Must contain a module.json file with metadata
 3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration with main App
-4. Can include config.json for module-specific configuration
+4. Can include CONFIG_FILE for module-specific configuration
 5. Can include translation/xx.json for language-specific translations
 6. Can include prompts.xx.json for language-specific prompts
 7. Can include tests in the test/ directory for pytest automatic testing
