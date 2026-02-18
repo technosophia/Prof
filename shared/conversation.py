@@ -22,14 +22,14 @@ class ConversationTable(Base):
     """Conversation model for database."""
     __tablename__ = 'conversations'
 
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
-    title = Column(String, nullable=False)
+    id = Column(String(36), primary_key=True)  # UUID length
+    user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)  # UUID length
+    title = Column(String(255), nullable=False)  # Reasonable title length
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)
     conv_metadata = Column(JSON, default={})  # Renamed from 'metadata' to avoid SQLAlchemy conflict
-    system_prompt = Column(Text, nullable=True)
+    system_prompt = Column(Text, nullable=True)  # Text can be long, no length needed
     llm_config = Column(JSON, default={})  # Stores LLM configuration used for this conversation
 
 
@@ -37,16 +37,14 @@ class MessageTable(Base):
     """Message model for database."""
     __tablename__ = 'messages'
 
-    id = Column(String, primary_key=True)
-    conversation_id = Column(String, ForeignKey('conversations.id'), nullable=False, index=True)
-    role = Column(String, nullable=False)  # 'user', 'assistant', 'system'
-    content = Column(Text, nullable=False)
+    id = Column(String(36), primary_key=True)  # UUID length
+    conversation_id = Column(String(36), ForeignKey('conversations.id'), nullable=False, index=True)  # UUID length
+    role = Column(String(20), nullable=False)  # 'user', 'assistant', 'system' - max 9 chars, but 20 for safety
+    content = Column(Text, nullable=False)  # Text can be long, no length needed
     timestamp = Column(DateTime, default=datetime.utcnow)
     tokens = Column(Integer, nullable=True)  # Token count for this message
     message_metadata = Column(JSON, default={})  # Renamed from 'metadata' to avoid conflicts
-    llm_id = Column(String, nullable=True)  # Track which LLM generated this message
-
-
+    llm_id = Column(String(50), nullable=True)  # Track which LLM generated this message (e.g., 'gpt-4', 'claude-3')
 
 @dataclass
 class Message:

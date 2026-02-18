@@ -12,6 +12,7 @@ import requests
 import atexit
 import signal
 import warnings
+import re
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
@@ -23,6 +24,63 @@ def _log(message, level="INFO"):
     formatted_message = f"[{level}] {message}"
     print(formatted_message)
     return formatted_message
+
+
+def extract_sqlite_file_path(db_url_or_path: str) -> str:
+    """
+    Extract the file path from a SQLite database URL or return the path if it's already a file path.
+
+    Args:
+        db_url_or_path: Either a SQLite URL (sqlite:///path/to/db.db) or a file path
+
+    Returns:
+        The extracted file path
+    """
+    if not db_url_or_path or not isinstance(db_url_or_path, str):
+        return db_url_or_path
+
+    # Match sqlite:///path format
+    sqlite_pattern = r'^sqlite:///(.+)$'
+    match = re.match(sqlite_pattern, db_url_or_path)
+
+    if match:
+        file_path = match.group(1)
+        # Handle Windows paths with drive letters
+        if file_path.startswith('/') and len(file_path) > 2 and file_path[2] == ':':
+            # Remove leading slash for Windows paths like /C:/path
+            file_path = file_path[1:]
+        return file_path
+
+    # Already a file path
+    return db_url_or_path
+
+
+def get_database_file_path():
+    """
+    Get the actual database file path from config, handling both URL and path formats.
+
+    Returns:
+        Tuple of (database_directory, database_file_path)
+    """
+    config = get_config()
+    db_config = config.get("database", {})
+
+    # Try to get URL first, then path
+    db_url_or_path = db_config.get("url") or db_config.get("path", ".")
+
+    # Extract file path if it's a URL
+    db_file_path = extract_sqlite_file_path(db_url_or_path)
+
+    # Handle cases where it's just a directory
+    if os.path.isdir(db_file_path) or not db_file_path.endswith('.db'):
+        db_dir = db_file_path
+        db_full_path = os.path.join(db_dir, "app.db")
+    else:
+        db_dir = os.path.dirname(db_file_path)
+        db_full_path = db_file_path
+
+    return db_dir, db_full_path
+
 
 def pytest_sessionfinish(session, exitstatus):
     """Clean up after all tests are done."""
@@ -42,26 +100,38 @@ def pytest_sessionstart(session):
     """Initialize database at the VERY beginning of the test session."""
     _log("=== SESSION START - INITIALIZING DATABASE ===")
 
-    # Get database path from config
-    db_config_path = get_config().get("database", {}).get("path", ".")
-    db_full_path = os.path.abspath(db_config_path)
-    db_path = os.path.join(db_config_path, "app.db")
+    # Get database file path from config
+    db_dir, db_full_path = get_database_file_path()
 
     # CRITICAL: Dispose of any existing database connections
     if get_db_manager().is_initialized():
         _log("Disposing of existing database connections...")
         get_db_manager().dispose()
 
-    # Initialize database
-    _log(f"Initializing database at {db_path}...")
+    # Initialize database with the appropriate format
+    _log(f"Initializing database at {db_full_path}...")
     try:
-        init_database(use_memory=False, db_path=db_path)
+        # Check if config uses URL format
+        config = get_config()
+        db_config = config.get("database", {})
+        db_url_or_path = db_config.get("url") or db_config.get("path", ".")
+
+        if db_url_or_path.startswith('sqlite:///'):
+            # Use the URL directly
+            init_database(use_memory=False, db_path=db_url_or_path)
+        else:
+            # Use the file path
+            init_database(use_memory=False, db_path=db_full_path)
+
         _log("✓ Database initialized")
     except Exception as e:
         _log(f"⚠ Error initializing database: {e}", level="ERROR")
         # Try one more time
         get_db_manager().dispose()
-        init_database(use_memory=False, db_path=db_path)
+        if db_url_or_path.startswith('sqlite:///'):
+            init_database(use_memory=False, db_path=db_url_or_path)
+        else:
+            init_database(use_memory=False, db_path=db_full_path)
 
     # Clean database
     if get_db_manager().is_initialized():
@@ -80,7 +150,7 @@ def pytest_sessionstart(session):
     except Exception as e:
         _log(f"⚠ Error creating default users: {e}", level="ERROR")
 
-    return db_full_path
+    return db_dir
 
 def pytest_bdd_before_step(request, feature, scenario, step, step_func):
     """Log step before execution."""
@@ -129,15 +199,13 @@ def cleanup_directory(directory):
                 _log(f"  ⚠ Failed to delete {item_path}: {e}", level="WARNING")
 
 def setup_database():
-
     _log(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
-    # Get database path from config
-    db_config_path = get_config().get("database", {}).get("path", ".")
-    db_full_path = os.path.abspath(db_config_path)
-    db_path = os.path.join(db_config_path, "app.db")
 
-    _log(f"Database path: {db_path}")
-    _log(f"Database exists: {os.path.exists(db_path)}")
+    # Get database file path from config
+    db_dir, db_full_path = get_database_file_path()
+
+    _log(f"Database path: {db_full_path}")
+    _log(f"Database exists: {os.path.exists(db_full_path)}")
 
     # CRITICAL: Dispose of any existing database connections
     if get_db_manager().is_initialized():
@@ -145,16 +213,27 @@ def setup_database():
         get_db_manager().dispose()
         _log("✓ Database connections disposed")
 
-    # Initialize database
-    _log(f"Initializing database at {db_path}...")
+    # Initialize database with the appropriate format
+    _log(f"Initializing database at {db_full_path}...")
     try:
-        init_database(use_memory=False, db_path=db_path)
+        config = get_config()
+        db_config = config.get("database", {})
+        db_url_or_path = db_config.get("url") or db_config.get("path", ".")
+
+        if db_url_or_path.startswith('sqlite:///'):
+            init_database(use_memory=False, db_path=db_url_or_path)
+        else:
+            init_database(use_memory=False, db_path=db_full_path)
+
         _log("✓ Database initialized")
     except Exception as e:
         _log(f"⚠ Error initializing database: {e}", level="ERROR")
         # Try one more time
         get_db_manager().dispose()
-        init_database(use_memory=False, db_path=db_path)
+        if db_url_or_path.startswith('sqlite:///'):
+            init_database(use_memory=False, db_path=db_url_or_path)
+        else:
+            init_database(use_memory=False, db_path=db_full_path)
 
     # Clean database
     if get_db_manager().is_initialized():
@@ -175,7 +254,7 @@ def setup_database():
     except Exception as e:
         _log(f"⚠ Error creating default users: {e}", level="ERROR")
 
-    return db_full_path
+    return db_dir
 
 def setup_rag_test_data():
 
@@ -227,9 +306,8 @@ def setup_test_environment():
     original_cwd = os.getcwd()
     temp_path = ""
 
-    # Get database path from config
-    db_config_path = get_config().get("database", {}).get("path", ".")
-    db_full_path = os.path.abspath(db_config_path)
+    # Get database directory from config
+    db_dir, _ = get_database_file_path()
 
     # Change to project root if needed
     if original_cwd != PROJECT_ROOT:
@@ -242,7 +320,7 @@ def setup_test_environment():
         temp_path = setup_rag_test_data()
 
         yield {
-            "db_path": db_full_path,  # Still return db_path for backward compatibility
+            "db_path": db_dir,  # Return the directory for backward compatibility
             "temp_path": temp_path
         }
 
@@ -317,12 +395,13 @@ def streamlit_server(setup_test_environment):
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
     # CRITICAL FIX: Ensure database is fully initialized before starting Streamlit
-    db_path = os.path.join(setup_test_environment["db_path"], "app.db")
+    _, db_full_path = get_database_file_path()
+
     max_wait = 10
     start_time = time.time()
     while time.time() - start_time < max_wait:
-        if os.path.exists(db_path) and os.path.getsize(db_path) > 0:
-            _log(f"✓ Database file exists and has content: {db_path}")
+        if os.path.exists(db_full_path) and os.path.getsize(db_full_path) > 0:
+            _log(f"✓ Database file exists and has content: {db_full_path}")
             break
         _log(f"Waiting for database file to be created... ({int(time.time() - start_time)}s)")
         time.sleep(0.5)

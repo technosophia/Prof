@@ -14,15 +14,15 @@ class LLMCallTable(Base):
     """Table to store LLM call information."""
     __tablename__ = 'llm_calls'
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey('users.id'), nullable=True, index=True)
-    conversation_id = Column(String, ForeignKey('conversations.id'), nullable=True, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey('users.id'), nullable=True, index=True)
+    conversation_id = Column(String(36), ForeignKey('conversations.id'), nullable=True, index=True)
 
     # LLM information
-    llm_id = Column(String, nullable=False)
-    llm_type = Column(String, nullable=False)  # ollama, groq, gemini, etc.
-    model = Column(String, nullable=False)
-    engine_type = Column(String, nullable=False)
+    llm_id = Column(String(36), nullable=False)
+    llm_type = Column(String(128), nullable=False)  # ollama, groq, gemini, etc.
+    model = Column(String(128), nullable=False)
+    engine_type = Column(String(128), nullable=False)
 
     # Call details
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -63,8 +63,8 @@ class UserLLMStatsTable(Base):
     """Table to store aggregated LLM usage statistics per user."""
     __tablename__ = 'user_llm_stats'
 
-    user_id = Column(String, ForeignKey('users.id'), primary_key=True)
-    llm_type = Column(String, primary_key=True)
+    user_id = Column(String(36), ForeignKey('users.id'), primary_key=True)
+    llm_type = Column(String(36), primary_key=True)
 
     # Token counts
     total_input_tokens = Column(BigInteger, default=0)
@@ -88,13 +88,13 @@ class RateLimitUsageTable(Base):
     """Table to track rate limit usage per API provider per period."""
     __tablename__ = 'rate_limit_usage'
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    provider = Column(String, nullable=False, index=True)  # groq, gemini, etc.
-    model = Column(String, nullable=False, index=True)
-    plan_type = Column(String, nullable=False, default='free')  # free, developer, etc.
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    provider = Column(String(128), nullable=False, index=True)  # groq, gemini, etc.
+    model = Column(String(128), nullable=False, index=True)
+    plan_type = Column(String(128), nullable=False, default='free')  # free, developer, etc.
 
     # Time period identifiers
-    period_date = Column(String, nullable=False)  # YYYY-MM-DD format for daily tracking
+    period_date = Column(String(10), nullable=False)  # YYYY-MM-DD format for daily tracking
     period_hour = Column(Integer, nullable=True)  # Hour for hourly tracking
 
     # Usage metrics
@@ -109,7 +109,7 @@ class RateLimitUsageTable(Base):
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # User tracking (if per-user tracking is enabled)
-    user_id = Column(String, ForeignKey('users.id'), nullable=True, index=True)
+    user_id = Column(String(36), ForeignKey('users.id'), nullable=True, index=True)
 
     # Composite unique constraint
     __table_args__ = (
@@ -122,10 +122,10 @@ class DailyCostSummaryTable(Base):
     """Table to store daily cost summaries."""
     __tablename__ = 'daily_cost_summary'
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
-    provider = Column(String, nullable=False, index=True)
-    model = Column(String, nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    date = Column(String(10), nullable=False, index=True)  # YYYY-MM-DD
+    provider = Column(String(128), nullable=False, index=True)
+    model = Column(String(128), nullable=False)
 
     # Usage metrics
     total_calls = Column(Integer, default=0)

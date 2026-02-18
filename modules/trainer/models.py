@@ -18,24 +18,25 @@ class PluginData(Base):
         {'extend_existing': True}
     )
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    plugin_id = Column(String, nullable=False, index=True)
-    user_id = Column(String, nullable=True, index=False)  # Remove index=True from column
-    key = Column(String, nullable=False)
-    value = Column(JSON, nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))  # UUID length
+    plugin_id = Column(String(100), nullable=False, index=True)  # Plugin identifier (e.g., 'youtube', 'pdf')
+    user_id = Column(String(36), nullable=True, index=False)  # UUID length, can be null for global data
+    key = Column(String(255), nullable=False)  # Data key name
+    value = Column(JSON, nullable=False)  # JSON data, no length needed
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    data_metadata = Column(JSON, default={})
+    data_metadata = Column(JSON, default={})  # Additional metadata
+
 
 class PluginActivation(Base):
     """Store plugin activation status per trainer."""
     __tablename__ = 'trainer_plugin_activations'
     __table_args__ = {'extend_existing': True}
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    trainer_id = Column(String, nullable=False, index=True)
-    plugin_id = Column(String, nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))  # UUID length
+    trainer_id = Column(String(36), nullable=False, index=True)  # UUID length
+    plugin_id = Column(String(100), nullable=False)  # Plugin identifier
     is_active = Column(Boolean, default=True)
-    config = Column(JSON, default={})
+    config = Column(JSON, default={})  # Plugin configuration
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    activation_metadata = Column(JSON, default={})
+    activation_metadata = Column(JSON, default={})  # Additional metadata

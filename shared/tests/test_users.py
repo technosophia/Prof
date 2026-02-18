@@ -632,9 +632,9 @@ class TestUserManager:
         mock_child2.role = UserRole.NORMAL.value
         # ... setup other attributes
 
-        # Mock parent user with children
+        # Mock parent user with children - FIX: change child_users to children
         mock_parent = MagicMock(spec=UserTable)
-        mock_parent.child_users = [mock_child1, mock_child2]
+        mock_parent.children = [mock_child1, mock_child2]  # Changed from child_users to children
 
         # Setup query
         mock_query = MagicMock()

@@ -1,4 +1,10 @@
 {
-  "active_modules": ["debug", "llm_monitor", "rag_manager", "test", "trainer"],
+  "active_modules": [
+    "debug",
+    "llm_monitor",
+    "rag_manager",
+    "test",
+    "trainer"
+  ],
   "total_modules": 5
 }

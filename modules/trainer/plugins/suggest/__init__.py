@@ -26,9 +26,9 @@ class StudentSuggestionConfig(Base):
     __tablename__ = 'trainer_suggest_config'
     __table_args__ = {'extend_existing': True}
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    student_id = Column(String, nullable=False, index=True)
-    trainer_id = Column(String, nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    student_id = Column(String(36), nullable=False, index=True)
+    trainer_id = Column(String(36), nullable=False, index=True)
     message_interval = Column(Integer, default=5)  # Suggest every N messages
     is_enabled = Column(Boolean, default=True)
     last_suggestion_index = Column(Integer, default=0)  # Last message count when suggestion was made
@@ -41,13 +41,13 @@ class StudentSuggestion(Base):
     __tablename__ = 'trainer_suggestions'
     __table_args__ = {'extend_existing': True}
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    student_id = Column(String, nullable=False, index=True)
-    trainer_id = Column(String, nullable=False, index=True)
-    conversation_id = Column(String, nullable=True)  # Primary conversation that triggered this suggestion
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    student_id = Column(String(36), nullable=False, index=True)
+    trainer_id = Column(String(36), nullable=False, index=True)
+    conversation_id = Column(String(36), nullable=True)  # Primary conversation that triggered this suggestion
     content = Column(Text, nullable=False)
-    suggestion_type = Column(String, default="question")  # question, prompt, resource, etc.
-    source = Column(String, default="auto")  # 'auto' or 'teacher'
+    suggestion_type = Column(String(255), default="question")  # question, prompt, resource, etc.
+    source = Column(String(255), default="auto")  # 'auto' or 'teacher'
 
     # State management
     is_dismissed = Column(Boolean, default=False)
@@ -64,7 +64,7 @@ class StudentSuggestion(Base):
     expires_at = Column(DateTime, nullable=True)  # When this suggestion expires
 
     # Relationships
-    created_conversation_id = Column(String, nullable=True)  # Conversation created when suggestion was used
+    created_conversation_id = Column(String(36), nullable=True)  # Conversation created when suggestion was used
     related_conversation_ids = Column(JSON, default=list)  # List of conversation IDs associated with this suggestion
 
     # Metadata and history

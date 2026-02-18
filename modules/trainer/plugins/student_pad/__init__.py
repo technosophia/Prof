@@ -20,11 +20,11 @@ class StudentNote(Base):
     __tablename__ = 'trainer_student_notes'
     __table_args__ = {'extend_existing': True}
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, nullable=False, index=True)  # Student ID
-    trainer_id = Column(String, nullable=False, index=True)  # Trainer/Master ID
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), nullable=False, index=True)  # Student ID
+    trainer_id = Column(String(36), nullable=False, index=True)  # Trainer/Master ID
     content = Column(Text, default="")
-    plugin_id = Column(String, default="core")  # Which plugin owns this note
+    plugin_id = Column(String(36), default="core")  # Which plugin owns this note
     version = Column(Integer, default=1)  # Version number
     is_current = Column(Integer, default=1)  # 1 for current version, 0 for history
     updated_at = Column(DateTime, default=datetime.utcnow)

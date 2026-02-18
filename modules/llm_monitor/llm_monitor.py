@@ -375,11 +375,21 @@ class LLMMonitor:
                         func.count(LLMCallTable.id).label("requests"),
                         func.coalesce(func.sum(LLMCallTable.total_tokens), 0).label("tokens")
                     ).filter(
-                        LLMCallTable.llm_type == provider,
-                        func.date(LLMCallTable.timestamp) == today
+                        LLMCallTable.llm_type == provider
                     )
+
                     if tracked_user_id:
                         daily_call_query = daily_call_query.filter(LLMCallTable.user_id == tracked_user_id)
+
+                    # Database-agnostic date filtering
+                    day_start = datetime.strptime(today, "%Y-%m-%d")
+                    day_end = day_start + timedelta(days=1)
+
+                    daily_call_query = daily_call_query.filter(
+                        LLMCallTable.timestamp >= day_start,
+                        LLMCallTable.timestamp < day_end
+                    )
+
                     daily_totals = daily_call_query.one()
 
                 if hourly_totals.requests == 0 and hourly_totals.tokens == 0:
@@ -387,12 +397,25 @@ class LLMMonitor:
                         func.count(LLMCallTable.id).label("requests"),
                         func.coalesce(func.sum(LLMCallTable.total_tokens), 0).label("tokens")
                     ).filter(
-                        LLMCallTable.llm_type == provider,
-                        func.date(LLMCallTable.timestamp) == today,
-                        func.strftime('%H', LLMCallTable.timestamp) == f"{current_hour:02d}"
+                        LLMCallTable.llm_type == provider
                     )
+
                     if tracked_user_id:
                         hourly_call_query = hourly_call_query.filter(LLMCallTable.user_id == tracked_user_id)
+
+                    # Database-agnostic date and time filtering
+                    # Filter by date range (start of day to end of day)
+                    day_start = datetime.strptime(today, "%Y-%m-%d")
+
+                    # Filter for the specific hour
+                    hour_start = day_start.replace(hour=current_hour, minute=0, second=0, microsecond=0)
+                    hour_end = hour_start + timedelta(hours=1)
+
+                    hourly_call_query = hourly_call_query.filter(
+                        LLMCallTable.timestamp >= hour_start,
+                        LLMCallTable.timestamp < hour_end
+                    )
+
                     hourly_totals = hourly_call_query.one()
 
                 result = {

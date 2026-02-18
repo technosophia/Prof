@@ -16,6 +16,12 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     build-essential \
+    default-libmysqlclient-dev \
+    default-mysql-client \
+    pkg-config \
+    # Additional useful tools
+    vim \
+    nano \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment

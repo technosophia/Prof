@@ -75,9 +75,11 @@ NOTE
 
 """
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 import importlib.util
+from urllib.parse import urlparse
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
@@ -88,6 +90,34 @@ from core.logging import log
 Base = declarative_base()
 
 MEMDB = 'sqlite:///:memory:'
+
+
+def extract_sqlite_file_path(db_url: str) -> Optional[str]:
+    """
+    Extract the file path from a SQLite database URL.
+
+    Args:
+        db_url: SQLAlchemy database URL (e.g., 'sqlite:///data/app.db')
+
+    Returns:
+        File path if it's a file-based SQLite database, None otherwise
+    """
+    if not db_url or not isinstance(db_url, str):
+        return None
+
+    # Match sqlite:///path format
+    sqlite_pattern = r'^sqlite:///(.+)$'
+    match = re.match(sqlite_pattern, db_url)
+
+    if match:
+        file_path = match.group(1)
+        # Handle Windows paths with drive letters
+        if file_path.startswith('/') and len(file_path) > 2 and file_path[2] == ':':
+            # Remove leading slash for Windows paths like /C:/path
+            file_path = file_path[1:]
+        return file_path
+
+    return None
 
 
 class AlembicMigrationHelper:
@@ -284,6 +314,27 @@ class DatabaseManager:
             self._tables_created = False
             self._in_memory = False
 
+    def _ensure_directory_exists(self, db_url: str):
+        """
+        Ensure the directory for a SQLite database file exists.
+
+        Args:
+            db_url: Database URL (e.g., 'sqlite:///data/app.db')
+        """
+        # Extract file path from SQLite URL
+        file_path = extract_sqlite_file_path(db_url)
+
+        if file_path:
+            # Get the directory part
+            db_dir = os.path.dirname(file_path)
+            if db_dir:
+                try:
+                    Path(db_dir).mkdir(parents=True, exist_ok=True)
+                    log("debug", f"Ensured directory exists: {db_dir}")
+                except Exception as e:
+                    log("error", f"Failed to create directory {db_dir}: {e}")
+                    raise
+
     def _initialize(self, use_memory: bool = False, db_path: Optional[str] = None):
         """Initialize the database connection. Called by init_database()."""
         if self._engine is not None:
@@ -303,16 +354,10 @@ class DatabaseManager:
             log("info", "Initialized and stored shared in-memory database engine")
         else:
             if db_path is None:
-                raise ValueError("Database path must be specified for persistent database")
+                raise ValueError("Database path or URL must be specified for persistent database")
 
-            db_dir = os.path.dirname(db_path)
-            if db_dir:
-                try:
-                    Path(db_dir).mkdir(parents=True, exist_ok=True)
-                    log("debug", f"Ensured directory exists: {db_dir}")
-                except Exception as e:
-                    log("error", f"Failed to create directory {db_dir}: {e}")
-                    raise
+            # Ensure directory exists for SQLite file-based databases
+            self._ensure_directory_exists(db_path)
 
             db_url = db_path
             try:
@@ -524,7 +569,8 @@ def init_database(use_memory: bool = False,
 
     Args:
         use_memory: Use in-memory database for testing
-        db_path: Path to database file (default: from config or "data/app.db")
+        db_path: Path to database file or SQLAlchemy database URL
+                (e.g., 'sqlite:///data/app.db' or 'data/app.db')
         auto_upgrade: Automatically run schema migrations on startup
         upgrade_revision: Target revision for upgrade (default: "head")
 
@@ -539,14 +585,14 @@ def init_database(use_memory: bool = False,
         try:
             from shared.common import get_config
             config = get_config()
-            db_path = config.get("database.path", "data")
-            db_path = os.path.join(db_path, "app.db")
+            # Allow config to return either a path or a full URL
+            db_path = config.get("database.url") or config.get("database.path", "sqlite:///data/app.db")
         except ImportError:
-            db_path = "data/app.db"
-            log("warning", f"Could not load config, using default path: {db_path}")
+            db_path = "sqlite:///data/app.db"
+            log("warning", f"Could not load config, using default URL: {db_path}")
         except Exception as e:
-            db_path = "data/app.db"
-            log("warning", f"Error loading config, using default path: {db_path}")
+            db_path = "sqlite:///data/app.db"
+            log("warning", f"Error loading config, using default URL: {db_path}")
 
     db_manager._initialize(use_memory=use_memory, db_path=db_path)
 

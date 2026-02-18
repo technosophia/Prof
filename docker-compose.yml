@@ -1,6 +1,27 @@
 version: "2.4"
 
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: coach_mysql
+    restart: always
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} # Add this to your .env
+    volumes:
+      # Persist MySQL data in the data directory
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - internal
+    ports:
+      - "3306:3306" # Optional: expose to host if needed
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
   streamlit_coach:
     build:
       context: .
@@ -10,10 +31,13 @@ services:
     image: streamlit-coach:python3.11.9
     container_name: coach_streamlit
     restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
     volumes:
       # Mount the current directory to /app for live code updates
       - ./:/app
-      # Mount data directory separately
+      # Mount data directory separately (for any SQLite fallback or other data)
       - ./data:/app/data
     networks:
       - traefik
@@ -27,14 +51,21 @@ services:
       # Virtual environment variables
       - VIRTUAL_ENV=/opt/venv
       - PATH=/opt/venv/bin:${PATH}
-      # Add your environment variables here
+      # Database environment variables (passed through)
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DRIVER=${MYSQL_DRIVER}
+      # Add your other environment variables here
       - GIT_TOKEN=${GIT_TOKEN}
       - PYTHON_VERSION=3.11.9
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik"
       - "traefik.frontend.rule=Host:coach.yoga-pro.xyz"
-      - "traefik.port=8501"          # ← this is how v1 knows which port to proxy
+      - "traefik.port=8501"
       - "traefik.frontend.entryPoints=https,http"
 
 networks:

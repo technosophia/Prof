@@ -74,38 +74,39 @@ class UserTable(Base):
     """User model for database."""
     __tablename__ = 'users'
 
-    id = Column(String, primary_key=True)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=True)
-    password_hash = Column(String, nullable=True)  # New: hashed password
+    id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
+    password_hash = Column(String(128), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
-    role = Column(String, default=UserRole.NORMAL.value)
-    parent_id = Column(String, ForeignKey('users.id'), nullable=True)
+    role = Column(String(20), default=UserRole.NORMAL.value)
+    parent_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     profile = Column(JSON, default={})
     user_metadata = Column(JSON, default={})
-    reset_code = Column(String, nullable=True)  # New: temporary password reset code
-    reset_code_expires = Column(DateTime, nullable=True)  # New: reset code expiration
+    reset_code = Column(String(64), nullable=True)
+    reset_code_expires = Column(DateTime, nullable=True)
 
-    # Relationships
-    parent = relationship("UserTable", remote_side=[id], backref="child_users")
+    # Relationships - define them explicitly
+    parent = relationship("UserTable", remote_side=[id], back_populates="children")
+    children = relationship("UserTable", back_populates="parent")
 
 
 class UserActionLog(Base):
     """Log of user actions for auditing."""
     __tablename__ = 'user_action_logs'
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey('users.id'), nullable=True)
-    username = Column(String, nullable=True)  # Denormalized for context if user deleted
-    action = Column(String, nullable=False)  # One of UserAction values
-    target_user_id = Column(String, nullable=True)  # If action involves another user
-    target_username = Column(String, nullable=True)  # Denormalized
-    details = Column(JSON, default={})  # Additional context (IP, user agent, etc.)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey('users.id'), nullable=True)  # Add length
+    username = Column(String(255), nullable=True)  # Add length
+    action = Column(String(50), nullable=False)  # Add length
+    target_user_id = Column(String(36), nullable=True)  # Add length
+    target_username = Column(String(255), nullable=True)  # Add length
+    details = Column(JSON, default={})
     timestamp = Column(DateTime, default=datetime.utcnow)
-    success = Column(Boolean, default=True)  # Whether action succeeded
-    error_message = Column(String, nullable=True)  # If action failed
+    success = Column(Boolean, default=True)
+    error_message = Column(String(500), nullable=True)  # Add length
 
 
 class UserManager:
@@ -744,11 +745,36 @@ class UserManager:
             "profile": user.profile or {},
             "metadata": user.user_metadata or {},
             "parent_name": user.parent.name if user.parent else None,
-            "has_password": user.password_hash is not None  # Indicate if user has a password set
+            "has_password": user.password_hash is not None,
         }
 
-        if include_children and hasattr(user, 'child_users') and user.child_users:
-            result["children"] = [self._user_to_dict(child) for child in user.child_users]
+        # Add reset code information safely
+        if hasattr(user, 'reset_code') and hasattr(user, 'reset_code_expires'):
+            reset_code_info = {
+                "has_code": user.reset_code is not None and user.reset_code_expires is not None,
+                "expires_at": user.reset_code_expires.isoformat() if user.reset_code_expires else None,
+                "is_valid": False
+            }
+
+            # Only try to compare if reset_code_expires is a datetime
+            if user.reset_code_expires and isinstance(user.reset_code_expires, datetime):
+                reset_code_info["is_valid"] = user.reset_code_expires > datetime.utcnow()
+
+                # Only include the actual code if it's valid and we have it
+                if user.reset_code and reset_code_info["is_valid"]:
+                    reset_code_info["code"] = user.reset_code
+
+            result["reset_code_info"] = reset_code_info
+        else:
+            # If attributes don't exist, provide default values
+            result["reset_code_info"] = {
+                "has_code": False,
+                "expires_at": None,
+                "is_valid": False
+            }
+
+        if include_children and hasattr(user, 'children') and user.children:
+            result["children"] = [self._user_to_dict(child) for child in user.children]
 
         return result
 
@@ -759,7 +785,7 @@ class UserManager:
         with self.db.get_session() as session:
             query = session.query(UserTable).options(joinedload(UserTable.parent))
             if include_children:
-                query = query.options(joinedload(UserTable.child_users))
+                query = query.options(joinedload(UserTable.children))
 
             user = query.filter_by(id=user_id).first()
             if user:
@@ -1087,9 +1113,9 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            user = session.query(UserTable).options(joinedload(UserTable.child_users)).filter_by(id=user_id).first()
-            if user and hasattr(user, 'child_users') and user.child_users:
-                return [self._user_to_dict(child) for child in user.child_users]
+            user = session.query(UserTable).options(joinedload(UserTable.children)).filter_by(id=user_id).first()
+            if user and hasattr(user, 'children') and user.children:
+                return [self._user_to_dict(child) for child in user.children]
             return []
 
     def get_descendants(self, user_id: str) -> List[Dict[str, Any]]:

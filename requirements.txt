@@ -1,5 +1,8 @@
 streamlit
 dotenv
+mysqlclient
+pymysql
+cryptography
 pytest
 pytest-asyncio
 sqlalchemy

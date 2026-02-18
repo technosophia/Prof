@@ -24,13 +24,13 @@ class StudentMemory(Base):
     __tablename__ = 'trainer_student_memories'
     __table_args__ = {'extend_existing': True}
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, nullable=False, index=True)
-    trainer_id = Column(String, nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), nullable=False, index=True)
+    trainer_id = Column(String(36), nullable=False, index=True)
     content = Column(Text, default="")
     version = Column(Integer, default=1)
     is_current = Column(Integer, default=1)
-    source = Column(String, nullable=False)  # 'auto' or 'manual' or 'llm:llm_id'
+    source = Column(String(255), nullable=False)  # 'auto' or 'manual' or 'llm:llm_id'
     last_analyzed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
