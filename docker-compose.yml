@@ -1,0 +1,42 @@
+version: "3.3"
+
+services:
+  streamlit_coach:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coach_streamlit
+    restart: always
+    volumes:
+      # Mount the current directory to /app for live code updates
+      - ./:/app
+      # Mount data directory separately if needed (already included in above)
+    networks:
+      - traefik
+      - internal
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+      # Add your environment variables here
+      - GIT_TOKEN=${GIT_TOKEN} # For git pull operations
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.coach.rule=Host(`coach.yoga-pro.xyz`)"
+      - "traefik.http.routers.coach.entrypoints=websecure"
+      - "traefik.http.routers.coach.tls.certresolver=letsencrypt"
+      - "traefik.http.services.coach.loadbalancer.server.port=8501"
+      # Redirect HTTP to HTTPS
+      - "traefik.http.routers.coach-http.rule=Host(`coach.yoga-pro.xyz`)"
+      - "traefik.http.routers.coach-http.entrypoints=web"
+      - "traefik.http.routers.coach-http.middlewares=coach-https-redirect"
+      - "traefik.http.middlewares.coach-https-redirect.redirectscheme.scheme=https"
+
+networks:
+  traefik:
+    external:
+      name: traefik
+  internal:
+    external: false
