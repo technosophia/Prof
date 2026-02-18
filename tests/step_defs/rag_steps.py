@@ -341,7 +341,7 @@ def verify_rag_enhanced_response(context):
 
         if attempt < max_attempts - 1:
             print(f"Waiting for RAG-enhanced response... (attempt {attempt + 1}/{max_attempts})")
-            page.wait_for_timeout(int(get_config().get("llm_delay", 2000)))
+            page.wait_for_timeout(int(get_config().get("app.llm_delay", 2000)))
 
     if not found_address:
         take_screenshot(page, "rag_response_no_address.png", debug_enabled, full_page=True)

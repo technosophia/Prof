@@ -139,7 +139,7 @@ jobs:
           ollama list
           curl -X POST http://localhost:11434/api/generate -d '{
             "model": "qwen3:4b",
-            "prompt": "Hello",
+            "prompt": "Hello /nothink",
             "stream": false
           }'
 
