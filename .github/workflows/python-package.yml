@@ -26,15 +26,13 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             requirements.txt
-            requirements-dev.txt  # Si tu as un fichier séparé pour les dev
+            requirements-dev.txt
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install from requirements files if they exist
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          # Always install test dependencies
           pip install flake8 pytest pytest-bdd pytest-playwright
 
       - name: Cache Playwright browsers
@@ -46,14 +44,48 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browsers and system dependencies
+      - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: |
           playwright install --with-deps chromium
 
-      - name: Ensure Playwright browsers are available
+      - name: Cache Ollama models
+        id: ollama-cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ollama
+          key: ${{ runner.os }}-ollama-qwen3-4b
+
+      - name: Install Ollama
         run: |
-          playwright install chromium
+          curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama server
+        run: |
+          ollama serve &
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:11434/api/tags > /dev/null; then
+              echo "Ollama server is ready"
+              break
+            fi
+            echo "Waiting for Ollama server... ($i/30)"
+            sleep 2
+          done
+
+      - name: Pull Qwen3 model
+        if: steps.ollama-cache.outputs.cache-hit != 'true'
+        run: |
+          ollama pull qwen3:4b
+
+      - name: Verify model is available
+        run: |
+          ollama list
+          curl -X POST http://localhost:11434/api/generate -d '{
+            "model": "qwen3:4b",
+            "prompt": "Hello",
+            "stream": false
+          }'
 
       - name: Lint with flake8
         run: |
@@ -65,3 +97,6 @@ jobs:
       - name: Test with pytest
         run: |
           pytest -v
+        env:
+          OLLAMA_HOST: http://localhost:11434
+          OLLAMA_MODEL: qwen3:4b
