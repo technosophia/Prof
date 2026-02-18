@@ -59,7 +59,7 @@ class TestDatabaseManager:
                             db._initialize(use_memory=False, db_path=db_path)
 
                             # Check that file URL was used
-                            expected_url = f'sqlite:///{db_path}'
+                            expected_url = db_path
                             mock_engine.assert_called_once_with(expected_url, echo=False)
                             mock_sessionmaker.assert_called_once()
                             assert db._in_memory == False
@@ -334,7 +334,7 @@ class TestDatabaseManager:
 
                             # Verify pool_pre_ping is NOT included for persistent
                             call_args = mock_engine.call_args
-                            assert call_args[0][0] == f'sqlite:///{db_path}'
+                            assert call_args[0][0] == db_path
                             assert 'pool_pre_ping' not in call_args[1]  # Not specified
                             assert call_args[1]['echo'] == False
 

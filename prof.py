@@ -156,7 +156,7 @@ for module_name in active_modules:
     else:
         log("warning", f"Could not load UI for module: {module_name}")
 
-db_path = get_config().get("database", {}).get("path", ".") + "/app.db"
+db_path = get_config().get("database", {}).get("path", "app.db")
 init_database(use_memory=False, db_path=db_path)
 
 # Auto-upgrade database schema if needed

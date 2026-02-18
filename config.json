@@ -14,7 +14,7 @@
     "test_mode": false
   },
   "database": {
-    "path": "data",
+    "path": "sqlite:///data/app.db",
     "auto_create_tables": true,
     "create_default_users": false,
     "auto_import_users": {

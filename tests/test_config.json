@@ -8,7 +8,7 @@
     "llm_delay": 5000
   },
   "database": {
-    "path": "tests/data",
+    "path": "sqlite:///tests/data/app.db",
     "auto_create_tables": true,
     "create_default_users": true
   },

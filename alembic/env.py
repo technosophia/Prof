@@ -36,7 +36,7 @@ def get_url():
     try:
         config_obj = get_config()
         db_path = config_obj.get("database.path", "data")
-        return f"sqlite:///{db_path}/app.db"
+        return db_path
     except:
         # Fallback for when config is not available (e.g., during initial migration)
         return "sqlite:///data/app.db"

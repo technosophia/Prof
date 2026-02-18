@@ -314,7 +314,7 @@ class DatabaseManager:
                     log("error", f"Failed to create directory {db_dir}: {e}")
                     raise
 
-            db_url = f'sqlite:///{db_path}'
+            db_url = db_path
             try:
                 self._engine = create_engine(db_url, echo=False)
                 self._in_memory = False
