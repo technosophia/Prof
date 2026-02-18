@@ -4,7 +4,7 @@
     "auto_login": false,
     "local_mode": true,
     "test_mode": true,
-    "debug_llm": ["Qwen 3 4b", "Groq Llama 3"],
+    "debug_llm": ["Ollama Small", "Groq Llama 3"],
     "llm_delay": 5000
   },
   "database": {
@@ -23,8 +23,8 @@
     },
     "ollama_qwen": {
       "type": "ollama",
-      "model": "qwen3:4b",
-      "name": "Qwen 3 4B",
+      "model": "qwen3:1.7b",
+      "name": "Ollama Small",
       "enabled": true,
       "description": "Local Qwen model via Ollama",
       "requires_api_key": false

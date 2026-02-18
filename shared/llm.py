@@ -162,7 +162,7 @@ class LLMManager:
 
     def initialize_current_llm(self):
         """Initialize the current LLM from config."""
-        default_llm_name = self.config.get("app.default_llm", "Qwen 3 4B")
+        default_llm_name = self.config.get("app.default_llm", "Ollama Small")
         log("debug", f"Looking for default LLM: '{default_llm_name}'")
 
         available_llms = self.get_available_llms()

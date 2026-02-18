@@ -48,7 +48,7 @@
     "ollama_qwen": {
       "type": "ollama",
       "model": "qwen3:4b",
-      "name": "Qwen 3 4B",
+      "name": "Ollama Small",
       "enabled": true,
       "description": "Local Qwen model via Ollama",
       "requires_api_key": false

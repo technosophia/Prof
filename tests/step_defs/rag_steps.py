@@ -30,7 +30,7 @@ def select_rag_llm(page: Page, model_names: List[str], debug_enabled: bool = Fal
 
     Args:
         page: Playwright page object
-        model_names: List of model name patterns to search for (e.g., ["qwen 3 4b", "qwen-3-4b", "llama 3", "gpt-4"])
+        model_names: List of model name patterns to search for (e.g., ["Ollama Small", "llama 3", "gpt-4"])
         debug_enabled: Enable debug output if True
 
     Returns:
