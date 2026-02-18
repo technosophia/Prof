@@ -11,7 +11,7 @@ Feature: RAG System Functionality
         When I navigate to the chat page
         And I create a new conversation named "RAG Enabled Test"
         Given I enable RAG context injection
-        When I ask "Where does Kevin live? /no_think"
+        When I ask "Where does Kevin live?"
         Then I should see a RAG-enhanced response with address information
 
     Scenario: RAG disabled conversation
