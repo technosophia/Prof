@@ -38,7 +38,7 @@
       "type": "groq",
       "model": "llama-3.3-70b-versatile",
       "name": "Groq Llama 3",
-      "enabled": false,
+      "enabled": true,
       "description": "Fast inference via Groq",
       "requires_api_key": true
     }

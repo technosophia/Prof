@@ -9,6 +9,7 @@ import tempfile
 import os
 from pytest_bdd import given, when, then, scenarios, parsers
 from playwright.sync_api import Page, expect
+from typing import Dict, List, Optional
 
 # Import common steps
 from tests.step_defs.common_steps import *
@@ -22,9 +23,20 @@ pytestmark = [pytest.mark.bdd, pytest.mark.playwright, pytest.mark.rag]
 
 # ==================== RAG-SPECIFIC HELPER FUNCTIONS ====================
 
-def select_qwen_llm(page: Page, debug_enabled: bool = False):
-    """Select Qwen 3 4B as the LLM engine."""
-    print("\n=== Selecting Qwen 3 4B LLM ===")
+def select_rag_llm(page: Page, model_names: List[str], debug_enabled: bool = False):
+    """
+    Select an LLM model from the dropdown based on provided model name patterns.
+
+    Args:
+        page: Playwright page object
+        model_names: List of model name patterns to search for (e.g., ["qwen 3 4b", "qwen-3-4b", "llama 3", "gpt-4"])
+        debug_enabled: Enable debug output if True
+
+    Returns:
+        bool: True if selection was successful or not needed
+    """
+    if debug_enabled:
+        print(f"\n=== Selecting LLM: searching for {model_names} ===")
 
     # Wait for page to be ready
     page.wait_for_load_state("networkidle", timeout=30000)
@@ -32,7 +44,8 @@ def select_qwen_llm(page: Page, debug_enabled: bool = False):
 
     # Find the LLM selectbox
     selectboxes = page.locator("[data-testid='stSelectbox']")
-    print(f"Found {selectboxes.count()} selectboxes")
+    if debug_enabled:
+        print(f"Found {selectboxes.count()} selectboxes")
 
     # Try to find LLM selector
     llm_selectbox = None
@@ -41,7 +54,8 @@ def select_qwen_llm(page: Page, debug_enabled: bool = False):
         text = selectbox.text_content()
         if "llm" in text.lower() or "ai model" in text.lower() or "selection" in text.lower():
             llm_selectbox = selectbox
-            print(f"Found LLM selectbox at index {i}: {text[:50]}")
+            if debug_enabled:
+                print(f"Found LLM selectbox at index {i}: {text[:50]}")
             break
 
     if llm_selectbox:
@@ -52,53 +66,59 @@ def select_qwen_llm(page: Page, debug_enabled: bool = False):
         # Wait for dropdown to open
         page.wait_for_timeout(1000)
 
-        # Look for Qwen option
-        qwen_option = None
+        # Look for model option
+        model_option = None
 
-        # Try different patterns for Qwen
-        qwen_patterns = [
-            "qwen 3 4b",
-            "qwen-3-4b",
-            "qwen3",
-            "qwen",
-            "Qwen2.5"
-        ]
-
-        for pattern in qwen_patterns:
+        # Try each model name pattern
+        for pattern in model_names:
             option = page.get_by_text(re.compile(pattern, re.IGNORECASE)).first
             if option.count() > 0:
-                qwen_option = option
-                print(f"Found Qwen option with pattern: {pattern}")
+                model_option = option
+                if debug_enabled:
+                    print(f"Found model option with pattern: {pattern}")
                 break
 
-        if qwen_option:
-            print("Clicking Qwen option...")
-            qwen_option.click()
+        if model_option:
+            if debug_enabled:
+                print(f"Clicking model option for pattern: {pattern}...")
+            model_option.click()
             page.wait_for_load_state("networkidle", timeout=30000)
-            print("✓ Qwen 3 4B selected")
+            if debug_enabled:
+                print(f"✓ Model {pattern} selected")
         else:
-            print("Warning: Could not find Qwen option, trying manual search...")
+            if debug_enabled:
+                print(f"Warning: Could not find any model option, trying manual search...")
 
             # Get all dropdown options
             options = page.locator("li[role='option']").all()
-            print(f"Found {len(options)} dropdown options")
+            if debug_enabled:
+                print(f"Found {len(options)} dropdown options")
 
             for i, option in enumerate(options):
                 try:
                     option_text = option.text_content()
-                    print(f"  Option {i}: '{option_text}'")
-                    if "qwen" in option_text.lower() or "4b" in option_text.lower():
-                        option.click()
-                        page.wait_for_load_state("networkidle", timeout=30000)
-                        print(f"✓ Selected Qwen option: {option_text}")
-                        break
+                    if debug_enabled:
+                        print(f"  Option {i}: '{option_text}'")
+
+                    # Check if option matches any of the model patterns
+                    for pattern in model_names:
+                        if pattern.lower() in option_text.lower():
+                            option.click()
+                            page.wait_for_load_state("networkidle", timeout=30000)
+                            if debug_enabled:
+                                print(f"✓ Selected model option: {option_text}")
+                            break
+                    else:
+                        continue
+                    break
                 except:
                     continue
 
             # Close dropdown if still open
             page.keyboard.press("Escape")
     else:
-        print("Note: Could not find LLM selectbox, assuming Qwen is already selected")
+        if debug_enabled:
+            print("Note: Could not find LLM selectbox, assuming model is already selected")
 
     return True
 
@@ -241,7 +261,7 @@ def enable_rag_injection(context):
     debug_enabled = context.get('debug_enabled', False)
 
     # Select Qwen LLM first
-    select_qwen_llm(page, debug_enabled)
+    select_rag_llm(page, ["Groq Llama 3", "Qwen 3 4b"], debug_enabled)
 
     # Then toggle RAG injection
     toggle_rag_injection(page, enable=True, debug_enabled=debug_enabled)
@@ -256,7 +276,7 @@ def disable_rag_injection(context):
     debug_enabled = context.get('debug_enabled', False)
 
     # Select Qwen LLM first
-    select_qwen_llm(page, debug_enabled)
+    select_rag_llm(page, ["Groq Llama 3", "Qwen 3 4b"], debug_enabled)
 
     # Then toggle RAG injection
     toggle_rag_injection(page, enable=False, debug_enabled=debug_enabled)
@@ -330,6 +350,7 @@ def verify_rag_enhanced_response(context):
 
         # Check if we at least got some response
         if len(response_text.strip()) < 10:
+            take_screenshot(page, "rag_response_no_address.png", True, full_page=True)
             assert False, "No response received from LLM"
         else:
             assert False, "RAG-enhanced address information not found in response"
