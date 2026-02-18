@@ -6,13 +6,12 @@ Feature: RAG System Functionality
     Background:
         Given the application is running
         And the default user "System Administrator" is logged in
-        And the mock LLM is configured and available
 
     Scenario: RAG enabled conversation
         When I navigate to the chat page
         And I create a new conversation named "RAG Enabled Test"
         Given I enable RAG context injection
-        When I ask "Where does Kevin live?"
+        When I ask "Where does Kevin live? /nothink"
         Then I should see a RAG-enhanced response with address information
 
     Scenario: RAG disabled conversation

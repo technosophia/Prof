@@ -3,7 +3,9 @@
     "default_llm": "Mock LLM",
     "auto_login": false,
     "local_mode": true,
-    "test_mode": true
+    "test_mode": true,
+    "debug_llm": ["Qwen 3 4b", "Groq Llama 3"],
+    "llm_delay": 2000
   },
   "database": {
     "path": "tests/data",

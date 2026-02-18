@@ -26,7 +26,8 @@ def _log(message, level="INFO"):
 
 def pytest_sessionfinish(session, exitstatus):
     """Clean up after all tests are done."""
-    _log('\n'+"="*50)
+    print('\n')
+    _log("="*50)
     _log("PYTEST SESSION FINISHED - FINAL CLEANUP")
     _log("="*50)
 
@@ -39,7 +40,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 def pytest_sessionstart(session):
     """Initialize database at the VERY beginning of the test session."""
-    _log("\n=== SESSION START - INITIALIZING DATABASE ===")
+    _log("=== SESSION START - INITIALIZING DATABASE ===")
 
     # Get database path from config
     db_config_path = get_config().get("database", {}).get("path", ".")
@@ -256,7 +257,7 @@ def setup_test_environment():
             os.unlink(temp_path)
 
         # Clean up environment variables
-        for var in ["TEST_MODE", "CONFIG_FILE", "PLAYWRIGHT_ASYNCIO"]:
+        for var in ["TEST_MODE","PLAYWRIGHT_ASYNCIO"]:
             if var in os.environ:
                 del os.environ[var]
 

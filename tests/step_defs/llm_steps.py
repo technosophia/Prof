@@ -28,7 +28,6 @@ def mock_llm_available(context):
 
     print("\n=== Selecting Mock LLM ===")
     print("TEST_MODE env var:", os.getenv("TEST_MODE"))
-    print("CONFIG_FILE env var:", os.getenv("CONFIG_FILE"))
 
     # Take screenshot before
     take_screenshot(page, "conversation_before_llm_select.png", debug_enabled)

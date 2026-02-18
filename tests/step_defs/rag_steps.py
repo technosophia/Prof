@@ -10,6 +10,7 @@ import os
 from pytest_bdd import given, when, then, scenarios, parsers
 from playwright.sync_api import Page, expect
 from typing import Dict, List, Optional
+from shared.common import get_config
 
 # Import common steps
 from tests.step_defs.common_steps import *
@@ -261,7 +262,7 @@ def enable_rag_injection(context):
     debug_enabled = context.get('debug_enabled', False)
 
     # Select Qwen LLM first
-    select_rag_llm(page, ["Groq Llama 3", "Qwen 3 4b"], debug_enabled)
+    select_rag_llm(page, get_config().get("app.debug_llm"), True)
 
     # Then toggle RAG injection
     toggle_rag_injection(page, enable=True, debug_enabled=debug_enabled)
@@ -276,7 +277,7 @@ def disable_rag_injection(context):
     debug_enabled = context.get('debug_enabled', False)
 
     # Select Qwen LLM first
-    select_rag_llm(page, ["Groq Llama 3", "Qwen 3 4b"], debug_enabled)
+    select_rag_llm(page, get_config().get("app.debug_llm"), debug_enabled)
 
     # Then toggle RAG injection
     toggle_rag_injection(page, enable=False, debug_enabled=debug_enabled)
@@ -340,7 +341,7 @@ def verify_rag_enhanced_response(context):
 
         if attempt < max_attempts - 1:
             print(f"Waiting for RAG-enhanced response... (attempt {attempt + 1}/{max_attempts})")
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(int(get_config().get("llm_delay", 2000)))
 
     if not found_address:
         take_screenshot(page, "rag_response_no_address.png", debug_enabled, full_page=True)
@@ -350,7 +351,6 @@ def verify_rag_enhanced_response(context):
 
         # Check if we at least got some response
         if len(response_text.strip()) < 10:
-            take_screenshot(page, "rag_response_no_address.png", True, full_page=True)
             assert False, "No response received from LLM"
         else:
             assert False, "RAG-enhanced address information not found in response"

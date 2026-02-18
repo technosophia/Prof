@@ -99,7 +99,7 @@ class OllamaEngine(LLMEngine):
                 "options": {
                     "temperature": 0.7,
                     "num_predict": 512
-                }
+                },
             }
 
             if stream_callback:
@@ -109,7 +109,7 @@ class OllamaEngine(LLMEngine):
                     ollama_url,
                     json=payload,
                     stream=True,
-                    timeout=120
+                    timeout=180,
                 )
 
                 if response.status_code != 200:
