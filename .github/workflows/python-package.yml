@@ -32,17 +32,41 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+
+      - name: Cache Python virtual environment
+        id: venv-cache
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ matrix.python-version }}-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-venv-${{ matrix.python-version }}-
+
+      - name: Create and activate virtual environment
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
+        if: steps.venv-cache.outputs.cache-hit != 'true'
         run: |
+          source .venv/bin/activate
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
           pip install flake8 pytest pytest-bdd pytest-playwright
+
+      - name: Force save Python venv cache
+        if: always() && steps.venv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ matrix.python-version }}-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
+
+      - name: Activate virtual environment for subsequent steps
+        run: |
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -58,16 +82,30 @@ jobs:
         run: |
           playwright install --with-deps chromium
 
-      - name: Cache Ollama models
+      - name: Force save Playwright cache
+        if: always() && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
+
+      - name: Cache Ollama installation and models
         id: ollama-cache
         uses: actions/cache@v3
         with:
-          path: ~/.ollama
-          key: ${{ runner.os }}-ollama-qwen3-4b
+          path: |
+            /usr/local/bin/ollama
+            ~/.ollama
+          key: ${{ runner.os }}-ollama-qwen3-4b-${{ hashFiles('**/ollama-version.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ollama-qwen3-4b-
 
       - name: Install Ollama
+        if: steps.ollama-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          # Create a version file for cache invalidation if needed
+          echo "ollama-$(date +%Y%m%d)" > ollama-version.txt
 
       - name: Start Ollama server
         run: |
@@ -84,7 +122,17 @@ jobs:
 
       - name: Pull Ollama model
         if: steps.ollama-cache.outputs.cache-hit != 'true'
-        run: ollama pull qwen3:4b
+        run: |
+          ollama pull qwen3:4b
+
+      - name: Force save Ollama cache
+        if: always() && steps.ollama-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            /usr/local/bin/ollama
+            ~/.ollama
+          key: ${{ runner.os }}-ollama-qwen3-4b-${{ hashFiles('**/ollama-version.txt') }}
 
       - name: Verify model is available
         run: |
@@ -97,14 +145,25 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          # Stop the build if there are Python syntax errors or undefined names
+          source .venv/bin/activate
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Exit-zero treats all errors as warnings
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Test with pytest
+        id: tests
+        continue-on-error: true
         run: |
+          source .venv/bin/activate
           pytest -v
         env:
           OLLAMA_HOST: http://localhost:11434
           OLLAMA_MODEL: qwen3:4b
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+
+      - name: Check test results
+        if: steps.tests.outcome != 'success'
+        run: |
+          echo "Tests failed but caches were saved for next run!"
+          exit 1
