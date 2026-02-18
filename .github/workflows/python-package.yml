@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: ["main"]
 
-env:
-  MODEL_NAME: qwen3:1.7b # Must match the one test_config.json "Ollama Small"
-  MODEL_CACHE_KEY: ollama-${{ runner.os }}-qwen3-1.7b
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -100,9 +96,9 @@ jobs:
           path: |
             /usr/local/bin/ollama
             ~/.ollama
-          key: ${{ env.MODEL_CACHE_KEY }}-${{ hashFiles('**/ollama-version.txt') }}
+          key: ${{ runner.os }}-ollama-qwen3-1.7b-${{ hashFiles('**/ollama-version.txt') }}
           restore-keys: |
-            ${{ env.MODEL_CACHE_KEY }}-
+            ${{ runner.os }}-ollama-qwen3-1.7b-
 
       - name: Install Ollama
         if: steps.ollama-cache.outputs.cache-hit != 'true'
@@ -127,7 +123,7 @@ jobs:
       - name: Pull Ollama model
         if: steps.ollama-cache.outputs.cache-hit != 'true'
         run: |
-          ollama pull ${{ env.MODEL_NAME }}
+          ollama pull qwen3:1.7b
 
       - name: Force save Ollama cache
         if: always() && steps.ollama-cache.outputs.cache-hit != 'true'
@@ -136,16 +132,16 @@ jobs:
           path: |
             /usr/local/bin/ollama
             ~/.ollama
-          key: ${{ env.MODEL_CACHE_KEY }}-${{ hashFiles('**/ollama-version.txt') }}
+          key: ${{ runner.os }}-ollama-qwen3-1.7b-${{ hashFiles('**/ollama-version.txt') }}
 
       - name: Verify model is available
         run: |
           ollama list
-          curl -X POST http://localhost:11434/api/generate \
-            -H "Content-Type: application/json" \
-            -d "{\"model\": \"$OLLAMA_MODEL_NAME\", \"prompt\": \"Hello. /no_think\", \"stream\": false}"
-        env:
-          OLLAMA_MODEL_NAME: ${{ env.MODEL_NAME }}
+          curl -X POST http://localhost:11434/api/generate -d '{
+            "model": "qwen3:1.7b",
+            "prompt": "Hello. /nothink",
+            "stream": false
+          }'
 
       - name: Lint with flake8
         run: |
@@ -161,7 +157,7 @@ jobs:
           pytest -v
         env:
           OLLAMA_HOST: http://localhost:11434
-          OLLAMA_MODEL: ${{ env.MODEL_NAME }}
+          OLLAMA_MODEL: qwen3:1.7b
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
