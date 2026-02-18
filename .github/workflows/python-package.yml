@@ -16,6 +16,15 @@ jobs:
         python-version: ["3.11.9"]
 
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -73,16 +82,15 @@ jobs:
             sleep 2
           done
 
-      - name: Pull Qwen3 model
+      - name: Pull Ollama model
         if: steps.ollama-cache.outputs.cache-hit != 'true'
-        run: |
-          ollama pull qwen3:4b
+        run: ollama pull qwen3:4b
 
       - name: Verify model is available
         run: |
           ollama list
           curl -X POST http://localhost:11434/api/generate -d '{
-            "model": "qwen3:4b",
+            "model": "gemma3:cloud",
             "prompt": "Hello",
             "stream": false
           }'
