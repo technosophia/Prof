@@ -17,7 +17,7 @@ from shared.common import Base, get_db_manager, get_prompt, log, _
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 from shared.conversation import get_conversation_manager, Message
-from shared.common import llm_conversation_generate
+from shared.common import llm_conversation_generate, get_llm_manager
 
 
 # ============= DATABASE MODEL =============

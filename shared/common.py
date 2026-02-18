@@ -204,6 +204,8 @@ def get_all_users() -> Dict[str, Dict[str, Any]]:
 
 # Conversations ================================================
 
+from shared.conversation import ConversationTable, MessageTable
+
 Message = _Message
 
 @st.cache_resource

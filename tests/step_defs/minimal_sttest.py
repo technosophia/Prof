@@ -4,6 +4,7 @@ Simplest possible working test.
 """
 import os
 from streamlit.testing.v1 import AppTest
+import pytest
 
 pytestmark = [pytest.mark.bdd, pytest.mark.streamlit_testing]
 

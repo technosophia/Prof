@@ -284,7 +284,7 @@ def navigate_to_admin_panel_common(context):
         else:
             # Fallback: try direct navigation
             print("WARNING: Could not find admin button, attempting direct navigation...")
-            ptake_screenshot(page, "admin_page_not_loaded.png", debug_enabled, full_page=True)
+            take_screenshot(page, "admin_page_not_loaded.png", debug_enabled, full_page=True)
             raise AssertionError("Admin page did not load properly")
 
     # Take screenshot if debug enabled
