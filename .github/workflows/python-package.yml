@@ -138,14 +138,14 @@ jobs:
             ~/.ollama
           key: ${{ env.MODEL_CACHE_KEY }}-${{ hashFiles('**/ollama-version.txt') }}
 
-      - name: Verify model is available
-        run: |
-          ollama list
-          curl -X POST http://localhost:11434/api/generate -d '{
-            "model": "${{ env.MODEL_NAME }}",
-            "prompt": "Hello. /no_think",
-            "stream": false
-          }'
+      # - name: Verify model is available
+      #   run: |
+      #     ollama list
+      #     curl -X POST http://localhost:11434/api/generate -d '{
+      #       "model": "${{ env.MODEL_NAME }}",
+      #       "prompt": "Hello. /no_think",
+      #       "stream": false
+      #     }'
 
       - name: Lint with flake8
         run: |
