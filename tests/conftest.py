@@ -16,6 +16,13 @@ import re
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
+# CRITICAL: Load .env BEFORE any shared imports, because shared.common
+# instantiates the LLMManager singleton (and GroqEngine) at import time.
+# If GROQ_API_KEY isn't in os.environ yet when that happens, the engine
+# marks itself unavailable permanently — even if the key arrives later.
+from dotenv import load_dotenv
+load_dotenv()
+
 def _log(message, level="INFO"):
     """Log message with process ID and timestamp."""
     #pid = os.getpid()
