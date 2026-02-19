@@ -7,7 +7,7 @@ asyncio_mode = "strict"
 # Use string format with escaped quotes
 #addopts = "-v --tb=short --import-mode=importlib -m 'not ollama and not bdd'"
 #addopts = "-v --tb=short --import-mode=importlib"
-addopts = "-v --tb=short --import-mode=importlib tests/step_defs/rag_steps.py::test_rag_enabled_conversation"
+addopts = "-v -s --tb=short --import-mode=importlib shared/tests/test_llm.py"
 markers = [
     "asyncio: mark test as using asyncio",
     "ollama: mark test as requiring Ollama service",

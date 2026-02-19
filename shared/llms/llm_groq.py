@@ -29,11 +29,7 @@ class GroqEngine(LLMEngine):
     SUPPORTED_MODELS = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "llama-3.2-3b-preview",
-        "llama-3.2-1b-preview",
-        "llama-guard-3-8b",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it"
+        "openai/gpt-oss-120b"
     ]
 
     def __init__(self):
