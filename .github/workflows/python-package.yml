@@ -94,50 +94,50 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
 
-      - name: Cache Ollama installation and models
-        id: ollama-cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            /usr/local/bin/ollama
-            ~/.ollama
-          key: ollama-${{ runner.os }}-${{ env.MODEL_NAME }}-${{ hashFiles('**/ollama-version.txt') }}
-          restore-keys: |
-            ollama-${{ runner.os }}-${{ env.MODEL_NAME }}-
+      # - name: Cache Ollama installation and models
+      #   id: ollama-cache
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       /usr/local/bin/ollama
+      #       ~/.ollama
+      #     key: ollama-${{ runner.os }}-${{ env.MODEL_NAME }}-${{ hashFiles('**/ollama-version.txt') }}
+      #     restore-keys: |
+      #       ollama-${{ runner.os }}-${{ env.MODEL_NAME }}-
 
-      - name: Install Ollama
-        if: steps.ollama-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          # Create a version file for cache invalidation if needed
-          echo "ollama-$(date +%Y%m%d)" > ollama-version.txt
+      # - name: Install Ollama
+      #   if: steps.ollama-cache.outputs.cache-hit != 'true'
+      #   run: |
+      #     curl -fsSL https://ollama.com/install.sh | sh
+      #     # Create a version file for cache invalidation if needed
+      #     echo "ollama-$(date +%Y%m%d)" > ollama-version.txt
 
-      - name: Start Ollama server
-        run: |
-          ollama serve &
-          # Wait for server to be ready
-          for i in {1..30}; do
-            if curl -s http://localhost:11434/api/tags > /dev/null; then
-              echo "Ollama server is ready"
-              break
-            fi
-            echo "Waiting for Ollama server... ($i/30)"
-            sleep 2
-          done
+      # - name: Start Ollama server
+      #   run: |
+      #     ollama serve &
+      #     # Wait for server to be ready
+      #     for i in {1..30}; do
+      #       if curl -s http://localhost:11434/api/tags > /dev/null; then
+      #         echo "Ollama server is ready"
+      #         break
+      #       fi
+      #       echo "Waiting for Ollama server... ($i/30)"
+      #       sleep 2
+      #     done
 
-      - name: Pull Ollama model
-        if: steps.ollama-cache.outputs.cache-hit != 'true'
-        run: |
-          ollama pull ${{ env.MODEL_NAME }}
+      # - name: Pull Ollama model
+      #   if: steps.ollama-cache.outputs.cache-hit != 'true'
+      #   run: |
+      #     ollama pull ${{ env.MODEL_NAME }}
 
-      - name: Force save Ollama cache
-        if: always() && steps.ollama-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v3
-        with:
-          path: |
-            /usr/local/bin/ollama
-            ~/.ollama
-          key: ${{ env.MODEL_CACHE_KEY }}-${{ hashFiles('**/ollama-version.txt') }}
+      # - name: Force save Ollama cache
+      #   if: always() && steps.ollama-cache.outputs.cache-hit != 'true'
+      #   uses: actions/cache/save@v3
+      #   with:
+      #     path: |
+      #       /usr/local/bin/ollama
+      #       ~/.ollama
+      #     key: ${{ env.MODEL_CACHE_KEY }}-${{ hashFiles('**/ollama-version.txt') }}
 
       # - name: Verify model is available
       #   run: |
