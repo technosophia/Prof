@@ -3,6 +3,7 @@ venv
 __pycache__
 old
 local_config.json
+mysql_config.json
 .env
 .pytest_cache
 data
