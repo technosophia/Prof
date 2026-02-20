@@ -1,0 +1,27 @@
+{
+  "pedagogical_memory": {
+    "fact_types": {
+      "knowledge_state": "What the student currently knows or does not know about a topic",
+      "mastered_topic": "A topic or skill the student has clearly mastered",
+      "misconception": "A persistent wrong mental model the student holds",
+      "blocker": "Something preventing progress — confusion, missing prerequisite, anxiety",
+      "learning_style": "How the student learns best — visual, example-driven, theory-first, etc.",
+      "engagement": "Motivation level, interests, what engages or disengages them",
+      "progress_signal": "Observable milestone or regression in the learning trajectory"
+    },
+    "fact_type_colors": {
+      "knowledge_state": "#4A90E2",
+      "mastered_topic": "#2E7D32",
+      "misconception": "#C62828",
+      "blocker": "#EF6C00",
+      "learning_style": "#6A1B9A",
+      "engagement": "#00838F",
+      "progress_signal": "#455A64"
+    },
+    "similarity_threshold": 0.85,
+    "top_k_context": 5,
+    "decay_days": 30,
+    "decay_factor": 0.85,
+    "decay_min_confidence": 0.1
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "pedagogical_memory",
+  "name": "Pedagogical Memory",
+  "version": "1.0.0",
+  "description": "Structured atomic fact memory for student learning journeys. Uses semantic search for targeted context injection. Requires sentence-transformers.",
+  "author": "Professor App",
+  "enabled_by_default": false,
+  "category": "memory"
+}
