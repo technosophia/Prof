@@ -171,7 +171,7 @@ class Mem0MemoryPlugin(MemoryPlugin):
         return (
             "assert d == self.d" in msg
             or "dimension" in msg.lower()
-            or exc.__class__.__name__ == "AssertionError"
+            or isinstance(exc, AssertionError)
         )
 
     def _user_key(self, student_id: str, trainer_id: str) -> str:
