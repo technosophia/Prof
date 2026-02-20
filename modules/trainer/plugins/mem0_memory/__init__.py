@@ -274,8 +274,15 @@ class Mem0MemoryPlugin(MemoryPlugin):
             return False
 
         def _add_once() -> bool:
+            log("info", f"mem0 _save_memory attempt (trainer={trainer_id}, student={student_id}, content_chars={len(content)})")
+            if self._vector_store_path:
+                log("info", f"mem0 vector_store_path={self._vector_store_path}")
+            if self._history_db_path:
+                log("info", f"mem0 history_db_path={self._history_db_path}")
+
             current = self._get_current_memory(student_id, trainer_id)
             if current == content:
+                log("info", "mem0 _save_memory skipped (content unchanged)")
                 return True
 
             existing = self._list_memories(student_id, trainer_id)

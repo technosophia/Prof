@@ -281,11 +281,15 @@ class MemoryPlugin(TrainerPlugin):
         Refresh memory by analyzing new conversations since last analysis.
         This is the main method called by the teacher.
         """
+        log("info", f"Memory refresh started (plugin={self.id}, trainer={trainer_id}, student={student_id})")
+
         # Get last analysis timestamp
         last_analyzed = self._get_last_analyzed(student_id, trainer_id)
+        log("info", f"Memory refresh last_analyzed={last_analyzed}")
 
         # Get new messages
         new_messages = self._get_new_conversations(student_id, last_analyzed)
+        log("info", f"Memory refresh fetched {len(new_messages)} new messages")
 
         if not new_messages:
             log("info", f"No new messages for student {student_id} since last analysis")
@@ -293,12 +297,15 @@ class MemoryPlugin(TrainerPlugin):
 
         # Get old memory
         old_memory = self._get_current_memory(student_id, trainer_id)
+        log("info", f"Memory refresh old_memory_present={bool(old_memory)}")
 
         # Analyze with LLM
+        log("info", "Memory refresh calling _analyze_with_llm")
         result = await self._analyze_with_llm(trainer_id, student_id, old_memory, new_messages)
 
         if result:
             new_memory, source = result
+            log("info", f"Memory refresh analysis done (source={source}, chars={len(new_memory)})")
 
             # Create metadata with stats
             metadata = {
@@ -311,8 +318,12 @@ class MemoryPlugin(TrainerPlugin):
             }
 
             # Save new memory
-            return self._save_memory(student_id, trainer_id, new_memory, source, metadata)
+            log("info", "Memory refresh calling _save_memory")
+            saved = self._save_memory(student_id, trainer_id, new_memory, source, metadata)
+            log("info", f"Memory refresh save result={saved}")
+            return saved
 
+        log("warning", "Memory refresh analysis returned no result")
         return False
 
     # ============= LLM CONTEXT INJECTION =============
@@ -418,19 +429,24 @@ class MemoryPlugin(TrainerPlugin):
                 if st.button("🔄 Refresh with LLM",
                             key=f"refresh_memory_{student_id}",
                             use_container_width=True):
+                    log("info", f"Refresh button clicked (plugin={self.id}, trainer={trainer_id}, student={student_id})")
                     with st.spinner("Analyzing conversations..."):
                         # Run async refresh in sync context
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
+                        log("info", f"Created event loop for refresh (student={student_id})")
                         success = loop.run_until_complete(
                             self.refresh_memory(trainer_id, student_id)
                         )
                         loop.close()
+                        log("info", f"Closed event loop for refresh (student={student_id})")
 
                         if success:
+                            log("info", f"Refresh succeeded (plugin={self.id}, student={student_id})")
                             st.success("✅ Memory updated successfully!")
                             st.rerun()
                         else:
+                            log("error", f"Refresh failed (plugin={self.id}, student={student_id})")
                             st.error("❌ Failed to update memory")
 
             with col2:
