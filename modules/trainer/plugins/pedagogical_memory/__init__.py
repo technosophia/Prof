@@ -275,7 +275,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
             scored = []
             for fact in existing:
-                vector = self._deserialize_embedding(fact.embedding, fact.embedding_dim)
+                vector = self._deserialize_embedding(fact["embedding"], fact["embedding_dim"])
                 score = self._cosine_similarity(candidate_embedding, vector)
                 scored.append((fact, score))
 
@@ -450,16 +450,35 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             log("error", f"Failed to refresh pedagogical memory: {e}", exc_info=True)
             return stats
 
-    def _get_active_facts(self, trainer_id: str, student_id: str) -> List[PedagogicalFact]:
-        """Get active facts for student."""
+    def _get_active_facts(self, trainer_id: str, student_id: str) -> List[Dict[str, Any]]:
+        """Get active facts for student as detached-safe dictionaries."""
         try:
             with get_db_manager().get_session() as session:
-                return (
+                rows = (
                     session.query(PedagogicalFact)
                     .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
                     .order_by(desc(PedagogicalFact.updated_at))
                     .all()
                 )
+                return [
+                    {
+                        "id": fact.id,
+                        "student_id": fact.student_id,
+                        "trainer_id": fact.trainer_id,
+                        "fact_type": fact.fact_type,
+                        "content": fact.content,
+                        "embedding": fact.embedding,
+                        "embedding_dim": fact.embedding_dim,
+                        "confidence": float(fact.confidence or 0.0),
+                        "is_active": int(fact.is_active or 0),
+                        "source_version": int(fact.source_version or 1),
+                        "created_at": fact.created_at,
+                        "updated_at": fact.updated_at,
+                        "last_reinforced_at": fact.last_reinforced_at,
+                        "fact_metadata": fact.fact_metadata or {},
+                    }
+                    for fact in rows
+                ]
         except Exception as e:
             log("error", f"Failed to get active facts: {e}", exc_info=True)
             return []
@@ -489,9 +508,9 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             query_vector = np.asarray(get_embedding(last_user_message), dtype=np.float32)
             scored = []
             for fact in active_facts:
-                fact_vector = self._deserialize_embedding(fact.embedding, fact.embedding_dim)
+                fact_vector = self._deserialize_embedding(fact["embedding"], fact["embedding_dim"])
                 similarity = self._cosine_similarity(query_vector, fact_vector)
-                score = similarity * float(fact.confidence)
+                score = similarity * float(fact["confidence"])
                 scored.append((fact, score))
 
             scored.sort(key=lambda x: x[1], reverse=True)
@@ -501,7 +520,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
             facts_text = "\n".join(
                 [
-                    f"- [{fact.fact_type}] {fact.content} (confidence={fact.confidence:.2f})"
+                    f"- [{fact['fact_type']}] {fact['content']} (confidence={fact['confidence']:.2f})"
                     for fact, _ in top_facts
                 ]
             )
@@ -517,7 +536,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
         def render_student_memory():
             student_id = student["id"]
-            student_name = student.get("name", student_id)
             cfg = self._get_plugin_config()
             fact_types = cfg["fact_types"]
             type_colors = cfg["fact_type_colors"]
@@ -544,7 +562,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
             pills = []
             for fact_type in fact_types.keys():
-                count = sum(1 for f in active_facts if f.fact_type == fact_type)
+                count = sum(1 for f in active_facts if f["fact_type"] == fact_type)
                 if count > 0:
                     pills.append(f"`{fact_type}: {count}`")
             if pills:
@@ -555,25 +573,25 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 st.info("No active pedagogical facts.")
 
             for fact in active_facts:
-                color = type_colors.get(fact.fact_type, "#6C757D")
-                st.markdown(f"<span style='color:{color};font-weight:700;'>● {fact.fact_type}</span>", unsafe_allow_html=True)
-                edit_key = f"{self.id}_content_{fact.id}"
+                color = type_colors.get(fact["fact_type"], "#6C757D")
+                st.markdown(f"<span style='color:{color};font-weight:700;'>● {fact['fact_type']}</span>", unsafe_allow_html=True)
+                edit_key = f"{self.id}_content_{fact['id']}"
                 if edit_key not in st.session_state:
-                    st.session_state[edit_key] = fact.content
+                    st.session_state[edit_key] = fact["content"]
 
                 st.text_input("Content", key=edit_key)
-                st.progress(max(0.0, min(1.0, float(fact.confidence))))
+                st.progress(max(0.0, min(1.0, float(fact["confidence"]))))
                 st.caption(
-                    f"Last reinforced: {fact.last_reinforced_at.strftime('%Y-%m-%d %H:%M') if fact.last_reinforced_at else 'Never'}"
+                    f"Last reinforced: {fact['last_reinforced_at'].strftime('%Y-%m-%d %H:%M') if fact['last_reinforced_at'] else 'Never'}"
                 )
                 c1, c2 = st.columns(2)
                 with c1:
-                    if st.button("Save", key=f"save_fact_{fact.id}"):
+                    if st.button("Save", key=f"save_fact_{fact['id']}"):
                         try:
                             new_content = st.session_state.get(edit_key, "").strip()
                             if new_content:
                                 with get_db_manager().get_session() as session:
-                                    db_fact = session.query(PedagogicalFact).filter_by(id=fact.id).first()
+                                    db_fact = session.query(PedagogicalFact).filter_by(id=fact["id"]).first()
                                     if db_fact:
                                         db_fact.content = new_content
                                         db_fact.embedding = self._serialize_embedding(get_embedding(new_content))
@@ -587,10 +605,10 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                             log("error", f"Failed to save fact edits: {e}", exc_info=True)
                             st.error("Failed to save fact")
                 with c2:
-                    if st.button("Delete", key=f"delete_fact_{fact.id}"):
+                    if st.button("Delete", key=f"delete_fact_{fact['id']}"):
                         try:
                             with get_db_manager().get_session() as session:
-                                db_fact = session.query(PedagogicalFact).filter_by(id=fact.id).first()
+                                db_fact = session.query(PedagogicalFact).filter_by(id=fact["id"]).first()
                                 if db_fact:
                                     db_fact.is_active = 0
                                     db_fact.updated_at = datetime.utcnow()
@@ -684,7 +702,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                     st.caption(f"Active facts: {len(facts)}")
                     if top_two:
                         for fact in top_two:
-                            st.caption(f"- [{fact.fact_type}] {fact.content[:120]}")
+                            st.caption(f"- [{fact['fact_type']}] {fact['content'][:120]}")
                     st.caption(
                         f"Last analysis: {last_analysis.strftime('%Y-%m-%d %H:%M') if last_analysis else 'Never'}"
                     )
