@@ -1,9 +1,12 @@
 """Module Handler
 
-[agent]
-Provides module discovery, activation, and management for the application.
-Scans ./modules directory to detect modules and allows loading them or not,
-depending on the configuration. Module activation status is stored in modules.json.
+[api]
+The ModuleHandler is the core module management system. It handles:
+- Discovering modules from the modules/ directory
+- Managing module activation status via modules.json
+- Loading module metadata and UI components
+- Dependency tracking between modules
+- Integration with the UI registry system
 
 Key Features:
 - Auto-discovers modules in the modules/ directory (cached for efficiency)
@@ -17,7 +20,7 @@ Key Features:
 Module Requirements:
 1. Must be placed in modules/ directory as a subdirectory
 2. Must contain a module.json file with metadata
-3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration with main App
+3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration
 4. Can include CONFIG_FILE for module-specific configuration
 5. Can include translation/xx.json for language-specific translations
 6. Can include prompts.xx.json for language-specific prompts
@@ -26,16 +29,22 @@ Module Requirements:
 Module JSON Structure:
 ```json
 {
-    "name": "module_name",
-    "version": "1.0.0",
+    "name": "module_name",           // Must match directory name
+    "version": "1.0.0",              // Semantic version
     "description": "Module description",
     "author": "Author name",
-    "enabled_by_default": true,
-    "category": "category",
-    "dependencies": []
+    "enabled_by_default": true,      // Auto-activate on first discovery
+    "category": "category",           // For grouping in UI
+    "dependencies": []                // Other module names required
 }
 ```
 
+Class: ModuleHandler
+Description: Main handler for module discovery, activation, and management.
+Usage:
+    handler = ModuleHandler()
+    handler.initialize()
+    active_modules = handler.get_active_modules()
 """
 
 import os
@@ -190,8 +199,20 @@ class ModuleHandler:
 
         log("info", f"Module sync complete: {len(self.modules)} discovered, {len(self.active_modules)} active")
 
+
     def initialize(self):
-        """Initialize the module handler."""
+        """Initialize the module handler.
+
+        Must be called before using any other methods. This loads the modules.json
+        file and synchronizes with the filesystem to discover all available modules.
+
+        Returns:
+            None
+
+        Example:
+            handler = ModuleHandler()
+            handler.initialize()
+        """
         if self._initialized:
             return
 
@@ -201,29 +222,102 @@ class ModuleHandler:
         log("info", "Module handler fully initialized")
 
     def refresh(self):
-        """Refresh module discovery from disk (useful if modules added/removed during dev)."""
+        """Refresh module discovery from disk.
+
+        Useful during development when modules are added/removed without restarting.
+        This will rescan the modules directory and update the internal cache.
+
+        Returns:
+            None
+
+        Example:
+            handler.refresh()  # After adding a new module
+        """
         self._sync_with_disk()
 
     def get_all_modules(self) -> Dict[str, Dict]:
-        """Get all discovered modules."""
+        """Get all discovered modules with their metadata.
+
+        Returns:
+            Dictionary mapping module names to their metadata:
+            {
+                'module_name': {
+                    'name': str,           # Module name
+                    'path': str,            # Filesystem path
+                    'description': str,     # Module description
+                    'version': str,         # Semantic version
+                    'author': str,          # Author name
+                    'enabled_by_default': bool,
+                    'has_ui': bool,         # Whether module has UI file
+                    'ui_file': str or None, # Path to UI file if exists
+                    'config_file': str or None,
+                    'dependencies': List[str],
+                    'category': str
+                }
+            }
+
+        Example:
+            all_modules = handler.get_all_modules()
+            for name, info in all_modules.items():
+                st.write(f"{name}: {info['description']}")
+        """
         if not self._initialized:
             self.initialize()
         return self.modules
 
     def get_active_modules(self) -> List[str]:
-        """Get list of active module names."""
+        """Get list of active module names.
+
+        Returns:
+            Sorted list of module names that are currently active.
+
+        Example:
+            active = handler.get_active_modules()
+            if "analytics" in active:
+                show_analytics()
+        """
         if not self._initialized:
             self.initialize()
         return sorted(self.active_modules)
 
     def is_module_active(self, module_name: str) -> bool:
-        """Check if a module is active."""
+        """Check if a specific module is active.
+
+        Args:
+            module_name: Name of the module to check
+
+        Returns:
+            True if module exists and is active, False otherwise
+
+        Example:
+            if handler.is_module_active("notifications"):
+                show_notification_settings()
+        """
         if not self._initialized:
             self.initialize()
         return module_name in self.active_modules
 
     def toggle_module(self, module_name: str, activate: bool) -> bool:
-        """Activate or deactivate a module."""
+        """Activate or deactivate a module.
+
+        This will update modules.json and persist the change. The change takes
+        effect immediately for the current session and will persist across restarts.
+
+        Args:
+            module_name: Name of the module to toggle
+            activate: True to activate, False to deactivate
+
+        Returns:
+            True if the operation succeeded, False if module not found
+
+        Example:
+            # Activate a module
+            if handler.toggle_module("analytics", True):
+                st.success("Analytics module activated")
+
+            # Deactivate a module
+            handler.toggle_module("old_feature", False)
+        """
         if not self._initialized:
             self.initialize()
 
@@ -250,7 +344,22 @@ class ModuleHandler:
         return False
 
     def load_module_ui(self, module_name: str) -> Optional[object]:
-        """Load a module's UI module (kept for backward compatibility)."""
+        """Load a module's UI module.
+
+        Dynamically imports and executes the module's *_ui.py file. This is used
+        internally by the UI registry but can be called directly for manual UI loading.
+
+        Args:
+            module_name: Name of the module whose UI to load
+
+        Returns:
+            The imported module object if successful, None otherwise
+
+        Example:
+            ui_module = handler.load_module_ui("analytics")
+            if ui_module and hasattr(ui_module, 'inject_ui_sidebar'):
+                ui_module.inject_ui_sidebar()
+        """
         if not self._initialized:
             self.initialize()
 
@@ -283,19 +392,54 @@ class ModuleHandler:
             return None
 
     def get_module_info(self, module_name: str) -> Optional[Dict]:
-        """Get detailed information about a module."""
+        """Get detailed information about a specific module.
+
+        Args:
+            module_name: Name of the module to query
+
+        Returns:
+            Module metadata dictionary if found, None otherwise.
+            See get_all_modules() for the dictionary structure.
+
+        Example:
+            info = handler.get_module_info("analytics")
+            if info:
+                st.write(f"Version: {info['version']}")
+                st.write(f"Author: {info['author']}")
+        """
         if not self._initialized:
             self.initialize()
         return self.modules.get(module_name)
 
 
-# Backward-compatible convenience functions (initialize internally)
 def get_active_modules() -> List[str]:
+    """[api] Convenience function to get active modules without creating a handler.
+
+    Returns:
+        Sorted list of active module names
+
+    Example:
+        if "analytics" in get_active_modules():
+            show_analytics()
+    """
     handler = ModuleHandler()
     handler.initialize()
     return handler.get_active_modules()
 
 def toggle_module(module_name: str, activate: bool) -> bool:
+    """Convenience function to toggle a module without creating a handler.
+
+    Args:
+        module_name: Name of the module to toggle
+        activate: True to activate, False to deactivate
+
+    Returns:
+        True if successful, False if module not found
+
+    Example:
+        if toggle_module("analytics", True):
+            st.success("Analytics activated")
+    """
     handler = ModuleHandler()
     handler.initialize()
     return handler.toggle_module(module_name, activate)
@@ -303,3 +447,16 @@ def toggle_module(module_name: str, activate: bool) -> bool:
 
 # Singleton instance (used in prof.py via session_state)
 module_handler = ModuleHandler()
+"""[api] Singleton instance of ModuleHandler for global use.
+
+This is the recommended way to access the module handler throughout the application.
+It ensures a single consistent state across all imports.
+
+Example:
+    from shared.module_handler import module_handler
+
+    if not module_handler._initialized:
+        module_handler.initialize()
+
+    active = module_handler.get_active_modules()
+"""

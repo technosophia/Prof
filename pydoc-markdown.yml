@@ -1,17 +1,11 @@
 # pydoc-markdown.yml
+# OBSOLETE for the moment
 loaders:
   - type: python
     search_path: [.]
     modules:
       - app
       - core.database
-      - core.logging
-      - shared.common
-      - shared.llm
-      - shared.ui_registry
-      - shared.module_handler
-      - shared.users
-      - shared.conversation
 
 processors:
   - type: filter
@@ -19,4 +13,4 @@ processors:
 
 renderer:
   type: markdown
-  filename: AGENTS.md
+  filename: DOC.md

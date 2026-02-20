@@ -4,34 +4,6 @@ Provides a modular UI injection system for Streamlit applications. UI modules
 can register render functions that are automatically discovered and injected
 into predefined injection points.
 
-Module Discovery:
-- Discovers UI modules from shared/**/*_ui.py files (including subdirectories)
-- Discovers UI modules from modules/**/*_ui.py files (all subdirectories within modules)
-
-Naming Conventions:
-- Module files must end with _ui.py
-- Render functions must follow the pattern: inject_ui_injectionpoint()
-  Example: inject_ui_sidebar(), inject_ui_main_header(), etc.
-
-Injection Points:
-- initialize: Content injected at the beginning of app initialization
-- sidebar: Content injected into the sidebar
-- main_header: Content injected into the main header area
-- main_before_conversation: Content injected before conversation interface
-- main_content: Content injected when no user is logged in
-- main_after_conversation: Content injected after conversation interface
-- main_footer: Content injected into the main footer area
-- admin_tab: NEW: Content injected as admin tabs in the admin interface
-
-Module Requirements:
-1. Must be placed in shared/ or modules/*/ directories (or subdirectories)
-2. Must have filename ending with _ui.py
-3. Must define at least one render function matching the inject_ui_injectionpoint pattern
-4. Render functions must be callable and return a value
-
-Registry Initialization:
-Automatically initialized and cached in Streamlit session state.
-No manual initialization required in modules.
 """
 
 import os

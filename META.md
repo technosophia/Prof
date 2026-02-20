@@ -1,0 +1,28 @@
+<!-- /META.md -->
+
+# Doc about the doc
+
+This file contains instructions on how to write the AGENTS.md and related agentic files (that help agents).
+
+The goal of AGENTS.md and related files is to guide the agents with minimal, clear, context to help them in their tasks : coding, debugging, testing, and documentation.
+
+They must be the shortest possible and explain principle and where to find more instructions and information.
+The AGENTS.md is the root file in a directory : it must explain where to find information related to this directory. It can reference information in external files if needed to provide larger context, BUT always in relation with it's own content and purpose.
+
+We create a new .md or change and old one (mainly AGENTS.md) when coding a new module or a plugin for that module, a new API, or if we change a global rule for coding, or main architecture changes.
+
+The first line of the file MUST be the name of the file related to the root directory so that there is no ambiguity in context when multiple files with the same name in different directories are needed.
+
+The file must contain :
+- The goal that the doc help to realize
+- The principles by which we make it
+- What must be done
+- What must be avoided
+
+# Meta goal of the app
+
+The goal of the app is to implement functionnalities for the user.
+The meta-goal is to for the developper himself and agentic coding :
+1. enhance coding agentivity for LLM with better coding framework -> observability and steerability with context enginiering
+2. create a bio-coding framework for LLM. 
+Bio-coding is a way to create evolvable code so that new modules can be quickly implemented and discareded if negative user return ! We do not code disposable app, but disposable module within a barebone app

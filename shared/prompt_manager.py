@@ -5,13 +5,6 @@ Prompt Manager - Centralized prompt management system with multilingual support.
 Collects prompts from prompts.yaml or prompts.xx.yaml files in modules directory.
 Prompts can be accessed using dot notation: '<module_name>.<prompt_id>'
 
-Key features:
-- Automatic discovery of all prompts.yaml/prompts.xx.yaml files
-- Multilingual support with language-specific prompt files
-- Cached for performance
-- Supports hierarchical organization
-- Provides admin interface to view all prompts
-- Integration with shared/common.py via get_prompt()
 """
 
 import os

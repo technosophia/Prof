@@ -1,7 +1,44 @@
 """
 LLM Manager using plugin-based engine system.
+[api]
 
-[agent]
+# LLM Management System (`shared/llm.py`)
+Manages multiple LLM providers and models with unified interface. Supports streaming, conversation history, and context injection. Support multiple engines : groq, ollama, gemini, xai.
+
+**Exported functions:**
+- `get_llm_manager()`: Get global LLM manager instance
+- `llm_conversation_generate()` / `llm()`: Generate response from current LLM
+- `set_current_llm()`: Switch active LLM
+- `get_available_llms()`: List all configured LLMs
+- `get_current_llm_info()`: Get current LLM details
+- `get_current_llm_id()`: Get current LLM identifier
+- `get_llm_by_name()`: Find LLM by name
+- `register_llm_callback()`: Register context generation callback - legacy
+- `unregister_llm_callback()`: Remove context callback - legacy
+- `register_llm_context_callback()`: Register structured context callback
+- `unregister_llm_context_callback()`: Remove structured context callback
+
+# Prompt Management System (`shared/prompt_manager.py`)
+Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project. Supports multilingual prompts.
+
+**Exported functions:**
+- `get_prompt()`: Get prompt by key using dot notation
+- `get_all_prompts()`: Get all loaded prompts
+- `get_module_prompts()`: Get prompts for a specific module
+- `list_modules_with_prompts()`: List all modules with prompts
+- `get_available_prompt_languages()`: List dynamic available languages
+- `is_multilingual()`: Check if multilingual mode is enabled
+- `set_default_language()`: Set default prompt language
+- `get_prompt_manager()`: Access prompt manager instance
+
+Key features:
+- Automatic discovery of all prompts.yaml/prompts.xx.yaml files
+- Multilingual support with language-specific prompt files
+- Cached for performance
+- Supports hierarchical organization
+- Provides admin interface to view all prompts
+- Integration with shared/common.py via get_prompt()
+-
 ## LLM System (`shared/llm.py`)
 
 ### Purpose
@@ -58,6 +95,7 @@ def inject_weather_context(user_id: str, messages: List[Dict]) -> tuple:
 # Register the enhanced callback
 register_context_callback(inject_weather_context)
 ```
+
 """
 
 import os
