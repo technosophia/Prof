@@ -9,17 +9,8 @@ import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
-
 from ..rag_engine import RAGEngine
-from shared.common import log, get_config
-
-# Import the caching module
-try:
-    from ..rag_caching import RAGModelCache
-except ImportError:
-    # Fallback if caching module not available
-    RAGModelCache = None
+from shared.common import log, get_config, get_embedding, get_embeddings
 
 class FaissHierarchicalRAGEngine(RAGEngine):
     """FAISS-based RAG engine with hierarchical chunking for structured markdown documents (chapter summary + subsections)."""
@@ -48,21 +39,13 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         # Log the actual config being used
         log("debug", f"Hierarchical RAG config: index_path={self.index_path}, model={self.embedding_model_name}")
 
-        # Load embedding model WITH CACHING
+        # Use shared LLM manager embeddings
         try:
-            if RAGModelCache:
-                # Use cached model loading
-                self.model = RAGModelCache.get_embedding_model_cached(self.embedding_model_name)
-                self.dimension = RAGModelCache.get_model_dimension(self.embedding_model_name)
-            else:
-                # Fallback to direct loading
-                self.model = SentenceTransformer(self.embedding_model_name, device='cpu')
-                self.dimension = self.model.get_sentence_embedding_dimension()
-
-            log("info", f"Loaded embedding model: {self.embedding_model_name} (dim: {self.dimension})")
+            # Keep config compatibility while relying on centralized embedding API.
+            self.dimension = len(get_embedding(""))
+            log("info", f"Initialized embeddings via LLM manager (configured model hint: {self.embedding_model_name}, dim: {self.dimension})")
         except Exception as e:
-            log("error", f"Failed to load embedding model {self.embedding_model_name}: {str(e)}")
-            self.model = None
+            log("error", f"Failed to initialize embeddings via LLM manager: {str(e)}")
             self.dimension = None
 
         # In-memory indices and metadata
@@ -229,9 +212,16 @@ class FaissHierarchicalRAGEngine(RAGEngine):
 
         return chunks
 
+    def _encode_texts(self, texts: List[str]) -> np.ndarray:
+        """Embed texts via shared LLM manager and normalize for cosine similarity."""
+        embeddings = np.array(get_embeddings(texts), dtype=np.float32)
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return embeddings / norms
+
     def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:
         """Index a document using hierarchical parsing."""
-        if self.model is None:
+        if self.dimension is None:
             log("error", "Embedding model not available")
             return False
 
@@ -246,8 +236,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
                 return False
 
             embed_texts = [c['embed_text'] for c in chunks_data]
-            embeddings = self.model.encode(embed_texts, normalize_embeddings=True)
-            embeddings = np.array(embeddings, dtype=np.float32)
+            embeddings = self._encode_texts(embed_texts)
 
             file_size = os.path.getsize(file_path)
 
@@ -296,8 +285,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
 
             if kept_meta:
                 texts = [m['embed_text'] for m in kept_meta]
-                embeddings = self.model.encode(texts, normalize_embeddings=True)
-                embeddings = np.array(embeddings, dtype=np.float32)
+                embeddings = self._encode_texts(texts)
 
                 new_index = faiss.IndexFlatIP(self.dimension)
                 new_index.add(embeddings)
@@ -318,12 +306,11 @@ class FaissHierarchicalRAGEngine(RAGEngine):
 
     def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Search using vector similarity."""
-        if self.model is None or user_id not in self.indices or self.indices[user_id].ntotal == 0:
+        if self.dimension is None or user_id not in self.indices or self.indices[user_id].ntotal == 0:
             return []
 
         try:
-            query_emb = self.model.encode([query], normalize_embeddings=True)
-            query_emb = np.array(query_emb, dtype=np.float32)
+            query_emb = self._encode_texts([query])
 
             D, I = self.indices[user_id].search(query_emb, limit * 3)
 
@@ -390,7 +377,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
 
     def is_available(self) -> bool:
         """Check if the engine is functional."""
-        return self.model is not None and self.dimension is not None
+        return self.dimension is not None
 
     def get_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get engine statistics."""
