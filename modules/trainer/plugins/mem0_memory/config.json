@@ -1,0 +1,8 @@
+{
+  "mem0_memory": {
+    "storage_dir": "data/mem0_memory",
+    "ollama_base_url": "http://127.0.0.1:11434",
+    "embedding_model": "nomic-embed-text",
+    "embedding_dimensions": 768
+  }
+}
