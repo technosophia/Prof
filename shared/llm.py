@@ -157,7 +157,9 @@ class LLMManager:
             log("error", "sentence-transformers is required for embeddings but is not installed", exc_info=True)
             raise RuntimeError("sentence-transformers is required for embeddings") from e
 
-        self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device="cpu")
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=device)
         log("info", f"Loaded embedding model: {EMBEDDING_MODEL_NAME} ({EMBEDDING_VECTOR_DIMENSION} dims)")
         return self._embedding_model
 
