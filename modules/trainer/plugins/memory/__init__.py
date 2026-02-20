@@ -472,7 +472,7 @@ class MemoryPlugin(TrainerPlugin):
 
             # Quick refresh all button
             if st.button("🔄 Refresh All Memories",
-                        key="refresh_all_memories",
+                        key=f"{self.id}_refresh_all_memories",
                         use_container_width=True):
                 with st.spinner("Refreshing all memories..."):
                     # This would be async in production - simplified for demo
@@ -680,7 +680,7 @@ class MemoryPlugin(TrainerPlugin):
                 "Select Student",
                 options=list(student_options.keys()),
                 format_func=lambda x: student_options[x],
-                key="memory_history_select"
+                key=f"{self.id}_memory_history_select"
             )
 
             student_id = None if selected == 'all' else selected
