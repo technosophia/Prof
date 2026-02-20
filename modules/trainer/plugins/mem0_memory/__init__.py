@@ -116,8 +116,6 @@ class Mem0MemoryPlugin(MemoryPlugin):
                 "provider": "faiss",
                 "config": {
                     "path": str(self._vector_store_path),
-                    "dimension": embedding_dimensions,
-                    "dim": embedding_dimensions,
                     "embedding_model_dims": embedding_dimensions,
                 },
             },
