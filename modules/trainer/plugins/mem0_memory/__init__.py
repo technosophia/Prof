@@ -7,6 +7,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 import inspect
+import re
+import shutil
 
 from shared.common import (
     get_prompt,
@@ -32,6 +34,10 @@ class Mem0MemoryPlugin(MemoryPlugin):
     def __init__(self, manifest):
         super().__init__(manifest)
         self._mem0_client = None
+        self._mem0_cfg: Dict[str, Any] = {}
+        self._storage_dir: Optional[Path] = None
+        self._vector_store_path: Optional[Path] = None
+        self._history_db_path: Optional[Path] = None
 
     def initialize(self) -> bool:
         """Initialize local Mem0 client and register context callback."""
@@ -40,8 +46,8 @@ class Mem0MemoryPlugin(MemoryPlugin):
                 log("error", "mem0 package is not installed; mem0_memory plugin disabled")
                 return False
 
-            cfg = self._build_local_mem0_config()
-            self._mem0_client = self._create_mem0_client(cfg)
+            self._mem0_cfg = self._build_local_mem0_config()
+            self._mem0_client = self._create_mem0_client(self._mem0_cfg)
             register_llm_context_callback(self.get_memory_context)
             log("info", "mem0_memory plugin initialized with local OSS backend")
             return True
@@ -49,17 +55,45 @@ class Mem0MemoryPlugin(MemoryPlugin):
             log("error", f"Failed to initialize mem0 memory plugin: {e}", exc_info=True)
             return False
 
+    def _resolve_app_ollama_model(self) -> Optional[str]:
+        """Return the currently configured app Ollama model when available."""
+        try:
+            llm_manager = get_llm_manager()
+
+            current = llm_manager.get_current_llm_info()
+            if current and current.get("type") == "ollama" and current.get("model"):
+                return current["model"]
+
+            for llm in llm_manager.get_available_llms():
+                if llm.get("enabled") and llm.get("type") == "ollama" and llm.get("model"):
+                    return llm["model"]
+        except Exception as e:
+            log("warning", f"Could not resolve app Ollama model: {e}")
+
+        return None
+
     def _build_local_mem0_config(self) -> Dict[str, Any]:
         """Build a local-first Mem0 OSS configuration (no cloud API key)."""
         config = get_config()
         mem0_cfg = config.get("modules.trainer.plugins.mem0_memory", {}) or {}
 
-        base_dir = Path(mem0_cfg.get("storage_dir", "data/mem0_memory")).resolve()
-        base_dir.mkdir(parents=True, exist_ok=True)
+        self._storage_dir = Path(mem0_cfg.get("storage_dir", "data/mem0_memory")).resolve()
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
 
         ollama_base_url = mem0_cfg.get("ollama_base_url", "http://127.0.0.1:11434")
         embed_model = mem0_cfg.get("embedding_model", "nomic-embed-text")
-        llm_model = mem0_cfg.get("llm_model", "qwen2.5:7b")
+
+        app_model = self._resolve_app_ollama_model()
+        llm_model = app_model or mem0_cfg.get("llm_model", "qwen2.5:7b")
+
+        embed_slug = re.sub(r"[^a-zA-Z0-9_.-]", "_", embed_model)
+        self._vector_store_path = self._storage_dir / f"faiss_{embed_slug}"
+        self._history_db_path = self._storage_dir / f"history_{embed_slug}.db"
+
+        self._vector_store_path.mkdir(parents=True, exist_ok=True)
+
+        if app_model:
+            log("info", f"mem0_memory using app Ollama model: {app_model}")
 
         return {
             "llm": {
@@ -79,10 +113,10 @@ class Mem0MemoryPlugin(MemoryPlugin):
             "vector_store": {
                 "provider": "faiss",
                 "config": {
-                    "path": str(base_dir / "faiss_index"),
+                    "path": str(self._vector_store_path),
                 },
             },
-            "history_db_path": str(base_dir / "history.db"),
+            "history_db_path": str(self._history_db_path),
             "version": "v1.1",
         }
 
@@ -95,6 +129,21 @@ class Mem0MemoryPlugin(MemoryPlugin):
         if "config" in ctor_sig.parameters:
             return Mem0MemoryClient(config=cfg)
         return Mem0MemoryClient(cfg)
+
+    def _recreate_local_store(self) -> None:
+        """Reset local Mem0 store files to recover from FAISS dimension mismatch."""
+        if self._vector_store_path and self._vector_store_path.exists():
+            shutil.rmtree(self._vector_store_path, ignore_errors=True)
+            self._vector_store_path.mkdir(parents=True, exist_ok=True)
+
+        if self._history_db_path and self._history_db_path.exists():
+            self._history_db_path.unlink(missing_ok=True)
+
+        self._mem0_client = self._create_mem0_client(self._mem0_cfg)
+
+    def _is_faiss_dimension_error(self, exc: Exception) -> bool:
+        msg = str(exc)
+        return "assert d == self.d" in msg or exc.__class__.__name__ == "AssertionError"
 
     def _user_key(self, student_id: str, trainer_id: str) -> str:
         return f"trainer:{trainer_id}:student:{student_id}"
@@ -198,7 +247,7 @@ class Mem0MemoryPlugin(MemoryPlugin):
         if not self._mem0_client:
             return False
 
-        try:
+        def _add_once() -> bool:
             current = self._get_current_memory(student_id, trainer_id)
             if current == content:
                 return True
@@ -230,9 +279,23 @@ class Mem0MemoryPlugin(MemoryPlugin):
                 )
             else:
                 self._mem0_client.add(content, user_id=self._user_key(student_id, trainer_id))
-
             return True
+
+        try:
+            return _add_once()
         except Exception as e:
+            if self._is_faiss_dimension_error(e):
+                log(
+                    "warning",
+                    "Mem0 FAISS dimension mismatch detected, recreating local mem0 index and retrying once",
+                )
+                try:
+                    self._recreate_local_store()
+                    return _add_once()
+                except Exception as retry_error:
+                    log("error", f"Failed to save mem0 memory after index reset: {retry_error}", exc_info=True)
+                    return False
+
             log("error", f"Failed to save mem0 memory: {e}", exc_info=True)
             return False
 
