@@ -1,0 +1,9 @@
+{
+  "id": "mem0_memory",
+  "name": "Student Memory (Mem0)",
+  "version": "1.0.0",
+  "description": "Maintains pedagogical memory of student conversations for personalized teaching using Mem0 backend",
+  "author": "System",
+  "enabled_by_default": false,
+  "category": "pedagogy"
+}
