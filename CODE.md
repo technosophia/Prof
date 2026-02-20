@@ -21,3 +21,9 @@ Tests:
 
 Modules:
 cf /modules/AGENTS.md
+
+# STREAMLIT
+
+- Becareful to not use duplicate key for visual elements
+- Becareful to use session_state for chained interaction, because streamlit use rerun() after button click for example, and all flow of the app restart
+- Use ressource_cache for ressources loaded once and for all to make the app faster
