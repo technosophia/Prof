@@ -16,5 +16,6 @@
 # Module directory structure
 /module.json defines the module's metadata, including its name, version, description, and dependencies.
 /config.json defines the module's configuration, auto-loaded by the app.
-/translations contains translation files.
+/translations contains translation files : en.json, fr.json
 /tests contains unit test files.
+/prompt.en.yml, /prompt.fr.yml for the prompts used by the module (automatically loaded)

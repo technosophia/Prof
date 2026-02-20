@@ -1,4 +1,4 @@
-<!-- /tsts/AGENTS.md -->
+<!-- /tests/AGENTS.md -->
 
 How to implement tests : pytest and pytest-bdd are used to write tests for the agents.
 

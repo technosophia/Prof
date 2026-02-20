@@ -13,7 +13,7 @@ The application uses a modular architecture where features can be dynamically en
 modules/[module_name]/
 ├── module.json              # Required: Metadata
 ├── [module_name]_ui.py      # Optional: UI injection points
-├── config.yaml              # Optional: Configuration
+├── config.json              # Optional: Configuration
 ├── translations/            # Optional: i18n files
 ├── prompts/                 # Optional: LLM prompts
 └── tests/                   # Optional: Pytest tests
