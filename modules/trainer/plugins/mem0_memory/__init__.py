@@ -131,19 +131,45 @@ class Mem0MemoryPlugin(MemoryPlugin):
         return Mem0MemoryClient(cfg)
 
     def _recreate_local_store(self) -> None:
-        """Reset local Mem0 store files to recover from FAISS dimension mismatch."""
-        if self._vector_store_path and self._vector_store_path.exists():
-            shutil.rmtree(self._vector_store_path, ignore_errors=True)
-            self._vector_store_path.mkdir(parents=True, exist_ok=True)
+        """Reset local Mem0 files to recover from FAISS dimension mismatch."""
+        paths_to_reset = []
+
+        if self._vector_store_path:
+            paths_to_reset.append(self._vector_store_path)
+
+        # Some mem0 versions ignore custom FAISS path and fallback to ./faiss_index
+        if self._storage_dir:
+            paths_to_reset.append(self._storage_dir / "faiss_index")
+
+        for path in paths_to_reset:
+            if path.exists() and path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(parents=True, exist_ok=True)
+
+        # Remove stray FAISS artifacts under storage_dir
+        if self._storage_dir and self._storage_dir.exists():
+            for artifact in self._storage_dir.rglob("*.faiss"):
+                artifact.unlink(missing_ok=True)
+            for artifact in self._storage_dir.rglob("*.pkl"):
+                artifact.unlink(missing_ok=True)
 
         if self._history_db_path and self._history_db_path.exists():
             self._history_db_path.unlink(missing_ok=True)
+
+        # Also remove default history path for mem0 versions using implicit names
+        if self._storage_dir:
+            default_history = self._storage_dir / "history.db"
+            default_history.unlink(missing_ok=True)
 
         self._mem0_client = self._create_mem0_client(self._mem0_cfg)
 
     def _is_faiss_dimension_error(self, exc: Exception) -> bool:
         msg = str(exc)
-        return "assert d == self.d" in msg or exc.__class__.__name__ == "AssertionError"
+        return (
+            "assert d == self.d" in msg
+            or "dimension" in msg.lower()
+            or exc.__class__.__name__ == "AssertionError"
+        )
 
     def _user_key(self, student_id: str, trainer_id: str) -> str:
         return f"trainer:{trainer_id}:student:{student_id}"
@@ -287,7 +313,7 @@ class Mem0MemoryPlugin(MemoryPlugin):
             if self._is_faiss_dimension_error(e):
                 log(
                     "warning",
-                    "Mem0 FAISS dimension mismatch detected, recreating local mem0 index and retrying once",
+                    f"Mem0 FAISS mismatch detected ({type(e).__name__}), recreating local store and retrying once",
                 )
                 try:
                     self._recreate_local_store()
