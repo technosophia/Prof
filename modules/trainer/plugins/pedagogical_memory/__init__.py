@@ -310,6 +310,26 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             log("error", f"Failed reconciliation decision: {e}", exc_info=True)
             return "DISCARD"
 
+    def _find_similar_facts_in_memory(
+        self,
+        facts: List[Dict[str, Any]],
+        candidate_type: str,
+        candidate_embedding: np.ndarray,
+        top_n: int = 3,
+    ) -> List[Tuple[Dict[str, Any], float]]:
+        """Find top-N similar active facts from an in-memory snapshot."""
+        scored: List[Tuple[Dict[str, Any], float]] = []
+        for fact in facts:
+            if fact.get("fact_type") != candidate_type or int(fact.get("is_active", 0)) != 1:
+                continue
+
+            vector = self._deserialize_embedding(fact.get("embedding", b""), int(fact.get("embedding_dim", 0)))
+            score = self._cosine_similarity(candidate_embedding, vector)
+            scored.append((fact, score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:top_n]
+
     def _run_confidence_decay(self, session, trainer_id: str, student_id: str, cfg: Dict[str, Any]) -> None:
         """Apply confidence decay to stale facts and soft-delete weak facts."""
         try:
@@ -352,25 +372,110 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
         try:
             with get_db_manager().get_session() as session:
-                for candidate in candidates:
-                    candidate_vector = np.asarray(get_embedding(candidate["content"]), dtype=np.float32)
-                    similar = self._find_similar_facts(
-                        session,
-                        trainer_id,
-                        student_id,
-                        candidate["fact_type"],
-                        candidate_vector,
-                        top_n=3,
-                    )
+                current_facts = (
+                    session.query(PedagogicalFact)
+                    .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
+                    .all()
+                )
 
-                    if not similar:
+            fact_snapshot: List[Dict[str, Any]] = [
+                {
+                    "id": fact.id,
+                    "fact_type": fact.fact_type,
+                    "content": fact.content,
+                    "embedding": fact.embedding,
+                    "embedding_dim": fact.embedding_dim,
+                    "confidence": float(fact.confidence or 0.0),
+                    "is_active": int(fact.is_active or 0),
+                    "fact_metadata": fact.fact_metadata or {},
+                }
+                for fact in current_facts
+            ]
+
+            operations: List[Dict[str, Any]] = []
+            pending_id = 0
+
+            for candidate in candidates:
+                candidate_vector = np.asarray(get_embedding(candidate["content"]), dtype=np.float32)
+                similar = self._find_similar_facts_in_memory(
+                    fact_snapshot,
+                    candidate["fact_type"],
+                    candidate_vector,
+                    top_n=3,
+                )
+
+                if not similar or similar[0][1] < cfg["similarity_threshold"]:
+                    operations.append(
+                        {
+                            "action": "CREATE",
+                            "fact_type": candidate["fact_type"],
+                            "content": candidate["content"],
+                            "vector": candidate_vector,
+                        }
+                    )
+                    stats["created"] += 1
+                    pending_id -= 1
+                    fact_snapshot.append(
+                        {
+                            "id": pending_id,
+                            "fact_type": candidate["fact_type"],
+                            "content": candidate["content"],
+                            "embedding": self._serialize_embedding(candidate_vector.tolist()),
+                            "embedding_dim": EMBEDDING_DIMENSION,
+                            "confidence": 1.0,
+                            "is_active": 1,
+                            "fact_metadata": {"source": "llm", "reconciliation": "CREATE"},
+                        }
+                    )
+                    continue
+
+                best_fact, _ = similar[0]
+                decision = await self._decide_reconciliation(
+                    candidate["fact_type"],
+                    best_fact["content"],
+                    candidate["content"],
+                )
+
+                if decision == "UPDATE":
+                    operations.append(
+                        {
+                            "action": "UPDATE",
+                            "fact_id": best_fact["id"],
+                            "content": candidate["content"],
+                            "vector": candidate_vector,
+                        }
+                    )
+                    best_fact["content"] = candidate["content"]
+                    best_fact["embedding"] = self._serialize_embedding(candidate_vector.tolist())
+                    best_fact["embedding_dim"] = EMBEDDING_DIMENSION
+                    best_fact["fact_metadata"] = {
+                        **(best_fact.get("fact_metadata") or {}),
+                        "source": "llm",
+                        "reconciliation": "UPDATE",
+                    }
+                    stats["updated"] += 1
+                elif decision == "REINFORCE":
+                    operations.append({"action": "REINFORCE", "fact_id": best_fact["id"]})
+                    best_fact["confidence"] = min(1.0, float(best_fact.get("confidence", 0.0)) + 0.05)
+                    best_fact["fact_metadata"] = {
+                        **(best_fact.get("fact_metadata") or {}),
+                        "source": "llm",
+                        "reconciliation": "REINFORCE",
+                    }
+                    stats["reinforced"] += 1
+                else:
+                    stats["discarded"] += 1
+
+            with get_db_manager().get_session() as session:
+                for operation in operations:
+                    if operation["action"] == "CREATE":
                         session.add(
                             PedagogicalFact(
                                 student_id=student_id,
                                 trainer_id=trainer_id,
-                                fact_type=candidate["fact_type"],
-                                content=candidate["content"],
-                                embedding=self._serialize_embedding(candidate_vector.tolist()),
+                                fact_type=operation["fact_type"],
+                                content=operation["content"],
+                                embedding=self._serialize_embedding(operation["vector"].tolist()),
                                 embedding_dim=EMBEDDING_DIMENSION,
                                 confidence=1.0,
                                 is_active=1,
@@ -378,58 +483,32 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                                 fact_metadata={"source": "llm", "reconciliation": "CREATE"},
                             )
                         )
-                        stats["created"] += 1
                         continue
 
-                    best_fact, best_score = similar[0]
-                    if best_score < cfg["similarity_threshold"]:
-                        session.add(
-                            PedagogicalFact(
-                                student_id=student_id,
-                                trainer_id=trainer_id,
-                                fact_type=candidate["fact_type"],
-                                content=candidate["content"],
-                                embedding=self._serialize_embedding(candidate_vector.tolist()),
-                                embedding_dim=EMBEDDING_DIMENSION,
-                                confidence=1.0,
-                                is_active=1,
-                                source_version=version,
-                                fact_metadata={"source": "llm", "reconciliation": "CREATE"},
-                            )
-                        )
-                        stats["created"] += 1
+                    db_fact = session.query(PedagogicalFact).filter_by(id=operation["fact_id"]).first()
+                    if not db_fact:
                         continue
 
-                    decision = await self._decide_reconciliation(
-                        candidate["fact_type"],
-                        best_fact.content,
-                        candidate["content"],
-                    )
-
-                    if decision == "UPDATE":
-                        best_fact.content = candidate["content"]
-                        best_fact.embedding = self._serialize_embedding(candidate_vector.tolist())
-                        best_fact.embedding_dim = EMBEDDING_DIMENSION
-                        best_fact.updated_at = datetime.utcnow()
-                        best_fact.source_version = version
-                        best_fact.fact_metadata = {
-                            **(best_fact.fact_metadata or {}),
+                    if operation["action"] == "UPDATE":
+                        db_fact.content = operation["content"]
+                        db_fact.embedding = self._serialize_embedding(operation["vector"].tolist())
+                        db_fact.embedding_dim = EMBEDDING_DIMENSION
+                        db_fact.updated_at = datetime.utcnow()
+                        db_fact.source_version = version
+                        db_fact.fact_metadata = {
+                            **(db_fact.fact_metadata or {}),
                             "source": "llm",
                             "reconciliation": "UPDATE",
                         }
-                        stats["updated"] += 1
-                    elif decision == "REINFORCE":
-                        best_fact.last_reinforced_at = datetime.utcnow()
-                        best_fact.confidence = min(1.0, float(best_fact.confidence) + 0.05)
-                        best_fact.updated_at = datetime.utcnow()
-                        best_fact.fact_metadata = {
-                            **(best_fact.fact_metadata or {}),
+                    elif operation["action"] == "REINFORCE":
+                        db_fact.last_reinforced_at = datetime.utcnow()
+                        db_fact.confidence = min(1.0, float(db_fact.confidence) + 0.05)
+                        db_fact.updated_at = datetime.utcnow()
+                        db_fact.fact_metadata = {
+                            **(db_fact.fact_metadata or {}),
                             "source": "llm",
                             "reconciliation": "REINFORCE",
                         }
-                        stats["reinforced"] += 1
-                    else:
-                        stats["discarded"] += 1
 
                 self._run_confidence_decay(session, trainer_id, student_id, cfg)
 
