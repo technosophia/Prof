@@ -431,8 +431,6 @@ class MemoryPlugin(TrainerPlugin):
                             use_container_width=True):
                     log("info", f"Refresh button clicked (plugin={self.id}, trainer={trainer_id}, student={student_id})")
                     with st.spinner("Analyzing conversations..."):
-                        # Run async refresh in sync context
-                    with st.spinner("Analyzing conversations..."):
                         success = asyncio.run(self.refresh_memory(trainer_id, student_id))
 
                         if success:
