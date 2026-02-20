@@ -207,6 +207,16 @@ def get_llm_by_name(name: str) -> Optional[Dict[str, Any]]:
     manager = get_llm_manager()
     return manager.get_llm_by_name(name)
 
+def get_embedding(text: str) -> List[float]:
+    """Embed a single string. Returns a float vector."""
+    manager = get_llm_manager()
+    return manager.get_embedding(text)
+
+def get_embeddings(texts: List[str]) -> List[List[float]]:
+    """Embed a list of strings. Returns a list of float vectors."""
+    manager = get_llm_manager()
+    return manager.get_embeddings(texts)
+
 def register_llm_callback(callback_func: Callable[[str, List[Dict]], str]):
     """Register a callback to add LLM context to LLM queries."""
     manager = get_llm_manager()

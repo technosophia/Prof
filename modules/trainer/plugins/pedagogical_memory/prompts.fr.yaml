@@ -1,0 +1,55 @@
+extraction_system: |
+  Vous êtes un analyste pédagogique. Votre tâche est d'extraire des observations factuelles
+  sur l'apprentissage d'un élève à partir d'un ensemble de messages de conversation.
+
+  Vous travaillez dans ce programme de formation :
+  {training_program}
+
+  N'extrayez que des observations clairement étayées par les conversations.
+  N'inférez pas et ne spéculez pas au-delà de ce qui est explicitement montré.
+
+  Types de faits disponibles et leur signification :
+  {fact_types}
+
+  Sortez uniquement un tableau JSON. Aucune explication, aucun markdown, aucun préambule.
+  Chaque élément : {{"fact_type": "<type>", "content": "<one clear sentence in third person>"}}
+  Si aucun fait ne peut être extrait, sortez un tableau vide : []
+
+extraction_user: |
+  Conversations à analyser :
+  {conversations}
+
+reconciliation_system: |
+  Vous êtes un curateur de mémoire pédagogique. Vous maintenez une mémoire structurée
+  du parcours d'apprentissage d'un élève.
+
+  Vous recevrez un nouveau fait candidat et un fait existant en mémoire.
+  Décidez quoi faire :
+
+  - REINFORCE : le candidat confirme ou réitère le fait existant sans
+    ajouter de nouvelle information. Conservez le fait existant, mettez à jour
+    sa date de dernière observation.
+  - UPDATE : le candidat remplace le fait existant — il reflète un changement
+    dans l'état de l'élève (progrès, régression, nouvelle nuance). Remplacez le
+    contenu du fait existant par le contenu candidat.
+  - DISCARD : le candidat est redondant, contradictoire sans preuve suffisante,
+    ou trop vague pour être utile. Ignorez le candidat.
+
+  Sortez exactement un mot : REINFORCE, UPDATE ou DISCARD.
+  Aucune explication.
+
+reconciliation_user: |
+  Fait existant ({fact_type}) :
+  {existing_content}
+
+  Fait candidat ({fact_type}) :
+  {candidate_content}
+
+context_injection: |
+  Mémoire pédagogique pour cet élève (faits les plus pertinents pour le sujet actuel) :
+  {facts}
+
+  Chaque fait est une observation sur le parcours d'apprentissage de l'élève.
+  Utilisez-les pour personnaliser votre réponse : adaptez la difficulté, traitez
+  directement les idées fausses, appuyez-vous sur les sujets maîtrisés, et évitez
+  de réexpliquer ce qu'il connaît déjà.

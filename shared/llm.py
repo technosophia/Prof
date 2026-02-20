@@ -110,6 +110,10 @@ from core.logging import log
 from shared.llm_engine import LLMEngine
 
 
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_VECTOR_DIMENSION = 384
+
+
 class ContextPosition(Enum):
     """Position where context should be inserted in the messages list."""
     TOP = "top"          # Insert at the beginning (first system messages)
@@ -141,6 +145,35 @@ class LLMManager:
         self.initialize_current_llm()
 
         log("debug", f"LLMManager initialized with {len(self.engines)} engines")
+
+    def _get_embedding_model(self):
+        """Return cached sentence-transformers model, lazily initialized."""
+        if hasattr(self, "_embedding_model") and self._embedding_model is not None:
+            return self._embedding_model
+
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as e:
+            log("error", "sentence-transformers is required for embeddings but is not installed", exc_info=True)
+            raise RuntimeError("sentence-transformers is required for embeddings") from e
+
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=device)
+        log("info", f"Loaded embedding model: {EMBEDDING_MODEL_NAME} ({EMBEDDING_VECTOR_DIMENSION} dims)")
+        return self._embedding_model
+
+    def get_embedding(self, text: str) -> List[float]:
+        """Embed a single string. Returns a float vector."""
+        model = self._get_embedding_model()
+        vector = model.encode(text or "", convert_to_numpy=True)
+        return vector.tolist()
+
+    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Embed a list of strings. Returns a list of float vectors."""
+        model = self._get_embedding_model()
+        vectors = model.encode(texts or [], convert_to_numpy=True)
+        return vectors.tolist()
 
     def discover_engines(self):
         """Discover and load all LLM engine modules from shared/llms directory."""

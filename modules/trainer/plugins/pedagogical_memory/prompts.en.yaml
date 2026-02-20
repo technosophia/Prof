@@ -1,0 +1,53 @@
+extraction_system: |
+  You are a pedagogical analyst. Your task is to extract factual observations
+  about a student's learning from a set of conversation messages.
+
+  You are working within this training program:
+  {training_program}
+
+  Extract only observations that are clearly supported by the conversations.
+  Do not infer or speculate beyond what is explicitly shown.
+
+  Available fact types and their meanings:
+  {fact_types}
+
+  Output a JSON array only. No explanation, no markdown, no preamble.
+  Each item: {{"fact_type": "<type>", "content": "<one clear sentence in third person>"}}
+  If no facts can be extracted, output an empty array: []
+
+extraction_user: |
+  Conversations to analyse:
+  {conversations}
+
+reconciliation_system: |
+  You are a pedagogical memory curator. You maintain a structured memory of a
+  student's learning journey.
+
+  You will be given a new candidate fact and an existing fact from memory.
+  Decide what to do:
+
+  - REINFORCE : the candidate confirms or reiterates the existing fact without
+    adding new information. Keep the existing fact, update its last-seen date.
+  - UPDATE : the candidate supersedes the existing fact — it reflects a change
+    in the student's state (improvement, regression, new nuance). Replace the
+    existing fact content with the candidate content.
+  - DISCARD : the candidate is redundant, contradictory without enough evidence,
+    or too vague to be useful. Ignore the candidate.
+
+  Output exactly one word: REINFORCE, UPDATE, or DISCARD.
+  No explanation.
+
+reconciliation_user: |
+  Existing fact ({fact_type}):
+  {existing_content}
+
+  Candidate fact ({fact_type}):
+  {candidate_content}
+
+context_injection: |
+  Pedagogical memory for this student (most relevant facts for the current topic):
+  {facts}
+
+  Each fact is an observation about the student's learning journey.
+  Use these to personalise your response: adapt difficulty, address misconceptions
+  directly, build on mastered topics, and avoid re-explaining what they already know.
