@@ -1,15 +1,17 @@
 # Benchmarker module
 
 ## Goal
-Provide a minimal scenario replay engine with assertions and session serialization,
-forming the foundation for future benchmark scoring and comparison phases.
+Provide a scenario replay engine with assertions, session serialization,
+LLM-as-judge scoring, and cross-run comparisons.
 
 ## Architecture
 One-way dependency flow:
 1. **driver** receives option/context/action commands
 2. **runner** validates + replays scenario steps and computes assertions
 3. **session** serializes run result + raw driver events to YAML
-4. **ui** renders run and history views
+4. **scorer** loads rubrics, renders judge prompts, scores sessions, stores score history
+5. **comparer** groups runs by option value and computes report statistics
+6. **ui** renders run, history, judge, and compare views
 
 Do not reverse dependencies (UI must not directly run driver internals).
 
@@ -17,6 +19,24 @@ Do not reverse dependencies (UI must not directly run driver internals).
 Core scenario actions are implemented in `core_actions.py` and registered by
 `initialize()` in `__init__.py`. They are benchmarker-level actions and must not
 import app modules directly.
+
+## LLM as option
+- LLM options are registered by benchmarker during `initialize()` using `get_available_llms()`.
+- Option group name is `"llm"`.
+- No mid-session LLM switching: set once in scenario `options:` at scenario start.
+
+## Scorer
+- Implemented in `scorer.py`.
+- Rubrics are YAML files under `rubrics/`.
+- Judge prompt is rendered automatically and stored in session YAML and DB.
+- Score sources: `llm_auto`, `llm_paste`, `manual`.
+- Parsing is graceful on failure and never raises.
+
+## Comparer
+- Implemented in `comparer.py`.
+- Groups by option group value (e.g., `memory_backend`, `llm`).
+- Requires `BenchmarkRun` records; scores are optional.
+- Report YAML is written to `data/benchmarker/sessions/`.
 
 ## Add a new scenario
 1. Copy `scenarios/example_basic.yaml`
@@ -31,12 +51,7 @@ import app modules directly.
 
 ## Avoid
 - Do NOT import trainer, RAG, or any app module directly
-- Do NOT make LLM calls during assertion evaluation
+- Do NOT switch LLM mid-scenario — set it in `options:` at scenario start
+- Do NOT call LLM during assertion evaluation (scorer only)
 - Do NOT store full LLM responses in session YAML (truncate)
 - Do NOT use production user IDs in scenarios (`bench_` prefix only)
-- Do NOT add judge/scorer/reporter logic in this module
-
-## Future phases (out of scope)
-- Phase 2: LLM-as-judge scoring and rubrics
-- Phase 3: comparison reporter across runs
-- Phase 4: integration of trainer, RAG, student_pad option switching

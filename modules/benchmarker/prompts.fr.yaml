@@ -8,3 +8,58 @@ some_failed: "{passed}/{total} assertions validées — {failed} en échec"
 step_log_header: "[{actor}] {action}"
 no_history: "Aucune exécution de benchmark enregistrée pour le moment."
 clear_history_confirm: "Cela supprimera toutes les exécutions de benchmark et les fichiers de session. Continuer ?"
+judge_tab_title: "Juge"
+judge_select_session: "Sélectionner la session à évaluer"
+judge_select_rubric: "Sélectionner la grille"
+judge_run_llm: "Évaluer avec le LLM"
+judge_export_prompt: "Exporter le prompt de jugement"
+judge_import_scores: "Importer les scores depuis le YAML de session"
+judge_scoring_spinner: "Appel du LLM juge..."
+judge_scored_success: "Session évaluée. Global: {overall}/5"
+judge_scored_partial: "Évalué avec avertissements: {warnings}"
+judge_scored_failed: "Échec de l'évaluation — vérifier les logs"
+judge_prompt_export_help: >
+  Copiez le prompt ci-dessous et collez-le dans n'importe quel chatbot LLM.
+  Remplissez le bloc scores.dimensions dans le YAML de session,
+  puis utilisez 'Importer les scores' pour les charger.
+
+compare_tab_title: "Comparer"
+compare_select_scenario: "Sélectionner le scénario"
+compare_group_by: "Grouper par option"
+compare_select_rubric: "Sélectionner la grille (optionnel)"
+compare_run_button: "Générer la comparaison"
+compare_no_runs: "Aucune exécution trouvée pour ce scénario."
+compare_no_scores: "Aucun score disponible pour l’instant — lancez d'abord l’évaluation."
+compare_winner: "Gagnant: {winner} (Δ {delta:+.2f})"
+compare_download: "Télécharger le rapport YAML"
+
+judge_prompt_template: |
+  Vous évaluez un système de tutorat IA. Votre tâche est de noter la qualité
+  du comportement du système pendant une session de tutorat, en utilisant la grille ci-dessous.
+
+  INFORMATIONS DE SESSION
+  Scénario: {scenario_name}
+  {scenario_description}
+  Configuration: {options_summary}
+
+  PREUVES DE LA SESSION
+  {evidence_block}
+
+  GRILLE: {rubric_name}
+  Notez chaque dimension de 1 à {max_scale} en utilisant les indications fournies.
+  {dimensions_block}
+
+  FORMAT DE RÉPONSE
+  Répondez avec un bloc YAML uniquement. Aucune explication avant ou après.
+  {response_format_block}
+
+judge_response_format: |
+  scores:
+    rubric: "{rubric_name}"
+    judge: "<your model name>"
+    scored_at: "<ISO datetime>"
+    source: "llm_paste"
+    dimensions:
+  {dimension_lines}
+    overall: <mean of above>
+    notes: "<one paragraph evaluation summary>"
