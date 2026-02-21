@@ -109,8 +109,9 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
                 st.dataframe([
                     {"dimension": k, "score": v} for k, v in result.scores.items()
                 ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
-            except Exception:
+            except Exception as exc:
                 st.error(_p("judge_scored_failed", "Scoring failed — check logs"))
+                st.exception(exc)
 
     st.info(_p("judge_prompt_export_help", ""))
     if st.button(_p("judge_export_prompt", "Export judge prompt"), disabled=not rubric_name):
