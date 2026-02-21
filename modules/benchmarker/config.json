@@ -1,0 +1,8 @@
+{
+  "benchmarker": {
+    "sessions_dir": "data/benchmarker/sessions",
+    "scenarios_dir": "modules/benchmarker/scenarios",
+    "cleanup_after_run": false,
+    "llm_response_truncate_chars": 500
+  }
+}
