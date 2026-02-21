@@ -79,7 +79,7 @@ def render() -> None:
             st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
             return
 
-        scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml") or f.endswith(".yml")])
+        scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
         if not scenario_files:
             st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
             return
@@ -107,7 +107,7 @@ def render() -> None:
         with st.expander("Overrides", expanded=True):
             student_override = st.text_input("Student ID", value=setup.get("student_id", ""))
             trainer_override = st.text_input("Teacher ID", value=setup.get("trainer_id", ""))
-            llm_override = st.text_input("LLM ID", value=scenario.get("llm", ""))
+            llm_override = st.text_input("LLM ID", value=scenario.get("llm", "")).strip()
 
             options_map = get_driver().list_options()
             memory_choices = [opt["name"] for opt in options_map.get("memory_backend", [])]
@@ -142,11 +142,7 @@ def render() -> None:
 
     with history_tab:
         with get_db_manager().get_session() as session:
-            runs = session.query(BenchmarkRun).order_by(BenchmarkRun.run_at.desc()).all()
-
-        if not runs:
-            st.info(_p("no_history", "No benchmark runs recorded yet."))
-        else:
+            db_runs = session.query(BenchmarkRun).order_by(BenchmarkRun.run_at.desc()).all()
             rows = [
                 {
                     "run_at": str(r.run_at),
@@ -157,8 +153,12 @@ def render() -> None:
                     "duration_seconds": r.duration_seconds,
                     "session_file": r.session_file,
                 }
-                for r in runs
+                for r in db_runs
             ]
+
+        if not rows:
+            st.info(_p("no_history", "No benchmark runs recorded yet."))
+        else:
             st.dataframe(rows, use_container_width=True)
 
         if st.button("Clear history"):

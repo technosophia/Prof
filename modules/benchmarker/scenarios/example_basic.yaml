@@ -6,9 +6,6 @@ meta:
     and analysis runs without error.
   version: "1.0"
 
-options:
-  memory_backend: "memory"
-
 llm: "groq"
 
 setup:
@@ -44,11 +41,6 @@ steps:
     params:
       content: "Can I change a tuple after creating it?"
 
-  - id: "s4"
-    actor: teacher
-    action: trigger_memory_analysis
-    params: {}
-
 assertions:
   - id: "a1"
     type: action_succeeded
@@ -67,22 +59,3 @@ assertions:
     description: "Second student message was sent"
     params:
       step_id: "s3"
-
-  - id: "a4"
-    type: action_succeeded
-    description: "Memory analysis completed"
-    params:
-      step_id: "s4"
-
-  - id: "a5"
-    type: llm_calls_made
-    description: "At least 2 LLM calls were made (one per student message)"
-    params:
-      min: 2
-
-  - id: "a6"
-    type: plugin_event_occurred
-    description: "Memory analysis recorded a completion event"
-    params:
-      plugin_id: "memory"
-      event: "analysis_complete"

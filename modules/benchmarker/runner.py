@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from shared.common import get_current_llm_id, get_driver, get_section, get_user_manager, log
+from shared.common import get_current_llm_id, get_driver, get_section, get_user_manager, log, set_current_llm
 from shared.driver import DriverActionError, DriverContextError, DriverOptionError
 
 from modules.benchmarker import initialize as initialize_benchmarker
@@ -114,7 +114,7 @@ class ScenarioRunner:
         setup.update({k: v for k, v in setup_overrides.items() if v})
         created_users = self._ensure_test_users(setup)
 
-        llm_id = llm_override or scenario.get("llm")
+        llm_id = (llm_override or "").strip() or scenario.get("llm")
 
         try:
             options = dict(scenario.get("options", {}))
@@ -128,6 +128,10 @@ class ScenarioRunner:
                     llm_id = get_current_llm_id()
                 except Exception:
                     llm_id = None
+
+            if llm_id:
+                switched = set_current_llm(llm_id)
+                log("info", f"LLM override request '{llm_id}' applied={switched}")
 
             self.driver.set_context(
                 student_id=setup.get("student_id"),

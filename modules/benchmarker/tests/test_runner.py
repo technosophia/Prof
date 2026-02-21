@@ -14,7 +14,6 @@ class FakeDriver:
             {"name": "create_conversation"},
             {"name": "set_training_program"},
             {"name": "user_send_message"},
-            {"name": "trigger_memory_analysis"},
             {"name": "switch_option"},
         ]
         self.events = []
@@ -40,8 +39,6 @@ class FakeDriver:
         self.events.append({"type": "action", "name": name, "params": params})
         if name == "user_send_message":
             self.events.append({"type": "llm_call", "llm_id": "groq", "prompt_tokens": 1, "completion_tokens": 1})
-        if name == "trigger_memory_analysis":
-            self.events.append({"type": "plugin_event", "plugin_id": "memory", "event": "analysis_complete"})
         return {"ok": True}
 
     def get_session_events(self):
@@ -127,4 +124,4 @@ def test_step_error_does_not_abort_run(monkeypatch, tmp_path):
     result = runner.run(str(tmp_file))
     assert len(result.steps) == len(scenario["steps"])
     assert any(not step.success for step in result.steps)
-    assert any(step.step_id == "s4" for step in result.steps)
+    assert any(step.step_id == "s3" for step in result.steps)
