@@ -8,7 +8,6 @@ from shared.common import (
     get_conversation_manager,
     get_driver,
     llm_conversation_generate,
-    get_config,
     log,
     set_current_llm,
 )
@@ -91,16 +90,6 @@ def action_teacher_send_message(context, **params) -> Dict:
     )
     return {"teacher_message": content, "conversation_id": context.conversation_id}
 
-
-def action_set_training_program(context, **params) -> Dict:
-    """Set trainer training program prompt."""
-    content = params.get("content")
-    if not content:
-        raise ValueError("content is required")
-
-    get_config().set("trainer.teacher.training_program", content)
-    log("info", f"Training program set in runtime config for trainer {context.trainer_id}")
-    return {"saved": True}
 
 
 def action_switch_option(context, **params) -> Dict:

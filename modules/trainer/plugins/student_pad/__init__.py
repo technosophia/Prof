@@ -49,7 +49,7 @@ class StudentPadPlugin(TrainerPlugin):
             log("error", f"Failed to create/update StudentNote table: {e}")
             # Continue anyway - table might already exist
 
-        # Register context callbacks (keeping for backward compatibility)
+        # Keep callbacks always registered; runtime guard controls effective injection
         register_llm_context_callback(self.get_student_notes_context)
         register_llm_context_callback(self.get_teacher_notes_context)
         return True
@@ -171,6 +171,8 @@ class StudentPadPlugin(TrainerPlugin):
         return context
 
     def get_student_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        if not self._is_active:
+            return None
         """
         Context callback for student's personal notes.
         Returns tuple: (context, role, position)
@@ -199,6 +201,8 @@ class StudentPadPlugin(TrainerPlugin):
         return (context, "system", "top")
 
     def get_teacher_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        if not self._is_active:
+            return None
         """
         Context callback for teacher's private notes about the student.
         Returns tuple: (context, role, position)
@@ -226,6 +230,31 @@ class StudentPadPlugin(TrainerPlugin):
 
         # Return as system message at the top of the context
         return (context, "system", "top")
+
+    def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        if not self._is_active:
+            return None
+        return self.get_student_notes_context(user_id, messages)
+
+    def add_note(self, student_id: str, content: str, topic: str = "") -> Dict:
+        """Append a note to the student's pad using existing storage."""
+        from shared.cached import get_user_manager
+
+        user = get_user_manager().get_user(student_id)
+        if not user or not user.get("parent_id"):
+            return {"saved": False, "reason": "trainer_not_found"}
+
+        trainer_id = user["parent_id"]
+        existing = self._get_student_note(student_id, trainer_id)
+        line = content.strip() if not topic else f"[{topic}] {content.strip()}"
+        merged = f"{existing}\n{line}".strip() if existing else line
+
+        saved = self._save_student_note(student_id, trainer_id, merged)
+        return {"saved": bool(saved)}
+
+    def _action_trigger_analysis(self, context, **params) -> Dict:
+        log("warning", "student_pad: trigger_memory_analysis not supported")
+        return {"success": False, "reason": "unsupported", "plugin": "student_pad"}
 
     def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
         """

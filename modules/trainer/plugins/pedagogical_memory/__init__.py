@@ -473,6 +473,8 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             return []
 
     def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        if not self._is_active:
+            return None
         """Inject top relevant pedagogical facts as LLM context."""
         try:
             user = get_user_manager().get_user(user_id)
@@ -519,6 +521,24 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         except Exception as e:
             log("error", f"Failed to inject pedagogical memory context: {e}", exc_info=True)
             return None
+
+    def _action_trigger_analysis(self, context, **params) -> Dict:
+        import asyncio
+        from shared.common import record_plugin_event
+
+        result = asyncio.run(
+            self.refresh_memory(context.trainer_id, context.student_id)
+        )
+        record_plugin_event("pedagogical_memory", "analysis_complete", {
+            "success": result.get("success", False),
+            "facts_created": result.get("facts_created", 0),
+            "facts_updated": result.get("facts_updated", 0),
+        })
+        return {
+            "success": result.get("success", False),
+            "plugin": "pedagogical_memory",
+            **result,
+        }
 
     def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
         """Render student-level pedagogical memory widget."""

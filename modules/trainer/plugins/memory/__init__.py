@@ -46,7 +46,6 @@ class MemoryPlugin(TrainerPlugin):
                 Base.metadata.create_all(db._engine, tables=[StudentMemory.__table__], checkfirst=True)
                 log("info", "StudentMemory table created/verified")
 
-            # Register context callback for memory injection
             register_llm_context_callback(self.get_memory_context)
             return True
         except Exception as e:
@@ -327,6 +326,8 @@ class MemoryPlugin(TrainerPlugin):
     # ============= LLM CONTEXT INJECTION =============
 
     def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        if not self._is_active:
+            return None
         """
         Context callback to inject student memory into conversations.
         Returns: (context, role, position)
@@ -378,6 +379,24 @@ class MemoryPlugin(TrainerPlugin):
         return {}
 
     # ============= UI RENDERING =============
+
+    def _action_trigger_analysis(self, context, **params) -> Dict:
+        import asyncio
+        from shared.common import record_plugin_event
+
+        success = asyncio.run(
+            self.refresh_memory(context.trainer_id, context.student_id)
+        )
+        memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)
+        record_plugin_event("memory", "analysis_complete", {
+            "success": success,
+            "version": memory.get("version") if memory else None,
+        })
+        return {
+            "success": success,
+            "plugin": "memory",
+            "version": memory.get("version") if memory else None,
+        }
 
     def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
         """Render memory in teacher's student detail view."""
