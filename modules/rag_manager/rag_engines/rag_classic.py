@@ -9,17 +9,9 @@ import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
 
 from ..rag_engine import RAGEngine
-from shared.common import log, get_config
-
-# Import the caching module
-try:
-    from ..rag_caching import RAGModelCache
-except ImportError:
-    # Fallback if caching module not available
-    RAGModelCache = None
+from shared.common import log, get_config, get_embedding, get_embeddings
 
 
 class ClassicRAGEngine(RAGEngine):
@@ -47,21 +39,13 @@ class ClassicRAGEngine(RAGEngine):
         # Log the actual config being used
         log("debug", f"Classic RAG config: index_path={self.index_path}, model={self.embedding_model_name}")
 
-        # Load embedding model WITH CACHING
+        # Use shared LLM manager embeddings
         try:
-            if RAGModelCache:
-                # Use cached model loading
-                self.model = RAGModelCache.get_embedding_model_cached(self.embedding_model_name)
-                self.dimension = RAGModelCache.get_model_dimension(self.embedding_model_name)
-            else:
-                # Fallback to direct loading
-                self.model = SentenceTransformer(self.embedding_model_name, device='cpu')
-                self.dimension = self.model.get_sentence_embedding_dimension()
-
-            log("info", f"Loaded embedding model: {self.embedding_model_name} (dim: {self.dimension})")
+            # Keep config compatibility while relying on centralized embedding API.
+            self.dimension = len(get_embedding(""))
+            log("info", f"Initialized embeddings via LLM manager (configured model hint: {self.embedding_model_name}, dim: {self.dimension})")
         except Exception as e:
-            log("error", f"Failed to load embedding model {self.embedding_model_name}: {str(e)}")
-            self.model = None
+            log("error", f"Failed to initialize embeddings via LLM manager: {str(e)}")
             self.dimension = None
 
         # In-memory indices and metadata
@@ -127,9 +111,16 @@ class ClassicRAGEngine(RAGEngine):
         # Filter out very small chunks
         return [c for c in chunks if len(c) > 50]
 
+    def _encode_texts(self, texts: List[str]) -> np.ndarray:
+        """Embed texts via shared LLM manager and normalize for cosine similarity."""
+        embeddings = np.array(get_embeddings(texts), dtype=np.float32)
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return embeddings / norms
+
     def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:
         """Index a document by chunking, embedding, and adding to FAISS."""
-        if self.model is None:
+        if self.dimension is None:
             log("error", "Embedding model not available")
             return False
 
@@ -143,8 +134,7 @@ class ClassicRAGEngine(RAGEngine):
                 log("warning", f"No chunks created for document {filename}")
                 return False
 
-            embeddings = self.model.encode(chunks, normalize_embeddings=True)
-            embeddings = np.array(embeddings, dtype=np.float32)
+            embeddings = self._encode_texts(chunks)
 
             file_size = os.path.getsize(file_path)
             log("info", f"Indexed 1")
@@ -156,7 +146,6 @@ class ClassicRAGEngine(RAGEngine):
             else:
                 index = self.indices[user_id]
 
-            start_id = index.ntotal
             index.add(embeddings)
             log("info", f"Indexed 2")
             # Append metadata (order matches vector order)
@@ -191,8 +180,7 @@ class ClassicRAGEngine(RAGEngine):
 
             if kept_meta:
                 texts = [m['chunk_text'] for m in kept_meta]
-                embeddings = self.model.encode(texts, normalize_embeddings=True)
-                embeddings = np.array(embeddings, dtype=np.float32)
+                embeddings = self._encode_texts(texts)
 
                 new_index = faiss.IndexFlatIP(self.dimension)
                 new_index.add(embeddings)
@@ -214,12 +202,11 @@ class ClassicRAGEngine(RAGEngine):
 
     def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Search using vector similarity."""
-        if self.model is None or user_id not in self.indices or self.indices[user_id].ntotal == 0:
+        if self.dimension is None or user_id not in self.indices or self.indices[user_id].ntotal == 0:
             return []
 
         try:
-            query_emb = self.model.encode([query], normalize_embeddings=True)
-            query_emb = np.array(query_emb, dtype=np.float32)
+            query_emb = self._encode_texts([query])
 
             # Search more candidates to allow threshold filtering
             D, I = self.indices[user_id].search(query_emb, limit * 3)
@@ -281,7 +268,7 @@ class ClassicRAGEngine(RAGEngine):
 
     def is_available(self) -> bool:
         """Check if the engine is functional."""
-        return self.model is not None and self.dimension is not None
+        return self.dimension is not None
 
     def get_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get engine statistics."""

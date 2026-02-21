@@ -18,13 +18,6 @@ from shared.common import UserRole, get_user_manager
 
 from modules.rag_manager.rag_engine import RAGEngine
 from modules.rag_manager.rag_simple import SimpleRAGEngine
-# Import caching module
-try:
-    from .rag_caching import RAGModelCache
-    HAS_CACHING = True
-except ImportError:
-    HAS_CACHING = False
-    RAGModelCache = None
 
 user_manager = get_user_manager()
 
@@ -59,9 +52,6 @@ class RAGManager:
 
         self.default_engine = default_engine
 
-        self._cache_initialized = False
-        self._init_caching()
-
         # RAG engines
         self.engines = {}
 
@@ -88,38 +78,19 @@ class RAGManager:
         log("info", f"RAG Manager initialized with default engine: {self.default_engine}")
 
     def _init_caching(self):
-        """Initialize caching for model weights."""
-        if HAS_CACHING:
-            try:
-                # Test cache availability
-                RAGModelCache.get_embedding_model_cached("sentence-transformers/all-MiniLM-L6-v2")
-                self._cache_initialized = True
-                log("info", "RAG model caching initialized successfully")
-            except Exception as e:
-                log("warning", f"Failed to initialize caching: {str(e)}")
-                self._cache_initialized = False
-        else:
-            log("warning", "RAG caching module not available")
-            self._cache_initialized = False
+        """Backward-compatible no-op: embeddings are now managed by LLM manager."""
+        return None
 
     def clear_model_cache(self):
-        """Clear all cached model weights."""
-        if HAS_CACHING and self._cache_initialized:
-            try:
-                RAGModelCache.clear_embedding_cache()
-                log("info", "Cleared RAG model cache")
-                return True
-            except Exception as e:
-                log("error", f"Failed to clear cache: {str(e)}")
-                return False
+        """Backward-compatible no-op: embedding cache is handled by LLM manager."""
         return False
 
     def get_cache_info(self) -> Dict[str, Any]:
-        """Get information about the cache status."""
+        """Backward-compatible cache info for admin UI."""
         return {
-            "caching_available": HAS_CACHING,
-            "cache_initialized": self._cache_initialized,
-            "cached_models": ["embedding_models"] if self._cache_initialized else []
+            "caching_available": False,
+            "cache_initialized": False,
+            "cached_models": []
         }
 
     def _init_data_directory(self):
@@ -190,14 +161,6 @@ class RAGManager:
         self.config = get_config()
         rag_config = self.config.get("rag_manager", {})
         self.default_engine = rag_config.get("default_engine", "simple")
-
-        # Clear cache if config changed significantly
-        old_embedding_model = getattr(self, '_last_embedding_model', None)
-        new_embedding_model = rag_config.get("embedding_model")
-
-        if old_embedding_model != new_embedding_model and HAS_CACHING:
-            self.clear_model_cache()
-            self._last_embedding_model = new_embedding_model
 
         log("debug", f"RAG manager config refreshed, default engine: {self.default_engine}")
 
