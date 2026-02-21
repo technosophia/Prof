@@ -40,7 +40,7 @@ from shared.common import (
 from shared.cached import get_db_manager
 from shared.driver import DriverContext
 
-from .models import PluginData, PluginActivation
+from .models import PluginData, PluginActivation, ensure_tables_exist
 from .manager import get_trainer_manager
 from .plugin_base import get_plugin_manager
 
@@ -174,6 +174,7 @@ def initialize():
     log("info", "Initializing Trainer module")
 
     get_db_manager()
+    ensure_tables_exist()
     plugin_manager = get_plugin_manager()
     log("info", f"Loaded {len(plugin_manager.get_all_plugins())} Trainer plugins")
 
