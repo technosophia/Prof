@@ -7,12 +7,15 @@ import tempfile
 import os
 import sys
 import json
+import importlib
 from pathlib import Path
 import shutil
 from unittest.mock import Mock, patch, MagicMock
 
 from modules.rag_manager import RAGManager
 import shared.common
+
+rag_manager_module = importlib.import_module("modules.rag_manager.rag_manager")
 
 # Create a comprehensive mock for the entire users module
 mock_user_info = {
@@ -73,9 +76,9 @@ def temp_rag_manager():
     shared.common.get_config = mock_get_config
 
     # Mock the user imports
-    with patch('modules.rag_manager.rag_manager.user_manager', mock_user_manager):
+    with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
         # Also patch UserRole in the rag_manager module
-        with patch('modules.rag_manager.rag_manager.UserRole', MockUserRole):
+        with patch.object(rag_manager_module, 'UserRole', MockUserRole):
             # Create manager
             manager = RAGManager()
 
@@ -277,8 +280,8 @@ def test_metadata_persistence(test_user_id):
 
     try:
         # Mock the user imports
-        with patch('modules.rag_manager.rag_manager.user_manager', mock_user_manager):
-            with patch('modules.rag_manager.rag_manager.UserRole', MockUserRole):
+        with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
+            with patch.object(rag_manager_module, 'UserRole', MockUserRole):
                 # Create first manager
                 manager1 = RAGManager()
                 manager1._check_user_permission = Mock(return_value=True)
@@ -584,8 +587,8 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
 
     try:
         # Mock the user imports
-        with patch('modules.rag_manager.rag_manager.user_manager', mock_user_manager):
-            with patch('modules.rag_manager.rag_manager.UserRole', MockUserRole):
+        with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
+            with patch.object(rag_manager_module, 'UserRole', MockUserRole):
                 # Create new manager that will load the old metadata
                 new_manager = RAGManager()
                 new_manager._check_user_permission = Mock(return_value=True)
@@ -642,8 +645,8 @@ def test_basic_rag_operations():
 
     try:
         # Mock the user imports
-        with patch('modules.rag_manager.rag_manager.user_manager', mock_user_manager):
-            with patch('modules.rag_manager.rag_manager.UserRole', MockUserRole):
+        with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
+            with patch.object(rag_manager_module, 'UserRole', MockUserRole):
                 # Create manager
                 manager = RAGManager()
                 manager._check_user_permission = Mock(return_value=True)
@@ -686,6 +689,63 @@ def test_basic_rag_operations():
 
         # Restore original function
         shared.common.get_config = original_get_config
+
+def test_run_auto_import_initializes_database_before_user_lookup(temp_rag_manager):
+    """Auto-import should initialize DB and users before resolving configured users."""
+    temp_rag_manager.config = {
+        "modules.rag_manager": {
+            "auto_import": [
+                {
+                    "user_id": "test_user",
+                    "files": [{"source_path": "/tmp/source.txt", "original_filename": "source.txt"}],
+                }
+            ]
+        }
+    }
+    temp_rag_manager._auto_import_for_user = Mock()
+
+    with patch.object(rag_manager_module, 'user_manager') as patched_user_manager:
+        with patch.object(rag_manager_module, 'init_database') as mock_init_database:
+            with patch.object(rag_manager_module, 'init_user_manager') as mock_init_user_manager:
+                patched_user_manager.db.is_initialized.side_effect = [False, True]
+                patched_user_manager.get_user.return_value = {'id': 'test_user'}
+
+                temp_rag_manager.run_auto_import()
+
+    mock_init_database.assert_called_once_with()
+    mock_init_user_manager.assert_called_once_with(create_default_users=True)
+    patched_user_manager.get_user.assert_called_once_with('test_user')
+    temp_rag_manager._auto_import_for_user.assert_called_once_with(
+        'test_user',
+        [{'source_path': '/tmp/source.txt', 'original_filename': 'source.txt'}]
+    )
+
+
+def test_run_auto_import_skips_when_database_stays_uninitialized(temp_rag_manager):
+    """Auto-import should stop early if DB initialization fails."""
+    temp_rag_manager.config = {
+        "modules.rag_manager": {
+            "auto_import": [
+                {
+                    "user_id": "test_user",
+                    "files": [{"source_path": "/tmp/source.txt", "original_filename": "source.txt"}],
+                }
+            ]
+        }
+    }
+    temp_rag_manager._auto_import_for_user = Mock()
+
+    with patch.object(rag_manager_module, 'user_manager') as patched_user_manager:
+        with patch.object(rag_manager_module, 'init_database') as mock_init_database:
+            with patch.object(rag_manager_module, 'init_user_manager') as mock_init_user_manager:
+                patched_user_manager.db.is_initialized.side_effect = [False, False]
+
+                temp_rag_manager.run_auto_import()
+
+    mock_init_database.assert_called_once_with()
+    mock_init_user_manager.assert_not_called()
+    patched_user_manager.get_user.assert_not_called()
+    temp_rag_manager._auto_import_for_user.assert_not_called()
 
 if __name__ == "__main__":
     # Run tests manually if needed
