@@ -1,0 +1,61 @@
+"""Benchmarker module initialization."""
+
+import os
+
+from shared.common import get_section, log, register_action
+
+from modules.benchmarker.benchmarker import ensure_tables_exist
+from modules.benchmarker.core_actions import (
+    action_create_conversation,
+    action_set_training_program,
+    action_switch_option,
+    action_teacher_send_message,
+    action_user_send_message,
+)
+
+
+def initialize() -> bool:
+    """Initialize benchmarker module: tables, directories, and actions."""
+    try:
+        config = get_section("benchmarker")
+        sessions_dir = config.get("sessions_dir", "data/benchmarker/sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+
+        ensure_tables_exist()
+
+        register_action(
+            "create_conversation",
+            action_create_conversation,
+            "Create a conversation for the current student",
+            required_context=["student_id"],
+        )
+        register_action(
+            "user_send_message",
+            action_user_send_message,
+            "Send a student message and get LLM response",
+            required_context=["student_id", "conversation_id"],
+        )
+        register_action(
+            "teacher_send_message",
+            action_teacher_send_message,
+            "Inject a teacher message into a conversation",
+            required_context=["trainer_id", "student_id", "conversation_id"],
+        )
+        register_action(
+            "set_training_program",
+            action_set_training_program,
+            "Set the training program for the current trainer",
+            required_context=["trainer_id"],
+        )
+        register_action(
+            "switch_option",
+            action_switch_option,
+            "Switch a driver option mid-scenario (system only)",
+            required_context=[],
+        )
+
+        log("info", "Benchmarker module initialized")
+        return True
+    except Exception as exc:
+        log("error", f"Failed to initialize benchmarker module: {exc}", exc_info=True)
+        return False

@@ -1,0 +1,12 @@
+{
+  "id": "benchmarker",
+  "name": "Benchmarker",
+  "version": "1.0.0",
+  "description": "Scenario-driven replay and assertion engine. Replays user sessions against different plugin configurations and validates outcomes.",
+  "enabled_by_default": false,
+  "category": "core_tools",
+  "inject_points": {
+    "admin_tab": "benchmarker_admin_ui.inject_ui_admin_tab"
+  },
+  "ui_files": ["benchmarker_admin_ui.py", "benchmarker_ui.py"]
+}
