@@ -13,8 +13,10 @@ import importlib
 import pkgutil
 import sys
 
-from shared.common import _, log, get_config
-from shared.common import UserRole, get_user_manager
+from shared.common import _, log
+from shared.cached import get_config
+from shared.common import UserRole
+from shared.cached import get_user_manager
 
 from modules.rag_manager.rag_engine import RAGEngine
 from modules.rag_manager.rag_simple import SimpleRAGEngine
@@ -157,7 +159,7 @@ class RAGManager:
 
     def refresh_config(self):
         """Refresh configuration from config file."""
-        from shared.common import get_config
+        from shared.cached import get_config
         self.config = get_config()
         rag_config = self.config.get("rag_manager", {})
         self.default_engine = rag_config.get("default_engine", "simple")

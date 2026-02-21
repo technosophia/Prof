@@ -194,9 +194,10 @@ os.environ["PYTHONPATH"] = PROJECT_ROOT
 
 os.environ["TEST_MODE"] = "true"
 os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
-from shared.common import get_config
-from shared.common import get_db_manager, init_database
-from shared.common import get_user_manager
+from shared.cached import get_config
+from shared.common import init_database
+from shared.cached import get_db_manager
+from shared.cached import get_user_manager
 import tempfile
 from modules.rag_manager import rag_manager
 

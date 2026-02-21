@@ -8,7 +8,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 import tempfile
-from shared.common import _, log, get_config
+from shared.common import _, log
+from shared.cached import get_config
 from modules.rag_manager.rag_manager import rag_manager
 
 

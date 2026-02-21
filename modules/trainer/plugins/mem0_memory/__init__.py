@@ -10,15 +10,8 @@ import inspect
 import re
 import shutil
 
-from shared.common import (
-    get_prompt,
-    register_llm_context_callback,
-    log,
-    get_config,
-    get_llm_manager,
-    get_current_llm_id,
-    get_user_manager,
-)
+from shared.common import get_prompt, register_llm_context_callback, log, get_current_llm_id
+from shared.cached import get_config, get_llm_manager, get_user_manager
 from modules.trainer.plugins.memory import MemoryPlugin
 from modules.trainer.manager import get_trainer_manager
 

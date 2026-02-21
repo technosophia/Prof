@@ -6,7 +6,7 @@ import pytest
 
 from core.translate import load_all_translations
 from shared.common import _, get_available_languages
-from shared.common import _load_translations  # Private, but needed to clear cache in tests
+from shared.cached import _load_translations
 
 
 @pytest.fixture(autouse=True)

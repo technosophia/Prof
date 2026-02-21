@@ -12,8 +12,9 @@ import os
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from shared.common import _, log, get_conversation_manager, get_user_manager
-from shared.common import get_conversation_manager, get_user_manager
+from shared.common import _, log
+from shared.cached import get_conversation_manager, get_user_manager
+from shared.cached import get_conversation_manager, get_user_manager
 from shared.export_import import (
     export_conversation_to_file, import_conversation_from_file,
     export_all_conversations_to_file, import_bulk_conversations_from_file,

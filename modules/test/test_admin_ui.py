@@ -1,6 +1,7 @@
 import streamlit as st
 import asyncio
-from shared.common import _, log, get_config
+from shared.common import _, log
+from shared.cached import get_config
 
 def show_test_admin_content():
     """Display the Debug Admin content."""

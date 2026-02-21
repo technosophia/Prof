@@ -10,10 +10,8 @@ import uuid
 import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, and_, desc
-from shared.common import (
-    Base, get_db_manager, get_prompt, register_llm_context_callback,
-    log, get_conversation_manager, get_llm_manager, get_current_llm_id
-)
+from shared.common import Base, get_prompt, register_llm_context_callback, log, get_current_llm_id
+from shared.cached import get_db_manager, get_conversation_manager, get_llm_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 
@@ -334,7 +332,7 @@ class MemoryPlugin(TrainerPlugin):
         Returns: (context, role, position)
         """
         # Get student's trainer
-        from shared.common import get_user_manager
+        from shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(user_id)
 
@@ -362,7 +360,7 @@ class MemoryPlugin(TrainerPlugin):
         (the last generated memory content, no metadata).
         """
         # Get the student's trainer (parent)
-        from shared.common import get_user_manager
+        from shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(student_id)
 

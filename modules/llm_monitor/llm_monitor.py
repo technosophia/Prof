@@ -9,11 +9,12 @@ from typing import Dict, List, Any, Optional, Callable, Tuple
 import tiktoken  # For token estimation
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy import func, and_, desc
-from shared.common import get_db_manager, Base
+from shared.common import Base
+from shared.cached import get_db_manager
 from shared.common import log
-from shared.common import get_config
-from shared.common import get_user_manager
-from shared.common import get_conversation_manager
+from shared.cached import get_config
+from shared.cached import get_user_manager
+from shared.cached import get_conversation_manager
 
 # Import models
 from modules.llm_monitor.models import (

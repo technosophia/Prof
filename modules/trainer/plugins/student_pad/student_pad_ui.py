@@ -5,7 +5,8 @@ File ends with _ui.py and implements inject_ui_main_header() injection point.
 """
 
 import streamlit as st
-from shared.common import _, get_user_manager, UserRole
+from shared.common import _, UserRole
+from shared.cached import get_user_manager
 from modules.trainer.plugin_base import get_plugin_manager
 from modules.trainer.manager import get_trainer_manager
 

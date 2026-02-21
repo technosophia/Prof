@@ -27,7 +27,8 @@ File Naming Convention:
 - *_admin_ui.py files contain admin tab injection points
 """
 
-from shared.common import log, get_db_manager
+from shared.common import log
+from shared.cached import get_db_manager
 from .models import PluginData, PluginActivation
 from .manager import get_trainer_manager
 from .plugin_base import get_plugin_manager

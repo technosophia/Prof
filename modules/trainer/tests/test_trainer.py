@@ -24,7 +24,8 @@ mock_student_pad_module.StudentNote = MagicMock()
 sys.modules['modules.trainer.plugins.student_pad'] = mock_student_pad_module
 
 # Now safe to import trainer modules
-from shared.common import get_db_manager, get_user_manager, UserRole
+from shared.common import UserRole
+from shared.cached import get_db_manager, get_user_manager
 from modules.trainer.manager import get_trainer_manager
 from modules.trainer.plugin_base import get_plugin_manager, PluginManifest
 

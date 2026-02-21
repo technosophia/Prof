@@ -954,7 +954,8 @@ def test_user_to_dict_with_none_values():
 
 def test_init_user_manager():
     """Test the init_user_manager function."""
-    from shared.common import get_user_manager, init_user_manager
+    from shared.common import init_user_manager
+    from shared.cached import get_user_manager
 
     # Mock the database to avoid initialization issues during tests
     with patch.object(get_user_manager().db, 'is_initialized', return_value=False):
