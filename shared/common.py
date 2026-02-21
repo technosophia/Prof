@@ -251,7 +251,7 @@ llm = llm_conversation_generate
 is_multilingual = _is_multilingual
 set_default_language = _set_default_language
 
-@st.cache_resource
+
 def _init_prompt_manager():
     """Initialize and load all prompts."""
     shared_dir = os.path.dirname(os.path.abspath(__file__))
@@ -277,6 +277,7 @@ def _init_prompt_manager():
 
     return prompt_manager_instance
 
+@st.cache_resource
 def get_prompt_manager():
     """Get the prompt manager instance."""
     return _init_prompt_manager()
