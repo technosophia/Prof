@@ -121,17 +121,27 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
 
     st.info("Edit the scores: block in the session YAML, then click Import.")
     if st.button(_p("judge_import_scores", "Import scores from session YAML")):
-        result = scorer.import_scores_from_yaml(selected_session)
+        result = scorer.import_scores_from_yaml(selected_session, rubric_name=rubric_name)
         if result.parse_errors:
             st.warning("; ".join(result.parse_errors))
         st.dataframe([
             {"dimension": k, "score": v} for k, v in result.scores.items()
         ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
 
-    with get_db_manager().get_session() as db:
-        rows = db.query(BenchmarkScore).filter(BenchmarkScore.session_file == selected_session).order_by(BenchmarkScore.scored_at.desc()).all()
-    if rows:
+    pasted_response = st.text_area("Paste judge YAML response", key="judge_pasted_response", height=220)
+    if st.button("Import pasted judge response", disabled=not rubric_name or not pasted_response.strip()):
+        pasted = scorer.import_scores_from_text(selected_session, rubric_name, pasted_response)
+        if pasted.parse_errors:
+            st.warning("; ".join(pasted.parse_errors))
+        else:
+            st.success("Pasted scores imported")
         st.dataframe([
+            {"dimension": k, "score": v} for k, v in pasted.scores.items()
+        ] + [{"dimension": "overall", "score": pasted.overall}], width="stretch")
+
+    with get_db_manager().get_session() as db:
+        db_rows = db.query(BenchmarkScore).filter(BenchmarkScore.session_file == selected_session).order_by(BenchmarkScore.scored_at.desc()).all()
+        rows = [
             {
                 "scored_at": str(r.scored_at),
                 "rubric": r.rubric_name,
@@ -140,8 +150,10 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
                 "source": r.source,
                 "complete": all(v is not None for v in (r.scores or {}).values()) if r.scores else False,
             }
-            for r in rows
-        ], width="stretch")
+            for r in db_rows
+        ]
+    if rows:
+        st.dataframe(rows, width="stretch")
 
 
 def _render_compare_tab() -> None:

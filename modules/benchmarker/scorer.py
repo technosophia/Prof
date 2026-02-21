@@ -194,7 +194,7 @@ class Scorer:
             complete=complete,
         )
 
-    def import_scores_from_yaml(self, session_path: str) -> ScoringResult:
+    def import_scores_from_yaml(self, session_path: str, rubric_name: Optional[str] = None) -> ScoringResult:
         """Import prefilled scores block from a session file."""
         scored_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         parse_errors: List[str] = []
@@ -203,12 +203,12 @@ class Scorer:
             session = yaml.safe_load(handle) or {}
 
         scores_block = session.get("scores", {}) or {}
-        rubric_name = scores_block.get("rubric")
-        if not rubric_name:
+        selected_rubric = scores_block.get("rubric") or rubric_name
+        if not selected_rubric:
             parse_errors.append("scores.rubric is required")
-            rubric_name = "unknown"
+            selected_rubric = "unknown"
 
-        rubric = self.loader.load(rubric_name) if rubric_name != "unknown" else {"dimensions": []}
+        rubric = self.loader.load(selected_rubric) if selected_rubric != "unknown" else {"dimensions": []}
         dims = [d["id"] for d in rubric.get("dimensions", [])]
         provided = (scores_block.get("dimensions") or {})
 
@@ -229,17 +229,60 @@ class Scorer:
         judge_prompt = session.get("judge_prompt") or ""
         source = scores_block.get("source") or "manual"
 
-        self._store_score(session_path, rubric_name, scores, judge_prompt, llm_used, source, parse_errors, scored_at)
+        self._store_score(session_path, selected_rubric, scores, judge_prompt, llm_used, source, parse_errors, scored_at)
         overall = self._compute_overall(scores)
         complete = bool(scores) and all(v is not None for v in scores.values())
 
         return ScoringResult(
             session_path=session_path,
-            rubric_name=rubric_name,
+            rubric_name=selected_rubric,
             scores=scores,
             overall=overall,
             judge_prompt=judge_prompt,
             llm_used=llm_used,
+            scored_at=scored_at,
+            parse_errors=parse_errors,
+            complete=complete,
+        )
+
+
+
+    def import_scores_from_text(self, session_path: str, rubric_name: str, response_text: str) -> ScoringResult:
+        """Parse pasted judge YAML response and store scores for a session."""
+        scored_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        parse_errors: List[str] = []
+
+        with open(session_path, "r", encoding="utf-8") as handle:
+            session = yaml.safe_load(handle) or {}
+
+        rubric = self.loader.load(rubric_name)
+        parsed = self._parse_llm_score_response(response_text, rubric)
+        if any(v is None for v in parsed.values()):
+            parse_errors.append("One or more dimensions were missing or unparsable")
+
+        judge_prompt = session.get("judge_prompt") or self.renderer.render(session, rubric)
+
+        self._store_score(
+            session_path=session_path,
+            rubric_name=rubric_name,
+            scores=parsed,
+            judge_prompt=judge_prompt,
+            llm_used=None,
+            source="llm_paste",
+            parse_errors=parse_errors,
+            scored_at=scored_at,
+        )
+
+        overall = self._compute_overall(parsed)
+        complete = all(v is not None for v in parsed.values())
+
+        return ScoringResult(
+            session_path=session_path,
+            rubric_name=rubric_name,
+            scores=parsed,
+            overall=overall,
+            judge_prompt=judge_prompt,
+            llm_used=None,
             scored_at=scored_at,
             parse_errors=parse_errors,
             complete=complete,

@@ -142,3 +142,30 @@ def test_score_session_no_llm(tmp_path):
 
     with get_db_manager().get_session() as db:
         assert db.query(BenchmarkScore).count() == 0
+
+
+def test_import_scores_from_yaml_uses_selected_rubric_fallback(tmp_path):
+    path = _session_fixture(tmp_path)
+    data = yaml.safe_load(open(path, "r", encoding="utf-8"))
+    data["scores"] = {"rubric": None, "dimensions": {"relevance": 4, "precision": 4, "coverage": 4, "noise": 4}}
+    open(path, "w", encoding="utf-8").write(yaml.safe_dump(data, sort_keys=False))
+
+    result = Scorer().import_scores_from_yaml(path, rubric_name="memory_quality")
+    assert result.rubric_name == "memory_quality"
+    assert result.complete
+
+
+def test_import_scores_from_text(tmp_path):
+    path = _session_fixture(tmp_path)
+    pasted = """```yaml
+scores:
+  dimensions:
+    relevance: 5
+    precision: 4
+    coverage: 4
+    noise: 5
+```"""
+
+    result = Scorer().import_scores_from_text(path, "memory_quality", pasted)
+    assert result.complete
+    assert result.scores["relevance"] == 5
