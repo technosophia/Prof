@@ -10,17 +10,7 @@ import uuid
 import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, and_, desc
-from shared.common import (
-    Base,
-    get_prompt,
-    register_llm_context_callback,
-    unregister_llm_context_callback,
-    register_option,
-    register_action,
-    record_plugin_event,
-    log,
-    get_current_llm_id,
-)
+from shared.common import Base, get_prompt, register_llm_context_callback, log, get_current_llm_id
 from shared.cached import get_db_manager, get_conversation_manager, get_llm_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
@@ -56,20 +46,8 @@ class MemoryPlugin(TrainerPlugin):
                 Base.metadata.create_all(db._engine, tables=[StudentMemory.__table__], checkfirst=True)
                 log("info", "StudentMemory table created/verified")
 
-            register_option(
-                group="memory_backend",
-                name="memory",
-                activate_fn=lambda: register_llm_context_callback(self.get_memory_context),
-                deactivate_fn=lambda: unregister_llm_context_callback(self.get_memory_context),
-                description="LLM-summarised pedagogical memory (SQL backend)",
-            )
-
-            register_action(
-                name="trigger_memory_analysis",
-                handler_fn=self._action_trigger_analysis,
-                description="Run LLM analysis on new conversations and update student memory",
-                required_context=["student_id", "trainer_id"],
-            )
+            # Register context callback for memory injection
+            register_llm_context_callback(self.get_memory_context)
             return True
         except Exception as e:
             log("error", f"Failed to initialize memory plugin: {e}")
@@ -142,16 +120,6 @@ class MemoryPlugin(TrainerPlugin):
                     'metadata': memory.memory_metadata
                 }
             return None
-
-    def _action_trigger_analysis(self, context, **params) -> Dict:
-        """Driver action handler to trigger memory analysis for one student."""
-        success = asyncio.run(self.refresh_memory(context.trainer_id, context.student_id))
-        memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)
-        record_plugin_event("memory", "analysis_complete", {
-            "success": success,
-            "version": memory.get("version") if memory else None,
-        })
-        return {"success": success}
 
     def _get_version_count(self, student_id: str, trainer_id: str) -> int:
         """Get number of historical versions."""
