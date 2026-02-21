@@ -630,6 +630,17 @@ class LLMManager:
         # Generate response using the engine
         try:
             response = await engine.generate(model_name, filtered_messages, stream_callback)
+
+            # Soft dependency: record LLM usage in driver when available
+            try:
+                from shared.driver import get_driver
+
+                prompt_tokens = sum(len((msg.get("content") or "").split()) for msg in filtered_messages)
+                completion_tokens = len((response or "").split())
+                get_driver().record_llm_call(llm_id, prompt_tokens, completion_tokens)
+            except Exception:
+                pass
+
             if hasattr(self, '_monitor_callbacks') and self._monitor_callbacks:
                 try:
                     monitor_data = {

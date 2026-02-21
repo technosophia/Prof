@@ -103,3 +103,14 @@ def inject_weather_context(user_id: str, messages: List[Dict]) -> tuple:
 # Register the enhanced callback
 register_context_callback(inject_weather_context)
 ```
+
+
+## Driver integration (LLM call recording)
+
+`LLMManager.internal_response()` performs best-effort recording of LLM usage in the shared driver session log.
+
+Behavior:
+- After a successful LLM response, it tries to import `get_driver()` from `shared.driver`.
+- If available, it records `llm_id`, `prompt_tokens`, and `completion_tokens` through `record_llm_call(...)`.
+- This is a soft dependency: any import/init/runtime error is silently ignored so startup and LLM behavior are not blocked.
+
