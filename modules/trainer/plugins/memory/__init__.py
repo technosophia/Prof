@@ -516,6 +516,17 @@ class MemoryPlugin(TrainerPlugin):
 
         return [render_memory_overview]
 
+    def _action_trigger_analysis(self, context, **params) -> Dict[str, Any]:
+        """Driver-facing handler kept for module-level action dispatching."""
+        trainer_id = context.trainer_id
+        student_id = context.student_id
+
+        if not trainer_id or not student_id:
+            raise ValueError("trigger_memory_analysis requires trainer_id and student_id in context")
+
+        success = asyncio.run(self.refresh_memory(trainer_id, student_id))
+        return {"refreshed": bool(success)}
+
     # ============= EXPORT/IMPORT =============
 
     def export_config(self, trainer_id: str) -> Optional[Dict]:

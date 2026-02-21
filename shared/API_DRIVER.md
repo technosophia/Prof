@@ -78,6 +78,11 @@ Register a switchable option in a logical group.
 ### `AppDriver.register_action(name, handler_fn, description="", required_context=None)`
 Register an action callable executed by `do_action()`.
 
+Registration responsibility:
+- Modules register options and actions for themselves and their plugins.
+- Plugins implement handler methods only.
+- A plugin never calls register_option() or register_action() directly.
+
 ### `AppDriver.set_context(**kwargs)`
 Set one or more context fields and record a `context_switch` event.
 

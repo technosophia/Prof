@@ -1,0 +1,33 @@
+name: "example_recursion_misconception"
+steps:
+  - id: "setup_1"
+    actor: system
+    action: set_training_program
+    params:
+      content: |
+        Python fundamentals course.
+        Week 3 covers recursion: base case, recursive case, call stack.
+        Week 2 covered iteration: for loops, while loops, break/continue.
+
+  - id: "setup_2"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Week 3 - Recursion"
+
+  - id: "s1"
+    actor: student
+    action: user_send_message
+    params:
+      content: "I don't get why we need a return in the base case..."
+
+  - id: "t1"
+    actor: teacher
+    action: trigger_memory_analysis
+    params: {}
+
+  - id: "t2"
+    actor: teacher
+    action: add_student_note
+    params:
+      content: "Student confuses stopping condition with loop termination."

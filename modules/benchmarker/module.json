@@ -1,0 +1,9 @@
+{
+  "name": "benchmarker",
+  "version": "1.0.0",
+  "description": "Scenario benchmark runner with driver-based core actions",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "testing",
+  "dependencies": []
+}

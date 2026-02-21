@@ -1,0 +1,26 @@
+name: "example_teacher_intervention"
+steps:
+  - id: "setup_1"
+    actor: system
+    action: set_training_program
+    params:
+      content: |
+        Emphasize decomposition, recursion trees, and dry-run tracing.
+
+  - id: "setup_2"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Teacher Intervention"
+
+  - id: "s1"
+    actor: student
+    action: user_send_message
+    params:
+      content: "My recursive function keeps looping forever."
+
+  - id: "t1"
+    actor: teacher
+    action: teacher_send_message
+    params:
+      content: "Let's identify your base case first and verify it is reachable."
