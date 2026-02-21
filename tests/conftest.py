@@ -16,6 +16,25 @@ import re
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
 
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
+warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
+warnings.filterwarnings(
+    "ignore",
+    message="builtin type SwigPyPacked has no __module__ attribute",
+    category=DeprecationWarning
+)
+warnings.filterwarnings(
+    "ignore",
+    message="builtin type SwigPyObject has no __module__ attribute",
+    category=DeprecationWarning
+)
+warnings.filterwarnings(
+    "ignore",
+    message="builtin type swigvarlink has no __module__ attribute",
+    category=DeprecationWarning
+)
+
 # CRITICAL: Load .env BEFORE any shared imports, because shared.common
 # instantiates the LLMManager singleton (and GroqEngine) at import time.
 # If GROQ_API_KEY isn't in os.environ yet when that happens, the engine
@@ -167,8 +186,6 @@ def pytest_bdd_before_step(request, feature, scenario, step, step_func):
 SCOPE = "module"
 TEST_PORT = 8505
 
-warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
-warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
 
 CONFTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CONFTEST_DIR)  # Remonter d'un niveau depuis tests/

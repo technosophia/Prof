@@ -170,11 +170,6 @@ def _show_cache_tab():
                 help="Select a model to pre-load into cache"
             )
 
-            if st.button("Pre-load Model", width='stretch'):
-                # Note: This requires implementation in rag_caching.py
-                st.info(f"Model pre-loading would be implemented in rag_caching.py")
-                # Example: rag_manager.preload_model(model_to_preload)
-
         with col2:
             # Cache size adjustment
             cache_size = st.slider(
