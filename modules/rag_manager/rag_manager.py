@@ -13,7 +13,7 @@ import importlib
 import pkgutil
 import sys
 
-from shared.common import _, log
+from shared.common import _, log, init_database, init_user_manager
 from shared.cached import get_config
 from shared.common import UserRole
 from shared.cached import get_user_manager
@@ -622,6 +622,16 @@ class RAGManager:
 
             if not auto_import_configs:
                 log("debug", "No auto-import configurations found")
+                return
+
+            if not user_manager.db.is_initialized():
+                log("info", "Database not initialized before RAG auto-import, initializing now")
+                init_database()
+
+            if user_manager.db.is_initialized():
+                init_user_manager(create_default_users=True)
+            else:
+                log("warning", "Database still not initialized after init attempt, skipping RAG auto-import")
                 return
 
             log("info", f"Running auto-import for {len(auto_import_configs)} user configurations")
