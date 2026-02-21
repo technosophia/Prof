@@ -52,19 +52,21 @@ def test_user_send_message_requires_conversation():
         driver.do_action("user_send_message_test", content="hello")
 
 
-def test_set_training_program_saves_prompt(monkeypatch):
-    saved = {}
+def test_set_training_program_sets_runtime_config(monkeypatch):
+    class FakeConfig:
+        def __init__(self):
+            self.data = {}
 
-    def fake_save_prompt(key, value):
-        saved["key"] = key
-        saved["value"] = value
-        return True
+        def set(self, key, value):
+            self.data[key] = value
 
-    monkeypatch.setattr("modules.benchmarker.core_actions.save_prompt", fake_save_prompt)
+    fake = FakeConfig()
+    monkeypatch.setattr("modules.benchmarker.core_actions.get_config", lambda: fake)
+
     result = action_set_training_program(DriverContext(trainer_id="bench_trainer"), content="program")
 
     assert result == {"saved": True}
-    assert saved["key"] == "trainer.teacher.training_program"
+    assert fake.data["trainer.teacher.training_program"] == "program"
 
 
 def test_switch_option_delegates_to_driver(monkeypatch):

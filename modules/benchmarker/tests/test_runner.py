@@ -125,3 +125,27 @@ def test_step_error_does_not_abort_run(monkeypatch, tmp_path):
     assert len(result.steps) == len(scenario["steps"])
     assert any(not step.success for step in result.steps)
     assert any(step.step_id == "s3" for step in result.steps)
+
+
+def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_path):
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    runner.config["sessions_dir"] = str(tmp_path)
+
+    monkeypatch.setattr(runner, "_ensure_test_users", lambda setup: [])
+    monkeypatch.setattr(runner, "_persist_run", lambda run_result: None)
+    monkeypatch.setattr("modules.benchmarker.runner.get_current_llm_id", lambda: "mock-default")
+
+    switched = {}
+    monkeypatch.setattr("modules.benchmarker.runner.set_current_llm", lambda llm_id: switched.setdefault("llm", llm_id) or True)
+
+    scenario = runner._load_scenario(_scenario_path())
+    scenario.pop("llm", None)
+    tmp_file = tmp_path / "scenario_no_llm.yaml"
+    tmp_file.write_text(__import__("yaml").safe_dump(scenario), encoding="utf-8")
+
+    result = runner.run(str(tmp_file))
+    assert result.success
+    assert switched["llm"] == "mock-default"
+    context_events = [e for e in runner.driver.get_session_events() if e.get("type") == "context_switch"]
+    assert any(e.get("data", {}).get("llm_id") == "mock-default" for e in context_events)

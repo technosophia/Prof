@@ -47,7 +47,7 @@ def _render_results(run_result: RunResult, events: List[Dict]) -> None:
         }
         for a in run_result.assertions
     ]
-    st.dataframe(rows, use_container_width=True)
+    st.dataframe(rows, width="stretch")
 
     with st.expander("Step log", expanded=False):
         for step in run_result.steps:
@@ -159,7 +159,17 @@ def render() -> None:
         if not rows:
             st.info(_p("no_history", "No benchmark runs recorded yet."))
         else:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width="stretch")
+            selected_session = st.selectbox(
+                "Select session file",
+                [r["session_file"] for r in rows],
+                key="benchmarker_history_selected_session",
+            )
+            if selected_session and os.path.exists(selected_session):
+                with open(selected_session, "r", encoding="utf-8") as handle:
+                    st.code(handle.read(), language="yaml")
+            elif selected_session:
+                st.warning(f"Session file not found: {selected_session}")
 
         if st.button("Clear history"):
             with get_db_manager().get_session() as session:
