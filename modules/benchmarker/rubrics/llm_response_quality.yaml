@@ -1,0 +1,28 @@
+name: "llm_response_quality"
+description: "Evaluates the quality of LLM responses to student messages"
+applies_to: "llm"
+
+dimensions:
+  - id: pedagogical_relevance
+    question: "Do the LLM responses address the student's actual learning need?"
+    guidance: |
+      Score 5: responses directly address the confusion or question shown in context.
+      Score 3: responses are correct but generic, not personalised.
+      Score 1: responses miss the point or address a different question.
+    scale: 5
+
+  - id: clarity
+    question: "Are the explanations clear and appropriately levelled for the student?"
+    guidance: |
+      Score 5: explanation matches the student's apparent level, no jargon without explanation.
+      Score 3: mostly clear with occasional unclear passages.
+      Score 1: confusing, too advanced, or too simplistic.
+    scale: 5
+
+  - id: accuracy
+    question: "Is the factual content of the responses correct?"
+    guidance: |
+      Score 5: no factual errors.
+      Score 3: minor imprecisions but no harmful errors.
+      Score 1: significant factual errors present.
+    scale: 5

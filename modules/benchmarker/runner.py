@@ -180,6 +180,7 @@ class ScenarioRunner:
             options_snapshot=summary.get("active_options", {}),
             llm_id=llm_id,
             run_duration=time.time() - started_at,
+            rubric_name=scenario.get("rubric"),
         )
         run_result.session_path = session_path
 

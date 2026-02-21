@@ -1,0 +1,36 @@
+name: "memory_quality"
+description: "Evaluates the quality of pedagogical memory built during the session"
+applies_to: "memory_backend"
+
+dimensions:
+  - id: relevance
+    question: "Are the extracted facts genuinely informative about the student's learning state?"
+    guidance: |
+      Score 5: facts are specific, actionable, clearly derived from conversations.
+      Score 3: facts are correct but generic.
+      Score 1: facts are trivial, obvious, or unrelated to learning state.
+    scale: 5
+
+  - id: precision
+    question: "Are the facts specific enough to be actionable by a teacher?"
+    guidance: |
+      Score 5: a teacher could act on each fact immediately without re-reading conversations.
+      Score 3: facts need some interpretation.
+      Score 1: facts are too vague to act on.
+    scale: 5
+
+  - id: coverage
+    question: "Did the memory capture the key pedagogical events in the conversations?"
+    guidance: |
+      Score 5: all important moments captured (misconceptions, breakthroughs, questions).
+      Score 3: most events captured, some gaps.
+      Score 1: major events missed.
+    scale: 5
+
+  - id: noise
+    question: "Are there irrelevant, redundant, or incorrect facts in the memory?"
+    guidance: |
+      Score 5: no noise, every fact adds value.
+      Score 3: some redundancy but no incorrect facts.
+      Score 1: more than half the facts are noise or incorrect.
+    scale: 5

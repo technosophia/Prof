@@ -1,15 +1,19 @@
-"""Session YAML serializer for benchmarker runs."""
+"""Session YAML serializer for benchmarker runs.
+
+Session YAML format (v2, phase 2):
+Includes judge_prompt: block (rendered if rubric_name provided to write())
+and scores: block (empty, filled by user or LLM, reimported via Scorer).
+"""
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 import os
 from typing import Dict, List
 
 import yaml
 
-from shared.common import get_section
+from shared.common import get_section, log
 
 
 class SessionSerializer:
@@ -23,6 +27,7 @@ class SessionSerializer:
         options_snapshot: Dict | None = None,
         llm_id: str | None = None,
         run_duration: float = 0.0,
+        rubric_name: str = None,
     ) -> str:
         """Write session yaml file and return path."""
         os.makedirs(output_dir, exist_ok=True)
@@ -49,6 +54,41 @@ class SessionSerializer:
                     "error": step.error,
                 }
             )
+
+        judge_prompt = None
+        if rubric_name:
+            try:
+                from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader
+
+                rubric = RubricLoader().load(rubric_name)
+                prompt_session = {
+                    "meta": {
+                        "scenario": run_result.scenario_name,
+                        "description": "",
+                        "run_at": now.isoformat().replace("+00:00", "Z"),
+                        "options": options_snapshot or {},
+                        "llm": llm_id,
+                    },
+                    "summary": {
+                        "assertions_passed": run_result.assertions_passed,
+                        "assertions_total": run_result.assertions_total,
+                    },
+                    "steps": steps_payload,
+                    "assertions": [
+                        {
+                            "id": a.id,
+                            "type": a.assertion_type,
+                            "passed": a.passed,
+                            "message": a.message,
+                        }
+                        for a in run_result.assertions
+                    ],
+                    "events": events,
+                }
+                judge_prompt = JudgePromptRenderer().render(prompt_session, rubric)
+            except Exception as exc:
+                log("warning", f"Failed to render judge prompt for session serialization: {exc}", exc_info=True)
+                judge_prompt = None
 
         payload = {
             "meta": {
@@ -77,6 +117,16 @@ class SessionSerializer:
                 }
                 for a in run_result.assertions
             ],
+            "judge_prompt": judge_prompt,
+            "scores": {
+                "rubric": None,
+                "judge": None,
+                "scored_at": None,
+                "source": None,
+                "dimensions": {},
+                "overall": None,
+                "notes": None,
+            },
             "events": events,
         }
 

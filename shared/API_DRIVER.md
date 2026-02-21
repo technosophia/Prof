@@ -161,3 +161,11 @@ driver.switch_option("memory_backend", "memory")
 result = driver.do_action("send_student_message", content="Hello")
 events = driver.get_session_events()
 ```
+
+
+LLM option group:
+The benchmarker module registers available LLMs as options in group "llm".
+This is the canonical example of an option registered by a module rather than
+by the resource it controls (llm.py does not register itself).
+Pattern: any module can register options for shared resources it wants to
+benchmark, without modifying the shared resource's code.

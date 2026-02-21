@@ -8,8 +8,10 @@ import yaml
 
 from shared.common import get_db_manager, get_driver, get_prompt
 
-from modules.benchmarker.benchmarker import BenchmarkRun
+from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
+from modules.benchmarker.comparer import Comparer
 from modules.benchmarker.runner import RunResult, ScenarioRunner
+from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
 
 
 def _p(key: str, default: str) -> str:
@@ -19,6 +21,12 @@ def _p(key: str, default: str) -> str:
 def _load_scenario(path: str) -> Dict:
     with open(path, "r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
+
+
+def _list_sessions(sessions_dir: str) -> List[str]:
+    if not os.path.isdir(sessions_dir):
+        return []
+    return sorted([os.path.join(sessions_dir, f) for f in os.listdir(sessions_dir) if f.endswith(".yaml")], reverse=True)
 
 
 def _render_results(run_result: RunResult, events: List[Dict]) -> None:
@@ -64,13 +72,135 @@ def _render_results(run_result: RunResult, events: List[Dict]) -> None:
                 st.download_button("Download session YAML", data=handle.read(), file_name=os.path.basename(run_result.session_path))
 
 
+def _render_judge_tab(runner: ScenarioRunner) -> None:
+    sessions_dir = runner.config.get("sessions_dir", "data/benchmarker/sessions")
+    session_files = _list_sessions(sessions_dir)
+    if not session_files:
+        st.info(_p("no_history", "No benchmark runs recorded yet."))
+        return
+
+    selected_session = st.selectbox(_p("judge_select_session", "Select session to score"), session_files)
+    loader = RubricLoader()
+    rubric_names = loader.list_available()
+    rubric_name = st.selectbox(_p("judge_select_rubric", "Select rubric"), rubric_names) if rubric_names else None
+
+    session_data = {}
+    if selected_session and os.path.exists(selected_session):
+        with open(selected_session, "r", encoding="utf-8") as handle:
+            session_data = yaml.safe_load(handle) or {}
+        meta = session_data.get("meta", {})
+        summary = session_data.get("summary", {})
+        st.caption(
+            f"scenario={meta.get('scenario')} | run_at={meta.get('run_at')} | "
+            f"options={meta.get('options', {})} | "
+            f"assertions={summary.get('assertions_passed', 0)}/{summary.get('assertions_total', 0)}"
+        )
+
+    scorer = Scorer()
+
+    if st.button(_p("judge_run_llm", "Score with LLM"), disabled=not rubric_name):
+        with st.spinner(_p("judge_scoring_spinner", "Calling LLM judge...")):
+            try:
+                result = scorer.score_session(selected_session, rubric_name, use_llm=True)
+                if result.complete:
+                    st.success(_p("judge_scored_success", "Session scored. Overall: {overall}/5").format(overall=f"{(result.overall or 0):.2f}"))
+                elif result.parse_errors:
+                    st.warning(_p("judge_scored_partial", "Scored with warnings: {warnings}").format(warnings="; ".join(result.parse_errors)))
+                st.dataframe([
+                    {"dimension": k, "score": v} for k, v in result.scores.items()
+                ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
+            except Exception:
+                st.error(_p("judge_scored_failed", "Scoring failed — check logs"))
+
+    st.info(_p("judge_prompt_export_help", ""))
+    if st.button(_p("judge_export_prompt", "Export judge prompt"), disabled=not rubric_name):
+        rubric = loader.load(rubric_name)
+        prompt = JudgePromptRenderer().render(session_data, rubric)
+        st.code(prompt, language="yaml")
+        st.download_button("Download prompt", data=prompt, file_name=f"judge_prompt__{rubric_name}.txt")
+
+    st.info("Edit the scores: block in the session YAML, then click Import.")
+    if st.button(_p("judge_import_scores", "Import scores from session YAML")):
+        result = scorer.import_scores_from_yaml(selected_session)
+        if result.parse_errors:
+            st.warning("; ".join(result.parse_errors))
+        st.dataframe([
+            {"dimension": k, "score": v} for k, v in result.scores.items()
+        ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
+
+    with get_db_manager().get_session() as db:
+        rows = db.query(BenchmarkScore).filter(BenchmarkScore.session_file == selected_session).order_by(BenchmarkScore.scored_at.desc()).all()
+    if rows:
+        st.dataframe([
+            {
+                "scored_at": str(r.scored_at),
+                "rubric": r.rubric_name,
+                "judge_llm": r.judge_llm,
+                "overall_score": r.overall_score,
+                "source": r.source,
+                "complete": all(v is not None for v in (r.scores or {}).values()) if r.scores else False,
+            }
+            for r in rows
+        ], width="stretch")
+
+
+def _render_compare_tab() -> None:
+    with get_db_manager().get_session() as db:
+        scenarios = [row[0] for row in db.query(BenchmarkRun.scenario_name).distinct().all()]
+
+    if not scenarios:
+        st.info(_p("compare_no_runs", "No runs found for this scenario."))
+        return
+
+    scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), sorted(scenarios))
+    group_choices = sorted(get_driver().list_options().keys()) or ["memory_backend"]
+    group_by = st.selectbox(_p("compare_group_by", "Group by option"), group_choices)
+    rubric_options = ["None"] + RubricLoader().list_available()
+    rubric_choice = st.selectbox(_p("compare_select_rubric", "Select rubric (optional)"), rubric_options)
+    rubric_name = None if rubric_choice == "None" else rubric_choice
+
+    if st.button(_p("compare_run_button", "Generate comparison")):
+        report = Comparer().compare(scenario_name, group_by=group_by, rubric_name=rubric_name)
+        if not report.groups:
+            st.info(_p("compare_no_runs", "No runs found for this scenario."))
+            return
+
+        has_scores = any(g.score_count > 0 for g in report.groups)
+        if not has_scores:
+            st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
+
+        table = []
+        for g in report.groups:
+            row = {
+                "option": g.option_value,
+                "run_count": g.run_count,
+                "assertions_pass_rate": round(g.assertions_pass_rate, 3),
+                "avg_tokens": round(g.avg_tokens, 1),
+                "avg_duration_seconds": round(g.avg_duration_seconds, 3),
+                "score_count": g.score_count,
+                "overall_score": g.overall_score,
+            }
+            for k, v in g.dimension_scores.items():
+                row[k] = v
+            table.append(row)
+        st.dataframe(table, width="stretch")
+
+        if report.winner:
+            st.success(_p("compare_winner", "Winner: {winner} (Δ {delta:+.2f})").format(winner=report.winner, delta=report.delta or 0.0))
+
+        yaml_report = Comparer().to_yaml(report)
+        st.download_button(_p("compare_download", "Download report YAML"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
+
+
 def render() -> None:
-    """Render benchmarker UI with Run and History tabs."""
+    """Render benchmarker UI with Run, History, Judge and Compare tabs."""
     runner = ScenarioRunner()
 
-    run_tab, history_tab = st.tabs([
+    run_tab, history_tab, judge_tab, compare_tab = st.tabs([
         _p("run_tab_title", "Run Scenario"),
         _p("history_tab_title", "History"),
+        _p("judge_tab_title", "Judge"),
+        _p("compare_tab_title", "Compare"),
     ])
 
     with run_tab:
@@ -177,4 +307,12 @@ def render() -> None:
                     if record.session_file and os.path.exists(record.session_file):
                         os.remove(record.session_file)
                     session.delete(record)
+                for score in session.query(BenchmarkScore).all():
+                    session.delete(score)
             st.success("History cleared")
+
+    with judge_tab:
+        _render_judge_tab(runner)
+
+    with compare_tab:
+        _render_compare_tab()

@@ -2,7 +2,14 @@
 
 import os
 
-from shared.common import get_section, log, register_action
+from shared.common import (
+    get_available_llms,
+    get_section,
+    log,
+    register_action,
+    register_option,
+    set_current_llm,
+)
 
 from modules.benchmarker.benchmarker import ensure_tables_exist
 from modules.benchmarker.core_actions import (
@@ -53,6 +60,18 @@ def initialize() -> bool:
             "Switch a driver option mid-scenario (system only)",
             required_context=[],
         )
+
+
+        for llm in get_available_llms():
+            llm_id = llm["id"]
+            llm_name = llm.get("name", llm_id)
+            register_option(
+                group="llm",
+                name=llm_id,
+                activate_fn=lambda lid=llm_id: set_current_llm(lid),
+                deactivate_fn=lambda: None,
+                description=f"{llm_name} — {llm.get('description', '')}",
+            )
 
         log("info", "Benchmarker module initialized")
         return True

@@ -8,3 +8,58 @@ some_failed: "{passed}/{total} assertions passed — {failed} failed"
 step_log_header: "[{actor}] {action}"
 no_history: "No benchmark runs recorded yet."
 clear_history_confirm: "This will delete all benchmark runs and session files. Continue?"
+judge_tab_title: "Judge"
+judge_select_session: "Select session to score"
+judge_select_rubric: "Select rubric"
+judge_run_llm: "Score with LLM"
+judge_export_prompt: "Export judge prompt"
+judge_import_scores: "Import scores from session YAML"
+judge_scoring_spinner: "Calling LLM judge..."
+judge_scored_success: "Session scored. Overall: {overall}/5"
+judge_scored_partial: "Scored with warnings: {warnings}"
+judge_scored_failed: "Scoring failed — check logs"
+judge_prompt_export_help: >
+  Copy the prompt below and paste it into any LLM chatbot.
+  Fill in the scores.dimensions block in the session YAML,
+  then use 'Import scores' to load them.
+
+compare_tab_title: "Compare"
+compare_select_scenario: "Select scenario"
+compare_group_by: "Group by option"
+compare_select_rubric: "Select rubric (optional)"
+compare_run_button: "Generate comparison"
+compare_no_runs: "No runs found for this scenario."
+compare_no_scores: "No scores available yet — run scoring first."
+compare_winner: "Winner: {winner} (Δ {delta:+.2f})"
+compare_download: "Download report YAML"
+
+judge_prompt_template: |
+  You are evaluating an AI tutoring system. Your task is to score the quality
+  of the system's behaviour during a tutoring session, using the rubric below.
+
+  SESSION INFORMATION
+  Scenario: {scenario_name}
+  {scenario_description}
+  Configuration: {options_summary}
+
+  EVIDENCE FROM THE SESSION
+  {evidence_block}
+
+  RUBRIC: {rubric_name}
+  Score each dimension from 1 to {max_scale} using the guidance provided.
+  {dimensions_block}
+
+  RESPONSE FORMAT
+  Respond with a YAML block only. No explanation before or after.
+  {response_format_block}
+
+judge_response_format: |
+  scores:
+    rubric: "{rubric_name}"
+    judge: "<your model name>"
+    scored_at: "<ISO datetime>"
+    source: "llm_paste"
+    dimensions:
+  {dimension_lines}
+    overall: <mean of above>
+    notes: "<one paragraph evaluation summary>"
