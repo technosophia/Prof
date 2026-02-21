@@ -17,6 +17,7 @@ See :
 - /shared/API_CONVERSATION.md for conversations
 - /shared/API_LLM.md for LLM and prompts
 - /shared/API_USERS.md for users and user settings
+- /shared/API_DRIVER.md for programmatic app driving API (context, options, actions, session log)
 Special : 
 - /shared/API_MODULE_HANDLER.md for module handling (main app only)
 - MODULE.md to get the list of injection points aviable for modules and directory structure
@@ -80,6 +81,12 @@ Here is the list of exportable public functions from `shared/common.py`, sorted 
 
 ### from shared.common import ...  # User Settings
 - `get_user_settings_manager()` - Get or create the user settings manager
+
+### from shared.common import ...  # Driver
+- `get_driver()` - Get or create the global AppDriver singleton
+- `register_option(...)` - Register a switchable driver option
+- `register_action(...)` - Register a driveable action
+- `record_plugin_event(...)` - Record plugin-level events in the driver session log
 
 ### from shared.common import ...  # Translation/Internationalization
 - `get_available_languages() -> list[str]` - Get sorted list of available language codes

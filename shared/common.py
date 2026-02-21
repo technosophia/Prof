@@ -296,3 +296,38 @@ def get_available_prompt_languages() -> List[str]:
     return manager.get_available_languages()
 
 # User Settings =============================================
+
+
+# Driver =======================================================
+
+def get_driver():
+    """Get or create the global AppDriver instance."""
+    from shared.driver import get_driver as _get_driver
+
+    return _get_driver()
+
+
+def register_option(
+    group: str,
+    name: str,
+    activate_fn: Callable[[], None],
+    deactivate_fn: Callable[[], None],
+    description: str = "",
+) -> None:
+    """Register a switchable option in the app driver."""
+    get_driver().register_option(group, name, activate_fn, deactivate_fn, description)
+
+
+def register_action(
+    name: str,
+    handler_fn: Callable[..., Dict],
+    description: str = "",
+    required_context: Optional[List[str]] = None,
+) -> None:
+    """Register a driveable action in the app driver."""
+    get_driver().register_action(name, handler_fn, description, required_context)
+
+
+def record_plugin_event(plugin_id: str, event: str, data: Optional[Dict] = None) -> None:
+    """Record a plugin event in the app driver session log."""
+    get_driver().record_plugin_event(plugin_id, event, data or {})
