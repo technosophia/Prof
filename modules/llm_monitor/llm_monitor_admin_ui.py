@@ -9,8 +9,8 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 from shared.common import log
-from shared.common import get_user_manager
-from shared.common import get_llm_manager
+from shared.cached import get_user_manager
+from shared.cached import get_llm_manager
 
 from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.display_utils import (

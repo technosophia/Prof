@@ -583,7 +583,7 @@ def init_database(use_memory: bool = False,
     # If db_path is None, try to get from config
     if db_path is None and not use_memory:
         try:
-            from shared.common import get_config
+            from shared.cached import get_config
             config = get_config()
             # Allow config to return either a path or a full URL
             db_path = config.get("database.url") or config.get("database.path", "sqlite:///data/app.db")

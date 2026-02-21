@@ -13,11 +13,13 @@ import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean, and_
 from sqlalchemy.orm.attributes import flag_modified
-from shared.common import Base, get_db_manager, get_prompt, log, _
+from shared.common import Base, get_prompt, log, _
+from shared.cached import get_db_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 from shared.conversation import get_conversation_manager, Message
-from shared.common import llm_conversation_generate, get_llm_manager
+from shared.common import llm_conversation_generate
+from shared.cached import get_llm_manager
 
 
 # ============= DATABASE MODEL =============
@@ -186,7 +188,7 @@ class SuggestPlugin(TrainerPlugin):
             student_id = conversation.user_id
 
             # Get the student's trainer (parent)
-            from shared.common import get_user_manager
+            from shared.cached import get_user_manager
             user_manager = get_user_manager()
             user = user_manager.get_user(student_id)
 

@@ -10,7 +10,8 @@ from datetime import datetime
 import uuid
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Integer, and_
-from shared.common import Base, get_db_manager, get_prompt, register_llm_context_callback, log, _
+from shared.common import Base, get_prompt, register_llm_context_callback, log, _
+from shared.cached import get_db_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 
@@ -144,7 +145,7 @@ class StudentPadPlugin(TrainerPlugin):
         formatted with appropriate labels.
         """
         # Get the student's trainer (parent)
-        from shared.common import get_user_manager
+        from shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(student_id)
 
@@ -175,7 +176,7 @@ class StudentPadPlugin(TrainerPlugin):
         Returns tuple: (context, role, position)
         """
         # Get the student's trainer (parent)
-        from shared.common import get_user_manager
+        from shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(user_id)
 
@@ -204,7 +205,7 @@ class StudentPadPlugin(TrainerPlugin):
         Teacher notes are only visible to the AI, not to the student.
         """
         # Get the student's trainer (parent)
-        from shared.common import get_user_manager
+        from shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(user_id)
 

@@ -13,11 +13,12 @@ Combines functionality from:
 import streamlit as st
 import asyncio
 from datetime import datetime
-from shared.common import _, log, get_config, Message, get_conversation_manager
+from shared.common import _, log, Message
+from shared.cached import get_config, get_conversation_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
 from typing import List, Dict, Optional, Tuple, Any, Callable
 from shared.ui_registry import UIRegistry
-from shared.common import get_conversation_manager
+from shared.cached import get_conversation_manager
 
 
 def get_conversation_history_for_llm(messages):

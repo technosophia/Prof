@@ -10,7 +10,7 @@ import os
 from pytest_bdd import given, when, then, scenarios, parsers
 from playwright.sync_api import Page, expect
 from typing import Dict, List, Optional
-from shared.common import get_config
+from shared.cached import get_config
 
 # Import common steps
 from tests.step_defs.common_steps import *

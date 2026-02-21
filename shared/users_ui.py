@@ -4,8 +4,10 @@ User Management UI Module
 """
 
 import streamlit as st
-from shared.common import get_user_manager, UserRole
-from shared.common import _, log, get_config
+from shared.common import UserRole
+from shared.cached import get_user_manager
+from shared.common import _, log
+from shared.cached import get_config
 from shared.common import set_current_llm, get_current_llm_info
 from datetime import datetime, timedelta
 
@@ -217,7 +219,7 @@ def render_reset_password_form(form_key="reset_form"):
                         try:
                             import os
                             from datetime import datetime, timedelta
-                            from shared.common import get_config
+                            from shared.cached import get_config
 
                             # Get database path from config
                             config = get_config()
@@ -315,7 +317,7 @@ def render_reset_password_form(form_key="reset_form"):
                     if username.lower() == 'admin':
                         try:
                             import os
-                            from shared.common import get_config
+                            from shared.cached import get_config
 
                             config = get_config()
                             db_path = config.get("database.path", "data")

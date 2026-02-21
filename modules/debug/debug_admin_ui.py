@@ -14,7 +14,8 @@ This module adds a "Debug" tab to the admin interface.
 import streamlit as st
 import asyncio
 import json
-from shared.common import _, log, get_config, get_user_manager
+from shared.common import _, log
+from shared.cached import get_config, get_user_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
 
 

@@ -1,28 +1,30 @@
 # /shared/common.py
 
-import streamlit as st
 import os, sys
 from typing import Optional, Dict, List, Tuple, Any, Callable
+import streamlit as st
 from core.logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict
-from core.translate import load_all_translations, get_translation
-from core.config import load_all_configs, Config, _load_config
-from core.database import Base as _Base, get_db_manager as _get_db_manager, init_database as _init_database
-from .users import UserRole as _UserRole, get_user_manager as _get_user_manager
-from .conversation import Message as _Message, get_conversation_manager as _get_conversation_manager
+from core.translate import get_translation
+from core.config import load_all_configs
+from core.database import Base as _Base, init_database as _init_database
+from .users import UserRole as _UserRole
+from .conversation import Message as _Message
 from .conversation import UserMessageCallback
-from .prompt_manager import get_prompt_manager as _get_prompt_manager, load_all_prompts as _load_all_prompts
+from .prompt_manager import load_all_prompts as _load_all_prompts
 from .prompt_manager import is_multilingual as _is_multilingual, set_default_language as _set_default_language
-from .settings import UserSettingsManager
-from .llm import LLMManager
+from .cached import (
+    _load_translations,
+    get_config,
+    get_db_manager,
+    get_user_manager,
+    get_conversation_manager,
+    get_llm_manager,
+    get_prompt_manager,
+    get_user_settings_manager,
+)
 
 
 # Translation ================================================================
-
-@st.cache_resource
-def _load_translations() -> dict[str, dict[str, str]]:
-    """Load all translations once and cache them globally."""
-    return load_all_translations()
-
 
 def get_available_languages() -> list[str]:
     """Return sorted list of dynamic available language codes."""
@@ -51,12 +53,6 @@ configure_logging_from_dict = _configure_logging_from_dict
 
 # Configuration ================================================
 
-@st.cache_resource
-def get_config() -> Config:
-    """Primary way to access configuration from anywhere."""
-    return _load_config()
-
-
 def get_section(prefix: str = "") -> dict:
     """Convenient wrapper for module-specific sections."""
     return get_config().get_section(prefix)
@@ -75,15 +71,7 @@ Base = _Base
 UserRole = _UserRole
 init_database = _init_database
 
-@st.cache_resource
-def get_db_manager():
-    return _get_db_manager()
-
 # Users
-
-@st.cache_resource
-def get_user_manager():
-    return _get_user_manager()
 
 def init_user_manager(create_default_users: bool = True):
     """Initialize the user manager."""
@@ -101,10 +89,6 @@ def get_all_users() -> Dict[str, Dict[str, Any]]:
 from shared.conversation import ConversationTable, MessageTable
 
 Message = _Message
-
-@st.cache_resource
-def get_conversation_manager():
-    return _get_conversation_manager()
 
 def register_user_message_callback(callback: UserMessageCallback) -> None:
     """Register a callback to be triggered when a user message is added."""
@@ -144,11 +128,6 @@ def cleanup_user_conversations(user_id: str) -> bool:
 get_user_manager().register_before_delete_callback(cleanup_user_conversations)
 
 # LLM ==========================================================
-
-@st.cache_resource
-def get_llm_manager():
-    """Get or create the global LLMManager instance."""
-    return LLMManager(get_config())
 
 # Update public functions with backward compatibility
 async def llm_conversation_generate(message: str,
@@ -251,37 +230,6 @@ llm = llm_conversation_generate
 is_multilingual = _is_multilingual
 set_default_language = _set_default_language
 
-
-def _init_prompt_manager():
-    """Initialize and load all prompts."""
-    shared_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.dirname(shared_dir)
-
-    # IMPORTANT: Get fresh instance and force reload
-    import importlib
-    from shared import prompt_manager
-
-    # Reload the module to ensure fresh state
-    importlib.reload(prompt_manager)
-
-    # Get fresh prompt manager
-    prompt_manager_instance = prompt_manager.get_prompt_manager()
-
-    # Load prompts
-    prompt_manager.load_all_prompts(root_dir)
-
-    # Double-check multilingual status
-    if prompt_manager_instance._multilingual_prompts:
-        prompt_manager_instance._is_multilingual = True
-        prompt_manager_instance._available_languages = set(prompt_manager_instance._multilingual_prompts.keys())
-
-    return prompt_manager_instance
-
-@st.cache_resource
-def get_prompt_manager():
-    """Get the prompt manager instance."""
-    return _init_prompt_manager()
-
 def get_prompt(key: str, default: Any = None, language: Optional[str] = None) -> Any:
     """
     Get a prompt by key using dot notation.
@@ -348,8 +296,3 @@ def get_available_prompt_languages() -> List[str]:
     return manager.get_available_languages()
 
 # User Settings =============================================
-
-@st.cache_resource
-def get_user_settings_manager():
-    """Get or create the user settings manager."""
-    return UserSettingsManager()

@@ -45,7 +45,8 @@ from pathlib import Path
 import importlib.util
 import inspect
 
-from shared.common import log, _, get_config
+from shared.common import log, _
+from shared.cached import get_config
 
 
 @dataclass

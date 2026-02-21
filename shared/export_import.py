@@ -15,8 +15,9 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-from shared.common import _, log, get_conversation_manager, Message, get_user_manager
-from shared.common import get_conversation_manager, get_user_manager
+from shared.common import _, log, Message
+from shared.cached import get_conversation_manager, get_user_manager
+from shared.cached import get_conversation_manager, get_user_manager
 # Import the table models directly
 from shared.conversation import ConversationTable, MessageTable
 
@@ -517,7 +518,8 @@ def auto_import_conversations_from_config(config: Optional[Dict[str, Any]] = Non
     Returns:
         Dict with counts of imported, skipped, and error conversations
     """
-    from shared.common import get_config, log
+    from shared.common import log
+    from shared.cached import get_config
     from shared.users import get_user_manager
     from shared.conversation import get_conversation_manager
     import os

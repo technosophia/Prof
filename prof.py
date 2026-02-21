@@ -18,11 +18,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
 from shared.common import _, get_available_languages
-from shared.common import get_config
+from shared.cached import get_config
 from shared.common import log, configure_logging_from_dict
-from shared.common import init_database, get_db_manager
+from shared.common import init_database
+from shared.cached import get_db_manager
 from shared.common import init_user_manager
-from shared.common import get_prompt_manager
+from shared.cached import get_prompt_manager
 from shared.export_import import auto_import_conversations_from_config
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts

@@ -13,7 +13,8 @@ import streamlit as st
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import json
-from shared.common import _, log, get_config, get_user_manager, UserRole
+from shared.common import _, log, UserRole
+from shared.cached import get_config, get_user_manager
 
 
 def is_production_mode() -> bool:
@@ -1155,7 +1156,7 @@ def _generate_reset_code(target_user_id: str, requesting_user_id: str):
             try:
                 import os
                 from datetime import datetime
-                from shared.common import get_config
+                from shared.cached import get_config
 
                 # Get database path from config
                 config = get_config()

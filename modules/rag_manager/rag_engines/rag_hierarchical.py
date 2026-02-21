@@ -10,7 +10,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from ..rag_engine import RAGEngine
-from shared.common import log, get_config, get_embedding, get_embeddings
+from shared.common import log, get_embedding, get_embeddings
+from shared.cached import get_config
 
 class FaissHierarchicalRAGEngine(RAGEngine):
     """FAISS-based RAG engine with hierarchical chunking for structured markdown documents (chapter summary + subsections)."""
