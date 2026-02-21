@@ -1,9 +1,8 @@
 meta:
   name: "basic_student_teacher"
   description: >
-    One student sends two messages, teacher triggers memory analysis.
-    Validates that conversation is created, messages are sent,
-    and analysis runs without error.
+    One student sends two messages.
+    Validates that conversation is created and messages are sent.
   version: "1.0"
 
 llm: "groq"
@@ -11,18 +10,8 @@ llm: "groq"
 setup:
   student_id: "normal2_m1"
   trainer_id: "master1"
-  training_program: |
-    Python fundamentals course.
-    Week 1: variables, types, functions.
-    Week 2: lists, loops, comprehensions.
 
 steps:
-  - id: "s0"
-    actor: system
-    action: set_training_program
-    params:
-      content: "{{ setup.training_program }}"
-
   - id: "s1"
     actor: system
     action: create_conversation

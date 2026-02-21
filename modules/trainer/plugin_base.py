@@ -92,6 +92,19 @@ class TrainerPlugin(ABC):
         """
         self.manifest = manifest
         self.id = manifest.id
+        self._is_active: bool = False
+
+    def _mark_active(self) -> None:
+        """Called by the trainer module when this plugin is activated."""
+        self._is_active = True
+
+    def _mark_inactive(self) -> None:
+        """Called by the trainer module when this plugin is deactivated."""
+        self._is_active = False
+
+    def is_active(self) -> bool:
+        """Return True if this plugin is currently the active backend."""
+        return self._is_active
 
     @abstractmethod
     def initialize(self) -> bool:

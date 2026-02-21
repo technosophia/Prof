@@ -14,7 +14,6 @@ from shared.common import (
 from modules.benchmarker.benchmarker import ensure_tables_exist
 from modules.benchmarker.core_actions import (
     action_create_conversation,
-    action_set_training_program,
     action_switch_option,
     action_teacher_send_message,
     action_user_send_message,
@@ -53,12 +52,6 @@ def initialize() -> bool:
                 action_teacher_send_message,
                 "Inject a teacher message into a conversation",
                 required_context=["trainer_id", "student_id", "conversation_id"],
-            )
-            register_action(
-                "set_training_program",
-                action_set_training_program,
-                "Set the training program for the current trainer",
-                required_context=["trainer_id"],
             )
             register_action(
                 "switch_option",
