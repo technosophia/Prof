@@ -301,6 +301,9 @@ class ScenarioRunner:
         events = self.driver.get_session_events()
         results: List[AssertionResult] = []
 
+        def _get_step_result(step_id: str) -> Optional[StepResult]:
+            return next((s for s in steps if s.step_id == step_id), None)
+
         for assertion in assertions:
             atype = assertion.get("type", "")
             aid = assertion.get("id", "")
@@ -310,7 +313,7 @@ class ScenarioRunner:
             message = ""
             if atype == "action_succeeded":
                 step_id = params.get("step_id")
-                step = next((s for s in steps if s.step_id == step_id), None)
+                step = _get_step_result(step_id)
                 passed = bool(step and step.success and not step.error)
                 message = f"Step {step_id} completed without error" if passed else f"Step {step_id} failed or missing"
             elif atype == "llm_calls_made":
@@ -349,6 +352,60 @@ class ScenarioRunner:
                 else:
                     passed = any(m.get("data", {}).get(field) == value for m in matches)
                 message = f"Context field {field} {'set' if passed else 'not set'}"
+            elif atype == "injected_context_contains":
+                step_id = params.get("step_id")
+                contains = params.get("contains", "")
+                source_contains = params.get("source_contains", "")
+
+                step = _get_step_result(step_id)
+                if not step:
+                    message = f"Step '{step_id}' not found in run results"
+                else:
+                    injected = step.result.get("injected_contexts", [])
+                    if not injected:
+                        message = (
+                            f"No injected contexts captured for step '{step_id}'. "
+                            "Check that the monitor callback was registered correctly."
+                        )
+                    else:
+                        candidates = injected
+                        if source_contains:
+                            candidates = [
+                                c for c in injected if source_contains.lower() in c.get("source", "").lower()
+                            ]
+                            if not candidates:
+                                sources = [c.get("source", "") for c in injected]
+                                message = (
+                                    f"No context with source containing '{source_contains}' found for step '{step_id}'. "
+                                    f"Sources present: {sources}"
+                                )
+
+                        if not message:
+                            if contains:
+                                matching = [
+                                    c for c in candidates if contains.lower() in c.get("content", "").lower()
+                                ]
+                                if not matching:
+                                    preview = candidates[0].get("content", "")[:100] if candidates else ""
+                                    message = (
+                                        f"Context from source matching '{source_contains}' found for step '{step_id}' "
+                                        f"but does not contain '{contains}'. Content preview: '{preview}...'"
+                                    )
+                                else:
+                                    passed = True
+                                    message = (
+                                        f"Found '{contains}' in context from "
+                                        f"'{matching[0].get('source', '')}' for step '{step_id}'"
+                                    )
+                            else:
+                                passed = True
+                                if source_contains:
+                                    message = (
+                                        f"Found context from source matching '{source_contains}' "
+                                        f"for step '{step_id}'"
+                                    )
+                                else:
+                                    message = f"Injected contexts captured for step '{step_id}'"
             else:
                 message = f"Unsupported assertion type: {atype}"
 
