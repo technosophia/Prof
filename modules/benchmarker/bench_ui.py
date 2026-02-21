@@ -1,15 +1,15 @@
 """Streamlit UI for benchmarker module."""
 
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import streamlit as st
 import yaml
 
 from shared.common import get_db_manager, get_driver, get_prompt
 
-from . import BenchmarkRun
-from .runner import RunResult, ScenarioRunner
+from modules.benchmarker.benchmarker import BenchmarkRun
+from modules.benchmarker.runner import RunResult, ScenarioRunner
 
 
 def _p(key: str, default: str) -> str:
@@ -144,8 +144,3 @@ def render() -> None:
                         os.remove(record.session_file)
                     session.delete(record)
             st.success("History cleared")
-
-
-def inject_ui_main_content():
-    """Injection point for module handler."""
-    render()

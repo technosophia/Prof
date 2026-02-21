@@ -14,8 +14,8 @@ import yaml
 from shared.common import get_current_llm_id, get_driver, get_section, get_user_manager, log
 from shared.driver import DriverActionError, DriverContextError, DriverOptionError
 
-from . import BenchmarkRun
-from .session import SessionSerializer
+from modules.benchmarker.benchmarker import BenchmarkRun
+from modules.benchmarker.session import SessionSerializer
 
 
 @dataclass
