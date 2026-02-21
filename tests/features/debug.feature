@@ -14,19 +14,19 @@ Feature: Debug Admin UI Testing
         Then I should see "Debug and Testing" in the header
 
     Scenario: Text input and display
-        When I enter text "Hello, Debug Admin!" in the text area
+        When I enter text "Hello, Debug Admin!" in the text area labeled "Enter some text for testing:"
         And I click the "Display Text" button
         Then I should see "Hello, Debug Admin!" in the result section
         And I should see the character count displayed
         And I should see the word count displayed
 
     Scenario: Clear text functionality
-        When I enter text "Test text to clear" in the text area
+        When I enter text "Test text to clear" in the text area labeled "Enter some text for testing:"
         And I click the "Display Text" button
         When I click the "Clear Text" button
         Then the result section should be empty
 
     Scenario: Test with empty text
-        When I clear the text area
+        When I clear the text area labeled "Enter some text for testing:"
         And I click the "Display Text" button without entering text
         Then I should see a warning message about empty text

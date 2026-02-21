@@ -503,21 +503,47 @@ def navigate_to_chat_page(context):
     return context
 
 
-@when(parsers.parse('I enter text "{text}" in the text area'))
-def enter_text_in_textarea(context, text: str):
-    """Enter text in a textarea (generalized for both debug and chat)."""
+@when(parsers.parse('I enter text "{text}" in the {textarea_type} text area'))
+def enter_text_in_textarea(context, text: str, textarea_type: str):
+    """Enter text in a specific textarea identified by type/context."""
     page = context['page']
     debug_enabled = context.get('debug_enabled', False)
 
-    print(f'\n=== Entering text: "{text}" ===')
+    print(f'\n=== Entering text: "{text}" in {textarea_type} text area ===')
 
     _wait_for_app_stable(page)
 
-    # Try to find textarea
-    textarea = page.locator("textarea").first
-    if textarea.count() == 0:
-        # Fallback to input with type text
-        textarea = page.locator("input[type='text']").first
+    # Find the appropriate textarea based on the type
+    textarea = None
+
+    if textarea_type == "debug":
+        # Debug module's textarea - look for it in the debug tab content
+        # It might have a specific placeholder, label, or be the first visible textarea in the debug section
+        textarea = page.locator("div[data-testid='stApp'] textarea").first
+    elif textarea_type == "chat":
+        # Chat input - look for Streamlit's chat input
+        chat_input = page.locator("[data-testid='stChatInput'] textarea, [data-testid='stChatInput'] input")
+        if chat_input.count() > 0:
+            textarea = chat_input.first
+    elif textarea_type == "judge":
+        # Judge module's textarea - look for the one with judge-specific attributes
+        textarea = page.locator("textarea[aria-label*='judge' i], textarea[placeholder*='judge' i]").first
+    else:
+        # Default fallback for other types
+        textarea = page.locator("textarea").first
+
+    # If specific selector failed, try to find any visible textarea
+    if not textarea or textarea.count() == 0:
+        print(f"No specific {textarea_type} textarea found, looking for any visible textarea...")
+        all_textareas = page.locator("textarea").all()
+        for ta in all_textareas:
+            if ta.is_visible():
+                textarea = ta
+                print("Found visible textarea")
+                break
+
+    if not textarea or textarea.count() == 0:
+        raise AssertionError(f"Could not find {textarea_type} textarea")
 
     expect(textarea).to_be_visible(timeout=30000)
     expect(textarea).to_be_enabled(timeout=30000)
@@ -529,7 +555,7 @@ def enter_text_in_textarea(context, text: str):
     context['entered_text'] = text
 
     if debug_enabled:
-        take_screenshot(page, "debug_text_entered.png", debug_enabled)
+        take_screenshot(page, f"{textarea_type}_text_entered.png", debug_enabled)
 
     return context
 
@@ -917,25 +943,145 @@ def debug_current_state(context):
     return context
 
 
-@when("I clear the text area")
-def clear_text_area(context):
-    """Clear the text area manually."""
+@when(parsers.parse('I clear the {textarea_type} text area'))
+def clear_text_area(context, textarea_type: str = "debug"):
+    """Clear a specific text area."""
     page: Page = context['page']
-    print("\n=== Manually clearing text area ===")
+    print(f"\n=== Manually clearing {textarea_type} text area ===")
     _wait_for_app_stable(page)
 
-    # Find textarea
-    textarea = page.locator("textarea").first
-    if textarea.count() == 0:
-        # Try input field
-        textarea = page.locator("input[type='text']").first
+    # Find the appropriate textarea based on type
+    textarea = None
 
-    if textarea.count() > 0:
+    if textarea_type == "debug":
+        textarea = page.locator("div[data-testid='stApp'] textarea").first
+    elif textarea_type == "judge":
+        textarea = page.locator("textarea[aria-label*='judge' i], textarea[placeholder*='judge' i]").first
+    else:
+        textarea = page.locator("textarea").first
+
+    # If not found or hidden, try to find any visible textarea
+    if not textarea or textarea.count() == 0 or not textarea.is_visible():
+        print(f"Specific {textarea_type} textarea not visible, looking for any visible textarea...")
+        all_textareas = page.locator("textarea").all()
+        for ta in all_textareas:
+            if ta.is_visible():
+                textarea = ta
+                print("Found visible textarea")
+                break
+
+    if textarea and textarea.count() > 0:
         expect(textarea).to_be_visible(timeout=30000)
         textarea.fill("")
         expect(textarea).to_have_value("", timeout=5000)
-        print("✓ Text area cleared")
+        print(f"✓ {textarea_type} text area cleared")
     else:
-        print("Warning: No text area found to clear")
+        print(f"Warning: No {textarea_type} text area found to clear")
+
+    return context
+
+@when(parsers.parse('I enter text "{text}" in the text area labeled "{label}"'))
+def enter_text_in_labeled_textarea(context, text: str, label: str):
+    """Enter text in a textarea identified by its label."""
+    page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
+
+    print(f'\n=== Entering text: "{text}" in text area labeled "{label}" ===')
+
+    _wait_for_app_stable(page)
+
+    # Try multiple strategies to find the textarea associated with the label
+    textarea = None
+
+    # Strategy 1: Look for label and find associated textarea
+    # In Streamlit, the label is often in a separate element, but we can look for the text
+    # and then find the nearest textarea
+    label_element = page.get_by_text(label, exact=True).first
+    if label_element.count() > 0:
+        print(f"Found label element with text: '{label}'")
+        # Try to find textarea in the same container
+        parent = label_element.locator("xpath=./ancestor::div[contains(@class, 'stText') or contains(@class, 'stTextArea')]")
+        if parent.count() > 0:
+            textarea = parent.locator("textarea").first
+            print("Found textarea via parent container")
+
+    # Strategy 2: Look for textarea with matching aria-label or placeholder
+    if not textarea or textarea.count() == 0:
+        textarea = page.locator(f"textarea[aria-label='{label}'], textarea[placeholder='{label}']").first
+        if textarea.count() > 0:
+            print("Found textarea via aria-label/placeholder")
+
+    # Strategy 3: Look for the debug text input specifically by key
+    if not textarea or textarea.count() == 0 and "debug" in label.lower():
+        # The debug module uses key="debug_text_input"
+        textarea = page.locator("textarea[key='debug_text_input'], textarea[data-testid*='debug_text_input']").first
+        if textarea.count() > 0:
+            print("Found debug textarea via key")
+
+    # Strategy 4: Last resort - look for any textarea in the current tab content
+    if not textarea or textarea.count() == 0:
+        print("Looking for any visible textarea in the current tab")
+        all_textareas = page.locator("textarea").all()
+        visible_textareas = [ta for ta in all_textareas if ta.is_visible()]
+        if visible_textareas:
+            textarea = visible_textareas[0]
+            print("Found visible textarea")
+
+    if not textarea or textarea.count() == 0:
+        raise AssertionError(f"Could not find text area labeled '{label}'")
+
+    # Ensure it's visible and enabled
+    expect(textarea).to_be_visible(timeout=30000)
+    expect(textarea).to_be_enabled(timeout=30000)
+
+    # Clear and type the text
+    textarea.fill("")
+    textarea.type(text, delay=50)
+    expect(textarea).to_have_value(text, timeout=10000)
+
+    context['entered_text'] = text
+
+    if debug_enabled:
+        take_screenshot(page, f"text_area_{label.replace(' ', '_')}.png", debug_enabled)
+
+    return context
+
+
+@when(parsers.parse('I clear the text area labeled "{label}"'))
+def clear_labeled_text_area(context, label: str):
+    """Clear a text area identified by its label."""
+    page: Page = context['page']
+    debug_enabled = context.get('debug_enabled', False)
+
+    print(f'\n=== Clearing text area labeled "{label}" ===')
+    _wait_for_app_stable(page)
+
+    # Use the same finding strategy
+    textarea = None
+
+    # Strategy 1: Look for label
+    label_element = page.get_by_text(label, exact=True).first
+    if label_element.count() > 0:
+        parent = label_element.locator("xpath=./ancestor::div[contains(@class, 'stText') or contains(@class, 'stTextArea')]")
+        if parent.count() > 0:
+            textarea = parent.locator("textarea").first
+
+    # Strategy 2: Look by key for debug
+    if not textarea or textarea.count() == 0 and "debug" in label.lower():
+        textarea = page.locator("textarea[key='debug_text_input']").first
+
+    # Strategy 3: Any visible textarea
+    if not textarea or textarea.count() == 0:
+        visible_textareas = [ta for ta in page.locator("textarea").all() if ta.is_visible()]
+        if visible_textareas:
+            textarea = visible_textareas[0]
+
+    if textarea and textarea.count() > 0:
+        expect(textarea).to_be_visible(timeout=30000)
+        textarea.fill("")
+        expect(textarea).to_have_value("", timeout=5000)
+        print(f"✓ Text area cleared")
+    else:
+        print(f"Warning: No text area found with label '{label}'")
 
     return context
