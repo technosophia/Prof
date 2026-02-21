@@ -12,8 +12,8 @@ options:
 llm: "groq"
 
 setup:
-  student_id: "bench_student_01"
-  trainer_id: "bench_trainer_01"
+  student_id: "normal2_m1"
+  trainer_id: "master1"
   training_program: |
     Python fundamentals course.
     Week 1: variables, types, functions.

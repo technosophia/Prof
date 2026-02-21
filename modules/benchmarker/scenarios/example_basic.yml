@@ -1,0 +1,88 @@
+meta:
+  name: "basic_student_teacher"
+  description: >
+    One student sends two messages, teacher triggers memory analysis.
+    Validates that conversation is created, messages are sent,
+    and analysis runs without error.
+  version: "1.0"
+
+options:
+  memory_backend: "memory"
+
+llm: "groq"
+
+setup:
+  student_id: "normal2_m1"
+  trainer_id: "master1"
+  training_program: |
+    Python fundamentals course.
+    Week 1: variables, types, functions.
+    Week 2: lists, loops, comprehensions.
+
+steps:
+  - id: "s0"
+    actor: system
+    action: set_training_program
+    params:
+      content: "{{ setup.training_program }}"
+
+  - id: "s1"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Week 1 - Introduction"
+
+  - id: "s2"
+    actor: student
+    action: user_send_message
+    params:
+      content: "What is the difference between a list and a tuple in Python?"
+
+  - id: "s3"
+    actor: student
+    action: user_send_message
+    params:
+      content: "Can I change a tuple after creating it?"
+
+  - id: "s4"
+    actor: teacher
+    action: trigger_memory_analysis
+    params: {}
+
+assertions:
+  - id: "a1"
+    type: action_succeeded
+    description: "Conversation was created without error"
+    params:
+      step_id: "s1"
+
+  - id: "a2"
+    type: action_succeeded
+    description: "First student message was sent"
+    params:
+      step_id: "s2"
+
+  - id: "a3"
+    type: action_succeeded
+    description: "Second student message was sent"
+    params:
+      step_id: "s3"
+
+  - id: "a4"
+    type: action_succeeded
+    description: "Memory analysis completed"
+    params:
+      step_id: "s4"
+
+  - id: "a5"
+    type: llm_calls_made
+    description: "At least 2 LLM calls were made (one per student message)"
+    params:
+      min: 2
+
+  - id: "a6"
+    type: plugin_event_occurred
+    description: "Memory analysis recorded a completion event"
+    params:
+      plugin_id: "memory"
+      event: "analysis_complete"

@@ -14,6 +14,7 @@ import yaml
 from shared.common import get_current_llm_id, get_driver, get_section, get_user_manager, log
 from shared.driver import DriverActionError, DriverContextError, DriverOptionError
 
+from modules.benchmarker import initialize as initialize_benchmarker
 from modules.benchmarker.benchmarker import BenchmarkRun
 from modules.benchmarker.session import SessionSerializer
 
@@ -67,21 +68,33 @@ class ScenarioRunner:
     }
 
     def __init__(self):
+        # Ensure benchmarker actions and table are available before any validation/run.
+        initialize_benchmarker()
         self.driver = get_driver()
         self.config = get_section("benchmarker")
 
-    def run(self, scenario_path: str, option_overrides: Optional[Dict[str, str]] = None) -> RunResult:
+    def run(
+        self,
+        scenario_path: str,
+        option_overrides: Optional[Dict[str, str]] = None,
+        setup_overrides: Optional[Dict[str, str]] = None,
+        llm_override: Optional[str] = None,
+    ) -> RunResult:
         """Execute scenario file and return structured run result."""
         run_errors: List[str] = []
         steps_out: List[StepResult] = []
         assertions_out: List[AssertionResult] = []
         option_overrides = option_overrides or {}
+        setup_overrides = setup_overrides or {}
 
         scenario = self._load_scenario(scenario_path)
         scenario_name = scenario.get("meta", {}).get("name", os.path.basename(scenario_path))
+        log("info", f"Benchmarker run start: scenario={scenario_name} path={scenario_path}")
 
         validation_errors = self.validate_scenario(scenario)
         if validation_errors:
+            for err in validation_errors:
+                log("warning", f"Scenario validation error: {err}")
             return RunResult(
                 scenario_name=scenario_name,
                 session_path="",
@@ -97,16 +110,19 @@ class ScenarioRunner:
         self.driver.start_session(scenario_name)
         started_at = time.time()
 
-        setup = scenario.get("setup", {})
+        setup = dict(scenario.get("setup", {}))
+        setup.update({k: v for k, v in setup_overrides.items() if v})
         created_users = self._ensure_test_users(setup)
+
+        llm_id = llm_override or scenario.get("llm")
 
         try:
             options = dict(scenario.get("options", {}))
             options.update(option_overrides)
             for group, option_name in options.items():
+                log("info", f"Switching option {group} -> {option_name}")
                 self.driver.switch_option(group, option_name)
 
-            llm_id = scenario.get("llm")
             if not llm_id:
                 try:
                     llm_id = get_current_llm_id()
@@ -117,6 +133,10 @@ class ScenarioRunner:
                 student_id=setup.get("student_id"),
                 trainer_id=setup.get("trainer_id"),
                 llm_id=llm_id,
+            )
+            log(
+                "info",
+                f"Initial context set: student={setup.get('student_id')} trainer={setup.get('trainer_id')} llm={llm_id}",
             )
 
             for step in scenario.get("steps", []):
@@ -133,7 +153,7 @@ class ScenarioRunner:
 
         summary = self.driver.get_session_summary()
         assertions_passed = len([a for a in assertions_out if a.passed])
-        success = not run_errors and assertions_passed == len(assertions_out)
+        success = not run_errors and not [e for e in steps_out if not e.success] and assertions_passed == len(assertions_out)
 
         run_result = RunResult(
             scenario_name=scenario_name,
@@ -164,6 +184,10 @@ class ScenarioRunner:
         if self.config.get("cleanup_after_run", False):
             self._cleanup_users(created_users)
 
+        log(
+            "info",
+            f"Benchmarker run complete: steps={len(run_result.steps)} assertions={run_result.assertions_passed}/{run_result.assertions_total} success={run_result.success}",
+        )
         return run_result
 
     def validate_scenario(self, scenario: Dict) -> List[str]:
@@ -172,6 +196,10 @@ class ScenarioRunner:
 
         listed_options = self.driver.list_options()
         for group, option_name in scenario.get("options", {}).items():
+            # Runner must support cold start with no options registered.
+            if not listed_options:
+                log("info", f"No driver options registered; skipping option validation for {group}.{option_name}")
+                continue
             names = {opt["name"] for opt in listed_options.get(group, [])}
             if group not in listed_options:
                 errors.append(f"Unknown option group: {group}")
@@ -213,22 +241,27 @@ class ScenarioRunner:
             return StepResult(step_id=step_id, action=action, actor=actor, success=False, result={}, error=msg, params=params)
 
         started = time.time()
+        log("info", f"Running step {step_id}: [{actor}] {action} params={params}")
         try:
             if step.get("context"):
                 self.driver.set_context(**step["context"])
+                log("info", f"Applied step-specific context for {step_id}: {step['context']}")
             result = self.driver.do_action(action, **params)
+            duration = time.time() - started
+            log("info", f"Step {step_id} completed in {duration:.3f}s")
             return StepResult(
                 step_id=step_id,
                 action=action,
                 actor=actor,
                 success=True,
                 result=result,
-                duration_seconds=time.time() - started,
+                duration_seconds=duration,
                 params=params,
             )
         except (DriverContextError, DriverActionError, DriverOptionError, ValueError) as exc:
             msg = str(exc)
-            log("warning", f"Step {step_id} failed: {msg}", exc_info=True)
+            duration = time.time() - started
+            log("warning", f"Step {step_id} failed in {duration:.3f}s: {msg}", exc_info=True)
             return StepResult(
                 step_id=step_id,
                 action=action,
@@ -236,7 +269,7 @@ class ScenarioRunner:
                 success=False,
                 result={},
                 error=msg,
-                duration_seconds=time.time() - started,
+                duration_seconds=duration,
                 params=params,
             )
 

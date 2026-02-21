@@ -1,6 +1,6 @@
 """Benchmarker admin UI injection."""
 
-from modules.benchmarker.bench_ui import render
+from modules.benchmarker.benchmarker_ui import render
 
 
 def inject_ui_admin_tab():
