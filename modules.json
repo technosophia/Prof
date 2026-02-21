@@ -1,10 +1,11 @@
 {
   "active_modules": [
+    "benchmarker",
     "debug",
     "llm_monitor",
     "rag_manager",
     "test",
     "trainer"
   ],
-  "total_modules": 5
+  "total_modules": 6
 }

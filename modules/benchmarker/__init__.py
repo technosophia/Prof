@@ -82,7 +82,7 @@ def initialize() -> bool:
             _LLM_OPTIONS_REGISTERED = True
 
         _INITIALIZED = True
-        log("info", "Benchmarker module initialized")
+        log("debug", "Benchmarker module initialized")
         return True
     except Exception as exc:
         log("error", f"Failed to initialize benchmarker module: {exc}", exc_info=True)
