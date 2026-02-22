@@ -582,17 +582,15 @@ def _show_search_test_tab():
             st.success("Integrity check passed.")
 
     if query and st.button("🔍 Search", type="primary"):
-        vector_engines = [rag_manager.get_engine('classic'), rag_manager.get_engine('faiss_hierarchical')]
-        original_thresholds = {}
-        for eng in vector_engines:
-            if eng:
-                original_thresholds[eng.engine_type] = getattr(eng, 'similarity_threshold', None)
-                eng.similarity_threshold = threshold
+        vector_engine_types = ['classic', 'faiss_hierarchical']
+        original_thresholds = rag_manager.set_similarity_thresholds({
+            engine_type: threshold for engine_type in vector_engine_types
+        })
 
         try:
             with st.spinner("Searching..."):
                 if selected_engine == "All":
-                    results = rag_manager.search(user_id, query)
+                    results = rag_manager.search(user_id, query, search_all=True)
                 else:
                     results = rag_manager.search(user_id, query, selected_engine)
 
@@ -623,11 +621,9 @@ def _show_search_test_tab():
                         st.info(f"No results found from {selected_engine.upper()} engine")
 
                 with st.expander("🔍 Raw Debug Results (no threshold filtering)", expanded=False):
-                    debug_original_thresholds = {}
-                    for eng in vector_engines:
-                        if eng:
-                            debug_original_thresholds[eng.engine_type] = getattr(eng, 'similarity_threshold', None)
-                            eng.similarity_threshold = 0.0
+                    debug_original_thresholds = rag_manager.set_similarity_thresholds({
+                        engine_type: 0.0 for engine_type in vector_engine_types
+                    })
 
                     try:
                         raw_rows = []
@@ -671,16 +667,12 @@ def _show_search_test_tab():
                         else:
                             st.info('No raw results returned even with threshold=0.0')
                     finally:
-                        for eng in vector_engines:
-                            if eng and eng.engine_type in debug_original_thresholds:
-                                eng.similarity_threshold = debug_original_thresholds[eng.engine_type]
+                        rag_manager.restore_similarity_thresholds(debug_original_thresholds)
 
                 with st.expander("🔧 Debug Info", expanded=False):
                     st.json(results)
         finally:
-            for eng in vector_engines:
-                if eng and eng.engine_type in original_thresholds:
-                    eng.similarity_threshold = original_thresholds[eng.engine_type]
+            rag_manager.restore_similarity_thresholds(original_thresholds)
 
 
 def _show_stats_tab():

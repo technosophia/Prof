@@ -451,18 +451,39 @@ class RAGManager:
         result.sort(key=lambda x: x["uploaded_at"], reverse=True)
         return result
 
+    def set_similarity_thresholds(self, thresholds: Dict[str, float]) -> Dict[str, Optional[float]]:
+        """Set per-engine similarity thresholds and return previous values."""
+        previous_values: Dict[str, Optional[float]] = {}
+
+        for engine_type, threshold in thresholds.items():
+            engine = self.get_engine(engine_type)
+            if not engine or not hasattr(engine, 'similarity_threshold'):
+                continue
+
+            previous_values[engine_type] = getattr(engine, 'similarity_threshold', None)
+            engine.similarity_threshold = threshold
+
+        return previous_values
+
+    def restore_similarity_thresholds(self, previous_values: Dict[str, Optional[float]]):
+        """Restore per-engine similarity thresholds from a previous snapshot."""
+        for engine_type, previous in previous_values.items():
+            engine = self.get_engine(engine_type)
+            if engine and hasattr(engine, 'similarity_threshold'):
+                engine.similarity_threshold = previous
+
     def search(self, user_id: str, query: str, engine_type: Optional[str] = None,
-               limit: int = 5) -> Dict[str, Any]:
+               limit: int = 5, search_all: bool = False) -> Dict[str, Any]:
         """Search across RAG engines."""
         results = {}
 
-        # If no engine specified, use current default
-        if not engine_type:
-            engine_type = self.default_engine
+        target_engine = engine_type
+        if not target_engine and not search_all:
+            target_engine = self.default_engine
 
         accessible_docs = self.get_user_documents(user_id)
         if not accessible_docs:
-            log("warning", f"Search aborted: no accessible docs for user={user_id}, query={query!r}, engine={engine_type}")
+            log("warning", f"Search aborted: no accessible docs for user={user_id}, query={query!r}, engine={target_engine or 'ALL'}")
             return results
 
         allowed_filenames = {doc['filename'] for doc in accessible_docs}
@@ -475,41 +496,26 @@ class RAGManager:
 
         log(
             "debug",
-            f"Search owner scope: requester={user_id}, engine={engine_type}, query={query!r}, owners={list(owners.keys())}, accessible_docs={len(accessible_docs)}"
+            f"Search owner scope: requester={user_id}, engine={target_engine or 'ALL'}, query={query!r}, owners={list(owners.keys())}, accessible_docs={len(accessible_docs)}"
         )
 
-        if engine_type:
-            engine = self.get_engine(engine_type)
+        engine_types = [target_engine] if target_engine else list(self.engines.keys())
+
+        for eng_type in engine_types:
+            engine = self.get_engine(eng_type)
             if not engine:
-                return results
+                continue
 
             engine_results = []
             for owner in owners:
-                log("debug", f"Search dispatch: engine={engine_type}, owner={owner}, query={query!r}")
-                owner_results = engine.search(owner, query, limit * 5)  # Get more candidates per owner
+                log("debug", f"Search dispatch: engine={eng_type}, owner={owner}, query={query!r}")
+                owner_results = engine.search(owner, query, limit * 5)
                 for result in owner_results:
                     if result['filename'] in allowed_filenames:
                         engine_results.append(result)
 
-            # Optional: sort globally and take top limit (better relevance across owners)
             engine_results.sort(key=lambda x: x['score'], reverse=True)
-            if engine_type not in results:
-                results[engine_type] = []
-            results[engine_type].extend(engine_results[:limit])
-
-        else:
-            # All engines branch - same fix
-            for eng_type, engine in self.engines.items():
-                engine_results = []
-                for owner in owners:
-                    owner_results = engine.search(owner, query, limit * 5)
-                    for result in owner_results:
-                        if result['filename'] in allowed_filenames:
-                            engine_results.append(result)
-
-                if engine_results:
-                    engine_results.sort(key=lambda x: x['score'], reverse=True)
-                    results[eng_type] = engine_results[:limit]
+            results[eng_type] = engine_results[:limit]
 
         return results
 
