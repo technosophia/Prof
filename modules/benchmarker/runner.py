@@ -137,7 +137,7 @@ class ScenarioRunner:
                 f"Initial context set: student={setup.get('student_id')} trainer={setup.get('trainer_id')} llm={llm_id}",
             )
 
-            options = dict(scenario.get("options", {}))
+            options = dict(scenario.get("options") or {})
             options.update(option_overrides)
             for group, option_name in options.items():
                 log("info", f"Switching option {group} -> {option_name}")
