@@ -546,6 +546,30 @@ def integration_real_driver_setup(setup_test_environment):
         setattr(rm, k, v)
 
 
+@pytest.fixture(autouse=True)
+def ensure_benchmarker_real_driver_prerequisites(request, setup_test_environment):
+    """Rebuild integration prerequisites for benchmarker real-driver scenarios.
+
+    Running the entire suite can mutate shared app state (DB tables, users,
+    registered modules, RAG corpus). The benchmarker real-driver integration
+    test expects those prerequisites to exist and would otherwise be skipped.
+    """
+    if not request.node.nodeid.startswith(
+        "modules/benchmarker/tests/test_runner_integration_real_driver.py"
+    ):
+        yield
+        return
+
+    if not get_db_manager().is_initialized():
+        _reset_db()
+
+    init_user_manager(create_default_users=True)
+    _init_modules()
+    _setup_rag_test_data()
+
+    yield
+
+
 # ---------------------------------------------------------------------------
 # 14.  Markers
 # ---------------------------------------------------------------------------
