@@ -279,3 +279,44 @@ def test_injected_context_source_only():
     )
 
     assert out[0].passed is True
+
+
+def test_validate_scenario_reports_unknown_option_group():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    scenario = {
+        "meta": {"name": "x"},
+        "options": {"nonexistent_group": "foo"},
+        "steps": [{"id": "s1", "actor": "student", "action": "user_send_message", "params": {}}],
+    }
+
+    errors = runner.validate_scenario(scenario)
+    assert any("Unknown option group: nonexistent_group" in e for e in errors)
+
+
+def test_validate_scenario_reports_unknown_action():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    scenario = {
+        "meta": {"name": "x"},
+        "options": {},
+        "steps": [{"id": "s1", "actor": "student", "action": "unknown_action", "params": {}}],
+    }
+
+    errors = runner.validate_scenario(scenario)
+    assert any("Unknown action in step s1: unknown_action" in e for e in errors)
+
+
+def test_validate_scenario_passes_with_all_registered():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    scenario = {
+        "meta": {"name": "x"},
+        "options": {"memory_backend": "memory"},
+        "steps": [
+            {"id": "s1", "actor": "system", "action": "create_conversation", "params": {}},
+            {"id": "s2", "actor": "student", "action": "user_send_message", "params": {}},
+        ],
+    }
+
+    assert runner.validate_scenario(scenario) == []

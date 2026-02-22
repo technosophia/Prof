@@ -1,0 +1,50 @@
+# Actor reference:
+# - student: actions taken by the student (uses student_id from setup)
+# - teacher: actions taken by the trainer (uses trainer_id from setup)
+# - system: setup and configuration actions (no user context required)
+meta:
+  name: "scenario_full_integration"
+  description: >
+    Full integration scenario example for benchmarker.
+  version: "1.0"
+
+llm: "groq"
+
+setup:
+  student_id: "normal2_m1"
+  trainer_id: "master1"
+
+steps:
+  - id: "s1"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Full integration"
+
+  - id: "s2"
+    actor: teacher
+    action: set_training_program
+    params:
+      content: "Focus on Python fundamentals and immutable data structures."
+
+  - id: "s3"
+    actor: student
+    action: user_send_message
+    params:
+      content: "What is the difference between a list and a tuple in Python?"
+
+assertions:
+  - id: "a1"
+    type: action_succeeded
+    params:
+      step_id: "s1"
+
+  - id: "a2"
+    type: action_succeeded
+    params:
+      step_id: "s2"
+
+  - id: "a3"
+    type: action_succeeded
+    params:
+      step_id: "s3"

@@ -82,3 +82,21 @@ The `source` field is the `__name__` of the registered callback, e.g.:
 
 Use `source_contains` with a substring (e.g. `"rag"`, `"memory"`, `"student_pad"`)
 rather than the exact callback name, which may change.
+
+
+## Actor semantics
+
+Scenarios use three actor values:
+
+| actor | context fields used | typical actions |
+|---|---|---|
+| `student` | `student_id`, `conversation_id` | `user_send_message`, `create_conversation` |
+| `teacher` | `trainer_id`, `student_id`, `conversation_id` | `teacher_send_message`, `trigger_memory_analysis`, `set_training_program`, `add_student_note` |
+| `system` | any | `create_conversation`, `set_training_program`, `switch_option` |
+
+`actor: teacher` means the action runs with `trainer_id` from the driver
+context (set from `setup.trainer_id` at scenario start). It does NOT require
+a separate `teacher_id` field — the trainer IS the teacher in this app.
+
+Actor validation: violations log a WARNING and record a step error.
+The run continues (does not abort).

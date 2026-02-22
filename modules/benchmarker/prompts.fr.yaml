@@ -63,3 +63,15 @@ judge_response_format: |
   {dimension_lines}
     overall: <mean of above>
     notes: "<one paragraph evaluation summary>"
+
+diagnose_tab_title: "Diagnostiquer"
+diagnose_options_header: "Options enregistrées"
+diagnose_actions_header: "Actions enregistrées"
+diagnose_validator_header: "Validateur de scénario"
+diagnose_context_header: "Contexte courant du driver"
+diagnose_no_options: "Aucune option enregistrée. Vérifiez que les modules qui enregistrent des options driver sont activés."
+diagnose_no_actions: "Aucune action enregistrée. Vérifiez que le benchmarker est correctement initialisé."
+diagnose_scenario_valid: "Le scénario est valide — toutes les options et actions sont enregistrées."
+diagnose_context_not_set: "non défini"
+diagnose_actor_caption: "Mappage des acteurs : 'student' → student_id | 'teacher' → trainer_id | 'system' → actions de configuration"
+compare_min_runs_hint: "Pour comparer, exécutez ce scénario au moins deux fois avec des options '{group_by}' différentes."

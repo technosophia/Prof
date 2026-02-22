@@ -63,3 +63,15 @@ judge_response_format: |
   {dimension_lines}
     overall: <mean of above>
     notes: "<one paragraph evaluation summary>"
+
+diagnose_tab_title: "Diagnose"
+diagnose_options_header: "Registered Options"
+diagnose_actions_header: "Registered Actions"
+diagnose_validator_header: "Scenario Validator"
+diagnose_context_header: "Current Driver Context"
+diagnose_no_options: "No options registered. Check that modules with driver registration are enabled."
+diagnose_no_actions: "No actions registered. Check that the benchmarker initialized correctly."
+diagnose_scenario_valid: "Scenario is valid — all options and actions are registered."
+diagnose_context_not_set: "not set"
+diagnose_actor_caption: "Actor mapping: 'student' → student_id | 'teacher' → trainer_id | 'system' → setup actions"
+compare_min_runs_hint: "To compare, run this scenario at least twice with different '{group_by}' options."

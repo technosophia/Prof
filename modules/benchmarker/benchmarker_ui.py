@@ -166,6 +166,10 @@ def _render_compare_tab() -> None:
         return
 
     scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), sorted(scenarios))
+    st.caption(
+        "Select a scenario, then choose which option to compare across runs. "
+        "Each run with a different option value becomes one column in the comparison."
+    )
     group_choices = sorted(get_driver().list_options().keys()) or ["memory_backend"]
     group_by = st.selectbox(_p("compare_group_by", "Group by option"), group_choices)
     rubric_options = ["None"] + RubricLoader().list_available()
@@ -177,6 +181,17 @@ def _render_compare_tab() -> None:
         if not report.groups:
             st.info(_p("compare_no_runs", "No runs found for this scenario."))
             return
+
+        if len(report.groups) < 2:
+            st.info(
+                _p(
+                    "compare_min_runs_hint",
+                    "To compare, run this scenario at least twice with different '{group_by}' options.",
+                ).format(group_by=group_by)
+                + " "
+                + f"Currently only {len(report.groups)} option value(s) found: "
+                + f"{[g.option_value for g in report.groups]}"
+            )
 
         has_scores = any(g.score_count > 0 for g in report.groups)
         if not has_scores:
@@ -206,14 +221,15 @@ def _render_compare_tab() -> None:
 
 
 def render() -> None:
-    """Render benchmarker UI with Run, History, Judge and Compare tabs."""
+    """Render benchmarker UI with Run, History, Judge, Compare and Diagnose tabs."""
     runner = ScenarioRunner()
 
-    run_tab, history_tab, judge_tab, compare_tab = st.tabs([
+    run_tab, history_tab, judge_tab, compare_tab, diagnose_tab = st.tabs([
         _p("run_tab_title", "Run Scenario"),
         _p("history_tab_title", "History"),
         _p("judge_tab_title", "Judge"),
         _p("compare_tab_title", "Compare"),
+        _p("diagnose_tab_title", "Diagnose"),
     ])
 
     with run_tab:
@@ -237,6 +253,12 @@ def render() -> None:
             _p("scenario_preview", "Steps: {step_count} | Options: {options_summary}").format(
                 step_count=len(scenario.get("steps", [])),
                 options_summary=str(scenario.get("options", {})),
+            )
+        )
+        st.caption(
+            _p(
+                "diagnose_actor_caption",
+                "Actor mapping: 'student' → student_id | 'teacher' → trainer_id | 'system' → setup actions",
             )
         )
 
@@ -329,3 +351,97 @@ def render() -> None:
 
     with compare_tab:
         _render_compare_tab()
+
+    with diagnose_tab:
+        driver = get_driver()
+
+        st.subheader(f"🔌 {_p('diagnose_options_header', 'Registered Options')}")
+        options_map = driver.list_options()
+        if not options_map:
+            st.warning(
+                _p(
+                    "diagnose_no_options",
+                    "No options registered. Check that modules with driver registration are enabled.",
+                )
+            )
+        else:
+            for group, options in options_map.items():
+                st.markdown(f"**{group}**")
+                active_name = driver.get_active_option(group)
+                for option in options:
+                    is_active = active_name == option.get("name")
+                    marker = "🟢 ✓ active" if is_active else "⚪"
+                    st.write(
+                        f"{marker} `{option.get('name', '')}` — {option.get('description', '')}"
+                    )
+
+        st.subheader(f"⚡ {_p('diagnose_actions_header', 'Registered Actions')}")
+        actions = driver.list_actions()
+        if not actions:
+            st.warning(_p("diagnose_no_actions", "No actions registered. Check that the benchmarker initialized correctly."))
+        else:
+            st.dataframe(
+                [
+                    {
+                        "action name": action.get("name", ""),
+                        "description": action.get("description", ""),
+                        "required context": ", ".join(action.get("required_context", [])) or "(none)",
+                    }
+                    for action in actions
+                ],
+                width="stretch",
+            )
+
+        st.subheader(f"✅ {_p('diagnose_validator_header', 'Scenario Validator')}")
+        scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
+        if os.path.isdir(scenarios_dir):
+            scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
+        else:
+            scenario_files = []
+
+        if not scenario_files:
+            st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
+        else:
+            selected = st.selectbox("Scenario", scenario_files, key="benchmarker_diagnose_scenario")
+            scenario_path = os.path.join(scenarios_dir, selected)
+            scenario = _load_scenario(scenario_path)
+            validation_errors = ScenarioRunner().validate_scenario(scenario)
+            if not validation_errors:
+                st.success(_p("diagnose_scenario_valid", "Scenario is valid — all options and actions are registered."))
+            else:
+                for err in validation_errors:
+                    st.error(err)
+
+            steps = scenario.get("steps", [])
+            actor_counts: Dict[str, int] = {}
+            required_actions = []
+            for step in steps:
+                actor = step.get("actor", "?")
+                actor_counts[actor] = actor_counts.get(actor, 0) + 1
+                action_name = step.get("action", "")
+                if action_name and action_name not in required_actions:
+                    required_actions.append(action_name)
+
+            actors_summary = ", ".join([f"{actor} ({count})" for actor, count in actor_counts.items()])
+            options_required = ", ".join(list((scenario.get("options") or {}).keys())) or "(none)"
+            actions_required = ", ".join(required_actions) or "(none)"
+            st.caption(
+                f"Steps: {len(steps)} | Actors: {actors_summary}"
+            )
+            st.caption(f"Options required: {options_required}")
+            st.caption(f"Actions required: {actions_required}")
+
+        st.subheader(f"🔍 {_p('diagnose_context_header', 'Current Driver Context')}")
+        context = driver.get_context()
+        not_set = _p("diagnose_context_not_set", "not set")
+        st.dataframe(
+            [
+                {"field": "student_id", "value": context.student_id or not_set},
+                {"field": "trainer_id", "value": context.trainer_id or not_set},
+                {"field": "conversation_id", "value": context.conversation_id or not_set},
+                {"field": "llm_id", "value": context.llm_id or not_set},
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+        st.caption("Context is set at scenario run time. Between runs it may be stale from the last run.")
