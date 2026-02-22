@@ -59,7 +59,6 @@ def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
         # Check if we have any results
         # search_results is a dict with engine names as keys
         if not search_results or all(len(results) == 0 for results in search_results.values()):
-            log("warning", "No RAG results found for query")
             st.session_state.last_rag_context = "No relevant documents found in knowledge base."
             return ""
 
