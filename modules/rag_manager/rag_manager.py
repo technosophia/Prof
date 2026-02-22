@@ -364,6 +364,11 @@ class RAGManager:
                 doc_info['file_path']
             )
 
+            log(
+                "debug",
+                f"Index request: engine={engine_type}, filename={filename}, requested_by={user_id}, indexed_owner={doc_info['uploaded_by']}"
+            )
+
             if success:
                 # Update metadata
                 if 'indexed_in' not in doc_info:
@@ -457,6 +462,7 @@ class RAGManager:
 
         accessible_docs = self.get_user_documents(user_id)
         if not accessible_docs:
+            log("warning", f"Search aborted: no accessible docs for user={user_id}, query={query!r}, engine={engine_type}")
             return results
 
         allowed_filenames = {doc['filename'] for doc in accessible_docs}
@@ -467,6 +473,11 @@ class RAGManager:
             owner = doc['uploaded_by']
             owners.setdefault(owner, [])
 
+        log(
+            "debug",
+            f"Search owner scope: requester={user_id}, engine={engine_type}, query={query!r}, owners={list(owners.keys())}, accessible_docs={len(accessible_docs)}"
+        )
+
         if engine_type:
             engine = self.get_engine(engine_type)
             if not engine:
@@ -474,6 +485,7 @@ class RAGManager:
 
             engine_results = []
             for owner in owners:
+                log("debug", f"Search dispatch: engine={engine_type}, owner={owner}, query={query!r}")
                 owner_results = engine.search(owner, query, limit * 5)  # Get more candidates per owner
                 for result in owner_results:
                     if result['filename'] in allowed_filenames:
