@@ -1,7 +1,7 @@
 """Benchmarker test-local pytest bootstrap.
 
-Ensures app-like initialization when running benchmarker tests, without
-side-effects on unrelated test suites.
+IMPORTANT: keep imports side-effect free at module import time so this conftest
+cannot interfere with unrelated suites when benchmarker is present in testpaths.
 """
 
 from __future__ import annotations
@@ -10,17 +10,12 @@ import logging
 import os
 import warnings
 
+import pytest
 from dotenv import load_dotenv
-
-from modules.rag_manager import rag_manager
-from shared.cached import get_config, get_db_manager, get_user_manager
-from shared.common import configure_logging_from_dict, init_database, init_user_manager, log
-from shared.module_handler import ModuleHandler
-from shared.ui_registry import UIRegistry
 
 
 def _prepare_environment() -> None:
-    """Prepare env/log filtering before config/manager initialization."""
+    """Prepare env/log filtering before benchmarker-only initialization."""
     load_dotenv()
     os.environ.setdefault("TEST_MODE", "true")
 
@@ -40,7 +35,10 @@ def _prepare_environment() -> None:
     )
 
 
-def _initialize_modules() -> ModuleHandler:
+def _initialize_modules():
+    from shared.common import log
+    from shared.module_handler import ModuleHandler
+
     handler = ModuleHandler()
     handler.initialize()
 
@@ -52,48 +50,20 @@ def _initialize_modules() -> ModuleHandler:
     return handler
 
 
-def _initialize_ui_registry(handler: ModuleHandler) -> None:
+def _initialize_ui_registry(handler) -> None:
+    from shared.common import log
+    from shared.ui_registry import UIRegistry
+
     ui_registry = UIRegistry()
     ui_registry.set_module_handler(handler)
     ui_registry.render_all("initialize")
     log("info", "[benchmarker/tests] UI registry initialize hooks executed")
 
 
-import pytest
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _benchmarker_session_bootstrap():
-    """Bootstrap only for tests under modules/benchmarker/tests scope."""
-    _prepare_environment()
-
-    cfg = get_config()
-
-    if not cfg.get("llms.ollama_qwen.enabled", False):
-        cfg.set("llms.ollama_qwen.enabled", True)
-        log("info", "[benchmarker/tests] Enabled llms.ollama_qwen for benchmarker integration tests")
-
-    configure_logging_from_dict(cfg.get("logging", {}))
-
-    db = get_db_manager()
-    if not db.is_initialized():
-        db_cfg = cfg.get("database", {})
-        db_url_or_path = db_cfg.get("url") or db_cfg.get("path")
-        if db_url_or_path:
-            init_database(use_memory=False, db_path=db_url_or_path)
-        else:
-            init_database(use_memory=False)
-        log("info", "[benchmarker/tests] Database initialized in benchmarker session bootstrap")
-
-    init_user_manager(create_default_users=True)
-    get_user_manager()._create_default_users_fallback()
-    log("info", "[benchmarker/tests] Default users ensured in benchmarker session bootstrap")
-
-    handler = _initialize_modules()
-    _initialize_ui_registry(handler)
-
-
 def _ensure_integration_runtime_initialized() -> None:
+    from shared.cached import get_config, get_db_manager, get_user_manager
+    from shared.common import init_database, init_user_manager, log
+
     cfg = get_config()
     db = get_db_manager()
 
@@ -119,6 +89,10 @@ def _ensure_integration_runtime_initialized() -> None:
 
 
 def _reset_rag_for_integration() -> None:
+    from modules.rag_manager import rag_manager
+    from shared.cached import get_config, get_user_manager
+    from shared.common import log
+
     cfg = get_config()
     classic_cfg = (cfg.get("modules.rag_manager", {}) or {}).get("engines", {}).get("classic", {})
     configured_threshold = classic_cfg.get("similarity_threshold", 0.3)
@@ -132,6 +106,43 @@ def _reset_rag_for_integration() -> None:
     if trainer is not None:
         rag_manager.clear_all_documents(trainer["id"])
         log("info", "[benchmarker/tests] Cleared trainer RAG docs before integration run")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _benchmarker_session_bootstrap(request):
+    """Bootstrap only when benchmarker tests are actually part of this session."""
+    if not any(item.nodeid.startswith("modules/benchmarker/tests/") for item in request.session.items):
+        return
+
+    _prepare_environment()
+
+    from shared.cached import get_config, get_db_manager, get_user_manager
+    from shared.common import configure_logging_from_dict, init_database, init_user_manager, log
+
+    cfg = get_config()
+
+    if not cfg.get("llms.ollama_qwen.enabled", False):
+        cfg.set("llms.ollama_qwen.enabled", True)
+        log("info", "[benchmarker/tests] Enabled llms.ollama_qwen for benchmarker integration tests")
+
+    configure_logging_from_dict(cfg.get("logging", {}))
+
+    db = get_db_manager()
+    if not db.is_initialized():
+        db_cfg = cfg.get("database", {})
+        db_url_or_path = db_cfg.get("url") or db_cfg.get("path")
+        if db_url_or_path:
+            init_database(use_memory=False, db_path=db_url_or_path)
+        else:
+            init_database(use_memory=False)
+        log("info", "[benchmarker/tests] Database initialized in benchmarker session bootstrap")
+
+    init_user_manager(create_default_users=True)
+    get_user_manager()._create_default_users_fallback()
+    log("info", "[benchmarker/tests] Default users ensured in benchmarker session bootstrap")
+
+    handler = _initialize_modules()
+    _initialize_ui_registry(handler)
 
 
 def pytest_runtest_setup(item):
