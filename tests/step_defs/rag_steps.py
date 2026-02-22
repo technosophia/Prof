@@ -316,7 +316,7 @@ def verify_rag_enhanced_response(context):
         r"Louvre.*Paris"
     ]
 
-    max_attempts = 15
+    max_attempts = 3
     found_address = False
     response_text = ""
 

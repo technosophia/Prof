@@ -1,4 +1,4 @@
-# file name: test_test_steps.py
+# file name: test_steps.py
 """
 pytest-bdd step definitions for Test admin UI testing.
 Tests the Test module functionality in the admin panel.

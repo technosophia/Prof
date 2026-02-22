@@ -1,5 +1,7 @@
 """
 Tests for RAG Manager module.
+
+TODO : make regression in tests/step_defs/rag_steps.py::test_rag_enabled_conversation
 """
 
 import pytest
