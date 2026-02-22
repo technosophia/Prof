@@ -8,7 +8,7 @@ import pytest
 
 from modules.benchmarker.runner import ScenarioRunner
 from modules.rag_manager import rag_manager
-from shared.cached import get_config, get_db_manager
+from shared.cached import get_db_manager
 from shared.common import get_user_manager, log
 
 
@@ -20,21 +20,9 @@ NEXORIA_DOC = Path("modules/benchmarker/tests/nexoria.md")
 
 
 def _assert_database_ready() -> None:
-    db_cfg = get_config().get("database", {})
-    db_url_or_path = db_cfg.get("url") or db_cfg.get("path", "")
-
-    if db_url_or_path.startswith("sqlite:///"):
-        db_file = db_url_or_path.removeprefix("sqlite:///")
-    else:
-        db_file = db_url_or_path
-
-    assert db_file, "Database path must be configured for integration tests"
-    assert Path(db_file).exists(), f"Database file does not exist: {db_file}"
-
-    # Do not initialize DB here: the environment must already provide a ready DB session.
     assert get_db_manager().is_initialized(), (
-        "Database manager is not initialized in this process. "
-        "This test expects the test harness to initialize it before execution."
+        "Database manager is not initialized. "
+        "It must be initialized by pytest bootstrap before tests execute."
     )
 
 
