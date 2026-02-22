@@ -408,7 +408,7 @@ def _show_engines_tab():
 
 
 def _show_search_test_tab():
-    """Show search testing tab."""
+    """Show search testing tab with diagnostics and integrity tooling."""
     st.header("Search Test")
 
     current_user = st.session_state.get('current_user')
@@ -417,58 +417,262 @@ def _show_search_test_tab():
         return
 
     user_id = current_user['id']
+    user_role = current_user.get('role')
+    engines = rag_manager.get_available_engines()
+    available_engine_types = [e['type'] for e in engines if e['available']]
+
+    docs = rag_manager.get_user_documents(user_id)
+
+    with st.expander("🔬 System Diagnostics", expanded=False):
+        st.write(f"**Current user:** `{user_id}` (role: `{user_role}`)")
+
+        st.subheader("Accessible Documents")
+        if docs:
+            st.dataframe([
+                {
+                    'original_filename': d['original_filename'],
+                    'uploaded_by': d['uploaded_by'],
+                    'indexed_in': ', '.join(d.get('indexed_in', [])) if d.get('indexed_in') else '-'
+                }
+                for d in docs
+            ], width='stretch')
+        else:
+            st.error("No documents accessible — search will always return empty.")
+
+        st.subheader("Engine Index Contents")
+        for eng_type in available_engine_types:
+            eng = rag_manager.get_engine(eng_type)
+            indexed_docs = eng.get_indexed_documents(user_id) if eng else []
+            if indexed_docs:
+                st.success(f"{eng_type}: {len(indexed_docs)} document(s) indexed under user_id `{user_id}`")
+            else:
+                st.warning(f"{eng_type}: 0 documents indexed under user_id `{user_id}`")
+
+        st.subheader("Owner ID Mismatch Check")
+        mismatch_rows = []
+        for doc in docs:
+            owner_id = doc['uploaded_by']
+            row = {
+                'filename': doc['filename'],
+                'uploaded_by': owner_id
+            }
+            for eng_type in available_engine_types:
+                eng = rag_manager.get_engine(eng_type)
+                owner_present = False
+                if eng:
+                    if eng_type == 'simple':
+                        owner_present = owner_id in getattr(eng, 'indices', {})
+                    else:
+                        owner_present = owner_id in getattr(eng, 'metadata', {})
+                row[f'{eng_type}_owner_present'] = '✅' if owner_present else '❌'
+            mismatch_rows.append(row)
+
+        if mismatch_rows:
+            st.dataframe(mismatch_rows, width='stretch')
+            for row in mismatch_rows:
+                missing = [k.replace('_owner_present', '') for k, v in row.items() if k.endswith('_owner_present') and v == '❌']
+                if missing:
+                    st.error(
+                        f"Owner mismatch for `{row['filename']}` (owner `{row['uploaded_by']}`) in engine(s): {', '.join(missing)}"
+                    )
 
     col1, col2 = st.columns([3, 1])
-
     with col1:
         query = st.text_input("Enter search query", placeholder="Search in your documents...")
-
     with col2:
-        engines = rag_manager.get_available_engines()
-        engine_options = ["All"] + [e['type'] for e in engines if e['available']]
+        engine_options = ["All"] + available_engine_types
         selected_engine = st.selectbox("Engine", engine_options, index=0)
 
-    if query and st.button("🔍 Search", type="primary"):
-        with st.spinner("Searching..."):
-            if selected_engine == "All":
-                results = rag_manager.search(user_id, query)
-            else:
-                results = rag_manager.search(user_id, query, selected_engine)
+    threshold = st.slider(
+        "Similarity Threshold (vector engines only)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.5,
+        step=0.05,
+        help="Temporarily applied to classic/faiss_hierarchical for this search only."
+    )
+    st.caption("Threshold change is temporary and only applied for the current search execution.")
 
-            # Always show all available engines, even if empty
-            if selected_engine == "All":
-                all_engines = [e['type'] for e in engines if e['available']]
-                for engine_type in all_engines:
-                    engine_results = results.get(engine_type, [])
-                    with st.expander(f"{engine_type.upper()} Engine ({len(engine_results)} results)", expanded=False):
-                        if engine_results:
-                            for i, result in enumerate(engine_results):
-                                st.write(f"**Document:** {result['filename']}")
-                                st.write(f"**Score:** {result['score']:.4f}")
-                                st.write(f"**Content:**")
-                                st.info(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
-                                if i < len(engine_results) - 1:
-                                    st.divider()
-                        else:
-                            st.info(f"No results found from {engine_type.upper()} engine")
-            else:
-                # Single engine search
-                engine_results = results.get(selected_engine, [])
-                if engine_results:
-                    st.subheader(f"Results from {selected_engine.upper()} ({len(engine_results)} found)")
-                    for i, result in enumerate(engine_results):
-                        st.write(f"**Document:** {result['filename']}")
-                        st.write(f"**Score:** {result['score']:.4f}")
-                        st.write(f"**Content:**")
-                        st.info(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
-                        if i < len(engine_results) - 1:
-                            st.divider()
+    integrity_failures = []
+
+    def run_integrity_check():
+        check_rows = []
+        failed_docs = []
+
+        user_docs = rag_manager.get_user_documents(user_id)
+        for doc in user_docs:
+            filename = doc['filename']
+            owner_id = doc['uploaded_by']
+            metadata_doc = rag_manager.documents.get(filename, {})
+            file_path = metadata_doc.get('file_path', '')
+            file_exists = bool(file_path) and os.path.exists(file_path)
+
+            if not file_exists:
+                check_rows.append({
+                    'filename': filename,
+                    'engine': '-',
+                    'status': '❌ File missing on disk'
+                })
+                failed_docs.append(doc)
+                continue
+
+            indexed_in = doc.get('indexed_in', [])
+            if not indexed_in:
+                check_rows.append({
+                    'filename': filename,
+                    'engine': '-',
+                    'status': '⚠️ Not indexed in any engine'
+                })
+                continue
+
+            for eng_type in indexed_in:
+                eng = rag_manager.get_engine(eng_type)
+                if not eng:
+                    check_rows.append({
+                        'filename': filename,
+                        'engine': eng_type,
+                        'status': '⚠️ Engine unavailable'
+                    })
+                    failed_docs.append(doc)
+                    continue
+
+                indexed_docs = eng.get_indexed_documents(owner_id)
+                found = any(item.get('filename') == filename for item in indexed_docs)
+
+                if found:
+                    status = '✅ OK'
                 else:
-                    st.info(f"No results found from {selected_engine.upper()} engine")
+                    status = '⚠️ Indexed in metadata but not found in engine'
+                    failed_docs.append(doc)
 
-            # Show raw results for debugging
-            with st.expander("🔧 Debug Info", expanded=False):
-                st.json(results)
+                check_rows.append({
+                    'filename': filename,
+                    'engine': eng_type,
+                    'status': status
+                })
+
+        return check_rows, failed_docs
+
+    if st.button("🩺 Run Index Integrity Check"):
+        rows, integrity_failures = run_integrity_check()
+        if rows:
+            st.dataframe(rows, width='stretch')
+        if integrity_failures:
+            st.warning(f"Integrity issues found for {len({d['filename'] for d in integrity_failures})} document(s).")
+            if st.button("Re-index all documents"):
+                with st.spinner("Re-indexing affected documents..."):
+                    repaired = 0
+                    for doc in {d['filename']: d for d in integrity_failures}.values():
+                        filename = doc['filename']
+                        owner_id = doc['uploaded_by']
+                        indexed_in = doc.get('indexed_in', [])
+                        if not indexed_in:
+                            indexed_in = available_engine_types
+                        for eng_type in indexed_in:
+                            if rag_manager.index_document(filename, eng_type, user_id):
+                                repaired += 1
+                    st.success(f"Re-index complete. Successful indexing operations: {repaired}")
+                    rows_after, failures_after = run_integrity_check()
+                    st.dataframe(rows_after, width='stretch')
+                    if failures_after:
+                        st.error("Some integrity issues remain after re-indexing.")
+                    else:
+                        st.success("All integrity checks passed after re-indexing.")
+        else:
+            st.success("Integrity check passed.")
+
+    if query and st.button("🔍 Search", type="primary"):
+        vector_engine_types = ['classic', 'faiss_hierarchical']
+        original_thresholds = rag_manager.set_similarity_thresholds({
+            engine_type: threshold for engine_type in vector_engine_types
+        })
+
+        try:
+            with st.spinner("Searching..."):
+                if selected_engine == "All":
+                    results = rag_manager.search(user_id, query, search_all=True)
+                else:
+                    results = rag_manager.search(user_id, query, selected_engine)
+
+                if selected_engine == "All":
+                    for engine_type in available_engine_types:
+                        engine_results = results.get(engine_type, [])
+                        with st.expander(f"{engine_type.upper()} Engine ({len(engine_results)} results)", expanded=False):
+                            if engine_results:
+                                for i, result in enumerate(engine_results):
+                                    st.write(f"**Document:** {result['filename']}")
+                                    st.write(f"**Score:** {result['score']:.4f}")
+                                    st.info(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
+                                    if i < len(engine_results) - 1:
+                                        st.divider()
+                            else:
+                                st.info(f"No results found from {engine_type.upper()} engine")
+                else:
+                    engine_results = results.get(selected_engine, [])
+                    if engine_results:
+                        st.subheader(f"Results from {selected_engine.upper()} ({len(engine_results)} found)")
+                        for i, result in enumerate(engine_results):
+                            st.write(f"**Document:** {result['filename']}")
+                            st.write(f"**Score:** {result['score']:.4f}")
+                            st.info(result['content'][:500] + "..." if len(result['content']) > 500 else result['content'])
+                            if i < len(engine_results) - 1:
+                                st.divider()
+                    else:
+                        st.info(f"No results found from {selected_engine.upper()} engine")
+
+                with st.expander("🔍 Raw Debug Results (no threshold filtering)", expanded=False):
+                    debug_original_thresholds = rag_manager.set_similarity_thresholds({
+                        engine_type: 0.0 for engine_type in vector_engine_types
+                    })
+
+                    try:
+                        raw_rows = []
+                        for eng_type in available_engine_types:
+                            if selected_engine != 'All' and eng_type != selected_engine:
+                                continue
+
+                            eng = rag_manager.get_engine(eng_type)
+                            if not eng:
+                                continue
+
+                            owner_ids = sorted({d['uploaded_by'] for d in rag_manager.get_user_documents(user_id)})
+                            if eng_type == 'simple':
+                                query_terms = [w for w in query.lower().split() if w]
+                                for owner in owner_ids:
+                                    user_index = getattr(eng, 'indices', {}).get(owner, {})
+                                    for fn, data in user_index.items():
+                                        full_content = data.get('content', '')
+                                        lower_content = full_content.lower()
+                                        raw_score = sum(lower_content.count(w) for w in query_terms)
+                                        preview = eng._extract_context(full_content, query.lower()) if full_content else ''
+                                        raw_rows.append({
+                                            'engine': eng_type,
+                                            'filename': fn,
+                                            'raw_score': raw_score,
+                                            'content preview': preview[:200]
+                                        })
+                            else:
+                                for owner in owner_ids:
+                                    raw_results = eng.search(owner, query, limit=100)
+                                    for r in raw_results:
+                                        raw_rows.append({
+                                            'engine': eng_type,
+                                            'filename': r.get('filename'),
+                                            'raw_score': r.get('score', 0),
+                                            'content preview': (r.get('content', '') or '')[:200]
+                                        })
+
+                        if raw_rows:
+                            st.dataframe(raw_rows, width='stretch')
+                        else:
+                            st.info('No raw results returned even with threshold=0.0')
+                    finally:
+                        rag_manager.restore_similarity_thresholds(debug_original_thresholds)
+
+                with st.expander("🔧 Debug Info", expanded=False):
+                    st.json(results)
+        finally:
+            rag_manager.restore_similarity_thresholds(original_thresholds)
 
 
 def _show_stats_tab():

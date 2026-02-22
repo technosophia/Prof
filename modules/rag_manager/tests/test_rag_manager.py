@@ -25,15 +25,13 @@ mock_user_info = {
 }
 
 # Create proper mock for UserRole
-class MockUserRole:
+from enum import Enum
+
+
+class MockUserRole(Enum):
     ADMIN = "admin"
     MASTER = "master"
     NORMAL = "normal"
-
-    # Make it behave like an enum
-    @staticmethod
-    def value_of(value):
-        return value
 
 # Create mock user manager
 mock_user_manager = Mock()
@@ -746,6 +744,46 @@ def test_run_auto_import_skips_when_database_stays_uninitialized(temp_rag_manage
     mock_init_user_manager.assert_not_called()
     patched_user_manager.get_user.assert_not_called()
     temp_rag_manager._auto_import_for_user.assert_not_called()
+
+
+
+def test_search_all_flag_queries_all_engines(temp_rag_manager):
+    """search_all=True should not collapse to default engine only."""
+    with patch.object(temp_rag_manager, 'get_user_documents', return_value=[{
+        'filename': 'doc1',
+        'uploaded_by': 'owner1',
+        'uploaded_at': '2026-01-01T00:00:00',
+        'file_size_mb': 0.1,
+        'file_extension': '.txt',
+        'is_public': False,
+        'indexed_in': []
+    }]):
+        simple_engine = Mock()
+        simple_engine.search.return_value = []
+        classic_engine = Mock()
+        classic_engine.search.return_value = []
+
+        with patch.object(temp_rag_manager, 'engines', {'simple': simple_engine, 'classic': classic_engine}):
+            with patch.object(temp_rag_manager, 'get_engine', side_effect=lambda et: {'simple': simple_engine, 'classic': classic_engine}.get(et)):
+                results = temp_rag_manager.search('requester', 'query', search_all=True)
+
+    assert 'simple' in results
+    assert 'classic' in results
+    simple_engine.search.assert_called_once()
+    classic_engine.search.assert_called_once()
+
+
+def test_check_user_permission_allows_normal_to_access_master_docs(temp_rag_manager):
+    """NORMAL users should access their own master's documents."""
+    with patch.object(rag_manager_module, 'user_manager') as patched_user_manager:
+        patched_user_manager.get_user.side_effect = [
+            {'id': 'student_1', 'role': 'normal', 'parent_id': 'master_1'},
+            {'id': 'master_1', 'role': 'master'}
+        ]
+
+        allowed = temp_rag_manager._check_user_permission('student_1', 'master_1')
+
+    assert allowed is True
 
 if __name__ == "__main__":
     # Run tests manually if needed
