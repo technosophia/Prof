@@ -198,6 +198,26 @@ def initialize():
                 description=description,
             )
 
+    if _get_plugin("memory") and _get_plugin("student_pad"):
+
+        def _activate_memory_pad():
+            tid = get_driver().get_context().trainer_id
+            _activate_memory_plugin("memory", tid)
+            _activate_memory_plugin("student_pad", tid)
+
+        def _deactivate_memory_pad():
+            tid = get_driver().get_context().trainer_id
+            _deactivate_memory_plugin("memory", tid)
+            _deactivate_memory_plugin("student_pad", tid)
+
+        register_option(
+            group="memory_backend",
+            name="memory+student_pad",
+            activate_fn=_activate_memory_pad,
+            deactivate_fn=_deactivate_memory_pad,
+            description="Summarised memory combined with student self-notes",
+        )
+
     if _get_plugin("pedagogical_memory") and _get_plugin("student_pad"):
 
         def _activate_ped_pad():

@@ -18,7 +18,7 @@ See API_PLUGIN_BASE.md for details of plugin implementation
 
 ### Option group: `memory_backend`
 Single-plugin options: `memory`, `pedagogical_memory`, `student_pad`
-Combination options: `pedagogical_memory+student_pad`
+Combination options: `memory+student_pad`, `pedagogical_memory+student_pad`
 
 Switching is mutually exclusive within the group.
 All plugins NOT in the active option are marked inactive via `_mark_inactive()`
