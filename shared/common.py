@@ -244,6 +244,24 @@ def get_prompt(key: str, default: Any = None, language: Optional[str] = None) ->
     """
     return get_prompt_manager().get_prompt(key, default, language)
 
+def set_prompt(key: str, value: Any, language: Optional[str] = None) -> bool:
+    """
+    Set a prompt value in memory only (does not save to disk).
+
+    This updates the prompt in the current runtime session only.
+    Changes will be lost when the application restarts unless saved
+    with save_prompt().
+
+    Args:
+        key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+        value: New value for the prompt
+        language: Language code for multilingual mode (e.g., 'en', 'fr')
+
+    Returns:
+        bool: True if set successfully, False otherwise
+    """
+    return get_prompt_manager().set_prompt(key, value, language)
+
 def save_prompt(key: str, new_value: Any, language: Optional[str] = None) -> bool:
     """
     Convenience function to save a modified prompt.

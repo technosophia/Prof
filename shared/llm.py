@@ -14,15 +14,19 @@ Manages multiple LLM providers and models with unified interface. Supports strea
 - `get_current_llm_id()`: Get current LLM identifier
 - `get_llm_by_name()`: Find LLM by name
 - `register_llm_callback()`: Register context generation callback - legacy
-- `unregister_llm_callback()`: Remove context callback - legacy
+- `unregister_llm_callback()`: Remove callback - legacy
 - `register_llm_context_callback()`: Register structured context callback
-- `unregister_llm_context_callback()`: Remove structured context callback
+- `unregister_llm_context_callback()`: Remove  callback
+- `register_monitor_callback()`: Register callback to monitor every llm call
+- `unregister_monitor_callback()`: Remove monitor callback
 
 # Prompt Management System (`shared/prompt_manager.py`)
 Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project. Supports multilingual prompts.
 
 **Exported functions:**
 - `get_prompt()`: Get prompt by key using dot notation
+- `set_prompt()`: Set prompt in memory
+- `save_prompt()`: Save prompt on disk
 - `get_all_prompts()`: Get all loaded prompts
 - `get_module_prompts()`: Get prompts for a specific module
 - `list_modules_with_prompts()`: List all modules with prompts

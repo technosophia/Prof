@@ -35,7 +35,7 @@ from shared.common import (
     record_plugin_event,
     register_action,
     register_option,
-    save_prompt,
+    set_prompt,
 )
 from shared.cached import get_db_manager
 from shared.driver import DriverContext
@@ -124,7 +124,7 @@ def _action_set_training_program(context: DriverContext, **params) -> Dict:
     if not content.strip():
         log("warning", "set_training_program: empty content")
         return {"saved": False, "reason": "empty_content"}
-    save_prompt("trainer.teacher.training_program", content)
+    set_prompt("trainer.teacher.training_program", content)
     return {"saved": True}
 
 

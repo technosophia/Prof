@@ -294,6 +294,52 @@ class PromptManager:
 
         return default
 
+    def set_prompt(self, key: str, value: Any, language: Optional[str] = None) -> bool:
+        """
+        Set a prompt value in memory only (does not save to disk).
+
+        Args:
+            key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+            value: New value for the prompt
+            language: Language code for multilingual mode
+
+        Returns:
+            bool: True if set successfully, False otherwise
+        """
+        # Determine the language and module path
+        if self._is_multilingual:
+            lang = language or self._default_language
+            if lang not in self._multilingual_prompts:
+                log("error", f"Language '{lang}' not available")
+                return False
+            prompts_dict = self._multilingual_prompts[lang]
+        else:
+            lang = None
+            prompts_dict = self._prompts
+
+        # Navigate to the location where we want to set the value
+        keys = key.split(".")
+        current = prompts_dict
+        path_to_parent = keys[:-1]  # All keys except the last one
+        last_key = keys[-1]
+
+        # Create intermediate dictionaries if they don't exist
+        for k in path_to_parent:
+            if k not in current:
+                current[k] = {}
+            elif not isinstance(current[k], dict):
+                # Cannot set a sub-key on a non-dict value
+                log("error", f"Cannot set '{key}': '{k}' is not a dictionary")
+                return False
+            current = current[k]
+
+        # Set the value
+        current[last_key] = value
+
+        log("debug", f"Successfully set prompt '{key}' in memory" +
+                    (f" for language '{lang}'" if lang else ""))
+        return True
+
     def save_prompt(self, key: str, new_value: Any, language: Optional[str] = None) -> bool:
         """
         Save a modified prompt back to its original file.
@@ -593,6 +639,20 @@ def get_prompt(key: str, default: Any = None, language: Optional[str] = None) ->
         Prompt value or default
     """
     return get_prompt_manager().get_prompt(key, default, language)
+
+def set_prompt(key: str, value: Any, language: Optional[str] = None) -> bool:
+    """
+    Convenience function to set a prompt in memory only.
+
+    Args:
+        key: Dot-separated key (e.g., 'rag_manager.search_prompt')
+        value: New value for the prompt
+        language: Language code for multilingual mode
+
+    Returns:
+        bool: True if set successfully, False otherwise
+    """
+    return get_prompt_manager().set_prompt(key, value, language)
 
 def save_prompt(key: str, new_value: Any, language: Optional[str] = None) -> bool:
     """
