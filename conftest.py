@@ -35,6 +35,24 @@ warnings.filterwarnings(
     message="builtin type swigvarlink has no __module__ attribute",
     category=DeprecationWarning
 )
+warnings.filterwarnings(
+    "ignore",
+    message="Thread 'MainThread': missing ScriptRunContext!",
+    category=UserWarning,
+    module="streamlit.runtime.scriptrunner_utils.script_run_context"
+)
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
+
+# Add this new filter for the specific missing ScriptRunContext warning
+warnings.filterwarnings(
+    "ignore",
+    message="Thread 'MainThread': missing ScriptRunContext!",
+    category=UserWarning,
+    module="streamlit.runtime.scriptrunner_utils.script_run_context"
+)
+
+warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
 
 # CRITICAL: Load .env BEFORE any shared imports, because shared.common
 # instantiates the LLMManager singleton (and GroqEngine) at import time.
