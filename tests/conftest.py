@@ -454,6 +454,14 @@ def streamlit_server(setup_test_environment):
 
     process = None
     try:
+        import subprocess as _sp
+        _r = _sp.run(["python", "-c",
+            "from shared.cached import get_db_manager, get_user_manager; "
+            "print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DB initialized:', get_db_manager().is_initialized()); "
+            "um = get_user_manager(); u = um.get_user('normal1_m2'); "
+            "print('normal1_m2:', u.get('name') if u else 'NOT FOUND')"],
+            capture_output=True, text=True, cwd=PROJECT_ROOT)
+        _log(f"DB state before Streamlit: {_r.stdout.strip()} {_r.stderr.strip()[:200]}")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,

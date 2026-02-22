@@ -19,6 +19,73 @@ SCENARIOS = [
 NEXORIA_DOC = Path("modules/benchmarker/tests/nexoria.md")
 
 
+@pytest.fixture(scope="session")
+def _real_driver_session_setup():
+    """Self-contained module initialization for real driver tests."""
+    from shared.cached import get_config
+    from shared.common import init_user_manager
+    from shared.module_handler import ModuleHandler
+    from shared.ui_registry import UIRegistry
+
+    cfg = get_config()
+    if not cfg.get("llms.ollama_qwen.enabled", False):
+        cfg.set("llms.ollama_qwen.enabled", True)
+        log("info", "[real_driver] Enabled llms.ollama_qwen")
+
+    init_user_manager(create_default_users=True)
+    get_user_manager()._create_default_users_fallback()
+
+    handler = ModuleHandler()
+    handler.initialize()
+    for module_name in handler.get_active_modules():
+        handler.load_module_ui(module_name)
+    log("info", f"[real_driver] Active modules loaded: {handler.get_active_modules()}")
+
+    import modules.rag_manager as _rag_module
+    _rag_module._RAG_OPTIONS_REGISTERED = False
+    _rag_module._INITIALIZED = False
+
+    ui_registry = UIRegistry()
+    ui_registry.set_module_handler(handler)
+    ui_registry.render_all("initialize")
+    log("info", "[real_driver] UI registry initialize hooks executed")
+
+
+@pytest.fixture()
+def _rag_setup():
+    """Reset and reload RAG for each integration test."""
+    from shared.cached import get_config
+
+    cfg = get_config()
+    classic_cfg = (cfg.get("modules.rag_manager", {}) or {}).get("engines", {}).get("classic", {})
+    configured_threshold = classic_cfg.get("similarity_threshold", 0.3)
+
+    classic_engine = rag_manager.get_engine("classic")
+    if classic_engine is not None and hasattr(classic_engine, "similarity_threshold"):
+        classic_engine.similarity_threshold = configured_threshold
+
+    trainer = get_user_manager().get_user("master1")
+    assert trainer is not None, "master1 user not found - DB not initialized correctly"
+
+    rag_manager.clear_all_documents(trainer["id"])
+    log("info", "[real_driver] Cleared trainer RAG docs")
+
+    filename = rag_manager.upload_document(
+        source_path=str(NEXORIA_DOC),
+        original_filename="nexoria.md",
+        user_id=trainer["id"],
+        is_public=False,
+    )
+    if not filename:
+        pytest.skip("RAG document upload failed in this environment")
+
+    indexed = rag_manager.index_document(filename, "classic", trainer["id"])
+    if not indexed:
+        pytest.skip("Classic RAG indexing unavailable (embedding model/service not ready)")
+
+    log("info", f"[real_driver] Nexoria doc indexed: {filename}")
+
+
 def _assert_database_ready() -> None:
     assert get_db_manager().is_initialized(), (
         "Database manager is not initialized. "
@@ -36,21 +103,6 @@ def _trainer_user_id_from_scenario(runner: ScenarioRunner, scenario_path: Path) 
     assert trainer is not None, f"Trainer '{trainer_name}' not found for {scenario_path}"
 
     return trainer["id"]
-
-
-def _preload_nexoria_rag(owner_user_id: str) -> None:
-    filename = rag_manager.upload_document(
-        source_path=str(NEXORIA_DOC),
-        original_filename="nexoria.md",
-        user_id=owner_user_id,
-        is_public=False,
-    )
-    if not filename:
-        pytest.skip("RAG document upload failed in this environment")
-
-    indexed = rag_manager.index_document(filename, "classic", owner_user_id)
-    if not indexed:
-        pytest.skip("Classic RAG indexing unavailable (embedding model/service not ready)")
 
 
 def _assert_full_success(runner: ScenarioRunner, scenario_path: Path):
@@ -90,13 +142,17 @@ def _assert_full_success(runner: ScenarioRunner, scenario_path: Path):
 @pytest.mark.integration
 @pytest.mark.ollama
 @pytest.mark.parametrize("scenario_path", SCENARIOS, ids=[p.stem for p in SCENARIOS])
-def test_full_run_real_driver_scenarios(tmp_path, scenario_path: Path):
+def test_full_run_real_driver_scenarios(
+    tmp_path,
+    scenario_path: Path,
+    _real_driver_session_setup,
+    _rag_setup,
+):
     _assert_database_ready()
 
     runner = ScenarioRunner()
     runner.config["sessions_dir"] = str(tmp_path)
 
     trainer_user_id = _trainer_user_id_from_scenario(runner, scenario_path)
-    _preload_nexoria_rag(trainer_user_id)
 
     _assert_full_success(runner, scenario_path)

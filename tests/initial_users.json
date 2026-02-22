@@ -80,7 +80,7 @@
     },
     {
       "id": "normal1_m2",
-      "name": "Normal User 1 (Master 2)",
+      "name": "Test User 1",
       "email": "normal1_m2@example.com",
       "role": "normal",
       "parent_id": "master2",
