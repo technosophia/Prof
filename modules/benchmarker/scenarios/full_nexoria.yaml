@@ -22,9 +22,9 @@ meta:
       engines: ["simple", "classic"]
 
 options:
-  memory_backend: "memory"
+  memory_backend: "memory+student_pad"
   rag_engine: "classic"
-  llm: "groq"
+  llm: "ollama_qwen"
 
 setup:
   student_id: "normal2_m1"

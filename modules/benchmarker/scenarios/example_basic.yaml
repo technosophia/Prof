@@ -9,7 +9,7 @@ meta:
     Validates that conversation is created and messages are sent.
   version: "1.0"
 
-llm: "groq"
+llm: "ollama_qwen"
 
 setup:
   student_id: "normal2_m1"
