@@ -5,7 +5,7 @@
     "local_mode": true,
     "test_mode": true,
     "debug_llm": ["Ollama Small", "Groq Llama 3"],
-    "llm_delay": 5000
+    "llm_delay": 500
   },
   "database": {
     "path": "sqlite:///tests/data/app.db",
