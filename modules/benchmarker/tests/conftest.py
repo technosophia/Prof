@@ -85,3 +85,40 @@ def pytest_configure(config):
 
     handler = _initialize_modules()
     _initialize_ui_registry(handler)
+
+
+def _ensure_integration_runtime_initialized() -> None:
+    """Re-establish app-like runtime before real integration scenarios.
+
+    Some unit tests in this folder (notably scorer tests) switch the global DB manager
+    to in-memory mode. The real-driver integration test needs the regular test DB with
+    default users and initialized modules.
+    """
+    cfg = get_config()
+    db = get_db_manager()
+
+    current_url = ""
+    if getattr(db, "_engine", None) is not None:
+        current_url = str(db._engine.url)
+
+    if (not db.is_initialized()) or (":memory:" in current_url):
+        db.dispose()
+        db_cfg = cfg.get("database", {})
+        db_url_or_path = db_cfg.get("url") or db_cfg.get("path")
+        if db_url_or_path:
+            init_database(use_memory=False, db_path=db_url_or_path)
+        else:
+            init_database(use_memory=False)
+        log("info", "[benchmarker/tests] Reinitialized persistent test DB for integration run")
+
+    init_user_manager(create_default_users=True)
+    get_user_manager()._create_default_users_fallback()
+
+    handler = _initialize_modules()
+    _initialize_ui_registry(handler)
+
+
+def pytest_runtest_setup(item):
+    """Ensure integration scenario test always runs with the proper runtime state."""
+    if "test_runner_integration_real_driver.py" in item.nodeid:
+        _ensure_integration_runtime_initialized()
