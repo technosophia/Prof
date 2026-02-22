@@ -171,12 +171,12 @@ def initialize():
     """Initialize the Trainer module."""
     global _DRIVER_REGISTRATION_DONE
 
-    log("info", "Initializing Trainer module")
+    log("debug", "Initializing Trainer module")
 
     get_db_manager()
     ensure_tables_exist()
     plugin_manager = get_plugin_manager()
-    log("info", f"Loaded {len(plugin_manager.get_all_plugins())} Trainer plugins")
+    log("debug", f"Loaded {len(plugin_manager.get_all_plugins())} Trainer plugins")
 
     if _DRIVER_REGISTRATION_DONE:
         log("debug", "trainer: driver options/actions already registered")

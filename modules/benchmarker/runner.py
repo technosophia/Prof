@@ -355,6 +355,7 @@ class ScenarioRunner:
             elif atype == "injected_context_contains":
                 step_id = params.get("step_id")
                 contains = params.get("contains", "")
+                not_contains = params.get("not_contains", "")
                 source_contains = params.get("source_contains", "")
 
                 step = _get_step_result(step_id)
@@ -387,7 +388,63 @@ class ScenarioRunner:
                                 )
 
                         if not message:
-                            if contains:
+                            def _normalize_text(text: str) -> str:
+                                return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+                            no_rag_markers = [
+                                "no rag results found",
+                                "no rag result found",
+                                "no results found",
+                                "no result found"
+                            ]
+
+                            forbidden_terms = []
+                            if not_contains:
+                                forbidden_terms.append(_normalize_text(not_contains))
+                            forbidden_terms.extend(no_rag_markers)
+
+                            if candidates:
+                                debug_previews = [
+                                    {
+                                        "source": c.get("source", ""),
+                                        "content_preview": (c.get("content", "") or "")[:120],
+                                    }
+                                    for c in candidates
+                                ]
+                                log("debug", f"[benchmarker] injected_context_contains candidates for step {step_id}: {debug_previews}")
+
+                            forbidden_match = None
+                            matched_term = ""
+                            for term in forbidden_terms:
+                                forbidden_match = next(
+                                    (c for c in candidates if term in _normalize_text(c.get("content", ""))),
+                                    None,
+                                )
+                                if forbidden_match:
+                                    matched_term = term
+                                    break
+
+                            if forbidden_match:
+                                preview = forbidden_match.get("content", "")[:140]
+                                log("info", f"[benchmarker] injected_context_contains forbidden term matched for step {step_id}: {matched_term}")
+                                if matched_term in no_rag_markers:
+                                    message = (
+                                        f"Context for step '{step_id}' contains '{matched_term}', "
+                                        "so injected_context_contains cannot pass. "
+                                        f"Content preview: '{preview}...'"
+                                    )
+                                else:
+                                    message = (
+                                        f"Context from source matching '{source_contains}' for step '{step_id}' "
+                                        f"contains forbidden text '{not_contains}'."
+                                    )
+                            elif not_contains:
+                                passed = True
+                                message = (
+                                    f"Context from source matching '{source_contains}' for step '{step_id}' "
+                                    f"does not contain '{not_contains}'."
+                                )
+                            elif contains:
                                 matching = [
                                     c for c in candidates if contains.lower() in c.get("content", "").lower()
                                 ]

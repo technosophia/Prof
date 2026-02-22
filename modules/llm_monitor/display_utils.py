@@ -226,22 +226,28 @@ def render_rate_limit_summary(monitor, provider: str = "groq"):
                         delta_color="inverse"
                     )
 
-        # Add progress bars for visual representation
+        # Add progress bars for visual representation - FIXED with min()
         if usage["daily"].get("requests_limit") and usage["daily"]["requests_limit"] > 0:
+            # Cap progress value at 1.0 to avoid Streamlit error
+            progress_value = min(usage["daily"]["requests"] / usage["daily"]["requests_limit"], 1.0)
             st.progress(
-                usage["daily"]["requests"] / usage["daily"]["requests_limit"],
+                progress_value,
                 text=f"Daily Requests: {(usage['daily']['requests'] / usage['daily']['requests_limit'] * 100):.1f}%"
             )
 
         if usage["hourly"].get("requests_limit") and usage["hourly"]["requests_limit"] > 0:
+            # Cap progress value at 1.0 to avoid Streamlit error
+            progress_value = min(usage["hourly"]["requests"] / usage["hourly"]["requests_limit"], 1.0)
             st.progress(
-                usage["hourly"]["requests"] / usage["hourly"]["requests_limit"],
+                progress_value,
                 text=f"Hourly Requests: {(usage['hourly']['requests'] / usage['hourly']['requests_limit'] * 100):.1f}%"
             )
 
         if usage["daily"].get("tokens_limit") and usage["daily"]["tokens_limit"] > 0:
+            # Cap progress value at 1.0 to avoid Streamlit error
+            progress_value = min(usage["daily"]["tokens"] / usage["daily"]["tokens_limit"], 1.0)
             st.progress(
-                usage["daily"]["tokens"] / usage["daily"]["tokens_limit"],
+                progress_value,
                 text=f"Daily Tokens: {(usage['daily']['tokens'] / usage['daily']['tokens_limit'] * 100):.1f}%"
             )
 
