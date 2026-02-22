@@ -370,8 +370,14 @@ class ScenarioRunner:
                     else:
                         candidates = injected
                         if source_contains:
+                            alias_map = {
+                                "student_pad": ["student_pad", "student_note", "student_notes", "get_student_notes_context"],
+                            }
+                            match_terms = alias_map.get(source_contains.lower(), [source_contains.lower()])
                             candidates = [
-                                c for c in injected if source_contains.lower() in c.get("source", "").lower()
+                                c
+                                for c in injected
+                                if any(term in c.get("source", "").lower() for term in match_terms)
                             ]
                             if not candidates:
                                 sources = [c.get("source", "") for c in injected]

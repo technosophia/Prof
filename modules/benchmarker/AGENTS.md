@@ -83,6 +83,9 @@ The `source` field is the `__name__` of the registered callback, e.g.:
 Use `source_contains` with a substring (e.g. `"rag"`, `"memory"`, `"student_pad"`)
 rather than the exact callback name, which may change.
 
+Alias note: `source_contains: "student_pad"` is treated as matching
+`get_student_notes_context` (student pad callback naming variant).
+
 ### Known pitfall: context injection requires user_id through generate()
 
 `_add_llm_context()` in `shared/llm.py` is only called inside `generate()`,

@@ -343,3 +343,30 @@ def test_validate_scenario_passes_with_all_registered():
     }
 
     assert runner.validate_scenario(scenario) == []
+
+
+def test_injected_context_source_alias_student_pad_matches_student_notes_callback():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "get_student_notes_context", "content": "some note", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "source_contains": "student_pad"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
