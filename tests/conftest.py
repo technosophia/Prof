@@ -5,6 +5,7 @@ Pytest configuration and fixtures for all tests.
 import sys
 import os
 import json
+import copy
 import pytest
 import time
 import subprocess
@@ -122,6 +123,20 @@ def pytest_sessionfinish(session, exitstatus):
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True,
                    capture_output=True, timeout=5)
 
+    db_dir, db_full_path = get_database_file_path()
+    if get_db_manager().is_initialized():
+        get_db_manager().dispose()
+
+    if os.path.exists(db_full_path):
+        os.unlink(db_full_path)
+        _log(f"✓ Deleted database file: {db_full_path}")
+
+    cleanup_directory(db_dir)
+
+    rag_data_dir = getattr(rag_manager, "data_dir", None)
+    if rag_data_dir:
+        cleanup_directory(str(rag_data_dir))
+
 def pytest_sessionstart(session):
     """Initialize database at the VERY beginning of the test session."""
     _log("=== SESSION START - INITIALIZING DATABASE ===")
@@ -171,10 +186,26 @@ def pytest_sessionstart(session):
     # Create default users
     _log("Creating default users...")
     try:
+        init_user_manager(create_default_users=True)
         get_user_manager()._create_default_users_fallback()
         _log("✓ Default users created")
     except Exception as e:
         _log(f"⚠ Error creating default users: {e}", level="ERROR")
+
+    _log("Initializing modules and UI registry...")
+    handler = ModuleHandler()
+    handler.initialize()
+    for module_name in handler.get_active_modules():
+        handler.load_module_ui(module_name)
+
+    ui_registry = UIRegistry()
+    ui_registry.set_module_handler(handler)
+    ui_registry.render_all("initialize")
+    _log("✓ Modules initialized")
+
+    _log("Preparing shared RAG test corpus...")
+    setup_rag_test_data()
+    _log("✓ Shared RAG test corpus ready")
 
     return db_dir
 
@@ -182,6 +213,13 @@ def pytest_bdd_before_step(request, feature, scenario, step, step_func):
     """Log step before execution."""
     _log(f"\n[STEP START] Feature: {feature.name} - Scenario: {scenario.name}")
     _log(f"           Step:@{step.type} {step.name}")
+
+
+def pytest_collection_modifyitems(items):
+    """Tag benchmarker tests for selective runs/debugging."""
+    for item in items:
+        if item.nodeid.startswith("modules/benchmarker/tests/"):
+            item.add_marker("benchmarker")
 
 SCOPE = "module"
 TEST_PORT = 8505
@@ -194,11 +232,15 @@ os.environ["PYTHONPATH"] = PROJECT_ROOT
 
 os.environ["TEST_MODE"] = "true"
 os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
+from pathlib import Path
+import tempfile
+
 from shared.cached import get_config
-from shared.common import init_database
+from shared.common import init_database, init_user_manager
 from shared.cached import get_db_manager
 from shared.cached import get_user_manager
-import tempfile
+from shared.module_handler import ModuleHandler
+from shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager
 
 
@@ -282,43 +324,46 @@ def setup_database():
     return db_dir
 
 def setup_rag_test_data():
-
-    # Wait a bit for database to be fully ready
+    """Upload and index shared RAG fixtures once for the whole test session."""
     test_content = """The address of Kevin is 1 place du Louvre, Paris.
-    Kevin works as a software engineer at TechCorp.
-    His phone number is +33 1 23 45 67 89."""
-
+Kevin works as a software engineer at TechCorp.
+His phone number is +33 1 23 45 67 89."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write(test_content)
-        temp_path = f.name
+        kevin_doc_path = Path(f.name)
 
-    admin_id = "admin"
+    rag_docs = [
+        (kevin_doc_path, "admin"),
+        (Path(PROJECT_ROOT) / "modules" / "benchmarker" / "tests" / "nexoria.md", "master1"),
+    ]
 
-    # Wait for database to be ready
     max_attempts = 5
     for attempt in range(max_attempts):
         try:
-            if get_db_manager().is_initialized():
-                filename = rag_manager.upload_document(
-                    source_path=temp_path,
-                    original_filename="kevin_info.txt",
-                    user_id=admin_id,
-                    is_public=False
-                )
-
-                default_engine = rag_manager.get_default_engine().engine_type
-                rag_manager.index_document(filename, default_engine, admin_id)
-
-                _log(f"[SETUP] RAG Test Data Initialized with {default_engine}: {filename}")
-                return temp_path
-            else:
+            if not get_db_manager().is_initialized():
                 _log(f"Database not initialized, attempt {attempt + 1}/{max_attempts}")
+                time.sleep(0.5)
+                continue
+
+            rag_manager.clear_all_documents("admin")
+            rag_manager.clear_all_documents("master1")
+
+            for doc_path, user_id in rag_docs:
+                filename = rag_manager.upload_document(
+                    source_path=str(doc_path),
+                    original_filename=doc_path.name,
+                    user_id=user_id,
+                    is_public=False,
+                )
+                rag_manager.index_document(filename, "classic", user_id)
+                _log(f"[SETUP] Indexed RAG doc on classic: {filename} for {user_id}")
+
+            return
         except Exception as e:
             _log(f"Error setting up RAG data (attempt {attempt + 1}): {e}", level="ERROR")
             time.sleep(0.5)
 
-    _log("❌ Failed to setup RAG test data after multiple attempts", level="ERROR")
-    return temp_path  # Return temp path anyway for cleanup
+    raise RuntimeError("Failed to setup RAG test data after multiple attempts")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -329,7 +374,6 @@ def setup_test_environment():
 
     # Store original CWD
     original_cwd = os.getcwd()
-    temp_path = ""
 
     # Get database directory from config
     db_dir, _ = get_database_file_path()
@@ -340,13 +384,9 @@ def setup_test_environment():
         _log(f"Changed CWD to: {PROJECT_ROOT}")
 
     try:
-        # Setup RAG data (database already initialized in pytest_sessionstart)
-        _log("\n=== RAG DATA INITIALIZATION ===")
-        temp_path = setup_rag_test_data()
-
         yield {
             "db_path": db_dir,  # Return the directory for backward compatibility
-            "temp_path": temp_path
+            "temp_path": ""
         }
 
     finally:
@@ -356,15 +396,68 @@ def setup_test_environment():
         # Change back to original directory for cleanup
         if os.getcwd() != original_cwd:
             os.chdir(original_cwd)
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-
         # Clean up environment variables
         for var in ["TEST_MODE","PLAYWRIGHT_ASYNCIO"]:
             if var in os.environ:
                 del os.environ[var]
 
         _log("✓ Test environment cleanup complete")
+
+
+@pytest.fixture()
+def integration_real_driver_setup(setup_test_environment):
+    """Run real-driver benchmarker tests in an isolated app state."""
+    import modules.benchmarker as benchmarker_module
+    import modules.rag_manager as rag_module
+    from shared.common import get_driver
+
+    driver = get_driver()
+    driver_options_before = copy.deepcopy(driver._options)
+    driver_actions_before = copy.deepcopy(driver._actions)
+    driver_active_before = copy.deepcopy(driver._active_options)
+    driver_context_before = copy.deepcopy(driver._context)
+    driver_events_before = copy.deepcopy(driver._session_events)
+    driver_meta_before = copy.deepcopy(driver._session_meta)
+
+    benchmarker_flags_before = {
+        "_INITIALIZED": benchmarker_module._INITIALIZED,
+        "_ACTIONS_REGISTERED": benchmarker_module._ACTIONS_REGISTERED,
+        "_LLM_OPTIONS_REGISTERED": benchmarker_module._LLM_OPTIONS_REGISTERED,
+    }
+    rag_flags_before = {
+        "_INITIALIZED": rag_module._INITIALIZED,
+        "_RAG_OPTIONS_REGISTERED": rag_module._RAG_OPTIONS_REGISTERED,
+    }
+
+    benchmarker_module._INITIALIZED = False
+    benchmarker_module._ACTIONS_REGISTERED = False
+    benchmarker_module._LLM_OPTIONS_REGISTERED = False
+    rag_module._INITIALIZED = False
+    rag_module._RAG_OPTIONS_REGISTERED = False
+
+    handler = ModuleHandler()
+    handler.initialize()
+    for module_name in handler.get_active_modules():
+        handler.load_module_ui(module_name)
+
+    ui_registry = UIRegistry()
+    ui_registry.set_module_handler(handler)
+    ui_registry.render_all("initialize")
+
+    yield
+
+    driver._options = driver_options_before
+    driver._actions = driver_actions_before
+    driver._active_options = driver_active_before
+    driver._context = driver_context_before
+    driver._session_events = driver_events_before
+    driver._session_meta = driver_meta_before
+
+    benchmarker_module._INITIALIZED = benchmarker_flags_before["_INITIALIZED"]
+    benchmarker_module._ACTIONS_REGISTERED = benchmarker_flags_before["_ACTIONS_REGISTERED"]
+    benchmarker_module._LLM_OPTIONS_REGISTERED = benchmarker_flags_before["_LLM_OPTIONS_REGISTERED"]
+    rag_module._INITIALIZED = rag_flags_before["_INITIALIZED"]
+    rag_module._RAG_OPTIONS_REGISTERED = rag_flags_before["_RAG_OPTIONS_REGISTERED"]
 
 
 @pytest.fixture(scope=SCOPE)
