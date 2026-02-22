@@ -19,15 +19,6 @@ from shared.module_handler import ModuleHandler
 from shared.ui_registry import UIRegistry
 
 
-def _should_bootstrap_benchmarker(config) -> bool:
-    """Run heavy bootstrap only when benchmarker tests are explicitly in scope."""
-    args = [str(a) for a in (getattr(config, "args", None) or [])]
-    if not args:
-        # plain `pytest` run -> benchmarker suite is in global scope
-        return True
-    return any("modules/benchmarker/tests" in a for a in args)
-
-
 def _prepare_environment() -> None:
     """Prepare env/log filtering before config/manager initialization."""
     load_dotenv()
@@ -68,11 +59,12 @@ def _initialize_ui_registry(handler: ModuleHandler) -> None:
     log("info", "[benchmarker/tests] UI registry initialize hooks executed")
 
 
-def pytest_configure(config):
-    """Initialize app prerequisites for benchmarker tests."""
-    if not _should_bootstrap_benchmarker(config):
-        return
+import pytest
 
+
+@pytest.fixture(scope="session", autouse=True)
+def _benchmarker_session_bootstrap():
+    """Bootstrap only for tests under modules/benchmarker/tests scope."""
     _prepare_environment()
 
     cfg = get_config()
@@ -91,11 +83,11 @@ def pytest_configure(config):
             init_database(use_memory=False, db_path=db_url_or_path)
         else:
             init_database(use_memory=False)
-        log("info", "[benchmarker/tests] Database initialized in pytest_configure")
+        log("info", "[benchmarker/tests] Database initialized in benchmarker session bootstrap")
 
     init_user_manager(create_default_users=True)
     get_user_manager()._create_default_users_fallback()
-    log("info", "[benchmarker/tests] Default users ensured in pytest_configure")
+    log("info", "[benchmarker/tests] Default users ensured in benchmarker session bootstrap")
 
     handler = _initialize_modules()
     _initialize_ui_registry(handler)
