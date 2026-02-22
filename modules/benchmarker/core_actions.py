@@ -59,14 +59,7 @@ def action_user_send_message(context, **params) -> Dict:
     from shared.common import get_llm_manager
 
     captured_contexts: List[Dict] = []
-    capture_done = False
-
     def _capture_context(monitor_data: Dict) -> None:
-        nonlocal capture_done
-        if capture_done:
-            return
-        capture_done = True
-
         for msg in monitor_data.get("messages", []):
             if "source" in msg:
                 captured_contexts.append(
