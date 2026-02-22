@@ -3,24 +3,17 @@
 import streamlit as st
 
 from shared.common import log
-
 from modules.trainer import initialize as initialize_trainer
 
 
 def inject_ui_initialize():
-    """Initialize trainer module driver registrations for UI runtime."""
+    """Ensure trainer module core initialization runs once app UI initializes."""
     try:
-        initialized = initialize_trainer()
-        if initialized:
-            log("info", "trainer_ui: trainer.initialize() executed")
-        else:
-            log("warning", "trainer_ui: trainer.initialize() returned False")
-        return initialized
-    except Exception as exc:
-        log("error", f"trainer_ui: failed to initialize trainer module: {exc}", exc_info=True)
-        return False
+        initialize_trainer()
+    except Exception as e:
+        log("error", f"Failed to initialize trainer module from trainer_ui: {e}", exc_info=True)
 
 
 def inject_ui_main_footer():
-    """Render trainer footer placeholder."""
+    """Render trainer module footer placeholder."""
     st.write("Trainer module content")

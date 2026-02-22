@@ -6,7 +6,7 @@ Defines tables for plugin data.
 from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, JSON, Boolean, ForeignKey, Index
 from sqlalchemy.orm import relationship
-from shared.common import Base
+from shared.common import Base, get_db_manager, log
 import uuid
 
 
@@ -40,3 +40,15 @@ class PluginActivation(Base):
     config = Column(JSON, default={})  # Plugin configuration
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     activation_metadata = Column(JSON, default={})  # Additional metadata
+
+
+def ensure_tables_exist() -> bool:
+    """Create Trainer core tables when a database engine is available."""
+    db = get_db_manager()
+    if not db.is_initialized() or db._engine is None:
+        return False
+
+    PluginData.__table__.create(bind=db._engine, checkfirst=True)
+    PluginActivation.__table__.create(bind=db._engine, checkfirst=True)
+    log("debug", "Trainer tables ensured: trainer_plugin_data, trainer_plugin_activations")
+    return True
