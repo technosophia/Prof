@@ -6,12 +6,14 @@
     "engines": {
       "simple": {
         "enabled": true,
-        "description": "Simple keyword-based search engine",
         "index_path": "tests/data/simple_indexes"
       },
       "classic": {
         "enabled": true,
-        "index_path": "tests/data/classic_indexes"
+        "index_path": "tests/data/classic_indexes",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "similarity_threshold": 0.3
       },
       "faiss_hierarchical": {
         "enabled": true,

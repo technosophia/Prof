@@ -19,12 +19,12 @@ meta:
       source_path: modules/benchmarker/scenarios/fixtures/nexoria_onboarding.md
       original_filename: nexoria_onboarding.md
       is_public: false
-      engines: ["simple", "classic"]
+      engines: ["classic"]
 
 options:
-  memory_backend: "memory"
+  memory_backend: "memory+student_pad"
   rag_engine: "classic"
-  llm: "groq"
+  llm: "ollama_qwen"
 
 setup:
   student_id: "normal2_m1"
