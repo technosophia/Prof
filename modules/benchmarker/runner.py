@@ -394,6 +394,8 @@ class ScenarioRunner:
                             no_rag_markers = [
                                 "no rag results found",
                                 "no rag result found",
+                                "no results found",
+                                "no result found"
                             ]
 
                             forbidden_terms = []
@@ -409,7 +411,7 @@ class ScenarioRunner:
                                     }
                                     for c in candidates
                                 ]
-                                log("info", f"[benchmarker] injected_context_contains candidates for step {step_id}: {debug_previews}")
+                                log("debug", f"[benchmarker] injected_context_contains candidates for step {step_id}: {debug_previews}")
 
                             forbidden_match = None
                             matched_term = ""

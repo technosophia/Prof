@@ -518,7 +518,7 @@ def inject_ui_initialize():
     try:
         initialized = initialize_rag_manager()
         if initialized:
-            log("info", "rag_manager_ui: rag_manager.initialize() executed")
+            log("debug", "rag_manager_ui: rag_manager.initialize() executed")
         else:
             log("warning", "rag_manager_ui: rag_manager.initialize() returned False")
     except Exception as exc:
