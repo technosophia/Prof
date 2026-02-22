@@ -12,6 +12,7 @@ import os
 import warnings
 
 import pytest
+import streamlit as st
 from dotenv import load_dotenv
 
 
@@ -70,6 +71,10 @@ def integration_real_driver_setup(benchmarker_test_env):
     from shared.module_handler import ModuleHandler
     from shared.ui_registry import UIRegistry
 
+    # Start from a clean cached-resource state so previous tests cannot leak
+    # initialized singletons into this integration setup.
+    st.cache_resource.clear()
+
     driver = get_driver()
     driver_options_before = copy.deepcopy(driver._options)
     driver_actions_before = copy.deepcopy(driver._actions)
@@ -89,6 +94,7 @@ def integration_real_driver_setup(benchmarker_test_env):
     }
 
     cfg = get_config()
+    ollama_qwen_enabled_before = cfg.get("llms.ollama_qwen.enabled", False)
     cfg.set("llms.ollama_qwen.enabled", True)
 
     db = get_db_manager()
@@ -120,18 +126,25 @@ def integration_real_driver_setup(benchmarker_test_env):
     ui_registry.render_all("initialize")
     log("info", "[benchmarker/tests] isolated integration setup complete")
 
-    yield
+    try:
+        yield
+    finally:
+        # Restore mutable global state so benchmarker integration test cannot leak.
+        driver._options = driver_options_before
+        driver._actions = driver_actions_before
+        driver._active_options = driver_active_before
+        driver._context = driver_context_before
+        driver._session_events = driver_events_before
+        driver._session_meta = driver_meta_before
 
-    # Restore mutable global state so benchmarker integration test cannot leak.
-    driver._options = driver_options_before
-    driver._actions = driver_actions_before
-    driver._active_options = driver_active_before
-    driver._context = driver_context_before
-    driver._session_events = driver_events_before
-    driver._session_meta = driver_meta_before
+        cfg.set("llms.ollama_qwen.enabled", ollama_qwen_enabled_before)
 
-    benchmarker_module._INITIALIZED = benchmarker_flags_before["_INITIALIZED"]
-    benchmarker_module._ACTIONS_REGISTERED = benchmarker_flags_before["_ACTIONS_REGISTERED"]
-    benchmarker_module._LLM_OPTIONS_REGISTERED = benchmarker_flags_before["_LLM_OPTIONS_REGISTERED"]
-    rag_module._INITIALIZED = rag_flags_before["_INITIALIZED"]
-    rag_module._RAG_OPTIONS_REGISTERED = rag_flags_before["_RAG_OPTIONS_REGISTERED"]
+        benchmarker_module._INITIALIZED = benchmarker_flags_before["_INITIALIZED"]
+        benchmarker_module._ACTIONS_REGISTERED = benchmarker_flags_before["_ACTIONS_REGISTERED"]
+        benchmarker_module._LLM_OPTIONS_REGISTERED = benchmarker_flags_before["_LLM_OPTIONS_REGISTERED"]
+        rag_module._INITIALIZED = rag_flags_before["_INITIALIZED"]
+        rag_module._RAG_OPTIONS_REGISTERED = rag_flags_before["_RAG_OPTIONS_REGISTERED"]
+
+        # Clear streamlit cached singletons after teardown so the next suites
+        # (outside benchmarker) bootstrap their own fresh application state.
+        st.cache_resource.clear()
