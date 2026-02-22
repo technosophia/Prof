@@ -5,27 +5,46 @@ from shared.common import get_driver, get_llm_manager
 from shared.driver import DriverOptionError
 
 
+import copy
+
 @pytest.fixture()
 def reset_driver_and_llm_callbacks():
     driver = get_driver()
     llm_manager = get_llm_manager()
 
+    # ── Snapshot ──────────────────────────────────────────────────────────
+    saved_rag_flags = {
+        "_RAG_OPTIONS_REGISTERED": rag_module._RAG_OPTIONS_REGISTERED,
+        "_INITIALIZED": rag_module._INITIALIZED,
+        "_ENGINE_CONTEXT_CALLBACKS": copy.deepcopy(rag_module._ENGINE_CONTEXT_CALLBACKS),
+    }
+    saved_driver = {
+        "_options": copy.deepcopy(driver._options),
+        "_active_options": copy.deepcopy(driver._active_options),
+        "_actions": copy.deepcopy(driver._actions),
+    }
+    saved_llm = {
+        "context_callbacks": copy.deepcopy(llm_manager.context_callbacks),
+    }
+
+    # ── Reset for isolated tests  ──────────────────────────────────────────
     rag_module._RAG_OPTIONS_REGISTERED = False
     rag_module._INITIALIZED = False
-
+    rag_module._ENGINE_CONTEXT_CALLBACKS = {}
     driver._options = {}
     driver._active_options = {}
     driver._actions = {}
     llm_manager.context_callbacks = []
-    rag_module._ENGINE_CONTEXT_CALLBACKS = {}
 
     yield driver, llm_manager
 
-    driver._options = {}
-    driver._active_options = {}
-    driver._actions = {}
-    llm_manager.context_callbacks = []
-    rag_module._ENGINE_CONTEXT_CALLBACKS = {}
+    # ── Restore ───────────────────────────────────────────────────────────
+    for k, v in saved_rag_flags.items():
+        setattr(rag_module, k, v)
+    for k, v in saved_driver.items():
+        setattr(driver, k, v)
+    for k, v in saved_llm.items():
+        setattr(llm_manager, k, v)
 
 
 def _registered_rag_engine_names(driver):
