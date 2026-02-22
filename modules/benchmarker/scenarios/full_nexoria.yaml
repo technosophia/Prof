@@ -1,0 +1,275 @@
+meta:
+  name: "full_integration_nexoria"
+  description: >
+    Full integration scenario testing RAG, memory, and student_pad together.
+    A student is onboarding at a fictional company (Nexoria) and learning
+    about internal tools. The scenario verifies:
+    1. RAG retrieves Nexoria-specific facts the LLM cannot know from training
+    2. Memory captures pedagogical observations after analysis
+    3. Student pad note is saved and injected into a subsequent conversation
+    4. All three context sources appear together in the second conversation
+    The Nexoria facts are entirely fictional — any correct answer about
+    voss_index, RouteForge, NXG, or the Zephyr Protocol must come from RAG.
+  version: "1.0"
+  fixture_doc: "modules/benchmarker/scenarios/fixtures/nexoria_onboarding.md"
+  prerequisite: >
+    Before running this scenario, the fixture document must be ingested into
+    the RAG system for trainer master1.
+    Add to config.json rag_manager.auto_import for user master1:
+      source_path: modules/benchmarker/scenarios/fixtures/nexoria_onboarding.md
+      original_filename: nexoria_onboarding.md
+      is_public: false
+      engines: ["simple", "classic"]
+
+options:
+  memory_backend: "memory"
+  rag_engine: "classic"
+  llm: "groq"
+
+setup:
+  student_id: "normal2_m1"
+  trainer_id: "master1"
+
+steps:
+  # ── Setup ──────────────────────────────────────────────────────────────────
+
+  - id: "s0"
+    actor: teacher
+    action: set_training_program
+    params:
+      content: |
+        Nexoria Engineering Onboarding — Phase 2 (Dive).
+        The student is a new engineer at Nexoria learning internal tools and processes.
+        Key concepts: Zephyr Protocol, RouteForge, NXG format, DepotDB/Parcela,
+        voss_index, Canopy Dashboard, Voss Review, Tuesday Sync.
+        The student should understand these Nexoria-specific tools and rituals,
+        none of which exist outside Nexoria.
+
+  # ── Conversation 1: student learns about Nexoria internal tools ────────────
+
+  - id: "s1"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Nexoria onboarding - internal tools"
+
+  - id: "s2"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        I just started at Nexoria and I'm in Phase 2 of the Zephyr Protocol.
+        Can you explain what RouteForge is and how it relates to the NXG format?
+
+  - id: "s3"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        What is the voss_index in DepotDB? What happens when it goes above 0.85?
+
+  - id: "s4"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        I think I understand the Parcela ORM now, but I'm still confused about
+        when a Voss Review is triggered. Is it based on file count or line count?
+
+  # ── Memory analysis: capture what the student learned and struggled with ───
+
+  - id: "s5"
+    actor: teacher
+    action: trigger_memory_analysis
+    params: {}
+
+  # ── Student adds a pad note about their confusion ─────────────────────────
+
+  - id: "s6"
+    actor: student
+    action: add_student_note
+    params:
+      content: >
+        I need to remember: Voss Review triggers at 400 lines changed in core
+        FleetOS modules, NOT file count. I kept confusing this with our old
+        team's PR policy which was file-based.
+      topic: "voss_review"
+
+  # ── Conversation 2: new conversation, tests all three context sources ───────
+
+  - id: "s7"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Nexoria onboarding - follow-up questions"
+
+  - id: "s8"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        Quick question: I'm about to submit a PR. I changed about 450 lines
+        in the core FleetOS routing module. Do I need to do anything special?
+
+  # This message should trigger:
+  # - RAG: retrieves Voss Review and Proxy Voss info from nexoria_onboarding.md
+  # - Memory: injects the student's previous confusion about line vs file count
+  # - Pad: injects the student's note about the 400-line threshold
+
+  - id: "s9"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        Also, who runs the Tuesday Sync this week and how does the rotation work?
+
+  # This message should trigger:
+  # - RAG: retrieves Tuesday Sync and Sync Captain rotation info
+  # - Memory: student context from conversation 1
+
+assertions:
+  # ── Basic execution assertions ─────────────────────────────────────────────
+
+  - id: "a1"
+    type: action_succeeded
+    description: "Training program was set"
+    params:
+      step_id: "s0"
+
+  - id: "a2"
+    type: action_succeeded
+    description: "First conversation created"
+    params:
+      step_id: "s1"
+
+  - id: "a3"
+    type: action_succeeded
+    description: "Student sent message about RouteForge"
+    params:
+      step_id: "s2"
+
+  - id: "a4"
+    type: action_succeeded
+    description: "Student sent message about voss_index"
+    params:
+      step_id: "s3"
+
+  - id: "a5"
+    type: action_succeeded
+    description: "Student sent message about Voss Review"
+    params:
+      step_id: "s4"
+
+  - id: "a6"
+    type: action_succeeded
+    description: "Memory analysis completed"
+    params:
+      step_id: "s5"
+
+  - id: "a7"
+    type: plugin_event_occurred
+    description: "Memory analysis was recorded as a plugin event"
+    params:
+      plugin_id: "memory"
+      event: "analysis_complete"
+
+  - id: "a8"
+    type: action_succeeded
+    description: "Student pad note was saved"
+    params:
+      step_id: "s6"
+
+  - id: "a9"
+    type: plugin_event_occurred
+    description: "Pad note was recorded as a plugin event"
+    params:
+      plugin_id: "student_pad"
+      event: "note_added"
+
+  - id: "a10"
+    type: action_succeeded
+    description: "Second conversation created"
+    params:
+      step_id: "s7"
+
+  - id: "a11"
+    type: action_succeeded
+    description: "Student asked about the PR (Voss Review question)"
+    params:
+      step_id: "s8"
+
+  - id: "a12"
+    type: action_succeeded
+    description: "Student asked about Tuesday Sync"
+    params:
+      step_id: "s9"
+
+  # ── RAG assertions: Nexoria facts must appear in injected context ──────────
+  # These check what was injected INTO the LLM, not what the LLM responded.
+  # The Nexoria facts are fictional — they can only come from RAG.
+
+  - id: "a13"
+    type: injected_context_contains
+    description: "RAG injected Nexoria content for the RouteForge question"
+    params:
+      step_id: "s2"
+      contains: "RouteForge"
+      source_contains: "rag" # matches callback __name__ containing "rag"
+
+  - id: "a14"
+    type: injected_context_contains
+    description: "RAG injected voss_index content for the DepotDB question"
+    params:
+      step_id: "s3"
+      contains: "voss_index"
+      source_contains: "rag"
+
+  - id: "a15"
+    type: injected_context_contains
+    description: "RAG injected Voss Review content for the PR question in conversation 2"
+    params:
+      step_id: "s8"
+      contains: "400"
+      source_contains: "rag"
+
+  - id: "a16"
+    type: injected_context_contains
+    description: "RAG injected Tuesday Sync content for the sync question"
+    params:
+      step_id: "s9"
+      contains: "Tuesday Sync"
+      source_contains: "rag"
+
+  # ── Memory assertions: student context injected in conversation 2 ──────────
+
+  - id: "a17"
+    type: injected_context_contains
+    description: "Memory context was injected for the PR question in conversation 2"
+    params:
+      step_id: "s8"
+      source_contains: "memory"
+
+  - id: "a18"
+    type: injected_context_contains
+    description: "Memory context was injected for the sync question in conversation 2"
+    params:
+      step_id: "s9"
+      source_contains: "memory"
+
+  # ── Pad assertions: student note injected in conversation 2 ───────────────
+
+  - id: "a19"
+    type: injected_context_contains
+    description: "Student pad note injected for the PR question (note mentions 400 lines)"
+    params:
+      step_id: "s8"
+      contains: "400"
+      source_contains: "student_pad"
+
+  # ── LLM call volume sanity check ──────────────────────────────────────────
+
+  - id: "a20"
+    type: llm_calls_made
+    description: "At least 5 LLM calls were made (4 student messages + 1 analysis)"
+    params:
+      min: 5
