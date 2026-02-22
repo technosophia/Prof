@@ -34,6 +34,36 @@ def initialize() -> bool:
 
         ensure_tables_exist()
 
+        driver = None
+        try:
+            from shared.common import get_driver
+
+            driver = get_driver()
+            action_names = {a["name"] for a in driver.list_actions()}
+            required_actions = {
+                "create_conversation",
+                "user_send_message",
+                "teacher_send_message",
+                "switch_option",
+            }
+            if _ACTIONS_REGISTERED and not required_actions.issubset(action_names):
+                log(
+                    "warning",
+                    "benchmarker: action registration flag was set but driver actions were missing; re-registering",
+                )
+                _ACTIONS_REGISTERED = False
+
+            llm_options = {opt["name"] for opt in driver.list_options().get("llm", [])}
+            available_llm_ids = {llm["id"] for llm in get_available_llms()}
+            if _LLM_OPTIONS_REGISTERED and not available_llm_ids.issubset(llm_options):
+                log(
+                    "warning",
+                    "benchmarker: llm option flag was set but driver llm options were missing; re-registering",
+                )
+                _LLM_OPTIONS_REGISTERED = False
+        except Exception as exc:
+            log("warning", f"benchmarker: could not validate driver registration state: {exc}")
+
         if not _ACTIONS_REGISTERED:
             register_action(
                 "create_conversation",
