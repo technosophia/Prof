@@ -6,11 +6,30 @@ Ensures app-like initialization when running only `modules/benchmarker/tests/...
 from __future__ import annotations
 
 import os
+import logging
+import warnings
 from dotenv import load_dotenv
 
 # Must happen before shared imports/config loading.
 load_dotenv()
 os.environ.setdefault("TEST_MODE", "true")
+
+# Reduce Streamlit bare-mode logger noise during pytest runs.
+_streamlit_ctx_logger = logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context")
+_streamlit_ctx_logger.setLevel(logging.ERROR)
+_streamlit_ctx_logger.disabled = True
+
+_streamlit_state_logger = logging.getLogger("streamlit.runtime.state.session_state_proxy")
+_streamlit_state_logger.setLevel(logging.ERROR)
+_streamlit_state_logger.disabled = True
+
+# Silence known Streamlit bare-mode warning noise in pytest runs.
+warnings.filterwarnings(
+    "ignore",
+    message="Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.",
+    category=UserWarning,
+    module=r"streamlit\.runtime\.scriptrunner_utils\.script_run_context",
+)
 
 from shared.cached import get_config, get_db_manager, get_user_manager
 from shared.common import configure_logging_from_dict, init_database, init_user_manager, log

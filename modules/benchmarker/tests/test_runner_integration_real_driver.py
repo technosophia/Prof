@@ -70,6 +70,19 @@ def _assert_full_success(runner: ScenarioRunner, scenario_path: Path):
 
     scenario_assertions = scenario.get("assertions", [])
     assert result.assertions_total == len(scenario_assertions)
+
+    failed_assertions = [a for a in result.assertions if not a.passed]
+    if failed_assertions:
+        failed_steps = [s for s in result.steps if not s.success]
+        summary = [
+            f"scenario={scenario.get('meta', {}).get('name', scenario_path.name)}",
+            f"assertions={result.assertions_passed}/{result.assertions_total}",
+            f"run_errors={result.errors}",
+            f"failed_assertions={[{'id': a.id, 'type': a.assertion_type, 'message': a.message} for a in failed_assertions]}",
+            f"failed_steps={[{'step_id': s.step_id, 'action': s.action, 'error': s.error} for s in failed_steps]}",
+        ]
+        pytest.fail(" | ".join(summary))
+
     assert result.assertions_passed == result.assertions_total
     assert result.success
 
