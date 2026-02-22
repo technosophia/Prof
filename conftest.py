@@ -1,63 +1,57 @@
-# file name: conftest.py (version refactorisée)
+# conftest.py
 """
 Pytest configuration and fixtures for all tests.
+
+Structure:
+  - Logging
+  - Path / DB helpers
+  - Session hooks  (pytest_sessionstart / pytest_sessionfinish)
+  - Session-scoped fixtures
+  - Function-scoped fixtures
+  - Markers
 """
-import sys
-import os
-os.environ.setdefault("STREAMLIT_LOGGER_LEVEL", "error")
-import json
+
+import atexit  # noqa: F401 – kept for future use
 import copy
-import pytest
-import time
-import subprocess
-import requests
-import atexit
-import signal
-import warnings
 import logging
+import os
 import re
-from unittest.mock import patch, MagicMock
+import signal
+import subprocess
+import sys
+import time
+import warnings
+from pathlib import Path
+from unittest.mock import MagicMock, patch  # noqa: F401
+
+import pytest
+import requests
 from playwright.sync_api import sync_playwright
 
-warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
-warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
-warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
-warnings.filterwarnings(
-    "ignore",
-    message="builtin type SwigPyPacked has no __module__ attribute",
-    category=DeprecationWarning
-)
-warnings.filterwarnings(
-    "ignore",
-    message="builtin type SwigPyObject has no __module__ attribute",
-    category=DeprecationWarning
-)
-warnings.filterwarnings(
-    "ignore",
-    message="builtin type swigvarlink has no __module__ attribute",
-    category=DeprecationWarning
-)
+# ---------------------------------------------------------------------------
+# 0.  Silence noisy third-party warnings ONCE
+# ---------------------------------------------------------------------------
+_SILENCED_WARNINGS = [
+    ("ignore", UserWarning,       "streamlit.runtime.scriptrunner_utils"),
+    ("ignore", UserWarning,       "streamlit.runtime.state.session_state_proxy"),
+    ("ignore", UserWarning,       r"torch\.cuda"),
+    ("ignore", DeprecationWarning, None),   # SwigPy* built-in type warnings
+]
+for action, category, module in _SILENCED_WARNINGS:
+    kw = {"category": category}
+    if module:
+        kw["module"] = module
+    warnings.filterwarnings(action, **kw)
+
+# Also silence the ScriptRunContext warning by message (it has no stable module path)
 warnings.filterwarnings(
     "ignore",
     message="Thread 'MainThread': missing ScriptRunContext!",
     category=UserWarning,
-    module="streamlit.runtime.scriptrunner_utils.script_run_context"
-)
-warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.scriptrunner_utils")
-warnings.filterwarnings("ignore", category=UserWarning, module="streamlit.runtime.state.session_state_proxy")
-
-# Add this new filter for the specific missing ScriptRunContext warning
-warnings.filterwarnings(
-    "ignore",
-    message="Thread 'MainThread': missing ScriptRunContext!",
-    category=UserWarning,
-    module="streamlit.runtime.scriptrunner_utils.script_run_context"
 )
 
-warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
-
-# Silence Streamlit bare-mode warnings in pytest output
-for streamlit_logger in (
+# Disable Streamlit loggers entirely so their output never leaks into pytest
+for _logger_name in (
     "streamlit",
     "streamlit.runtime",
     "streamlit.runtime.scriptrunner_utils",
@@ -65,169 +59,160 @@ for streamlit_logger in (
     "streamlit.runtime.state",
     "streamlit.runtime.state.session_state_proxy",
 ):
-    logger = logging.getLogger(streamlit_logger)
-    logger.handlers = []
-    logger.propagate = False
-    logger.disabled = True
-    logger.setLevel(logging.CRITICAL)
+    _logger = logging.getLogger(_logger_name)
+    _logger.handlers.clear()
+    _logger.propagate = False
+    _logger.disabled = True
+    _logger.setLevel(logging.CRITICAL)
 
-# CRITICAL: Load .env BEFORE any shared imports, because shared.common
-# instantiates the LLMManager singleton (and GroqEngine) at import time.
-# If GROQ_API_KEY isn't in os.environ yet when that happens, the engine
-# marks itself unavailable permanently — even if the key arrives later.
+
+# ---------------------------------------------------------------------------
+# 1.  Load .env BEFORE any shared imports
+#     (shared.common instantiates singletons at import time)
+# ---------------------------------------------------------------------------
 from dotenv import load_dotenv
 load_dotenv()
 
-def _log(message, level="INFO"):
-    """Log message with process ID and timestamp."""
-    #pid = os.getpid()
-    #timestamp = time.strftime("%H:%M:%S")
-    #formatted_message = f"[{timestamp}][PID:{pid}][{level}] {message}"
-    formatted_message = f"[{level}] {message}"
-    print(formatted_message)
-    return formatted_message
+
+# ---------------------------------------------------------------------------
+# 2.  Path setup
+# ---------------------------------------------------------------------------
+_CONFTEST_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = (
+    _CONFTEST_DIR
+    if (_CONFTEST_DIR / "prof.py").exists()
+    else _CONFTEST_DIR.parent
+)
+sys.path.insert(0, str(PROJECT_ROOT))
+os.environ["PYTHONPATH"] = str(PROJECT_ROOT)
+os.environ["TEST_MODE"] = "true"
+os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
+
+TEST_PORT = 8505
+_BROWSER_SCOPE = "module"
 
 
-def extract_sqlite_file_path(db_url_or_path: str) -> str:
+# ---------------------------------------------------------------------------
+# 3.  Shared imports (after path + .env are ready)
+# ---------------------------------------------------------------------------
+from shared.cached import get_config, get_db_manager, get_user_manager
+from shared.common import init_database, init_user_manager
+from shared.module_handler import ModuleHandler
+from shared.ui_registry import UIRegistry
+from modules.rag_manager import rag_manager
+
+
+# ---------------------------------------------------------------------------
+# 4.  Logging helper
+# ---------------------------------------------------------------------------
+def _log(message: str, level: str = "INFO") -> None:
+    print(f"[{level}] {message}")
+
+
+_log(f"Python path  : {sys.path}")
+_log(f"Conftest dir : {_CONFTEST_DIR}")
+_log(f"Project root : {PROJECT_ROOT}")
+_log(f"prof.py found: {(PROJECT_ROOT / 'prof.py').exists()}")
+
+
+# ---------------------------------------------------------------------------
+# 5.  Database helpers
+# ---------------------------------------------------------------------------
+def _extract_sqlite_path(db_url_or_path: str) -> str:
     """
-    Extract the file path from a SQLite database URL or return the path if it's already a file path.
-
-    Args:
-        db_url_or_path: Either a SQLite URL (sqlite:///path/to/db.db) or a file path
-
-    Returns:
-        The extracted file path
+    Convert a ``sqlite:///...`` URL to a plain file path.
+    Returns the input unchanged if it is already a plain path.
     """
     if not db_url_or_path or not isinstance(db_url_or_path, str):
         return db_url_or_path
 
-    # Match sqlite:///path format
-    sqlite_pattern = r'^sqlite:///(.+)$'
-    match = re.match(sqlite_pattern, db_url_or_path)
+    match = re.match(r"^sqlite:///(.+)$", db_url_or_path)
+    if not match:
+        return db_url_or_path
 
-    if match:
-        file_path = match.group(1)
-        # Handle Windows paths with drive letters
-        if file_path.startswith('/') and len(file_path) > 2 and file_path[2] == ':':
-            # Remove leading slash for Windows paths like /C:/path
-            file_path = file_path[1:]
-        return file_path
-
-    # Already a file path
-    return db_url_or_path
+    file_path = match.group(1)
+    # Strip the leading slash that appears before Windows drive letters (/C:/…)
+    if file_path.startswith("/") and len(file_path) > 2 and file_path[2] == ":":
+        file_path = file_path[1:]
+    return file_path
 
 
-def get_database_file_path():
+def _get_db_paths() -> tuple[str, str]:
     """
-    Get the actual database file path from config, handling both URL and path formats.
-
-    Returns:
-        Tuple of (database_directory, database_file_path)
+    Return ``(db_directory, db_file_path)`` derived from the project config.
     """
     config = get_config()
     db_config = config.get("database", {})
+    raw = db_config.get("url") or db_config.get("path", ".")
+    file_path = _extract_sqlite_path(raw)
 
-    # Try to get URL first, then path
-    db_url_or_path = db_config.get("url") or db_config.get("path", ".")
+    if os.path.isdir(file_path) or not file_path.endswith(".db"):
+        return file_path, os.path.join(file_path, "app.db")
+    return os.path.dirname(file_path), file_path
 
-    # Extract file path if it's a URL
-    db_file_path = extract_sqlite_file_path(db_url_or_path)
 
-    # Handle cases where it's just a directory
-    if os.path.isdir(db_file_path) or not db_file_path.endswith('.db'):
-        db_dir = db_file_path
-        db_full_path = os.path.join(db_dir, "app.db")
+def _db_url() -> str:
+    """Return the raw database URL / path from config."""
+    config = get_config()
+    db_config = config.get("database", {})
+    return db_config.get("url") or db_config.get("path", ".")
+
+
+def _init_db_with_retry(raw_url: str, db_full_path: str, *, attempts: int = 2) -> None:
+    """Initialise the database, retrying once on failure."""
+    for attempt in range(1, attempts + 1):
+        try:
+            if raw_url.startswith("sqlite:///"):
+                init_database(use_memory=False, db_path=raw_url)
+            else:
+                init_database(use_memory=False, db_path=db_full_path)
+            return
+        except Exception as exc:
+            _log(f"DB init attempt {attempt}/{attempts} failed: {exc}", level="ERROR")
+            get_db_manager().dispose()
+            if attempt == attempts:
+                raise
+
+
+def _reset_db() -> str:
+    """
+    Dispose → re-initialise → wipe all tables → recreate default users.
+    Returns the database directory path.
+    """
+    db_dir, db_full_path = _get_db_paths()
+    raw = _db_url()
+
+    _log(f"DB path : {db_full_path}  (exists={os.path.exists(db_full_path)})")
+
+    if get_db_manager().is_initialized():
+        _log("Disposing existing DB connections…")
+        get_db_manager().dispose()
+
+    _log("Initialising database…")
+    _init_db_with_retry(raw, db_full_path)
+    _log("✓ Database initialised")
+
+    if get_db_manager().is_initialized():
+        if get_db_manager().empty_all_tables():
+            _log("✓ Database wiped")
+        else:
+            _log("⚠ Could not wipe database", level="WARNING")
     else:
-        db_dir = os.path.dirname(db_file_path)
-        db_full_path = db_file_path
+        _log("❌ Database not initialised after init call!", level="ERROR")
 
-    return db_dir, db_full_path
-
-
-def pytest_sessionfinish(session, exitstatus):
-    """Clean up after all tests are done."""
-    print('\n')
-    _log("="*50)
-    _log("PYTEST SESSION FINISHED - FINAL CLEANUP")
-    _log("="*50)
-
-    # Small delay to ensure all processes have released file handles
-    time.sleep(1)
-
-    # Kill any remaining Streamlit processes
-    subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True,
-                   capture_output=True, timeout=5)
-
-    db_dir, db_full_path = get_database_file_path()
-    if get_db_manager().is_initialized():
-        get_db_manager().dispose()
-
-    if os.path.exists(db_full_path):
-        os.unlink(db_full_path)
-        _log(f"✓ Deleted database file: {db_full_path}")
-
-    cleanup_directory(db_dir)
-
-    rag_data_dir = getattr(rag_manager, "data_dir", None)
-    if rag_data_dir:
-        cleanup_directory(str(rag_data_dir))
-
-def pytest_sessionstart(session):
-    """Initialize database at the VERY beginning of the test session."""
-    _log("=== SESSION START - INITIALIZING DATABASE ===")
-
-    # Get database file path from config
-    db_dir, db_full_path = get_database_file_path()
-
-    # CRITICAL: Dispose of any existing database connections
-    if get_db_manager().is_initialized():
-        _log("Disposing of existing database connections...")
-        get_db_manager().dispose()
-
-    # Initialize database with the appropriate format
-    _log(f"Initializing database at {db_full_path}...")
     try:
-        # Check if config uses URL format
-        config = get_config()
-        db_config = config.get("database", {})
-        db_url_or_path = db_config.get("url") or db_config.get("path", ".")
-
-        if db_url_or_path.startswith('sqlite:///'):
-            # Use the URL directly
-            init_database(use_memory=False, db_path=db_url_or_path)
-        else:
-            # Use the file path
-            init_database(use_memory=False, db_path=db_full_path)
-
-        _log("✓ Database initialized")
-    except Exception as e:
-        _log(f"⚠ Error initializing database: {e}", level="ERROR")
-        # Try one more time
-        get_db_manager().dispose()
-        if db_url_or_path.startswith('sqlite:///'):
-            init_database(use_memory=False, db_path=db_url_or_path)
-        else:
-            init_database(use_memory=False, db_path=db_full_path)
-
-    # Clean database
-    if get_db_manager().is_initialized():
-        _log("Cleaning database...")
-        success = get_db_manager().empty_all_tables()
-        if success:
-            _log("✓ Database cleaned")
-        else:
-            _log("⚠ Could not clean database", level="WARNING")
-
-    # Create default users
-    _log("Creating default users...")
-    try:
-        init_user_manager(create_default_users=True)
         get_user_manager()._create_default_users_fallback()
         _log("✓ Default users created")
-    except Exception as e:
-        _log(f"⚠ Error creating default users: {e}", level="ERROR")
+    except Exception as exc:
+        _log(f"⚠ Could not create default users: {exc}", level="ERROR")
 
-    _log("Initializing modules and UI registry...")
+    return db_dir
+
+
+# ---------------------------------------------------------------------------
+# 6.  Module / UI initialisation helper
+# ---------------------------------------------------------------------------
+def _init_modules() -> None:
     handler = ModuleHandler()
     handler.initialize()
     for module_name in handler.get_active_modules():
@@ -236,341 +221,179 @@ def pytest_sessionstart(session):
     ui_registry = UIRegistry()
     ui_registry.set_module_handler(handler)
     ui_registry.render_all("initialize")
-    _log("✓ Modules initialized")
-
-    _log("Preparing shared RAG test corpus...")
-    setup_rag_test_data()
-    _log("✓ Shared RAG test corpus ready")
-
-    return db_dir
-
-def pytest_bdd_before_step(request, feature, scenario, step, step_func):
-    """Log step before execution."""
-    _log(f"\n[STEP START] Feature: {feature.name} - Scenario: {scenario.name}")
-    _log(f"           Step:@{step.type} {step.name}")
+    _log("✓ Modules initialised")
 
 
-def pytest_collection_modifyitems(items):
-    """Tag benchmarker tests for selective runs/debugging."""
-    for item in items:
-        if item.nodeid.startswith("modules/benchmarker/tests/"):
-            item.add_marker("benchmarker")
+# ---------------------------------------------------------------------------
+# 7.  RAG test-data helper
+# ---------------------------------------------------------------------------
+def _setup_rag_test_data() -> None:
+    """Upload and index shared RAG fixtures once per test session."""
+    import tempfile
 
-SCOPE = "module"
-TEST_PORT = 8505
+    test_content = (
+        "The address of Kevin is 1 place du Louvre, Paris.\n"
+        "Kevin works as a software engineer at TechCorp.\n"
+        "His phone number is +33 1 23 45 67 89."
+    )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as fh:
+        fh.write(test_content)
+        kevin_path = Path(fh.name)
 
-
-CONFTEST_DIR = os.path.dirname(os.path.abspath(__file__))
-if os.path.exists(os.path.join(CONFTEST_DIR, "prof.py")):
-    PROJECT_ROOT = CONFTEST_DIR
-else:
-    PROJECT_ROOT = os.path.dirname(CONFTEST_DIR)
-sys.path.insert(0, PROJECT_ROOT)
-os.environ["PYTHONPATH"] = PROJECT_ROOT
-
-os.environ["TEST_MODE"] = "true"
-os.environ["PLAYWRIGHT_ASYNCIO"] = "0"
-from pathlib import Path
-import tempfile
-
-from shared.cached import get_config
-from shared.common import init_database, init_user_manager
-from shared.cached import get_db_manager
-from shared.cached import get_user_manager
-from shared.module_handler import ModuleHandler
-from shared.ui_registry import UIRegistry
-from modules.rag_manager import rag_manager
-
-
-_log(f"Python path: {sys.path}")
-_log(f"Conftest directory: {CONFTEST_DIR}")
-_log(f"Project root: {PROJECT_ROOT}")
-_log(f"prof.py exists at root: {os.path.exists(os.path.join(PROJECT_ROOT, 'prof.py'))}")
-
-def cleanup_directory(directory):
-    import shutil
-    if os.path.exists(directory):
-        _log(f"Cleaning up directory: {directory}")
-        for item in os.listdir(directory):
-            item_path = os.path.join(directory, item)
-            try:
-                if os.path.isfile(item_path) or os.path.islink(item_path):
-                    os.unlink(item_path)
-                    _log(f"  ✓ Deleted file: {item}")
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                    _log(f"  ✓ Deleted directory: {item}")
-            except Exception as e:
-                _log(f"  ⚠ Failed to delete {item_path}: {e}", level="WARNING")
-
-def setup_database():
-    _log(f"\n=== DATABASE CLEANUP (FUNCTION) ===")
-
-    # Get database file path from config
-    db_dir, db_full_path = get_database_file_path()
-
-    _log(f"Database path: {db_full_path}")
-    _log(f"Database exists: {os.path.exists(db_full_path)}")
-
-    # CRITICAL: Dispose of any existing database connections
-    if get_db_manager().is_initialized():
-        _log("Disposing of existing database connections...")
-        get_db_manager().dispose()
-        _log("✓ Database connections disposed")
-
-    # Initialize database with the appropriate format
-    _log(f"Initializing database at {db_full_path}...")
-    try:
-        config = get_config()
-        db_config = config.get("database", {})
-        db_url_or_path = db_config.get("url") or db_config.get("path", ".")
-
-        if db_url_or_path.startswith('sqlite:///'):
-            init_database(use_memory=False, db_path=db_url_or_path)
-        else:
-            init_database(use_memory=False, db_path=db_full_path)
-
-        _log("✓ Database initialized")
-    except Exception as e:
-        _log(f"⚠ Error initializing database: {e}", level="ERROR")
-        # Try one more time
-        get_db_manager().dispose()
-        if db_url_or_path.startswith('sqlite:///'):
-            init_database(use_memory=False, db_path=db_url_or_path)
-        else:
-            init_database(use_memory=False, db_path=db_full_path)
-
-    # Clean database
-    if get_db_manager().is_initialized():
-        _log("Cleaning database...")
-        success = get_db_manager().empty_all_tables()
-        if success:
-            _log("✓ Database cleaned")
-        else:
-            _log("⚠ Could not clean database", level="WARNING")
-    else:
-        _log("❌ Database not initialized after init_database() call!", level="ERROR")
-
-    # Create default users
-    _log("Creating default users...")
-    try:
-        get_user_manager()._create_default_users_fallback()
-        _log("✓ Default users created")
-    except Exception as e:
-        _log(f"⚠ Error creating default users: {e}", level="ERROR")
-
-    return db_dir
-
-def setup_rag_test_data():
-    """Upload and index shared RAG fixtures once for the whole test session."""
-    test_content = """The address of Kevin is 1 place du Louvre, Paris.
-Kevin works as a software engineer at TechCorp.
-His phone number is +33 1 23 45 67 89."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(test_content)
-        kevin_doc_path = Path(f.name)
-
-    rag_docs = [
-        (kevin_doc_path, "admin"),
-        (Path(PROJECT_ROOT) / "modules" / "benchmarker" / "tests" / "nexoria.md", "master1"),
+    docs = [
+        (kevin_path, "admin"),
+        (PROJECT_ROOT / "modules" / "benchmarker" / "tests" / "nexoria.md", "master1"),
     ]
 
-    max_attempts = 5
-    for attempt in range(max_attempts):
+    for attempt in range(1, 6):
         try:
             if not get_db_manager().is_initialized():
-                _log(f"Database not initialized, attempt {attempt + 1}/{max_attempts}")
+                _log(f"DB not ready, RAG setup attempt {attempt}/5")
                 time.sleep(0.5)
                 continue
 
-            rag_manager.clear_all_documents("admin")
-            rag_manager.clear_all_documents("master1")
+            for user_id in ("admin", "master1"):
+                rag_manager.clear_all_documents(user_id)
 
-            for doc_path, user_id in rag_docs:
+            for doc_path, user_id in docs:
                 filename = rag_manager.upload_document(
                     source_path=str(doc_path),
                     original_filename=doc_path.name,
                     user_id=user_id,
                     is_public=False,
                 )
-                rag_manager.index_document(filename, "classic", user_id)
-                rag_manager.index_document(filename, "simple", user_id)
-                _log(f"[SETUP] Indexed RAG doc on simple and classic: {filename} for {user_id}")
-
+                for strategy in ("classic", "simple"):
+                    rag_manager.index_document(filename, strategy, user_id)
+                _log(f"[SETUP] Indexed {filename} for {user_id}")
             return
-        except Exception as e:
-            _log(f"Error setting up RAG data (attempt {attempt + 1}): {e}", level="ERROR")
+
+        except Exception as exc:
+            _log(f"RAG setup attempt {attempt}/5 failed: {exc}", level="ERROR")
             time.sleep(0.5)
 
-    raise RuntimeError("Failed to setup RAG test data after multiple attempts")
+    raise RuntimeError("Failed to set up RAG test data after 5 attempts")
 
 
+# ---------------------------------------------------------------------------
+# 8.  Filesystem cleanup helper
+# ---------------------------------------------------------------------------
+def _cleanup_directory(directory: str) -> None:
+    import shutil
+    if not os.path.exists(directory):
+        return
+    _log(f"Cleaning directory: {directory}")
+    for name in os.listdir(directory):
+        item = os.path.join(directory, name)
+        try:
+            if os.path.isfile(item) or os.path.islink(item):
+                os.unlink(item)
+            elif os.path.isdir(item):
+                shutil.rmtree(item)
+            _log(f"  ✓ Removed: {name}")
+        except Exception as exc:
+            _log(f"  ⚠ Could not remove {item}: {exc}", level="WARNING")
+
+
+# ---------------------------------------------------------------------------
+# 9.  Session hooks
+# ---------------------------------------------------------------------------
+def pytest_sessionstart(session) -> None:  # noqa: ARG001
+    _log("=== SESSION START ===")
+    _reset_db()
+
+    _log("Initialising modules and UI registry…")
+    try:
+        init_user_manager(create_default_users=True)
+    except Exception as exc:
+        _log(f"⚠ init_user_manager failed: {exc}", level="ERROR")
+    _init_modules()
+
+    _log("Preparing shared RAG corpus…")
+    _setup_rag_test_data()
+    _log("✓ Session setup complete")
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
+    _log("\n=== SESSION FINISH – CLEANUP ===")
+    time.sleep(1)  # let file handles close
+
+    subprocess.run(
+        "pkill -9 -f 'streamlit run prof.py'",
+        shell=True, capture_output=True, timeout=5,
+    )
+
+    db_dir, db_full_path = _get_db_paths()
+    if get_db_manager().is_initialized():
+        get_db_manager().dispose()
+
+    if os.path.exists(db_full_path):
+        os.unlink(db_full_path)
+        _log(f"✓ Deleted DB file: {db_full_path}")
+
+    _cleanup_directory(db_dir)
+
+    rag_data_dir = getattr(rag_manager, "data_dir", None)
+    if rag_data_dir:
+        _cleanup_directory(str(rag_data_dir))
+
+
+# ---------------------------------------------------------------------------
+# 10.  BDD step logging
+# ---------------------------------------------------------------------------
+def pytest_bdd_before_step(request, feature, scenario, step, step_func):  # noqa: ARG001
+    _log(f"\n[STEP] {feature.name} › {scenario.name}")
+    _log(f"       @{step.type} {step.name}")
+
+
+# ---------------------------------------------------------------------------
+# 11.  Marker collection
+# ---------------------------------------------------------------------------
+def pytest_collection_modifyitems(items) -> None:
+    for item in items:
+        if item.nodeid.startswith("modules/benchmarker/tests/"):
+            item.add_marker("benchmarker")
+
+
+# ---------------------------------------------------------------------------
+# 12.  Session-scoped fixtures
+# ---------------------------------------------------------------------------
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
-    """Setup test environment after database is initialized."""
-    _log(f"\n=== TEST ENVIRONMENT SETUP ===")
-    _log(f"Project root: {PROJECT_ROOT}")
-
-    # Store original CWD
+    """Ensure CWD is set correctly and clean up env vars afterwards."""
+    _log("=== TEST ENVIRONMENT SETUP ===")
     original_cwd = os.getcwd()
+    db_dir, _ = _get_db_paths()
 
-    # Get database directory from config
-    db_dir, _ = get_database_file_path()
-
-    # Change to project root if needed
-    if original_cwd != PROJECT_ROOT:
+    if original_cwd != str(PROJECT_ROOT):
         os.chdir(PROJECT_ROOT)
-        _log(f"Changed CWD to: {PROJECT_ROOT}")
+        _log(f"CWD → {PROJECT_ROOT}")
 
-    try:
-        yield {
-            "db_path": db_dir,  # Return the directory for backward compatibility
-            "temp_path": ""
-        }
+    yield {"db_path": db_dir}
 
-    finally:
-        # CLEANUP AFTER TEST COMPLETES
-        _log("\n=== TEST ENVIRONMENT CLEANUP ===")
+    _log("=== TEST ENVIRONMENT CLEANUP ===")
+    if os.getcwd() != original_cwd:
+        os.chdir(original_cwd)
+    for var in ("TEST_MODE", "PLAYWRIGHT_ASYNCIO"):
+        os.environ.pop(var, None)
+    _log("✓ Env cleanup done")
 
-        # Change back to original directory for cleanup
-        if os.getcwd() != original_cwd:
-            os.chdir(original_cwd)
-        # Clean up environment variables
-        for var in ["TEST_MODE","PLAYWRIGHT_ASYNCIO"]:
-            if var in os.environ:
-                del os.environ[var]
-
-        _log("✓ Test environment cleanup complete")
-
-
-@pytest.fixture()
-def integration_real_driver_setup(setup_test_environment):
-    """Run real-driver benchmarker tests in an isolated app state."""
-    import modules.benchmarker as benchmarker_module
-    import modules.rag_manager as rag_module
-    from shared.common import get_driver
-
-    driver = get_driver()
-    driver_options_before = copy.deepcopy(driver._options)
-    driver_actions_before = copy.deepcopy(driver._actions)
-    driver_active_before = copy.deepcopy(driver._active_options)
-    driver_context_before = copy.deepcopy(driver._context)
-    driver_events_before = copy.deepcopy(driver._session_events)
-    driver_meta_before = copy.deepcopy(driver._session_meta)
-
-    benchmarker_flags_before = {
-        "_INITIALIZED": benchmarker_module._INITIALIZED,
-        "_ACTIONS_REGISTERED": benchmarker_module._ACTIONS_REGISTERED,
-        "_LLM_OPTIONS_REGISTERED": benchmarker_module._LLM_OPTIONS_REGISTERED,
-    }
-    rag_flags_before = {
-        "_INITIALIZED": rag_module._INITIALIZED,
-        "_RAG_OPTIONS_REGISTERED": rag_module._RAG_OPTIONS_REGISTERED,
-    }
-
-    benchmarker_module._INITIALIZED = False
-    benchmarker_module._ACTIONS_REGISTERED = False
-    benchmarker_module._LLM_OPTIONS_REGISTERED = False
-    rag_module._INITIALIZED = False
-    rag_module._RAG_OPTIONS_REGISTERED = False
-
-    handler = ModuleHandler()
-    handler.initialize()
-    for module_name in handler.get_active_modules():
-        handler.load_module_ui(module_name)
-
-    ui_registry = UIRegistry()
-    ui_registry.set_module_handler(handler)
-    ui_registry.render_all("initialize")
-
-    yield
-
-    driver._options = driver_options_before
-    driver._actions = driver_actions_before
-    driver._active_options = driver_active_before
-    driver._context = driver_context_before
-    driver._session_events = driver_events_before
-    driver._session_meta = driver_meta_before
-
-    benchmarker_module._INITIALIZED = benchmarker_flags_before["_INITIALIZED"]
-    benchmarker_module._ACTIONS_REGISTERED = benchmarker_flags_before["_ACTIONS_REGISTERED"]
-    benchmarker_module._LLM_OPTIONS_REGISTERED = benchmarker_flags_before["_LLM_OPTIONS_REGISTERED"]
-    rag_module._INITIALIZED = rag_flags_before["_INITIALIZED"]
-    rag_module._RAG_OPTIONS_REGISTERED = rag_flags_before["_RAG_OPTIONS_REGISTERED"]
-
-
-@pytest.fixture(scope=SCOPE)
-def playwright():
-    """Playwright session fixture."""
-    # Désactiver asyncio pour Playwright sync
-    original_asyncio_mode = os.environ.get("PYTEST_ASYNCIO_MODE")
-    if original_asyncio_mode:
-        del os.environ["PYTEST_ASYNCIO_MODE"]
-
-    with sync_playwright() as p:
-        yield p
-
-    if original_asyncio_mode:
-        os.environ["PYTEST_ASYNCIO_MODE"] = original_asyncio_mode
-
-@pytest.fixture(scope=SCOPE)
-def browser(playwright, request):
-    """Browser session fixture avec support pour --headed."""
-    # Vérifier si --headed est spécifié
-    headless = not request.config.getoption("--headed")
-
-    # Configurer les options de lancement
-    launch_options = {
-        "headless": headless,
-        "args": [
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-web-security",
-            "--disable-features=IsolateOrigins,site-per-process"
-        ]
-    }
-
-    if not headless:
-        _log(f"🔍 Launching browser in HEADED mode (headless={headless})")
-        launch_options["slow_mo"] = 200  # Ralentir pour voir ce qui se passe
-    else:
-        launch_options["slow_mo"] = 200
-        _log(f"🚀 Launching browser in HEADLESS mode")
-
-    browser = playwright.chromium.launch(**launch_options)
-
-    yield browser
-
-    browser.close()
 
 @pytest.fixture(scope="session")
 def streamlit_server(setup_test_environment):
-    """Start Streamlit server for testing."""
-    _log("\n=== STARTING STREAMLIT SERVER ===")
-
-    # 1. Kill any stray processes
+    """Start a Streamlit server for end-to-end tests."""
+    _log("=== STARTING STREAMLIT SERVER ===")
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
-    # CRITICAL FIX: Ensure database is fully initialized before starting Streamlit
-    _, db_full_path = get_database_file_path()
+    # Wait for the DB file to be ready
+    _, db_full_path = _get_db_paths()
+    _poll_until(
+        lambda: os.path.exists(db_full_path) and os.path.getsize(db_full_path) > 0,
+        timeout=10, interval=0.5,
+        label="DB file ready",
+    )
 
-    max_wait = 10
-    start_time = time.time()
-    while time.time() - start_time < max_wait:
-        if os.path.exists(db_full_path) and os.path.getsize(db_full_path) > 0:
-            _log(f"✓ Database file exists and has content: {db_full_path}")
-            break
-        _log(f"Waiting for database file to be created... ({int(time.time() - start_time)}s)")
-        time.sleep(0.5)
-    else:
-        _log(f"⚠ Database file not found after {max_wait}s, continuing anyway...")
-
-    env = os.environ.copy()
-    log_dir = os.path.join(PROJECT_ROOT, "tests", "logs")
-    os.makedirs(log_dir, exist_ok=True)
-
-    stdout_file = open(os.path.join(log_dir, "streamlit_stdout.log"), "w")
-    stderr_file = open(os.path.join(log_dir, "streamlit_stderr.log"), "w")
+    log_dir = PROJECT_ROOT / "tests" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         "streamlit", "run", "prof.py",
@@ -578,160 +401,213 @@ def streamlit_server(setup_test_environment):
         "--server.headless", "true",
         "--server.fileWatcherType", "none",
         "--server.enableCORS", "false",
-        "--server.enableXsrfProtection", "false"
+        "--server.enableXsrfProtection", "false",
     ]
+    _log(f"Command : {' '.join(cmd)}")
 
-    _log(f"Launching Streamlit with command: {' '.join(cmd)}")
-    _log(f"Working directory: {PROJECT_ROOT}")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=os.environ.copy(),
+        cwd=PROJECT_ROOT,
+        preexec_fn=os.setsid,
+    )
+    _log(f"Streamlit PID: {process.pid}")
 
-    process = None
-    try:
-        import subprocess as _sp
-        _r = _sp.run(["python", "-c",
-            "from shared.cached import get_db_manager, get_user_manager; "
-            "print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DB initialized:', get_db_manager().is_initialized()); "
-            "um = get_user_manager(); u = um.get_user('normal1_m2'); "
-            "print('normal1_m2:', u.get('name') if u else 'NOT FOUND')"],
-            capture_output=True, text=True, cwd=PROJECT_ROOT)
-        _log(f"DB state before Streamlit: {_r.stdout.strip()} {_r.stderr.strip()[:200]}")
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            #stdout=stdout_file, # Can cause interference BUG
-            #stderr=stderr_file, # Can cause interference BUG
-            env=env,
-            cwd=PROJECT_ROOT,
-            preexec_fn=os.setsid
-        )
+    health_url = f"http://localhost:{TEST_PORT}/_stcore/health"
+    if not _poll_until(
+        lambda: _http_ok(health_url),
+        timeout=30, interval=1,
+        label="Streamlit health",
+    ):
+        _kill_process_group(process)
+        raise RuntimeError("Streamlit failed to become healthy within 30 s")
 
-        _log(f"Streamlit process started with PID: {process.pid}")
+    yield process
 
-        # Health check with retries
-        start_time = time.time()
-        success = False
-        max_wait = 30
-        while time.time() - start_time < max_wait:
-            try:
-                response = requests.get(f"http://localhost:{TEST_PORT}/_stcore/health", timeout=5)
-                if response.status_code == 200:
-                    success = True
-                    _log(f"✓ Streamlit server is ready after {int(time.time() - start_time)} seconds")
-                    break
-                time.sleep(1)
-            except TimeoutError:
-                pass
-            except requests.RequestException as e:
-                if time.time() - start_time > 10:
-                    _log(f"Waiting for Streamlit... ({int(time.time() - start_time)}s)")
-                time.sleep(1)
+    _log("=== SHUTTING DOWN STREAMLIT ===")
+    _kill_process_group(process, graceful=True)
+    subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
-        if not success:
-            _log("❌ Streamlit failed to start within timeout", level="ERROR")
-            if process:
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                process.wait(timeout=5)
-            raise RuntimeError("Streamlit failed to start")
 
-        yield process
+@pytest.fixture(scope=_BROWSER_SCOPE)
+def playwright():
+    """Synchronous Playwright instance."""
+    original = os.environ.pop("PYTEST_ASYNCIO_MODE", None)
+    with sync_playwright() as pw:
+        yield pw
+    if original is not None:
+        os.environ["PYTEST_ASYNCIO_MODE"] = original
 
-    finally:
-        # CLEANUP: Kill the entire process group
-        _log("\n=== SHUTTING DOWN STREAMLIT SERVER ===")
-        if process:
-            try:
-                _log(f"Terminating process group for PID: {process.pid}")
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                process.wait(timeout=5)
-                _log("✓ Streamlit server terminated gracefully")
-            except subprocess.TimeoutExpired:
-                _log("Process didn't terminate, forcing kill...", level="WARNING")
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                process.wait(timeout=2)
-                _log("✓ Streamlit server killed")
-            except ProcessLookupError:
-                _log("Process already terminated")
-            except Exception as e:
-                _log(f"Error during shutdown: {e}", level="ERROR")
 
-        stdout_file.close()
-        stderr_file.close()
+@pytest.fixture(scope=_BROWSER_SCOPE)
+def browser(playwright, request):
+    """Chromium browser, headed when ``--headed`` is passed."""
+    headless = not request.config.getoption("--headed")
+    _log(f"Browser: {'HEADLESS' if headless else 'HEADED'}")
+    b = playwright.chromium.launch(
+        headless=headless,
+        slow_mo=200,
+        args=[
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ],
+    )
+    yield b
+    b.close()
 
-        # Final cleanup of any remaining processes
-        subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
-# ============ FUNCTION FIXTURES ============
-
+# ---------------------------------------------------------------------------
+# 13.  Function-scoped fixtures
+# ---------------------------------------------------------------------------
 @pytest.fixture
 def context():
-    """Test context to store state between steps."""
+    """Blank dict for sharing state between BDD steps."""
     return {}
+
 
 @pytest.fixture
 def enable_debug():
-    """Fixture to enable debug mode (screenshots, logging)."""
-    debug_enabled = os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
-    #print(f"Debug mode: {'ENABLED' if debug_enabled else 'DISABLED'}") # Can cause interference BUG
-    return debug_enabled
+    """True when ``PYTEST_DEBUG=true`` is set in the environment."""
+    return os.getenv("PYTEST_DEBUG", "false").lower() in ("true", "1", "yes")
+
 
 @pytest.fixture
 def debug_dir(enable_debug):
-    """Create debug directory if debug mode is enabled."""
+    """Create and return the debug screenshot directory (or False)."""
     if enable_debug:
-        debug_path = os.path.join("tests", "debug")
-        os.makedirs(debug_path, exist_ok=True)
-        #print(f"Debug directory: {os.path.abspath(debug_path)}") # Can cause interference BUG
-    return enable_debug
+        path = Path("tests") / "debug"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    return False
+
 
 @pytest.fixture
 def browser_context(browser):
-    """Create browser context once per test."""
-    context = browser.new_context()
-    yield context
-    context.close()
+    ctx = browser.new_context()
+    yield ctx
+    ctx.close()
+
 
 @pytest.fixture
 def page(browser_context):
-    """Create a new page for each test."""
-    page = browser_context.new_page()
-
-    # IMPORTANT: Augmenter les timeouts pour le mode headed
-    page.set_default_timeout(60000)  # 60 secondes au lieu de 30
-    page.set_default_navigation_timeout(60000)
-
-    # Forcer une taille de fenêtre spécifique
-    page.set_viewport_size({"width": 1280, "height": 900})
-
-    yield page
-    page.close()
+    p = browser_context.new_page()
+    p.set_default_timeout(60_000)
+    p.set_default_navigation_timeout(60_000)
+    p.set_viewport_size({"width": 1280, "height": 900})
+    yield p
+    p.close()
 
 
+@pytest.fixture
+def integration_real_driver_setup(setup_test_environment):
+    """
+    Run real-driver benchmarker tests in an isolated app state.
 
-# ============ MARKS ============
+    Saves and restores both the driver state and the module-level
+    initialisation flags so that tests cannot bleed into one another.
+    """
+    import modules.benchmarker as bm
+    import modules.rag_manager as rm
+    from shared.common import get_driver
 
-def pytest_configure(config):
-    """Configure pytest markers."""
-    config.addinivalue_line(
-        "markers",
-        "bdd: BDD tests using pytest-bdd"
-    )
-    config.addinivalue_line(
-        "markers",
-        "integration: Integration tests with UI"
-    )
-    config.addinivalue_line(
-        "markers",
-        "unit: Unit tests without UI"
-    )
-    config.addinivalue_line(
-        "markers",
-        "streamlit_testing: Tests using streamlit.testing.v1 (no browser)"
-    )
-    config.addinivalue_line(
-        "markers",
-        "playwright: Tests using Playwright (browser automation)"
-    )
-    config.addinivalue_line(
-        "markers",
-        "rag: Tests using RAG (browser automation)"
-    )
+    driver = get_driver()
+
+    # ── snapshot ──────────────────────────────────────────────────────────
+    saved_driver = {
+        "_options":        copy.deepcopy(driver._options),
+        "_actions":        copy.deepcopy(driver._actions),
+        "_active_options": copy.deepcopy(driver._active_options),
+        "_context":        copy.deepcopy(driver._context),
+        "_session_events": copy.deepcopy(driver._session_events),
+        "_session_meta":   copy.deepcopy(driver._session_meta),
+    }
+    saved_bm = {k: getattr(bm, k) for k in ("_INITIALIZED", "_ACTIONS_REGISTERED", "_LLM_OPTIONS_REGISTERED")}
+    saved_rm = {k: getattr(rm, k) for k in ("_INITIALIZED", "_RAG_OPTIONS_REGISTERED")}
+
+    # ── reset for isolated test ────────────────────────────────────────────
+    for k in saved_bm:
+        setattr(bm, k, False)
+    for k in saved_rm:
+        setattr(rm, k, False)
+
+    _init_modules()
+    yield
+
+    # ── restore ───────────────────────────────────────────────────────────
+    for attr, val in saved_driver.items():
+        setattr(driver, attr, val)
+    for k, v in saved_bm.items():
+        setattr(bm, k, v)
+    for k, v in saved_rm.items():
+        setattr(rm, k, v)
+
+
+# ---------------------------------------------------------------------------
+# 14.  Markers
+# ---------------------------------------------------------------------------
+def pytest_configure(config) -> None:
+    markers = [
+        ("bdd",                "BDD tests using pytest-bdd"),
+        ("integration",        "Integration tests with UI"),
+        ("unit",               "Unit tests without UI"),
+        ("streamlit_testing",  "Tests using streamlit.testing.v1 (no browser)"),
+        ("playwright",         "Tests using Playwright (browser automation)"),
+        ("rag",                "Tests using RAG"),
+    ]
+    for name, description in markers:
+        config.addinivalue_line("markers", f"{name}: {description}")
+
+
+# ---------------------------------------------------------------------------
+# 15.  Internal utilities
+# ---------------------------------------------------------------------------
+def _http_ok(url: str) -> bool:
+    try:
+        return requests.get(url, timeout=5).status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def _poll_until(
+    condition,
+    *,
+    timeout: float,
+    interval: float = 1.0,
+    label: str = "condition",
+) -> bool:
+    """
+    Poll ``condition()`` until it returns truthy or ``timeout`` seconds elapse.
+    Returns True on success, False on timeout.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            _log(f"✓ {label}")
+            return True
+        time.sleep(interval)
+    _log(f"⚠ Timed out waiting for: {label}", level="WARNING")
+    return False
+
+
+def _kill_process_group(process, *, graceful: bool = False) -> None:
+    try:
+        pgid = os.getpgid(process.pid)
+        if graceful:
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+                _log("✓ Process terminated gracefully")
+                return
+            except subprocess.TimeoutExpired:
+                _log("Graceful shutdown timed out, killing…", level="WARNING")
+        os.killpg(pgid, signal.SIGKILL)
+        process.wait(timeout=2)
+        _log("✓ Process killed")
+    except ProcessLookupError:
+        _log("Process already gone")
+    except Exception as exc:
+        _log(f"Error killing process: {exc}", level="ERROR")

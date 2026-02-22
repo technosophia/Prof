@@ -7,8 +7,9 @@ python_functions = "test_*"
 asyncio_mode = "strict"
 # Use string format with escaped quotes
 #addopts = "-v --tb=short --import-mode=importlib -m 'not ollama and not bdd'"
-addopts = "-v --tb=short --import-mode=importlib --log-disable=streamlit.runtime.scriptrunner_utils.script_run_context --log-disable=streamlit.runtime.state.session_state_proxy"
+#addopts = "-v --tb=short --import-mode=importlib --log-disable=streamlit.runtime.scriptrunner_utils.script_run_context --log-disable=streamlit.runtime.state.session_state_proxy"
 #addopts = "-v -s --tb=short --import-mode=importlib tests/step_defs/rag_steps.py::test_rag_enabled_conversation"
+addopts = "-v --tb=short --import-mode=importlib modules/benchmarker/tests/ tests/step_defs/rag_steps.py::test_rag_enabled_conversation "
 markers = [
     "asyncio: mark test as using asyncio",
     "ollama: mark test as requiring Ollama service",
