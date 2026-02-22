@@ -314,6 +314,42 @@ def test_injected_context_contains_fails_on_rag_no_results_marker_even_if_contai
     assert "no rag results found" in out[0].message.lower()
 
 
+def test_injected_context_contains_fails_on_rag_no_result_singular_marker():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {
+                        "source": "rag_context_callback_faiss_hierarchical",
+                        "content": "[WARNING] No RAG result found for query: Also, who runs the Tuesday Sync?",
+                        "role": "system",
+                    }
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "contains": "Tuesday Sync", "source_contains": "rag"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "no rag result found" in out[0].message.lower()
+
+
 def test_injected_context_not_contains_passes_when_forbidden_text_absent():
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
