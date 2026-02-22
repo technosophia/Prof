@@ -8,7 +8,6 @@ import pytest
 
 
 from modules.benchmarker.runner import ScenarioRunner
-from modules.rag_manager import rag_manager
 from shared.cached import get_db_manager
 from shared.common import get_user_manager, log
 
@@ -17,23 +16,6 @@ SCENARIOS = [
     Path("modules/benchmarker/scenarios/example_basic.yaml"),
     Path("modules/benchmarker/scenarios/full_nexoria.yaml"),
 ]
-
-
-@pytest.fixture()
-def _ensure_nexoria_rag_ready():
-    """Skip gracefully when classic RAG indexing is unavailable."""
-    trainer = get_user_manager().get_user("master1")
-    if not trainer:
-        pytest.skip("master1 user not available for RAG validation")
-
-    query_result = rag_manager.search(
-        user_id=trainer["id"],
-        query="RouteForge",
-        engine_type="classic",
-    )
-    classic_hits = query_result.get("classic", []) if isinstance(query_result, dict) else []
-    if not classic_hits:
-        pytest.skip("Classic RAG index is not ready for Nexoria integration scenario")
 
 
 def _assert_database_ready() -> None:
@@ -95,7 +77,6 @@ def _assert_full_success(runner: ScenarioRunner, scenario_path: Path):
 def test_full_run_real_driver_scenarios(
     tmp_path,
     scenario_path: Path,
-    _ensure_nexoria_rag_ready,
 ):
     _assert_database_ready()
 
