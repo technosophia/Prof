@@ -21,7 +21,7 @@ from modules.llm_monitor.display_utils import (
     render_rate_limit_summary,
     render_rate_limit_gauge
 )
-from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable, RateLimitUsageTable
+from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable, RateLimitUsageTable, DailyCostSummaryTable
 
 
 def show_llm_monitor_admin_content():
@@ -34,13 +34,14 @@ def show_llm_monitor_admin_content():
         st.warning("LLM monitoring is disabled. Enable it in the configuration.")
         return
 
-    # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    # Create tabs - added Diagnostics tab
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Overview",
         "👤 User Statistics",
         "📝 Call Logs",
         "⏱️ Rate Limits",
         "⚙️ Configuration",
+        "🔍 Diagnostics",
         "🧪 Test",
     ])
 
@@ -60,7 +61,224 @@ def show_llm_monitor_admin_content():
         show_configuration_tab(monitor)
 
     with tab6:
+        show_diagnostics_tab(monitor)  # New diagnostics tab
+
+    with tab7:
         test_rate_limit_tracking(monitor)
+
+
+def show_diagnostics_tab(monitor):
+    """Render the diagnostics tab showing registered callbacks and system information."""
+    st.subheader("🔍 System Diagnostics")
+
+    # Get LLM manager instance
+    from shared.cached import get_llm_manager
+    llm_manager = get_llm_manager()
+
+    # Callbacks Section
+    st.write("### 📞 Registered Callbacks")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Legacy callbacks
+        st.write("**Legacy Callbacks (return context string)**")
+        if hasattr(llm_manager, 'llm_callbacks') and llm_manager.llm_callbacks:
+            for i, callback in enumerate(llm_manager.llm_callbacks, 1):
+                callback_name = getattr(callback, '__name__', str(callback))
+                module_name = getattr(callback, '__module__', 'unknown')
+                st.write(f"{i}. `{callback_name}` (module: `{module_name}`)")
+        else:
+            st.info("No legacy callbacks registered")
+
+    with col2:
+        # Enhanced context callbacks
+        st.write("**Enhanced Context Callbacks**")
+        if hasattr(llm_manager, 'context_callbacks') and llm_manager.context_callbacks:
+            for i, callback in enumerate(llm_manager.context_callbacks, 1):
+                callback_name = getattr(callback, '__name__', str(callback))
+                module_name = getattr(callback, '__module__', 'unknown')
+                st.write(f"{i}. `{callback_name}` (module: `{module_name}`)")
+        else:
+            st.info("No enhanced context callbacks registered")
+
+    # Monitor callbacks
+    st.write("**Monitor Callbacks**")
+    if hasattr(llm_manager, '_monitor_callbacks') and llm_manager._monitor_callbacks:
+        for i, callback in enumerate(llm_manager._monitor_callbacks, 1):
+            callback_name = getattr(callback, '__name__', str(callback))
+            module_name = getattr(callback, '__module__', 'unknown')
+            st.write(f"{i}. `{callback_name}` (module: `{module_name}`)")
+    else:
+        st.info("No monitor callbacks registered")
+
+    st.divider()
+
+    # System Information
+    st.write("### 🖥️ System Information")
+
+    # LLM Manager status
+    st.write("**LLM Manager Status**")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("Current LLM ID", llm_manager.current_llm or "None")
+
+    with col2:
+        st.metric("Available Engines", len(llm_manager.engines))
+
+    with col3:
+        st.metric("Total Callbacks",
+                 len(getattr(llm_manager, 'llm_callbacks', [])) +
+                 len(getattr(llm_manager, 'context_callbacks', [])) +
+                 len(getattr(llm_manager, '_monitor_callbacks', [])))
+
+    # Engine information
+    with st.expander("🔧 Loaded Engines", expanded=False):
+        if llm_manager.engines:
+            engine_data = []
+            for engine_type, engine in llm_manager.engines.items():
+                engine_data.append({
+                    "Type": engine_type,
+                    "Class": engine.__class__.__name__,
+                    "Available": engine.is_available() if hasattr(engine, 'is_available') else "N/A"
+                })
+            st.dataframe(pd.DataFrame(engine_data), width='stretch')
+        else:
+            st.info("No engines loaded")
+
+    # Configuration validation
+    st.write("### ✅ Configuration Validation")
+
+    # Check LLM configurations
+    llms_config = monitor.llm_configs
+    valid_configs = 0
+    invalid_configs = []
+
+    for llm_id, config in llms_config.items():
+        issues = []
+        if not isinstance(config, dict):
+            issues.append("Not a dictionary")
+        else:
+            if "type" not in config:
+                issues.append("Missing 'type'")
+            if "model" not in config:
+                issues.append("Missing 'model'")
+            if config.get("enabled", True) and config.get("requires_api_key", False):
+                engine = llm_manager.get_engine(config.get("type"))
+                if engine and not engine.is_available():
+                    issues.append("API key not configured")
+
+        if issues:
+            invalid_configs.append({"LLM ID": llm_id, "Issues": ", ".join(issues)})
+        else:
+            valid_configs += 1
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Valid Configurations", valid_configs)
+    with col2:
+        st.metric("Total Configurations", len(llms_config))
+
+    if invalid_configs:
+        st.write("**Configuration Issues Found:**")
+        st.dataframe(pd.DataFrame(invalid_configs), width='stretch')
+    else:
+        st.success("All LLM configurations appear valid!")
+
+    st.divider()
+
+    # Database Statistics
+    st.write("### 🗄️ Database Statistics")
+
+    try:
+        with monitor.db.get_session() as session:
+            # Get table sizes - need to import the models
+            from modules.llm_monitor.models import (
+                LLMCallTable,
+                UserLLMStatsTable,
+                RateLimitUsageTable,
+                DailyCostSummaryTable  # Added this import
+            )
+
+            llm_calls_count = session.query(LLMCallTable).count()
+            user_stats_count = session.query(UserLLMStatsTable).count()
+            rate_limit_count = session.query(RateLimitUsageTable).count()
+            daily_summary_count = session.query(DailyCostSummaryTable).count()
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("LLM Calls", f"{llm_calls_count:,}")
+            with col2:
+                st.metric("User Stats", f"{user_stats_count:,}")
+            with col3:
+                st.metric("Rate Limit Records", f"{rate_limit_count:,}")
+            with col4:
+                st.metric("Daily Summaries", f"{daily_summary_count:,}")
+
+            # Get oldest and newest call
+            if llm_calls_count > 0:
+                oldest_call = session.query(
+                    LLMCallTable.timestamp
+                ).order_by(LLMCallTable.timestamp.asc()).first()
+
+                newest_call = session.query(
+                    LLMCallTable.timestamp
+                ).order_by(LLMCallTable.timestamp.desc()).first()
+
+                if oldest_call and newest_call:
+                    st.write(f"**Date range:** {oldest_call[0]} to {newest_call[0]}")
+
+    except Exception as e:
+        st.error(f"Error getting database info: {str(e)}")
+        log("error", f"Database error in diagnostics tab: {e}", exc_info=True)
+
+    st.divider()
+
+    # Clear All Logs - Moved here from Configuration tab
+    st.write("### 🗑️ Clear All Logs")
+
+    col_clear_all1, col_clear_all2 = st.columns([2, 1])
+
+    with col_clear_all1:
+        st.error("""
+        **Danger Zone:** This will permanently delete **ALL** LLM usage logs from the entire system.
+
+        **Impact:**
+        - All LLM call records will be deleted
+        - All user statistics will be reset
+        - All rate limit usage history will be lost
+        - Daily cost summaries will be deleted
+        - This action cannot be undone!
+        """)
+
+    with col_clear_all2:
+        # Add a confirmation checkbox with a unique key
+        confirm_clear = st.checkbox(
+            "I understand this action is irreversible",
+            key="confirm_clear_all_diag"
+        )
+
+        if confirm_clear:
+            if st.button(
+                "🔥 Clear ALL Logs",
+                type="secondary",
+                key="clear_all_logs_diag_button"  # Unique key
+            ):
+                with st.spinner("Clearing all logs..."):
+                    result = monitor.clear_all_logs()
+                    if result["llm_calls"] > 0 or result["user_stats"] > 0:
+                        st.success(f"✅ Cleared {result['llm_calls']} LLM call records, {result['user_stats']} user statistics, {result['rate_limit_usage']} rate limit records, and {result['daily_summary']} daily summaries")
+                        st.rerun()
+                    else:
+                        st.info("No logs found to clear")
+        else:
+            st.button(
+                "🔥 Clear ALL Logs",
+                disabled=True,
+                help="Check the confirmation box first",
+                key="clear_all_logs_diag_disabled"  # Unique key
+            )
 
 
 def show_overview_tab(monitor):
@@ -575,39 +793,6 @@ def show_configuration_tab(monitor):
 
         except Exception as e:
             st.error(f"Error getting database info: {str(e)}")
-
-    st.write("---")
-    st.write("### 🗑️ Clear All Logs")
-
-    col_clear_all1, col_clear_all2 = st.columns([2, 1])
-
-    with col_clear_all1:
-        st.error("""
-        **Danger Zone:** This will permanently delete **ALL** LLM usage logs from the entire system.
-
-        **Impact:**
-        - All LLM call records will be deleted
-        - All user statistics will be reset
-        - All rate limit usage history will be lost
-        - Daily cost summaries will be deleted
-        - This action cannot be undone!
-        """)
-
-    with col_clear_all2:
-        # Add a confirmation checkbox
-        confirm_clear = st.checkbox("I understand this action is irreversible", key="confirm_clear_all")
-
-        if confirm_clear:
-            if st.button("🔥 Clear ALL Logs", type="secondary", key="clear_all_logs_button"):
-                with st.spinner("Clearing all logs..."):
-                    result = monitor.clear_all_logs()
-                    if result["llm_calls"] > 0 or result["user_stats"] > 0:
-                        st.error(f"✅ Cleared {result['llm_calls']} LLM call records, {result['user_stats']} user statistics, {result['rate_limit_usage']} rate limit records, and {result['daily_summary']} daily summaries")
-                        st.rerun()
-                    else:
-                        st.info("No logs found to clear")
-        else:
-            st.button("🔥 Clear ALL Logs", disabled=True, help="Check the confirmation box first")
 
 
 def test_rate_limit_tracking(monitor):
