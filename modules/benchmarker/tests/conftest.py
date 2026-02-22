@@ -15,13 +15,28 @@ os.environ.setdefault("TEST_MODE", "true")
 from shared.cached import get_config, get_db_manager, get_user_manager
 from shared.common import configure_logging_from_dict, init_database, init_user_manager, log
 from shared.module_handler import ModuleHandler
+from shared.ui_registry import UIRegistry
 
 
-def _initialize_modules() -> None:
+def _initialize_modules() -> ModuleHandler:
     handler = ModuleHandler()
     handler.initialize()
+
+    # Mirror prof.py behavior: actively load each module UI package first.
     active_modules = handler.get_active_modules()
+    for module_name in active_modules:
+        handler.load_module_ui(module_name)
+
     log("info", f"[benchmarker/tests] Active modules loaded: {active_modules}")
+    return handler
+
+
+def _initialize_ui_registry(handler: ModuleHandler) -> None:
+    # Mirror prof.py flow where UI registry triggers module initialize hooks.
+    ui_registry = UIRegistry()
+    ui_registry.set_module_handler(handler)
+    ui_registry.render_all("initialize")
+    log("info", "[benchmarker/tests] UI registry initialize hooks executed")
 
 
 def pytest_configure(config):
@@ -49,4 +64,5 @@ def pytest_configure(config):
     get_user_manager()._create_default_users_fallback()
     log("info", "[benchmarker/tests] Default users ensured in pytest_configure")
 
-    _initialize_modules()
+    handler = _initialize_modules()
+    _initialize_ui_registry(handler)
