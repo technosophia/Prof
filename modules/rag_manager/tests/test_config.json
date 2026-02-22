@@ -1,7 +1,7 @@
 {
   "rag_manager": {
     "data_directory": "tests/data/rag_documents",
-    "default_engine": "simple",
+    "default_engine": "classic",
     "auto_import": [],
     "engines": {
       "simple": {

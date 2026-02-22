@@ -394,6 +394,7 @@ His phone number is +33 1 23 45 67 89."""
                     is_public=False,
                 )
                 rag_manager.index_document(filename, "classic", user_id)
+                rag_manager.index_document(filename, "simple", user_id)
                 _log(f"[SETUP] Indexed RAG doc on classic: {filename} for {user_id}")
 
             return
