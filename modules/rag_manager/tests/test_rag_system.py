@@ -55,14 +55,15 @@ def test_rag_manager_engine_discovery():
     engines = manager.get_available_engines()
     assert len(engines) > 0
 
-    # Check if simple engine is available
-    simple_engine_found = any(e['type'] == 'simple' for e in engines)
-    assert simple_engine_found == True
+    # Check if both simple and classic engines are available
+    engine_types_found = [e['type'] for e in engines]
+    assert 'simple' in engine_types_found
+    assert 'classic' in engine_types_found
 
     # Get default engine
     default_engine = manager.get_default_engine()
     assert default_engine is not None
-    assert default_engine.engine_type == "simple"
+    assert default_engine.engine_type in ["simple", "classic"]
 
 
 def test_user_permissions():

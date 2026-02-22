@@ -387,22 +387,31 @@ def test_engine_discovery(temp_rag_manager):
     """Test that RAG engines are discovered correctly."""
     engines = temp_rag_manager.get_available_engines()
 
-    # Should have at least the simple engine
-    assert len(engines) >= 1
+    # Should have at least simple and classic engines
+    assert len(engines) >= 2
 
+    # Check for simple engine
     simple_engine_found = False
     for engine_info in engines:
         if engine_info['type'] == 'simple':
             simple_engine_found = True
             assert engine_info['available'] is True
             break
-
     assert simple_engine_found is True
+
+    # Check for classic engine
+    classic_engine_found = False
+    for engine_info in engines:
+        if engine_info['type'] == 'classic':
+            classic_engine_found = True
+            assert engine_info['available'] is True
+            break
+    assert classic_engine_found is True
 
     # Test get_default_engine
     default_engine = temp_rag_manager.get_default_engine()
     assert default_engine is not None
-    assert default_engine.engine_type == "simple"
+    assert default_engine.engine_type in ["simple", "classic"]
 
 def test_document_indexing_status(temp_rag_manager, test_user_id):
     """Test document indexing status tracking."""
