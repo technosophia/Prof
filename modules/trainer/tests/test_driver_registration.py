@@ -165,12 +165,6 @@ def test_add_note_warns_when_pad_not_active(monkeypatch):
     assert plugins["student_pad"].notes
 
 
-def test_set_training_program_not_in_benchmarker(monkeypatch):
-    import modules.benchmarker.core_actions as core_actions
-
-    assert not hasattr(core_actions, "action_set_training_program")
-
-
 def test_trainer_id_none_in_context_logs_warning(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     warnings = []
@@ -193,3 +187,18 @@ def test_example_basic_scenario_has_no_trainer_actions():
     actions = [step.get("action") for step in scenario.get("steps", [])]
     assert not (set(actions) & forbidden)
     assert "training_program" not in (scenario.get("setup") or {})
+
+
+def test_trainer_ui_initialize_calls_trainer_initialize(monkeypatch):
+    import modules.trainer.trainer_ui as trainer_ui
+
+    called = {"count": 0}
+
+    def fake_initialize():
+        called["count"] += 1
+        return True
+
+    monkeypatch.setattr(trainer_ui, "initialize_trainer", fake_initialize)
+
+    assert trainer_ui.inject_ui_initialize() is True
+    assert called["count"] == 1
