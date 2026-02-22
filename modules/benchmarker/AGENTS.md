@@ -83,6 +83,28 @@ The `source` field is the `__name__` of the registered callback, e.g.:
 Use `source_contains` with a substring (e.g. `"rag"`, `"memory"`, `"student_pad"`)
 rather than the exact callback name, which may change.
 
+Alias note: `source_contains: "student_pad"` is treated as matching
+`get_student_notes_context` (student pad callback naming variant).
+
+### Known pitfall: context injection requires user_id through generate()
+
+`_add_llm_context()` in `shared/llm.py` is only called inside `generate()`,
+not inside `internal_response()`. If `llm_conversation_generate()` routes to
+`internal_response()` directly, or if `user_id` is dropped by an intermediate
+wrapper, injection is silently skipped and `injected_contexts` will be `[]`.
+
+Always verify: `llm_conversation_generate(content, history, user_id=X)`
+reaches `LLMManager.generate(user_id=X)` without dropping `user_id`.
+
+### Known pitfall: option activation order in runner
+
+`switch_option()` for `memory_backend` calls `_activate_memory_plugin()`
+which reads `trainer_id` from the driver context. If options are applied
+before `set_context(trainer_id=...)`, `trainer_id` will be None and the
+plugin will not activate (logged as WARNING).
+
+The runner must set context fields from `setup:` BEFORE applying `options:`.
+
 
 ## Actor semantics
 

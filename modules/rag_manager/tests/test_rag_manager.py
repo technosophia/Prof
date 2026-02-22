@@ -751,3 +751,10 @@ if __name__ == "__main__":
     # Run tests manually if needed
     import sys
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+def test_get_rag_context_returns_query_when_no_result(temp_rag_manager, test_user_id):
+    """RAG should inject an explicit fallback context with the query when no result exists."""
+    query = "unfindable routeforge token"
+    context = temp_rag_manager.get_rag_context(test_user_id, query, engine_type="simple")
+    assert context == f"No result found for : '{query}'"

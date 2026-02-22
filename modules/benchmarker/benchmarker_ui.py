@@ -283,11 +283,21 @@ def render() -> None:
             else:
                 memory_backend_override = st.text_input("Memory backend", value=memory_default)
 
+            rag_choices = [opt["name"] for opt in options_map.get("rag_engine", [])]
+            rag_default = scenario_options.get("rag_engine", "")
+            if rag_choices:
+                index = rag_choices.index(rag_default) if rag_default in rag_choices else 0
+                rag_engine_override = st.selectbox("RAG engine", rag_choices, index=index)
+            else:
+                rag_engine_override = st.text_input("RAG engine", value=rag_default)
+
         if st.button("▶ Run Scenario"):
             with st.spinner(_p("running_spinner", "Replaying scenario...")):
                 option_overrides = {}
                 if memory_backend_override:
                     option_overrides["memory_backend"] = memory_backend_override
+                if rag_engine_override:
+                    option_overrides["rag_engine"] = rag_engine_override
 
                 setup_overrides = {
                     "student_id": student_override,

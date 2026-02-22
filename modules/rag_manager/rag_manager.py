@@ -509,12 +509,14 @@ class RAGManager:
 
         search_results = self.search(user_id, query, engine_type, limit=3)
 
-        if not search_results or engine_type not in search_results:
-            return ""
+        engine_results = search_results.get(engine_type, []) if search_results else []
+        if not engine_results:
+            log("warning", f"No RAG results found for query: {query!r}")
+            return f"No result found for : '{query}'"
 
         # Format context from search results
         context_parts = []
-        for result in search_results[engine_type]:
+        for result in engine_results:
             context_parts.append(
                 f"From document '{result['filename']}':\n"
                 f"{result['content']}\n"

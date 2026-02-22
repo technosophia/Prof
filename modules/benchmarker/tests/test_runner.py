@@ -109,6 +109,29 @@ def test_full_run_example_basic(monkeypatch, tmp_path):
     assert Path(result.session_path).exists()
 
 
+
+
+def test_run_sets_context_before_options(monkeypatch, tmp_path):
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    runner.config["sessions_dir"] = str(tmp_path)
+
+    monkeypatch.setattr(runner, "_ensure_test_users", lambda setup: [])
+    monkeypatch.setattr(runner, "_persist_run", lambda run_result: None)
+
+    scenario = runner._load_scenario(_scenario_path())
+    scenario["options"] = {"memory_backend": "memory"}
+    scenario_path = tmp_path / "scenario_with_options.yaml"
+    scenario_path.write_text(__import__("yaml").safe_dump(scenario), encoding="utf-8")
+
+    result = runner.run(str(scenario_path))
+    assert result.success
+
+    event_types = [e.get("type") for e in runner.driver.get_session_events()]
+    assert "context_switch" in event_types
+    assert "option_switch" in event_types
+    assert event_types.index("context_switch") < event_types.index("option_switch")
+
 def test_step_error_does_not_abort_run(monkeypatch, tmp_path):
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
@@ -320,3 +343,30 @@ def test_validate_scenario_passes_with_all_registered():
     }
 
     assert runner.validate_scenario(scenario) == []
+
+
+def test_injected_context_source_alias_student_pad_matches_student_notes_callback():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "get_student_notes_context", "content": "some note", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "source_contains": "student_pad"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True

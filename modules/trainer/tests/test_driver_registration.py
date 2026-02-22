@@ -79,6 +79,7 @@ def test_memory_backend_options_registered(monkeypatch):
     assert "memory" in names
     assert "pedagogical_memory" in names
     assert "student_pad" in names
+    assert "memory+student_pad" in names
     assert "pedagogical_memory+student_pad" in names
 
 
@@ -110,6 +111,14 @@ def test_active_plugin_injects_context(monkeypatch):
     assert plugins["memory"].get_memory_context("s1", []) is not None
 
 
+def test_switch_to_memory_pad_combination_marks_both_active(monkeypatch):
+    driver, plugins = _setup(monkeypatch)
+    driver.set_context(trainer_id="t1")
+    driver.switch_option("memory_backend", "memory+student_pad")
+    assert plugins["memory"]._is_active is True
+    assert plugins["student_pad"]._is_active is True
+
+
 def test_switch_to_combination_marks_both_active(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     driver.set_context(trainer_id="t1")
@@ -125,6 +134,17 @@ def test_switch_from_combination_marks_both_inactive(monkeypatch):
     driver.switch_option("memory_backend", "memory")
     assert plugins["pedagogical_memory"]._is_active is False
     assert plugins["student_pad"]._is_active is False
+
+
+def test_trigger_analysis_memory_pad_combination(monkeypatch):
+    driver, plugins = _setup(monkeypatch)
+    driver.set_context(trainer_id="t1", student_id="s1")
+    driver.switch_option("memory_backend", "memory+student_pad")
+    result = driver.do_action("trigger_memory_analysis")
+    assert "memory" in result["details"]
+    assert "student_pad" in result["details"]
+    assert plugins["memory"].analysis_called == 1
+    assert plugins["student_pad"].analysis_called == 1
 
 
 def test_trigger_analysis_dispatches_to_active(monkeypatch):
