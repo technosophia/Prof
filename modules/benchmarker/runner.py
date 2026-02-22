@@ -355,6 +355,7 @@ class ScenarioRunner:
             elif atype == "injected_context_contains":
                 step_id = params.get("step_id")
                 contains = params.get("contains", "")
+                not_contains = params.get("not_contains", "")
                 source_contains = params.get("source_contains", "")
 
                 step = _get_step_result(step_id)
@@ -387,7 +388,33 @@ class ScenarioRunner:
                                 )
 
                         if not message:
-                            if contains:
+                            rag_empty_marker = "no rag results found"
+                            rag_empty_matches = [
+                                c for c in candidates if rag_empty_marker in c.get("content", "").lower()
+                            ]
+                            if rag_empty_matches:
+                                preview = rag_empty_matches[0].get("content", "")[:140]
+                                message = (
+                                    f"Context for step '{step_id}' contains '{rag_empty_marker}', "
+                                    "so injected_context_contains cannot pass. "
+                                    f"Content preview: '{preview}...'"
+                                )
+                            elif not_contains:
+                                forbidden = [
+                                    c for c in candidates if not_contains.lower() in c.get("content", "").lower()
+                                ]
+                                if forbidden:
+                                    message = (
+                                        f"Context from source matching '{source_contains}' for step '{step_id}' "
+                                        f"contains forbidden text '{not_contains}'."
+                                    )
+                                else:
+                                    passed = True
+                                    message = (
+                                        f"Context from source matching '{source_contains}' for step '{step_id}' "
+                                        f"does not contain '{not_contains}'."
+                                    )
+                            elif contains:
                                 matching = [
                                     c for c in candidates if contains.lower() in c.get("content", "").lower()
                                 ]

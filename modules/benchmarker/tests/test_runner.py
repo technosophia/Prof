@@ -277,6 +277,97 @@ def test_injected_context_contains_no_contexts_captured():
     assert "No injected contexts captured" in out[0].message
 
 
+
+def test_injected_context_contains_fails_on_rag_no_results_marker_even_if_contains_matches():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {
+                        "source": "rag_mock",
+                        "content": "[WARNING] No RAG results found for query: Tuesday Sync",
+                        "role": "system",
+                    }
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "contains": "Tuesday Sync", "source_contains": "rag"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "no rag results found" in out[0].message.lower()
+
+
+def test_injected_context_not_contains_passes_when_forbidden_text_absent():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "rag_mock", "content": "useful rag context", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "source_contains": "rag", "not_contains": "forbidden"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
+
+
+def test_injected_context_not_contains_fails_when_forbidden_text_present():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "rag_mock", "content": "has forbidden token", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "source_contains": "rag", "not_contains": "forbidden"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "forbidden text 'forbidden'" in out[0].message
+
 def test_injected_context_source_only():
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
