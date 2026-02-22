@@ -193,7 +193,7 @@ class StudentPadPlugin(TrainerPlugin):
 
         # Get the appropriate prompt based on language
         context_prompt = get_prompt('trainer.plugins.student_pad.student_notes_context',
-                                   _("The student's personal notes (their thoughts, questions, and learning progress):\n{student_notes}"))
+                                   _("trainer_plugin_student_pad.student_notes_context"))
 
         context = context_prompt.format(student_notes=student_notes)
 
