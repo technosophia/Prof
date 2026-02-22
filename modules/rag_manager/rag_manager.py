@@ -258,16 +258,22 @@ class RAGManager:
             return False
 
         # Admin can access all documents
-        if user_info['role'] == UserRole.ADMIN:
+        if user_info['role'] == UserRole.ADMIN.value:
             return True
 
         # Master can access their own and their children's documents
-        if user_info['role'] == UserRole.MASTER:
+        if user_info['role'] == UserRole.MASTER.value:
             if owner_id == user_id:
                 return True
             # Check if owner is a child of this master
             children = user_manager.get_children(user_id)
             return any(child['id'] == owner_id for child in children)
+
+        # Normal users can access their master's documents
+        if user_info['role'] == UserRole.NORMAL.value:
+            parent_id = user_info.get('parent_id')
+            if parent_id and owner_id == parent_id:
+                return True
 
         # Normal users can only access their own documents
         return False
@@ -289,7 +295,7 @@ class RAGManager:
                 return None
 
             # Normal users cannot upload public documents
-            if is_public and user_info['role'] == UserRole.NORMAL:
+            if is_public and user_info['role'] == UserRole.NORMAL.value:
                 log("warning", f"Normal user {user_id} cannot upload public documents")
                 return None
 
@@ -307,7 +313,7 @@ class RAGManager:
                 visible_to = ["admin", "master", "normal"]  # All users
             else:
                 visible_to = [user_info['role']]
-                if user_info['role'] == UserRole.MASTER:
+                if user_info['role'] == UserRole.MASTER.value:
                     visible_to.append("normal")  # Master's docs visible to their normal users
 
             # Add to metadata - ensure ALL required fields are present
@@ -565,7 +571,7 @@ class RAGManager:
             if not user_info:
                 return False
 
-            if user_info['role'] not in [UserRole.ADMIN, UserRole.MASTER]:
+            if user_info['role'] not in [UserRole.ADMIN.value, UserRole.MASTER.value]:
                 log("warning", f"User {user_id} cannot clear all documents")
                 return False
 
