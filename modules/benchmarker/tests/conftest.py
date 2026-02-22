@@ -35,6 +35,7 @@ from shared.cached import get_config, get_db_manager, get_user_manager
 from shared.common import configure_logging_from_dict, init_database, init_user_manager, log
 from shared.module_handler import ModuleHandler
 from shared.ui_registry import UIRegistry
+from modules.rag_manager import rag_manager
 
 
 def _initialize_modules() -> ModuleHandler:
@@ -118,7 +119,30 @@ def _ensure_integration_runtime_initialized() -> None:
     _initialize_ui_registry(handler)
 
 
+
+
+def _reset_rag_for_integration() -> None:
+    """Align RAG runtime settings/state with config for deterministic integration runs."""
+    cfg = get_config()
+    classic_cfg = (cfg.get("modules.rag_manager", {}) or {}).get("engines", {}).get("classic", {})
+    configured_threshold = classic_cfg.get("similarity_threshold", 0.3)
+
+    classic_engine = rag_manager.get_engine("classic")
+    if classic_engine is not None and hasattr(classic_engine, "similarity_threshold"):
+        classic_engine.similarity_threshold = configured_threshold
+        log(
+            "info",
+            f"[benchmarker/tests] classic similarity_threshold set to {configured_threshold}",
+        )
+
+    # Keep integration scenarios deterministic: start with empty trainer docs, then tests preload fixture.
+    trainer = get_user_manager().get_user("master1")
+    if trainer is not None:
+        rag_manager.clear_all_documents(trainer["id"])
+        log("info", "[benchmarker/tests] Cleared trainer RAG docs before integration run")
+
 def pytest_runtest_setup(item):
     """Ensure integration scenario test always runs with the proper runtime state."""
     if "test_runner_integration_real_driver.py" in item.nodeid:
         _ensure_integration_runtime_initialized()
+        _reset_rag_for_integration()
