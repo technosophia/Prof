@@ -388,32 +388,38 @@ class ScenarioRunner:
                                 )
 
                         if not message:
-                            rag_empty_marker = "no rag results found"
-                            rag_empty_matches = [
-                                c for c in candidates if rag_empty_marker in c.get("content", "").lower()
-                            ]
-                            if rag_empty_matches:
-                                preview = rag_empty_matches[0].get("content", "")[:140]
-                                message = (
-                                    f"Context for step '{step_id}' contains '{rag_empty_marker}', "
-                                    "so injected_context_contains cannot pass. "
-                                    f"Content preview: '{preview}...'"
+                            forbidden_terms = ["no rag results found"]
+                            if not_contains:
+                                forbidden_terms.insert(0, not_contains.lower())
+
+                            forbidden_match = None
+                            for term in forbidden_terms:
+                                forbidden_match = next(
+                                    (c for c in candidates if term in c.get("content", "").lower()),
+                                    None,
                                 )
-                            elif not_contains:
-                                forbidden = [
-                                    c for c in candidates if not_contains.lower() in c.get("content", "").lower()
-                                ]
-                                if forbidden:
+                                if forbidden_match:
+                                    break
+
+                            if forbidden_match:
+                                preview = forbidden_match.get("content", "")[:140]
+                                if term == "no rag results found":
                                     message = (
-                                        f"Context from source matching '{source_contains}' for step '{step_id}' "
-                                        f"contains forbidden text '{not_contains}'."
+                                        f"Context for step '{step_id}' contains '{term}', "
+                                        "so injected_context_contains cannot pass. "
+                                        f"Content preview: '{preview}...'"
                                     )
                                 else:
-                                    passed = True
                                     message = (
                                         f"Context from source matching '{source_contains}' for step '{step_id}' "
-                                        f"does not contain '{not_contains}'."
+                                        f"contains forbidden text '{term}'."
                                     )
+                            elif not_contains:
+                                passed = True
+                                message = (
+                                    f"Context from source matching '{source_contains}' for step '{step_id}' "
+                                    f"does not contain '{not_contains}'."
+                                )
                             elif contains:
                                 matching = [
                                     c for c in candidates if contains.lower() in c.get("content", "").lower()
