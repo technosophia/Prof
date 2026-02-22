@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from modules.benchmarker.runner import ScenarioRunner
+from modules.benchmarker.runner import ScenarioRunner, StepResult
 
 
 class FakeDriver:
@@ -149,3 +149,174 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
     assert switched["llm"] == "mock-default"
     context_events = [e for e in runner.driver.get_session_events() if e.get("type") == "context_switch"]
     assert any(e.get("data", {}).get("llm_id") == "mock-default" for e in context_events)
+
+
+def test_injected_context_contains_passes(monkeypatch):
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {"source": "rag_mock", "content": "Document contains voss_index guidance", "role": "system"}
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "contains": "voss_index", "source_contains": "rag"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
+
+
+def test_injected_context_contains_fails_wrong_content():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "rag_mock", "content": "other text", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [{"id": "a1", "type": "injected_context_contains", "params": {"step_id": "s1", "contains": "voss_index"}}],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "does not contain 'voss_index'" in out[0].message
+
+
+def test_injected_context_contains_fails_wrong_source():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "memory_mock", "content": "voss_index", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "source_contains": "rag"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "Sources present" in out[0].message
+
+
+def test_injected_context_contains_no_contexts_captured():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": []},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [{"id": "a1", "type": "injected_context_contains", "params": {"step_id": "s1"}}],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "No injected contexts captured" in out[0].message
+
+
+def test_injected_context_source_only():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={"injected_contexts": [{"source": "rag_mock", "content": "abc", "role": "system"}]},
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "source_contains": "rag"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
+
+
+def test_validate_scenario_reports_unknown_option_group():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    scenario = {
+        "meta": {"name": "x"},
+        "options": {"nonexistent_group": "foo"},
+        "steps": [{"id": "s1", "actor": "student", "action": "user_send_message", "params": {}}],
+    }
+
+    errors = runner.validate_scenario(scenario)
+    assert any("Unknown option group: nonexistent_group" in e for e in errors)
+
+
+def test_validate_scenario_reports_unknown_action():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    scenario = {
+        "meta": {"name": "x"},
+        "options": {},
+        "steps": [{"id": "s1", "actor": "student", "action": "unknown_action", "params": {}}],
+    }
+
+    errors = runner.validate_scenario(scenario)
+    assert any("Unknown action in step s1: unknown_action" in e for e in errors)
+
+
+def test_validate_scenario_passes_with_all_registered():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    scenario = {
+        "meta": {"name": "x"},
+        "options": {"memory_backend": "memory"},
+        "steps": [
+            {"id": "s1", "actor": "system", "action": "create_conversation", "params": {}},
+            {"id": "s2", "actor": "student", "action": "user_send_message", "params": {}},
+        ],
+    }
+
+    assert runner.validate_scenario(scenario) == []

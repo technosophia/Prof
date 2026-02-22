@@ -1,10 +1,11 @@
 """Built-in scenario actions for benchmarker."""
 
 import asyncio
-from typing import Dict
+from typing import Dict, List
 
 from shared.common import (
     Message,
+    get_config,
     get_conversation_manager,
     get_driver,
     llm_conversation_generate,
@@ -55,13 +56,33 @@ def action_user_send_message(context, **params) -> Dict:
         Message(role="user", content=content, metadata={"source": "benchmarker"}),
     )
     history = [msg.to_dict() for msg in conversation.messages]
-    llm_response = _run_async(
-        llm_conversation_generate(
-            content,
-            conversation_history=history,
-            user_id=context.student_id,
+    from shared.common import get_llm_manager
+
+    captured_contexts: List[Dict] = []
+    def _capture_context(monitor_data: Dict) -> None:
+        for msg in monitor_data.get("messages", []):
+            if "source" in msg:
+                captured_contexts.append(
+                    {
+                        "source": msg.get("source", "unknown"),
+                        "role": msg.get("role", "system"),
+                        "content": msg.get("content", ""),
+                    }
+                )
+
+    llm_manager = get_llm_manager()
+    llm_manager.register_monitor_callback(_capture_context)
+    try:
+        llm_response = _run_async(
+            llm_conversation_generate(
+                content,
+                conversation_history=history,
+                user_id=context.student_id,
+            )
         )
-    )
+    finally:
+        llm_manager.unregister_monitor_callback(_capture_context)
+
     get_conversation_manager().add_message(
         context.conversation_id,
         Message(role="assistant", content=llm_response, llm_id=context.llm_id, metadata={"source": "benchmarker"}),
@@ -71,7 +92,18 @@ def action_user_send_message(context, **params) -> Dict:
         "user_message": content,
         "llm_response": llm_response,
         "conversation_id": context.conversation_id,
+        "injected_contexts": captured_contexts,
     }
+
+
+def action_set_training_program(context, **params) -> Dict:
+    """Set trainer runtime training program for benchmark scenarios."""
+    content = params.get("content")
+    if not content:
+        raise ValueError("content is required")
+
+    get_config().set("trainer.teacher.training_program", content)
+    return {"saved": True}
 
 
 def action_teacher_send_message(context, **params) -> Dict:

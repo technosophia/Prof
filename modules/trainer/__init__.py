@@ -179,7 +179,10 @@ def initialize():
     log("info", f"Loaded {len(plugin_manager.get_all_plugins())} Trainer plugins")
 
     if _DRIVER_REGISTRATION_DONE:
+        log("debug", "trainer: driver options/actions already registered")
         return True
+
+    log("info", "trainer: registering memory_backend options and actions with driver")
 
     for name, description in [
         ("memory", "LLM-summarised pedagogical memory (SQL backend)"),
@@ -235,6 +238,11 @@ def initialize():
         description="Add a personal note for the current student (student_pad)",
         required_context=["student_id"],
     )
+
+    registered_options = [opt["name"] for opt in get_driver().list_options().get("memory_backend", [])]
+    registered_actions = [a["name"] for a in get_driver().list_actions()]
+    log("info", f"trainer: registered memory_backend options={registered_options}")
+    log("info", f"trainer: registered actions={[a for a in registered_actions if a in ['trigger_memory_analysis', 'set_training_program', 'add_student_note']]}")
 
     _DRIVER_REGISTRATION_DONE = True
     return True

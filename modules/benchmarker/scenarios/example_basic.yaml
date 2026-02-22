@@ -1,3 +1,7 @@
+# Actor reference:
+# - student: actions taken by the student (uses student_id from setup)
+# - teacher: actions taken by the trainer (uses trainer_id from setup)
+# - system: setup and configuration actions (no user context required)
 meta:
   name: "basic_student_teacher"
   description: >

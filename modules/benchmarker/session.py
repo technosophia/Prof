@@ -19,6 +19,19 @@ from shared.common import get_section, log
 class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
 
+    def _serialise_injected_contexts(self, injected: List[Dict]) -> List[Dict]:
+        """Serialise injected contexts for YAML output — preview only."""
+        result: List[Dict] = []
+        for ctx in injected:
+            result.append(
+                {
+                    "source": ctx.get("source", "unknown"),
+                    "role": ctx.get("role", "system"),
+                    "content_preview": ctx.get("content", "")[:150],
+                }
+            )
+        return result
+
     def write(
         self,
         run_result,
@@ -39,6 +52,7 @@ class SessionSerializer:
         steps_payload = []
         for step in run_result.steps:
             result = dict(step.result)
+            injected_contexts = result.pop("injected_contexts", [])
             if isinstance(result.get("llm_response"), str) and len(result["llm_response"]) > truncate_chars:
                 result["llm_response"] = result["llm_response"][:truncate_chars]
 
@@ -51,6 +65,7 @@ class SessionSerializer:
                     "duration_seconds": round(step.duration_seconds, 3),
                     "params": step.params,
                     "result": result,
+                    "injected_contexts": self._serialise_injected_contexts(injected_contexts),
                     "error": step.error,
                 }
             )

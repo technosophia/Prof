@@ -19,7 +19,7 @@ def _run_result(tmp_path):
                 action="user_send_message",
                 actor="student",
                 success=True,
-                result={"llm_response": "x" * 900},
+                result={"llm_response": "x" * 900, "injected_contexts": [{"source": "rag_mock", "role": "system", "content": "y"*200}]},
                 params={"content": "hi"},
             )
         ],
@@ -69,3 +69,16 @@ def test_all_events_present_in_session(tmp_path):
         data = yaml.safe_load(handle)
 
     assert len(data["events"]) == 2
+
+
+def test_injected_contexts_serialized_as_preview_only(tmp_path):
+    serializer = SessionSerializer()
+    path = serializer.write(_run_result(tmp_path), events=[], output_dir=str(tmp_path))
+
+    with open(path, "r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+
+    assert "injected_contexts" in data["steps"][0]
+    assert data["steps"][0]["injected_contexts"][0]["source"] == "rag_mock"
+    assert len(data["steps"][0]["injected_contexts"][0]["content_preview"]) == 150
+    assert "injected_contexts" not in data["steps"][0]["result"]

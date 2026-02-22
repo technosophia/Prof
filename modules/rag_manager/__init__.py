@@ -77,7 +77,10 @@ def initialize() -> bool:
     """Register RAG engine options into the app driver."""
     global _INITIALIZED, _RAG_OPTIONS_REGISTERED
     try:
+        if _RAG_OPTIONS_REGISTERED:
+            log("debug", "rag_manager: rag_engine options already registered")
         if not _RAG_OPTIONS_REGISTERED:
+            log("info", "rag_manager: registering rag_engine driver options")
             for name, description in [
                 ("simple", "Keyword-based retrieval — fast, no embeddings"),
                 ("classic", "Vector similarity retrieval — standard RAG"),
@@ -95,6 +98,9 @@ def initialize() -> bool:
                         description=description,
                     )
             _RAG_OPTIONS_REGISTERED = True
+            from shared.common import get_driver
+            options = [opt["name"] for opt in get_driver().list_options().get("rag_engine", [])]
+            log("info", f"rag_manager: registered rag_engine options={options}")
 
         _INITIALIZED = True
         return True

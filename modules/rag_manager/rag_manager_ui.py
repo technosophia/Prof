@@ -13,7 +13,7 @@ from shared.common import _, log, get_prompt
 from shared.cached import get_config
 from shared.common import register_llm_callback, unregister_llm_callback
 from typing import List, Dict, Optional
-from modules.rag_manager import rag_manager
+from modules.rag_manager import initialize as initialize_rag_manager, rag_manager
 from core.config import CONFIG_FILE
 
 
@@ -516,6 +516,15 @@ def inject_ui_admin_tab():
 
 def inject_ui_initialize():
     """Initialize RAG manager module."""
+    try:
+        initialized = initialize_rag_manager()
+        if initialized:
+            log("info", "rag_manager_ui: rag_manager.initialize() executed")
+        else:
+            log("warning", "rag_manager_ui: rag_manager.initialize() returned False")
+    except Exception as exc:
+        log("error", f"rag_manager_ui: failed to initialize rag_manager module: {exc}", exc_info=True)
+
     # Initialize session state for debug mode
     if 'rag_debug_enabled' not in st.session_state:
         st.session_state.rag_debug_enabled = False

@@ -92,3 +92,19 @@ def test_deactivate_unregisters_context_callback(reset_driver_and_llm_callbacks)
     driver.switch_option("rag_engine", names[1])
 
     assert callback_for_first not in llm_manager.context_callbacks
+
+
+def test_rag_ui_initialize_calls_rag_module_initialize(monkeypatch):
+    import modules.rag_manager.rag_manager_ui as rag_ui
+
+    called = {"count": 0}
+
+    def fake_initialize():
+        called["count"] += 1
+        return True
+
+    monkeypatch.setattr(rag_ui, "initialize_rag_manager", fake_initialize)
+    monkeypatch.setitem(rag_ui.st.session_state, "rag_injection_enabled", False)
+
+    assert rag_ui.inject_ui_initialize() is True
+    assert called["count"] == 1
