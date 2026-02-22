@@ -1,11 +1,12 @@
-"""Benchmarker test-local pytest bootstrap.
+"""Benchmarker test helpers.
 
-IMPORTANT: keep imports side-effect free at module import time so this conftest
-cannot interfere with unrelated suites when benchmarker is present in testpaths.
+Design goal: keep setup explicit and isolated so benchmarker integration tests
+cannot leak global app state into the rest of the pytest session.
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import warnings
@@ -14,7 +15,18 @@ import pytest
 from dotenv import load_dotenv
 
 
+BENCHMARKER_NODE_PREFIX = "modules/benchmarker/tests/"
+
+
+def pytest_collection_modifyitems(items):
+    """Tag benchmarker tests for selective runs/debugging."""
+    for item in items:
+        if item.nodeid.startswith(BENCHMARKER_NODE_PREFIX):
+            item.add_marker("benchmarker")
+
+
 def _prepare_environment() -> None:
+    """Prepare environment without importing app modules at import-time."""
     load_dotenv()
     os.environ.setdefault("TEST_MODE", "true")
 
@@ -28,107 +40,56 @@ def _prepare_environment() -> None:
 
     warnings.filterwarnings(
         "ignore",
-        message="Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.",
+        message=(
+            "Thread 'MainThread': missing ScriptRunContext! "
+            "This warning can be ignored when running in bare mode."
+        ),
         category=UserWarning,
         module=r"streamlit\.runtime\.scriptrunner_utils\.script_run_context",
     )
 
 
-def _initialize_modules():
-    from shared.common import log
-    from shared.module_handler import ModuleHandler
-
-    handler = ModuleHandler()
-    handler.initialize()
-
-    active_modules = handler.get_active_modules()
-    for module_name in active_modules:
-        handler.load_module_ui(module_name)
-
-    log("info", f"[benchmarker/tests] Active modules loaded: {active_modules}")
-    return handler
-
-
-def _initialize_ui_registry(handler) -> None:
-    from shared.common import log
-    from shared.ui_registry import UIRegistry
-
-    ui_registry = UIRegistry()
-    ui_registry.set_module_handler(handler)
-    ui_registry.render_all("initialize")
-    log("info", "[benchmarker/tests] UI registry initialize hooks executed")
-
-
-def _reset_rag_for_integration() -> None:
-    from modules.rag_manager import rag_manager
-    from shared.cached import get_config, get_user_manager
-    from shared.common import log
-
-    cfg = get_config()
-    classic_cfg = (cfg.get("modules.rag_manager", {}) or {}).get("engines", {}).get("classic", {})
-    configured_threshold = classic_cfg.get("similarity_threshold", 0.3)
-
-    classic_engine = rag_manager.get_engine("classic")
-    if classic_engine is not None and hasattr(classic_engine, "similarity_threshold"):
-        classic_engine.similarity_threshold = configured_threshold
-        log("info", f"[benchmarker/tests] classic similarity_threshold set to {configured_threshold}")
-
-    trainer = get_user_manager().get_user("master1")
-    if trainer is not None:
-        rag_manager.clear_all_documents(trainer["id"])
-        log("info", "[benchmarker/tests] Cleared trainer RAG docs before integration run")
-
-
-def _has_only_benchmarker_tests(session) -> bool:
-    """Return True if ALL collected tests belong to the benchmarker suite."""
-    return all(
-        item.nodeid.startswith("modules/benchmarker/tests/")
-        for item in session.items
-    )
-
-
-def _has_any_benchmarker_tests(session) -> bool:
-    return any(
-        item.nodeid.startswith("modules/benchmarker/tests/")
-        for item in session.items
-    )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _benchmarker_session_bootstrap(request):
-    """
-    Bootstrap for benchmarker tests.
-
-    KEY DESIGN DECISION:
-    When running alongside other test suites (e.g. BDD/Playwright tests that
-    start a real Streamlit server against the shared tests/data/app.db), calling
-    _initialize_modules() + _initialize_ui_registry() here causes module
-    initialize hooks to run and mutate the shared database, corrupting the state
-    that the Streamlit subprocess expects.
-
-    Therefore we ONLY do the heavy module/UI initialization when the benchmarker
-    is running in isolation. When mixed with other suites we do the minimum
-    needed: environment prep + DB/user bootstrap.
-
-    The integration_real_driver_setup fixture (used explicitly by
-    test_runner_integration_real_driver.py) handles the per-test setup that
-    the integration tests actually need.
-    """
-    if not _has_any_benchmarker_tests(request.session):
-        return
-
+@pytest.fixture(scope="session")
+def benchmarker_test_env():
+    """Minimal environment fixture for benchmarker tests."""
     _prepare_environment()
 
+
+@pytest.fixture()
+def integration_real_driver_setup(benchmarker_test_env):
+    """Run real-driver benchmarker tests in an isolated app state.
+
+    This fixture deliberately snapshots and restores mutable global singletons
+    (driver registrations/context and module init flags) so it cannot interfere
+    with non-benchmarker suites collected in the same pytest session.
+    """
+    import modules.benchmarker as benchmarker_module
+    import modules.rag_manager as rag_module
     from shared.cached import get_config, get_db_manager, get_user_manager
-    from shared.common import configure_logging_from_dict, init_database, init_user_manager, log
+    from shared.common import get_driver, init_database, init_user_manager, log
+    from shared.module_handler import ModuleHandler
+    from shared.ui_registry import UIRegistry
+
+    driver = get_driver()
+    driver_options_before = copy.deepcopy(driver._options)
+    driver_actions_before = copy.deepcopy(driver._actions)
+    driver_active_before = copy.deepcopy(driver._active_options)
+    driver_context_before = copy.deepcopy(driver._context)
+    driver_events_before = copy.deepcopy(driver._session_events)
+    driver_meta_before = copy.deepcopy(driver._session_meta)
+
+    benchmarker_flags_before = {
+        "_INITIALIZED": benchmarker_module._INITIALIZED,
+        "_ACTIONS_REGISTERED": benchmarker_module._ACTIONS_REGISTERED,
+        "_LLM_OPTIONS_REGISTERED": benchmarker_module._LLM_OPTIONS_REGISTERED,
+    }
+    rag_flags_before = {
+        "_INITIALIZED": rag_module._INITIALIZED,
+        "_RAG_OPTIONS_REGISTERED": rag_module._RAG_OPTIONS_REGISTERED,
+    }
 
     cfg = get_config()
-
-    if not cfg.get("llms.ollama_qwen.enabled", False):
-        cfg.set("llms.ollama_qwen.enabled", True)
-        log("info", "[benchmarker/tests] Enabled llms.ollama_qwen for benchmarker integration tests")
-
-    configure_logging_from_dict(cfg.get("logging", {}))
+    cfg.set("llms.ollama_qwen.enabled", True)
 
     db = get_db_manager()
     if not db.is_initialized():
@@ -138,75 +99,39 @@ def _benchmarker_session_bootstrap(request):
             init_database(use_memory=False, db_path=db_url_or_path)
         else:
             init_database(use_memory=False)
-        log("info", "[benchmarker/tests] Database initialized in benchmarker session bootstrap")
-
-    init_user_manager(create_default_users=True)
-    get_user_manager()._create_default_users_fallback()
-    log("info", "[benchmarker/tests] Default users ensured in benchmarker session bootstrap")
-
-    # Only initialize modules/UI registry when running benchmarker tests alone.
-    # In a mixed session, this corrupts shared DB state for other suites.
-    if _has_only_benchmarker_tests(request.session):
-        # Only initialize modules/UI registry when running benchmarker tests alone.
-        # In a mixed session, this corrupts shared DB state (user options, RAG engine
-        # registrations) that the Streamlit subprocess expects to own exclusively.
-        has_non_benchmarker = any(
-            not item.nodeid.startswith("modules/benchmarker/tests/")
-            for item in request.session.items
-        )
-        if not has_non_benchmarker:
-            handler = _initialize_modules()
-            _initialize_ui_registry(handler)
-        else:
-            log("info", "[benchmarker/tests] Mixed session — skipping module init to protect shared DB state")
-    else:
-        log("info", "[benchmarker/tests] Mixed session detected — skipping module/UI "
-                    "initialization to avoid corrupting shared DB state")
-
-
-@pytest.fixture()
-def integration_real_driver_setup():
-    """
-    Per-test setup for real-driver integration tests.
-
-    Requested explicitly by test_runner_integration_real_driver.py.
-    Handles module init here (safe: runs after all session fixtures, just
-    before the specific test that needs it).
-    """
-    from shared.common import log, init_user_manager
-    from shared.cached import get_db_manager, get_user_manager, get_config
-    from shared.common import init_database
-
-    cfg = get_config()
-    db = get_db_manager()
-
-    current_url = ""
-    if getattr(db, "_engine", None) is not None:
-        current_url = str(db._engine.url)
-
-    if (not db.is_initialized()) or (":memory:" in current_url):
-        db.dispose()
-        db_cfg = cfg.get("database", {})
-        db_url_or_path = db_cfg.get("url") or db_cfg.get("path")
-        if db_url_or_path:
-            init_database(use_memory=False, db_path=db_url_or_path)
-        else:
-            init_database(use_memory=False)
-        log("info", "[benchmarker/tests] Reinitialized persistent test DB for integration run")
 
     init_user_manager(create_default_users=True)
     get_user_manager()._create_default_users_fallback()
 
-    handler = _initialize_modules()
+    # Re-run module initialize hooks for this integration test only.
+    benchmarker_module._INITIALIZED = False
+    benchmarker_module._ACTIONS_REGISTERED = False
+    benchmarker_module._LLM_OPTIONS_REGISTERED = False
+    rag_module._INITIALIZED = False
+    rag_module._RAG_OPTIONS_REGISTERED = False
 
-    # Force re-registration of rag_engine options. The reset_driver_and_llm_callbacks
-    # fixture in rag_manager unit tests wipes driver._options in teardown, and the
-    # guard flag prevents re-registration unless we reset it.
-    import modules.rag_manager as _rag_module
-    _rag_module._RAG_OPTIONS_REGISTERED = False
-    _rag_module._INITIALIZED = False
+    handler = ModuleHandler()
+    handler.initialize()
+    for module_name in handler.get_active_modules():
+        handler.load_module_ui(module_name)
 
     ui_registry = UIRegistry()
     ui_registry.set_module_handler(handler)
     ui_registry.render_all("initialize")
-    log("info", "[real_driver] UI registry initialize hooks executed")
+    log("info", "[benchmarker/tests] isolated integration setup complete")
+
+    yield
+
+    # Restore mutable global state so benchmarker integration test cannot leak.
+    driver._options = driver_options_before
+    driver._actions = driver_actions_before
+    driver._active_options = driver_active_before
+    driver._context = driver_context_before
+    driver._session_events = driver_events_before
+    driver._session_meta = driver_meta_before
+
+    benchmarker_module._INITIALIZED = benchmarker_flags_before["_INITIALIZED"]
+    benchmarker_module._ACTIONS_REGISTERED = benchmarker_flags_before["_ACTIONS_REGISTERED"]
+    benchmarker_module._LLM_OPTIONS_REGISTERED = benchmarker_flags_before["_LLM_OPTIONS_REGISTERED"]
+    rag_module._INITIALIZED = rag_flags_before["_INITIALIZED"]
+    rag_module._RAG_OPTIONS_REGISTERED = rag_flags_before["_RAG_OPTIONS_REGISTERED"]

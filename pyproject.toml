@@ -16,7 +16,8 @@ markers = [
     "rag: RAG UI Tests (slow, requires browser)",
     "slow: mark test as slow and should be skipped in fast runs",
     "unit: Unit tests",
-    "integration: Integration tests"
+    "integration: Integration tests",
+    "benchmarker: Benchmarker module tests"
 ]
 pythonpath = ["."]
 # BDD-specific configuration needs to be in tool.pytest-bdd section

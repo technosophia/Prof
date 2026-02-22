@@ -19,38 +19,6 @@ SCENARIOS = [
 NEXORIA_DOC = Path("modules/benchmarker/tests/nexoria.md")
 
 
-@pytest.fixture(scope="session")
-def _real_driver_session_setup():
-    """Self-contained module initialization for real driver tests."""
-    from shared.cached import get_config
-    from shared.common import init_user_manager
-    from shared.module_handler import ModuleHandler
-    from shared.ui_registry import UIRegistry
-
-    cfg = get_config()
-    if not cfg.get("llms.ollama_qwen.enabled", False):
-        cfg.set("llms.ollama_qwen.enabled", True)
-        log("info", "[real_driver] Enabled llms.ollama_qwen")
-
-    init_user_manager(create_default_users=True)
-    get_user_manager()._create_default_users_fallback()
-
-    handler = ModuleHandler()
-    handler.initialize()
-    for module_name in handler.get_active_modules():
-        handler.load_module_ui(module_name)
-    log("info", f"[real_driver] Active modules loaded: {handler.get_active_modules()}")
-
-    import modules.rag_manager as _rag_module
-    _rag_module._RAG_OPTIONS_REGISTERED = False
-    _rag_module._INITIALIZED = False
-
-    ui_registry = UIRegistry()
-    ui_registry.set_module_handler(handler)
-    ui_registry.render_all("initialize")
-    log("info", "[real_driver] UI registry initialize hooks executed")
-
-
 @pytest.fixture()
 def _rag_setup():
     """Reset and reload RAG for each integration test."""
@@ -145,7 +113,7 @@ def _assert_full_success(runner: ScenarioRunner, scenario_path: Path):
 def test_full_run_real_driver_scenarios(
     tmp_path,
     scenario_path: Path,
-    _real_driver_session_setup,
+    integration_real_driver_setup,
     _rag_setup,
 ):
     _assert_database_ready()
@@ -153,6 +121,6 @@ def test_full_run_real_driver_scenarios(
     runner = ScenarioRunner()
     runner.config["sessions_dir"] = str(tmp_path)
 
-    trainer_user_id = _trainer_user_id_from_scenario(runner, scenario_path)
+    _trainer_user_id_from_scenario(runner, scenario_path)
 
     _assert_full_success(runner, scenario_path)
