@@ -4,6 +4,7 @@ Pytest configuration and fixtures for all tests.
 """
 import sys
 import os
+os.environ.setdefault("STREAMLIT_LOGGER_LEVEL", "error")
 import json
 import copy
 import pytest
@@ -13,6 +14,7 @@ import requests
 import atexit
 import signal
 import warnings
+import logging
 import re
 from unittest.mock import patch, MagicMock
 from playwright.sync_api import sync_playwright
@@ -53,6 +55,21 @@ warnings.filterwarnings(
 )
 
 warnings.filterwarnings("ignore", category=UserWarning, module=r"torch\.cuda")
+
+# Silence Streamlit bare-mode warnings in pytest output
+for streamlit_logger in (
+    "streamlit",
+    "streamlit.runtime",
+    "streamlit.runtime.scriptrunner_utils",
+    "streamlit.runtime.scriptrunner_utils.script_run_context",
+    "streamlit.runtime.state",
+    "streamlit.runtime.state.session_state_proxy",
+):
+    logger = logging.getLogger(streamlit_logger)
+    logger.handlers = []
+    logger.propagate = False
+    logger.disabled = True
+    logger.setLevel(logging.CRITICAL)
 
 # CRITICAL: Load .env BEFORE any shared imports, because shared.common
 # instantiates the LLMManager singleton (and GroqEngine) at import time.
