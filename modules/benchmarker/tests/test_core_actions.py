@@ -6,7 +6,6 @@ import pytest
 
 from modules.benchmarker.core_actions import (
     action_create_conversation,
-    action_set_training_program,
     action_switch_option,
     action_user_send_message,
 )
@@ -51,22 +50,6 @@ def test_user_send_message_requires_conversation():
     with pytest.raises(DriverContextError):
         driver.do_action("user_send_message_test", content="hello")
 
-
-def test_set_training_program_sets_runtime_config(monkeypatch):
-    class FakeConfig:
-        def __init__(self):
-            self.data = {}
-
-        def set(self, key, value):
-            self.data[key] = value
-
-    fake = FakeConfig()
-    monkeypatch.setattr("modules.benchmarker.core_actions.get_config", lambda: fake)
-
-    result = action_set_training_program(DriverContext(trainer_id="bench_trainer"), content="program")
-
-    assert result == {"saved": True}
-    assert fake.data["trainer.teacher.training_program"] == "program"
 
 
 def test_switch_option_delegates_to_driver(monkeypatch):

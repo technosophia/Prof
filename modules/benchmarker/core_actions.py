@@ -96,16 +96,6 @@ def action_user_send_message(context, **params) -> Dict:
     }
 
 
-def action_set_training_program(context, **params) -> Dict:
-    """Set trainer runtime training program for benchmark scenarios."""
-    content = params.get("content")
-    if not content:
-        raise ValueError("content is required")
-
-    get_config().set("trainer.teacher.training_program", content)
-    return {"saved": True}
-
-
 def action_teacher_send_message(context, **params) -> Dict:
     """Inject a teacher/system message into the conversation without LLM call."""
     content = params.get("content")
