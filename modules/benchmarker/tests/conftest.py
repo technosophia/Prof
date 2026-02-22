@@ -9,10 +9,10 @@ from __future__ import annotations
 import copy
 import logging
 import os
+from unittest.mock import MagicMock
 import warnings
 
 import pytest
-import streamlit as st
 from dotenv import load_dotenv
 
 
@@ -71,10 +71,6 @@ def integration_real_driver_setup(benchmarker_test_env):
     from shared.module_handler import ModuleHandler
     from shared.ui_registry import UIRegistry
 
-    # Start from a clean cached-resource state so previous tests cannot leak
-    # initialized singletons into this integration setup.
-    st.cache_resource.clear()
-
     driver = get_driver()
     driver_options_before = copy.deepcopy(driver._options)
     driver_actions_before = copy.deepcopy(driver._actions)
@@ -106,8 +102,15 @@ def integration_real_driver_setup(benchmarker_test_env):
         else:
             init_database(use_memory=False)
 
-    init_user_manager(create_default_users=True)
-    get_user_manager()._create_default_users_fallback()
+    # Avoid re-initializing the user manager in mixed suites where another
+    # module test may temporarily mock database internals. We only backfill
+    # default users if the manager is real and master1 is missing.
+    user_manager = get_user_manager()
+    user_manager_db = getattr(user_manager, "db", None)
+    if not isinstance(user_manager, MagicMock) and not isinstance(user_manager_db, MagicMock):
+        if user_manager.get_user("master1") is None:
+            init_user_manager(create_default_users=True)
+            user_manager._create_default_users_fallback()
 
     # Re-run module initialize hooks for this integration test only.
     benchmarker_module._INITIALIZED = False
@@ -144,7 +147,3 @@ def integration_real_driver_setup(benchmarker_test_env):
         benchmarker_module._LLM_OPTIONS_REGISTERED = benchmarker_flags_before["_LLM_OPTIONS_REGISTERED"]
         rag_module._INITIALIZED = rag_flags_before["_INITIALIZED"]
         rag_module._RAG_OPTIONS_REGISTERED = rag_flags_before["_RAG_OPTIONS_REGISTERED"]
-
-        # Clear streamlit cached singletons after teardown so the next suites
-        # (outside benchmarker) bootstrap their own fresh application state.
-        st.cache_resource.clear()
