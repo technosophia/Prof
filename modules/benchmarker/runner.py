@@ -62,8 +62,8 @@ class ScenarioRunner:
     """Load, validate, replay scenarios and generate run artifacts."""
 
     ALLOWED_BY_ACTOR = {
-        "student": {"user_send_message", "create_conversation"},
-        "teacher": {"teacher_send_message", "trigger_memory_analysis", "add_student_note", "set_training_program"},
+        "student": {"user_send_message", "create_conversation", "add_student_note"},
+        "teacher": {"teacher_send_message", "trigger_memory_analysis", "set_training_program"},
         "system": {"create_conversation", "set_training_program", "switch_option"},
     }
 
