@@ -117,12 +117,6 @@ class ScenarioRunner:
         llm_id = (llm_override or "").strip() or scenario.get("llm")
 
         try:
-            options = dict(scenario.get("options", {}))
-            options.update(option_overrides)
-            for group, option_name in options.items():
-                log("info", f"Switching option {group} -> {option_name}")
-                self.driver.switch_option(group, option_name)
-
             if not llm_id:
                 try:
                     llm_id = get_current_llm_id()
@@ -142,6 +136,12 @@ class ScenarioRunner:
                 "info",
                 f"Initial context set: student={setup.get('student_id')} trainer={setup.get('trainer_id')} llm={llm_id}",
             )
+
+            options = dict(scenario.get("options", {}))
+            options.update(option_overrides)
+            for group, option_name in options.items():
+                log("info", f"Switching option {group} -> {option_name}")
+                self.driver.switch_option(group, option_name)
 
             for step in scenario.get("steps", []):
                 resolved = self._resolve_step_params(step, setup)
