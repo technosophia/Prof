@@ -9,7 +9,7 @@ import pytest
 from modules.benchmarker.runner import ScenarioRunner
 from modules.rag_manager import rag_manager
 from shared.cached import get_config, get_db_manager
-from shared.common import get_user_manager, init_database, log
+from shared.common import get_user_manager, log
 
 
 SCENARIOS = [
@@ -19,21 +19,23 @@ SCENARIOS = [
 NEXORIA_DOC = Path("modules/benchmarker/tests/nexoria.md")
 
 
-def _ensure_database_initialized() -> None:
-    if get_db_manager().is_initialized():
-        return
-
+def _assert_database_ready() -> None:
     db_cfg = get_config().get("database", {})
-    db_url_or_path = db_cfg.get("url") or db_cfg.get("path")
-    if db_url_or_path:
-        init_database(use_memory=False, db_path=db_url_or_path)
+    db_url_or_path = db_cfg.get("url") or db_cfg.get("path", "")
+
+    if db_url_or_path.startswith("sqlite:///"):
+        db_file = db_url_or_path.removeprefix("sqlite:///")
     else:
-        init_database(use_memory=False)
+        db_file = db_url_or_path
 
+    assert db_file, "Database path must be configured for integration tests"
+    assert Path(db_file).exists(), f"Database file does not exist: {db_file}"
 
-def _ensure_default_users() -> None:
-    user_manager = get_user_manager()
-    user_manager._create_default_users_fallback()
+    # Do not initialize DB here: the environment must already provide a ready DB session.
+    assert get_db_manager().is_initialized(), (
+        "Database manager is not initialized in this process. "
+        "This test expects the test harness to initialize it before execution."
+    )
 
 
 def _trainer_user_id_from_scenario(runner: ScenarioRunner, scenario_path: Path) -> str:
@@ -42,9 +44,8 @@ def _trainer_user_id_from_scenario(runner: ScenarioRunner, scenario_path: Path) 
     if not trainer_name:
         pytest.skip(f"No trainer_id in setup for {scenario_path}")
 
-    trainer = get_user_manager().get_user_by_name(trainer_name)
-    if not trainer:
-        pytest.skip(f"Trainer '{trainer_name}' not found for {scenario_path}")
+    trainer = get_user_manager().get_user(trainer_name)
+    assert trainer is not None, f"Trainer '{trainer_name}' not found for {scenario_path}"
 
     return trainer["id"]
 
@@ -89,8 +90,7 @@ def _assert_full_success(runner: ScenarioRunner, scenario_path: Path):
 @pytest.mark.ollama
 @pytest.mark.parametrize("scenario_path", SCENARIOS, ids=[p.stem for p in SCENARIOS])
 def test_full_run_real_driver_scenarios(tmp_path, scenario_path: Path):
-    _ensure_database_initialized()
-    _ensure_default_users()
+    _assert_database_ready()
 
     runner = ScenarioRunner()
     runner.config["sessions_dir"] = str(tmp_path)
