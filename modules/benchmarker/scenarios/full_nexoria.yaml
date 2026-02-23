@@ -24,7 +24,7 @@ meta:
 options:
   memory_backend: "pedagogical_memory+student_pad"
   rag_engine: "classic"
-  llm: "ollama_qwen"
+  llm: "groq"
 
 setup:
   student_id: "normal2_m1"
