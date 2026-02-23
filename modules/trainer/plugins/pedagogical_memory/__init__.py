@@ -499,7 +499,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             query_vector = np.asarray(get_embedding(last_user_message), dtype=np.float32)
             scored = []
             for fact in active_facts:
-                fact_vector = self._deserialize_embedding(fact.embedding, fact.embedding_dim)
+                fact_vector = self._deserialize_embedding(fact["embedding"], fact["embedding_dim"])
                 similarity = self._cosine_similarity(query_vector, fact_vector)
                 score = similarity * float(fact["confidence"])
                 scored.append((fact, score))
