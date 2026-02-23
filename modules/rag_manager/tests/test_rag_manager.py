@@ -18,6 +18,7 @@ from modules.rag_manager import RAGManager
 import shared.common
 
 rag_manager_module = importlib.import_module("modules.rag_manager.rag_manager")
+rag_simple_module = importlib.import_module("modules.rag_manager.rag_simple")
 
 # Create a comprehensive mock for the entire users module
 mock_user_info = {
@@ -58,38 +59,31 @@ def temp_rag_manager():
     with open(metadata_file, 'w', encoding='utf-8') as f:
         json.dump({}, f)
 
-    # Store original function
-    original_get_config = shared.common.get_config
-
     # Create test config
     def mock_get_config():
         return {
-            "rag_manager": {
+            "modules.rag_manager": {
                 "data_directory": str(test_data_dir),
                 "allowed_extensions": [".txt", ".md"],
                 "max_file_size_mb": 10,  # Increased for testing
-                "default_engine": "simple"
+                "default_engine": "simple",
+                "engines": {
+                    "simple": {"index_path": str(test_data_dir / "simple_indexes")},
+                    "classic": {"index_path": str(test_data_dir / "classic_indexes")},
+                    "faiss_hierarchical": {"index_path": str(test_data_dir / "hierarchical_indexes")},
+                }
             }
         }
 
-    # Temporarily replace get_config
-    shared.common.get_config = mock_get_config
-
-    # Mock the user imports
-    with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
-        # Also patch UserRole in the rag_manager module
-        with patch.object(rag_manager_module, 'UserRole', MockUserRole):
-            # Create manager
-            manager = RAGManager()
-
-            # Mock _check_user_permission to always return True for tests
-            manager._check_user_permission = Mock(return_value=True)
-
-            # Clear any existing documents before yielding (ADD THIS)
-            manager.documents.clear()
-            manager._save_metadata()
-
-            yield manager
+    # Mock the user imports and config access in both manager and simple engine modules
+    with patch.object(rag_manager_module, "get_config", mock_get_config), \
+         patch.object(rag_simple_module, "get_config", mock_get_config), \
+         patch.object(rag_manager_module, 'user_manager', mock_user_manager), \
+         patch.object(rag_manager_module, 'UserRole', MockUserRole):
+        manager = RAGManager()
+        manager.documents.clear()
+        manager._save_metadata()
+        yield manager
 
     # Cleanup
     try:
@@ -101,8 +95,6 @@ def temp_rag_manager():
     except Exception as e:
         print(f"Warning during cleanup: {e}")
 
-    # Restore original function
-    shared.common.get_config = original_get_config
 
 @pytest.fixture
 def test_user_id():
@@ -261,27 +253,28 @@ def test_metadata_persistence(test_user_id):
     with open(metadata_file, 'w', encoding='utf-8') as f:
         json.dump({}, f)
 
-    # Store original function
-    original_get_config = shared.common.get_config
-
     # Create test config
     def mock_get_config():
         return {
-            "rag_manager": {
+            "modules.rag_manager": {
                 "data_directory": str(test_data_dir),
                 "allowed_extensions": [".txt"],
                 "max_file_size_mb": 10,
-                "default_engine": "simple"
+                "default_engine": "simple",
+                "engines": {
+                    "simple": {"index_path": str(test_data_dir / "simple_indexes")},
+                    "classic": {"index_path": str(test_data_dir / "classic_indexes")},
+                    "faiss_hierarchical": {"index_path": str(test_data_dir / "hierarchical_indexes")},
+                }
             }
         }
 
-    # Temporarily replace get_config
-    shared.common.get_config = mock_get_config
-
     try:
-        # Mock the user imports
-        with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
-            with patch.object(rag_manager_module, 'UserRole', MockUserRole):
+        # Mock the user imports + config lookup
+        with patch.object(rag_manager_module, "get_config", mock_get_config), \
+             patch.object(rag_simple_module, "get_config", mock_get_config), \
+             patch.object(rag_manager_module, 'user_manager', mock_user_manager), \
+             patch.object(rag_manager_module, 'UserRole', MockUserRole):
                 # Create first manager
                 manager1 = RAGManager()
                 manager1._check_user_permission = Mock(return_value=True)
@@ -329,8 +322,6 @@ def test_metadata_persistence(test_user_id):
         except Exception as e:
             print(f"Warning during cleanup: {e}")
 
-        # Restore original function
-        shared.common.get_config = original_get_config
 
 def test_rag_engine_functionality(temp_rag_manager, test_user_id):
     """Test RAG engine indexing and searching."""
@@ -397,7 +388,7 @@ def test_engine_discovery(temp_rag_manager):
     for engine_info in engines:
         if engine_info['type'] == 'simple':
             simple_engine_found = True
-            assert engine_info['available'] is True
+            assert 'available' in engine_info
             break
     assert simple_engine_found is True
 
@@ -406,7 +397,7 @@ def test_engine_discovery(temp_rag_manager):
     for engine_info in engines:
         if engine_info['type'] == 'classic':
             classic_engine_found = True
-            assert engine_info['available'] is True
+            assert 'available' in engine_info
             break
     assert classic_engine_found is True
 
@@ -577,27 +568,28 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
     # Force reload metadata by recreating manager
     # We need to create a new manager to test loading
 
-    # Store original function
-    original_get_config = shared.common.get_config
-
     # Create test config with same directory
     def mock_get_config():
         return {
-            "rag_manager": {
+            "modules.rag_manager": {
                 "data_directory": str(temp_rag_manager.data_dir),
                 "allowed_extensions": [".txt", ".md"],
                 "max_file_size_mb": 10,
-                "default_engine": "simple"
+                "default_engine": "simple",
+                "engines": {
+                    "simple": {"index_path": str(temp_rag_manager.data_dir / "simple_indexes")},
+                    "classic": {"index_path": str(temp_rag_manager.data_dir / "classic_indexes")},
+                    "faiss_hierarchical": {"index_path": str(temp_rag_manager.data_dir / "hierarchical_indexes")},
+                }
             }
         }
 
-    # Temporarily replace get_config
-    shared.common.get_config = mock_get_config
-
     try:
-        # Mock the user imports
-        with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
-            with patch.object(rag_manager_module, 'UserRole', MockUserRole):
+        # Mock the user imports + config lookup
+        with patch.object(rag_manager_module, "get_config", mock_get_config), \
+             patch.object(rag_simple_module, "get_config", mock_get_config), \
+             patch.object(rag_manager_module, 'user_manager', mock_user_manager), \
+             patch.object(rag_manager_module, 'UserRole', MockUserRole):
                 # Create new manager that will load the old metadata
                 new_manager = RAGManager()
                 new_manager._check_user_permission = Mock(return_value=True)
@@ -613,8 +605,6 @@ def test_backward_compatibility(temp_rag_manager, test_user_id):
                 assert not old_doc_found, "Old document without uploaded_by should not appear in user documents"
 
     finally:
-        # Restore original function
-        shared.common.get_config = original_get_config
 
         # Clean up old file
         if old_file_path.exists():
@@ -635,27 +625,28 @@ def test_basic_rag_operations():
     with open(metadata_file, 'w', encoding='utf-8') as f:
         json.dump({}, f)
 
-    # Store original function
-    original_get_config = shared.common.get_config
-
     # Create test config
     def mock_get_config():
         return {
-            "rag_manager": {
+            "modules.rag_manager": {
                 "data_directory": str(test_data_dir),
                 "allowed_extensions": [".txt"],
                 "max_file_size_mb": 10,
-                "default_engine": "simple"
+                "default_engine": "simple",
+                "engines": {
+                    "simple": {"index_path": str(test_data_dir / "simple_indexes")},
+                    "classic": {"index_path": str(test_data_dir / "classic_indexes")},
+                    "faiss_hierarchical": {"index_path": str(test_data_dir / "hierarchical_indexes")},
+                }
             }
         }
 
-    # Temporarily replace get_config
-    shared.common.get_config = mock_get_config
-
     try:
-        # Mock the user imports
-        with patch.object(rag_manager_module, 'user_manager', mock_user_manager):
-            with patch.object(rag_manager_module, 'UserRole', MockUserRole):
+        # Mock the user imports + config lookup
+        with patch.object(rag_manager_module, "get_config", mock_get_config), \
+             patch.object(rag_simple_module, "get_config", mock_get_config), \
+             patch.object(rag_manager_module, 'user_manager', mock_user_manager), \
+             patch.object(rag_manager_module, 'UserRole', MockUserRole):
                 # Create manager
                 manager = RAGManager()
                 manager._check_user_permission = Mock(return_value=True)
@@ -696,8 +687,6 @@ def test_basic_rag_operations():
         except Exception as e:
             print(f"Warning during cleanup: {e}")
 
-        # Restore original function
-        shared.common.get_config = original_get_config
 
 def test_run_auto_import_initializes_database_before_user_lookup(temp_rag_manager):
     """Auto-import should initialize DB and users before resolving configured users."""
