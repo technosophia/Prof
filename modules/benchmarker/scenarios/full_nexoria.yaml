@@ -170,7 +170,7 @@ assertions:
     type: plugin_event_occurred
     description: "Memory analysis was recorded as a plugin event"
     params:
-      plugin_id: "memory"
+      plugin_id: "pedagogical_memory"
       event: "analysis_complete"
 
   - id: "a8"
