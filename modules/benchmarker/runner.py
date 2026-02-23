@@ -114,7 +114,8 @@ class ScenarioRunner:
         setup.update({k: v for k, v in setup_overrides.items() if v})
         created_users = self._ensure_test_users(setup)
 
-        llm_id = (llm_override or "").strip() or scenario.get("llm")
+        scenario_options = dict(scenario.get("options") or {})
+        llm_id = (llm_override or "").strip() or scenario.get("llm") or scenario_options.get("llm")
 
         try:
             if not llm_id:
@@ -137,11 +138,20 @@ class ScenarioRunner:
                 f"Initial context set: student={setup.get('student_id')} trainer={setup.get('trainer_id')} llm={llm_id}",
             )
 
-            options = dict(scenario.get("options") or {})
+            options = dict(scenario_options)
             options.update(option_overrides)
             for group, option_name in options.items():
                 log("info", f"Switching option {group} -> {option_name}")
                 self.driver.switch_option(group, option_name)
+
+            # Keep driver context aligned with active llm option so actions that
+            # rely on context.llm_id (e.g. user_send_message) don't revert to an
+            # earlier default.
+            active_llm_id = options.get("llm") or llm_id
+            if active_llm_id and active_llm_id != llm_id:
+                llm_id = active_llm_id
+            if llm_id:
+                self.driver.set_context(llm_id=llm_id)
 
             for step in scenario.get("steps", []):
                 resolved = self._resolve_step_params(step, setup)
