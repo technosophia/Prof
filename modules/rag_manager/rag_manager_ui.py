@@ -15,7 +15,7 @@ from shared.common import register_llm_callback, unregister_llm_callback
 from typing import List, Dict, Optional
 from modules.rag_manager import initialize as initialize_rag_manager, rag_manager
 from core.config import CONFIG_FILE
-from shared.module_handler import notify_module_config_changed
+from shared.module_handler import module_handler, notify_module_config_changed
 
 
 from core.logging import log, set_module_level
@@ -32,6 +32,19 @@ def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
     Returns:
         Formatted context string to augment the LLM prompt
     """
+    # Guard against cache/callback leakage: do nothing if module or RAG injection is disabled.
+    if not module_handler.is_module_active("rag_manager"):
+        log("debug", "RAG callback skipped: rag_manager module is not active")
+        return ""
+
+    if not rag_manager.is_rag_enabled():
+        log("debug", "RAG callback skipped: modules.rag_manager.enabled is false")
+        return ""
+
+    if not st.session_state.get("rag_injection_enabled", True):
+        log("debug", "RAG callback skipped: UI rag_injection_enabled is false")
+        return ""
+
     # Get the last user message
     user_messages = [msg for msg in messages if msg.get("role") == "user"]
     if not user_messages:
