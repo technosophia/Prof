@@ -3,6 +3,7 @@ TODO : makge regression in modules/benchmarker/tests/test_runner_integration_rea
 """
 
 import pytest
+import streamlit as st
 
 import modules.rag_manager as rag_module
 from shared.common import get_driver, get_llm_manager
@@ -131,3 +132,41 @@ def test_rag_ui_initialize_calls_rag_module_initialize(monkeypatch):
 
     assert rag_ui.inject_ui_initialize() is True
     assert called["count"] == 1
+
+
+def test_context_callback_guard_blocks_when_ui_injection_disabled(monkeypatch):
+    callback = rag_module._make_engine_context_callback("simple")
+
+    monkeypatch.setitem(st.session_state, "rag_injection_enabled", False)
+    called = {"count": 0}
+
+    def _fake_get_rag_context(*args, **kwargs):
+        called["count"] += 1
+        return "SHOULD_NOT_BE_USED"
+
+    monkeypatch.setattr(rag_module.rag_manager, "get_rag_context", _fake_get_rag_context)
+
+    result = callback("normal1", [{"role": "user", "content": "where does kevin live?"}])
+    assert result == ("", "system", "bottom")
+    assert called["count"] == 0
+
+
+def test_context_callback_guard_blocks_when_module_is_inactive(monkeypatch):
+    callback = rag_module._make_engine_context_callback("simple")
+
+    monkeypatch.setitem(st.session_state, "rag_injection_enabled", True)
+    from shared.module_handler import module_handler
+    monkeypatch.setattr(module_handler, "_initialized", True)
+    monkeypatch.setattr(module_handler, "is_module_active", lambda name: False)
+
+    called = {"count": 0}
+
+    def _fake_get_rag_context(*args, **kwargs):
+        called["count"] += 1
+        return "SHOULD_NOT_BE_USED"
+
+    monkeypatch.setattr(rag_module.rag_manager, "get_rag_context", _fake_get_rag_context)
+
+    result = callback("normal1", [{"role": "user", "content": "where does kevin live?"}])
+    assert result == ("", "system", "bottom")
+    assert called["count"] == 0

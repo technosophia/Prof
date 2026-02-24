@@ -16,6 +16,41 @@ _RAG_OPTIONS_REGISTERED = False
 _ENGINE_CONTEXT_CALLBACKS: Dict[str, Callable[[str, List[Dict]], tuple[str, str, str]]] = {}
 
 
+def _is_rag_context_injection_enabled(engine_name: str) -> bool:
+    """Return True when runtime guards allow RAG context injection."""
+    try:
+        from st_shared.cached import get_config
+
+        rag_config = get_config().get("modules.rag_manager", {})
+        if not bool(rag_config.get("enabled", True)):
+            return False
+
+        engine_cfg = rag_config.get("engines", {}).get(engine_name)
+        if isinstance(engine_cfg, dict) and not bool(engine_cfg.get("enabled", True)):
+            return False
+    except Exception as exc:
+        log("debug", f"rag_manager: failed to read runtime RAG config guard: {exc}")
+
+    try:
+        from shared.module_handler import module_handler
+
+        if getattr(module_handler, "_initialized", False) and not module_handler.is_module_active("rag_manager"):
+            return False
+    except Exception as exc:
+        log("debug", f"rag_manager: failed to read module activation guard: {exc}")
+
+    try:
+        import streamlit as st
+
+        if st.session_state.get("rag_injection_enabled") is False:
+            return False
+    except Exception:
+        # Session state is not always available (tests/non-UI code paths).
+        pass
+
+    return True
+
+
 def _engine_exists(name: str) -> bool:
     """Return True when engine exists and is enabled in current configuration."""
     if rag_manager.get_engine(name) is None:
@@ -36,7 +71,7 @@ def _make_engine_context_callback(name: str) -> Callable[[str, List[Dict]], tupl
         if not query:
             return "", "system", "bottom"
 
-        if not rag_manager.is_rag_enabled() or not rag_manager.is_engine_enabled(name):
+        if not _is_rag_context_injection_enabled(name):
             return "", "system", "bottom"
 
         context = rag_manager.get_rag_context(user_id=user_id, query=query, engine_type=name)
