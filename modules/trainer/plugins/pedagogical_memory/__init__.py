@@ -62,6 +62,25 @@ class PedagogicalAnalysisLog(Base):
     facts_discarded = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+def _run_async(coro):
+    """
+    Run an async coroutine safely regardless of whether there is already
+    a running event loop (Streamlit) or not (plain scripts / tests).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We're inside Streamlit (or another async host).
+        # Schedule on the existing loop and block until done.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        return asyncio.run(coro)
 
 class PedagogicalMemoryPlugin(TrainerPlugin):
     """Plugin that maintains structured pedagogical fact memory."""
@@ -227,7 +246,8 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             try:
                 payload = json.loads(response)
             except Exception as e:
-                log("error", f"Failed to parse extraction JSON output: {e}", exc_info=True)
+                log("error", f"Failed to parse extraction JSON output: {e}\n {response}", exc_info=True)
+                log("info", f"{system_prompt}\n{user_prompt}")
                 return []
 
             if not isinstance(payload, list):
@@ -607,7 +627,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         import asyncio
         from shared.common import record_plugin_event
 
-        result = asyncio.run(
+        result = _run_async(
             self.refresh_memory(context.trainer_id, context.student_id)
         )
 
@@ -757,7 +777,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             st.markdown("#### Analysis")
             if st.button("🔬 Run Analysis", key=f"run_pedagogical_analysis_{student_id}"):
                 with st.spinner("Running pedagogical analysis..."):
-                    result = asyncio.run(self.refresh_memory(trainer_id, student_id))
+                    result = _run_async(self.refresh_memory(trainer_id, student_id))
                 st.success(
                     f"Created {result['created']} · Updated {result['updated']} · "
                     f"Reinforced {result['reinforced']} · Discarded {result['discarded']}"
@@ -786,7 +806,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 for idx, student in enumerate(students):
                     status.caption(f"Running analysis for {student.get('name', student['id'])}...")
                     try:
-                        asyncio.run(self.refresh_memory(trainer_id, student["id"]))
+                        _run_async(self.refresh_memory(trainer_id, student["id"]))
                     except Exception as e:
                         log("error", f"Run-all analysis failed for {student['id']}: {e}", exc_info=True)
                     progress.progress((idx + 1) / max(1, total))
