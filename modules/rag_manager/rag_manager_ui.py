@@ -41,10 +41,6 @@ def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
         log("debug", "RAG callback skipped: modules.rag_manager.enabled is false")
         return ""
 
-    if not st.session_state.get("rag_injection_enabled", True):
-        log("debug", "RAG callback skipped: UI rag_injection_enabled is false")
-        return ""
-
     # Get the last user message
     user_messages = [msg for msg in messages if msg.get("role") == "user"]
     if not user_messages:
