@@ -33,7 +33,7 @@
       "type": "gemini",
       "model": "gemini-2.5-flash",
       "name": "Gemini",
-      "enabled": true,
+      "enabled": false,
       "description": "Google's fast multimodal model",
       "requires_api_key": true
     },
