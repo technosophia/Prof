@@ -37,6 +37,7 @@ def verify_admin_content(context, expected_text):
     # Wait for admin content area to be stable after potential reruns
     page.wait_for_load_state("networkidle", timeout=30000)
 
+
     # Wait for admin panel to be fully loaded - try multiple selectors
     admin_selectors = [
         page.get_by_text("Admin Panel", exact=False),

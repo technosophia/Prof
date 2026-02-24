@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 # Load environment variables FIRST
 from core.logging import log, set_module_level
 from core.database import init_database
-from st_shared.cached import _, get_available_languages, get_active_modules
+from st_shared.cached import _, get_available_languages
+from shared.module_handler import get_active_modules
 load_dotenv()
 
 # Add shared directory to path

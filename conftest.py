@@ -159,6 +159,23 @@ def _db_url() -> str:
     return db_config.get("url") or db_config.get("path", ".")
 
 
+def _db_is_ready(db_full_path: str) -> bool:
+    """Check that the DB file exists AND the core users table is present."""
+    if not os.path.exists(db_full_path) or os.path.getsize(db_full_path) == 0:
+        return False
+    try:
+        import sqlite3
+
+        conn = sqlite3.connect(db_full_path, timeout=2)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )
+        result = cursor.fetchone()
+        conn.close()
+        return result is not None
+    except Exception:
+        return False
+
 def _init_db_with_retry(raw_url: str, db_full_path: str, *, attempts: int = 2) -> None:
     """Initialise the database, retrying once on failure."""
     for attempt in range(1, attempts + 1):
@@ -385,12 +402,12 @@ def streamlit_server(setup_test_environment):
     _log("=== STARTING STREAMLIT SERVER ===")
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
-    # Wait for the DB file to be ready
+    # Wait for the DB file and tables to be ready
     _, db_full_path = _get_db_paths()
     _poll_until(
-        lambda: os.path.exists(db_full_path) and os.path.getsize(db_full_path) > 0,
-        timeout=10, interval=0.5,
-        label="DB file ready",
+        lambda: _db_is_ready(db_full_path),
+        timeout=15, interval=0.5,
+        label="DB tables ready",
     )
 
     log_dir = PROJECT_ROOT / "tests" / "logs"

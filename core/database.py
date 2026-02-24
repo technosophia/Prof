@@ -361,7 +361,21 @@ class DatabaseManager:
 
             db_url = db_path
             try:
-                self._engine = create_engine(db_url, echo=False)
+                connect_args = {
+                    "timeout": 30,
+                    "check_same_thread": False,
+                }
+                self._engine = create_engine(
+                    db_url,
+                    echo=False,
+                    connect_args=connect_args,
+                    pool_pre_ping=True,
+                )
+                # Enable WAL mode for safe concurrent access between processes
+                with self._engine.connect() as conn:
+                    conn.execute(text("PRAGMA journal_mode=WAL"))
+                    conn.execute(text("PRAGMA busy_timeout=10000"))
+                    conn.commit()
                 self._in_memory = False
                 log("info", f"Initialized database at {db_path}")
             except Exception as e:
