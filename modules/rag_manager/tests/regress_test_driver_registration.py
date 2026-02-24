@@ -6,7 +6,7 @@ import pytest
 
 import modules.rag_manager as rag_module
 from shared.common import get_driver, get_llm_manager
-from shared.driver import DriverOptionError
+from st_shared.driver import DriverOptionError
 
 
 import copy

@@ -32,7 +32,7 @@ target_metadata = Base.metadata
 
 def get_url():
     """Get database URL from config or environment."""
-    from shared.cached import get_config
+    from st_shared.cached import get_config
     try:
         config_obj = get_config()
         db_path = config_obj.get("database.path", "data")

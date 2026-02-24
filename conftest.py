@@ -96,10 +96,10 @@ _BROWSER_SCOPE = "module"
 # ---------------------------------------------------------------------------
 # 3.  Shared imports (after path + .env are ready)
 # ---------------------------------------------------------------------------
-from shared.cached import get_config, get_db_manager, get_user_manager
+from st_shared.cached import get_config, get_db_manager, get_user_manager
 from shared.common import init_user_manager
 from shared.module_handler import ModuleHandler
-from shared.ui_registry import UIRegistry
+from st_shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager
 
 

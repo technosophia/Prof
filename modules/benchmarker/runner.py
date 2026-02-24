@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import yaml
 
 from shared.common import get_current_llm_id, get_driver, get_user_manager, set_current_llm
-from shared.driver import DriverActionError, DriverContextError, DriverOptionError
+from st_shared.driver import DriverActionError, DriverContextError, DriverOptionError
 
 from modules.benchmarker import initialize as initialize_benchmarker
 from modules.benchmarker.benchmarker import BenchmarkRun
@@ -20,7 +20,7 @@ from modules.benchmarker.session import SessionSerializer
 
 
 from core.logging import log, set_module_level
-from shared.cached import get_section, get_db_manager
+from st_shared.cached import get_section, get_db_manager
 @dataclass
 class AssertionResult:
     """Result of a single scenario assertion."""

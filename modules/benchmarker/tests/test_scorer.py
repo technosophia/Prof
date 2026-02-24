@@ -12,7 +12,7 @@ from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
 
 
 from core.database import init_database
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 def _session_fixture(tmp_path):
     session_path = tmp_path / "session.yaml"
     session = {

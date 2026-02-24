@@ -3,7 +3,7 @@
 import os
 
 from core.logging import log, set_module_level
-from shared.cached import get_section
+from st_shared.cached import get_section
 from shared.common import (
     get_available_llms,
     register_action,

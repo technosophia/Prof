@@ -12,10 +12,10 @@ from sqlalchemy import func, and_, desc
 from core.logging import log, set_module_level
 from core.database import Base
 
-from shared.cached import get_db_manager
-from shared.cached import get_config
-from shared.cached import get_user_manager
-from shared.cached import get_conversation_manager
+from st_shared.cached import get_db_manager
+from st_shared.cached import get_config
+from st_shared.cached import get_user_manager
+from st_shared.cached import get_conversation_manager
 
 # Import models
 from modules.llm_monitor.models import (

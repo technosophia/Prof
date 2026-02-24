@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Load environment variables FIRST
 from core.logging import log, set_module_level
 from core.database import init_database
-from shared.cached import _, get_available_languages
+from st_shared.cached import _, get_available_languages, get_active_modules
 load_dotenv()
 
 # Add shared directory to path
@@ -21,22 +21,22 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
 
-from shared.cached import get_config
+from st_shared.cached import get_config
 from core.logging import configure_logging_from_dict
 
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 from shared.common import init_user_manager
-from shared.cached import get_prompt_manager
+from st_shared.cached import get_prompt_manager
 from shared.export_import import auto_import_conversations_from_config
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # Import UI registry system
-from shared.ui_registry import UIRegistry
+from st_shared.ui_registry import UIRegistry
 # Import module handler
-from shared.module_handler import ModuleHandler, get_active_modules, toggle_module
-from shared.users_ui import auto_login_first_user
+from shared.module_handler import ModuleHandler
+from st_shared.users_ui import auto_login_first_user
 
 # Configure logging from config (one line)
 configure_logging_from_dict(get_config().get("logging", {}))
@@ -53,7 +53,7 @@ if 'module_handler' not in st.session_state:
 module_handler = st.session_state.module_handler
 
 # Load active module UIs immediately
-active_modules = module_handler.get_active_modules()
+active_modules = get_active_modules()
 for module_name in active_modules:
     ui_module = module_handler.load_module_ui(module_name)
     if ui_module:

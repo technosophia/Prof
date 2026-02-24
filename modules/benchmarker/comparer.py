@@ -14,7 +14,7 @@ import yaml
 from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
 
 
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 @dataclass
 class GroupStats:
     option_value: str

@@ -14,18 +14,18 @@ import asyncio
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean, and_
 from sqlalchemy.orm.attributes import flag_modified
 from shared.common import get_prompt
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 from shared.conversation import get_conversation_manager, Message
 from shared.common import llm_conversation_generate
-from shared.cached import get_llm_manager
+from st_shared.cached import get_llm_manager
 
 
 # ============= DATABASE MODEL =============
 from core.logging import log, set_module_level
 from core.database import Base
-from shared.cached import _
+from st_shared.cached import _
 class StudentSuggestionConfig(Base):
     """Store suggestion configuration per student."""
     __tablename__ = 'trainer_suggest_config'
@@ -191,7 +191,7 @@ class SuggestPlugin(TrainerPlugin):
             student_id = conversation.user_id
 
             # Get the student's trainer (parent)
-            from shared.cached import get_user_manager
+            from st_shared.cached import get_user_manager
             user_manager = get_user_manager()
             user = user_manager.get_user(student_id)
 

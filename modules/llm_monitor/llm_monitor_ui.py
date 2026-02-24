@@ -14,7 +14,7 @@ from modules.llm_monitor.display_utils import render_llm_call_details, render_ra
 
 
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _
 def inject_ui_initialize():
     """Initialize the LLM monitor UI module."""
     # Initialize session state variables

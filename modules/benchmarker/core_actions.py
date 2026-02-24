@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, List
 
 from core.logging import log, set_module_level
-from shared.cached import get_config
+from st_shared.cached import get_config
 from shared.common import (
     Message,
     get_conversation_manager,

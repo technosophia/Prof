@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..rag_engine import RAGEngine
 from shared.common import get_embedding, get_embeddings
-from shared.cached import get_config
+from st_shared.cached import get_config
 
 
 from core.logging import log, set_module_level

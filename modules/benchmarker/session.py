@@ -17,7 +17,7 @@ import yaml
 
 
 from core.logging import log, set_module_level
-from shared.cached import get_section
+from st_shared.cached import get_section
 class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
 

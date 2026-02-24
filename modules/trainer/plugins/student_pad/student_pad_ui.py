@@ -6,12 +6,12 @@ File ends with _ui.py and implements inject_ui_main_header() injection point.
 
 import streamlit as st
 from shared.common import UserRole
-from shared.cached import get_user_manager
+from st_shared.cached import get_user_manager
 from modules.trainer.plugin_base import get_plugin_manager
 from modules.trainer.manager import get_trainer_manager
 
 
-from shared.cached import _
+from st_shared.cached import _
 def inject_ui_main_header():
     """
     Inject student pad UI from active plugins.

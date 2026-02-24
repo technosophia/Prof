@@ -8,13 +8,13 @@ This module provides the debug section that was previously in prof.py.
 import streamlit as st
 import os
 
-from shared.cached import get_config, get_user_manager, get_conversation_manager
+from st_shared.cached import get_config, get_user_manager, get_conversation_manager
 from shared.common import get_available_llms, get_current_llm_info
 from shared.module_handler import get_active_modules, module_handler
-from shared.ui_registry import ui_registry
+from st_shared.ui_registry import ui_registry
 
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _
 def inject_ui_main_footer():
     """Render debug information in the main footer."""
     log("debug", "debug_render_main_footer called")

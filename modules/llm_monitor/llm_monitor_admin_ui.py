@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from core.logging import log, set_module_level
 
 
-from shared.cached import get_user_manager
-from shared.cached import get_llm_manager
+from st_shared.cached import get_user_manager
+from st_shared.cached import get_llm_manager
 
 from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.display_utils import (
@@ -73,7 +73,7 @@ def show_diagnostics_tab(monitor):
     st.subheader("🔍 System Diagnostics")
 
     # Get LLM manager instance
-    from shared.cached import get_llm_manager
+    from st_shared.cached import get_llm_manager
     llm_manager = get_llm_manager()
 
     # Callbacks Section

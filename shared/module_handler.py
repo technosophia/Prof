@@ -53,7 +53,6 @@ import importlib.util
 import sys
 from typing import Dict, List, Optional, Set
 from pathlib import Path
-import streamlit as st
 
 from core.config import CONFIG_FILE
 
@@ -411,7 +410,6 @@ class ModuleHandler:
             self.initialize()
         return self.modules.get(module_name)
 
-@st.cache_resource
 def get_active_modules() -> List[str]:
     """[api] Convenience function to get active modules without creating a handler.
 

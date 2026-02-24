@@ -14,16 +14,16 @@ import pkgutil
 import sys
 
 from shared.common import init_user_manager
-from shared.cached import get_config
+from st_shared.cached import get_config
 from shared.common import UserRole
-from shared.cached import get_user_manager
+from st_shared.cached import get_user_manager
 
 from modules.rag_manager.rag_engine import RAGEngine
 from modules.rag_manager.rag_simple import SimpleRAGEngine
 
 from core.logging import log, set_module_level
 from core.database import init_database
-from shared.cached import _
+from st_shared.cached import _
 user_manager = get_user_manager()
 
 class RAGManager:
@@ -162,7 +162,7 @@ class RAGManager:
 
     def refresh_config(self):
         """Refresh configuration from config file."""
-        from shared.cached import get_config
+        from st_shared.cached import get_config
         self.config = get_config()
         rag_config = self.config.get("rag_manager", {})
         self.default_engine = rag_config.get("default_engine", "simple")
