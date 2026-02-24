@@ -11,9 +11,8 @@ import sys
 import importlib.util
 import inspect
 from typing import Dict, List, Callable, Any, Set, Tuple
-from functools import lru_cache
 from core.logging import log
-@lru_cache(maxsize=32)
+
 def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: str | None = None) -> Tuple[Dict[str, Dict], Set[str]]:
     """Cached discovery of all UI modules and their render functions."""
     active_modules = set(active_modules_tuple)
