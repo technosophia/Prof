@@ -56,11 +56,18 @@ class TestDatabaseManager:
                 with patch('core.database.sessionmaker') as mock_sessionmaker:
                     with patch('core.database.Path.mkdir'):
                         with patch('core.database.log'):
+                            mock_conn = MagicMock()
+                            mock_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+                            mock_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
                             db._initialize(use_memory=False, db_path=db_path)
 
                             # Check that file URL was used
                             expected_url = db_path
-                            mock_engine.assert_called_once_with(expected_url, echo=False)
+                            call_args = mock_engine.call_args
+                            assert call_args[0][0] == expected_url
+                            assert call_args[1]['echo'] == False
+                            assert call_args[1]['pool_pre_ping'] == True
+                            assert call_args[1]['connect_args'] == {'timeout': 30, 'check_same_thread': False}
                             mock_sessionmaker.assert_called_once()
                             assert db._in_memory == False
 
@@ -312,10 +319,8 @@ class TestDatabaseManager:
         with pytest.raises(RuntimeError, match="Database not initialized"):
             db._create_all_tables()
 
-    def test_initialize_persistent_without_pool_pre_ping(self):
-        """Test persistent database initialization doesn't include pool_pre_ping."""
-        # Clear module and create fresh instance
-        import importlib
+    def test_initialize_persistent_runs_wal_pragmas(self):
+        """Test that WAL mode and busy_timeout PRAGMAs are executed on persistent DB init."""
         import sys
         if 'core.database' in sys.modules:
             del sys.modules['core.database']
@@ -326,17 +331,25 @@ class TestDatabaseManager:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
 
-            with patch('core.database.create_engine') as mock_engine:
-                with patch('core.database.sessionmaker') as mock_sessionmaker:
+            with patch('core.database.create_engine') as mock_create_engine:
+                with patch('core.database.sessionmaker'):
                     with patch('core.database.Path.mkdir'):
                         with patch('core.database.log'):
+                            mock_conn = MagicMock()
+                            mock_create_engine.return_value.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+                            mock_create_engine.return_value.connect.return_value.__exit__ = MagicMock(return_value=False)
+
                             db._initialize(use_memory=False, db_path=db_path)
 
-                            # Verify pool_pre_ping is NOT included for persistent
-                            call_args = mock_engine.call_args
-                            assert call_args[0][0] == db_path
-                            assert 'pool_pre_ping' not in call_args[1]  # Not specified
-                            assert call_args[1]['echo'] == False
+                            # Verify PRAGMAs were executed
+                            executed_statements = [
+                                str(c.args[0]) for c in mock_conn.execute.call_args_list
+                            ]
+                            assert any('journal_mode' in s for s in executed_statements), \
+                                f"WAL PRAGMA not found in: {executed_statements}"
+                            assert any('busy_timeout' in s for s in executed_statements), \
+                                f"busy_timeout PRAGMA not found in: {executed_statements}"
+                            mock_conn.commit.assert_called_once()
 
 
 class TestDatabaseOperations:
