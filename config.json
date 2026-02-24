@@ -13,6 +13,9 @@
     "local_mode": true,
     "test_mode": false
   },
+  "ui": {
+    "shared_dir": "st_shared"
+  },
   "database": {
     "path": "sqlite:///data/app.db",
     "auto_create_tables": true,
