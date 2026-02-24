@@ -6,11 +6,13 @@ User Management UI Module
 import streamlit as st
 from shared.common import UserRole
 from shared.cached import get_user_manager
-from shared.common import _, log
+
 from shared.cached import get_config
 from shared.common import set_current_llm, get_current_llm_info
 from datetime import datetime, timedelta
 
+from core.logging import log, set_module_level
+from shared.cached import _, get_available_languages
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""
     config = get_config()
@@ -48,7 +50,7 @@ def apply_user_preferences(user):
 
     # Apply language preference
     if preferred_lang and preferred_lang != st.session_state.current_language:
-        from shared.common import get_available_languages
+
         available_langs = get_available_languages()
         if preferred_lang in available_langs:
             st.session_state.current_language = preferred_lang

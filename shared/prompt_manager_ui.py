@@ -8,10 +8,12 @@ Supports both legacy and multilingual prompt formats.
 
 import streamlit as st
 import yaml
-from shared.common import _, log, get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages  # FIXED: Import the correct function
+from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages  # FIXED: Import the correct function
 from shared.cached import get_prompt_manager
 
 
+from core.logging import log, set_module_level
+from shared.cached import _
 def format_prompt_for_display(prompt_value, prompt_path="", full_module_path="", max_height=400, language=None, editable=False, instance_id=""):
     """Format a prompt value for display in Streamlit."""
     # Create a truly unique base key

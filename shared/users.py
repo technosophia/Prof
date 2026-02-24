@@ -60,7 +60,7 @@ from enum import Enum
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey
 from sqlalchemy.orm import Session, relationship, joinedload
 
-from core.logging import log
+from core.logging import log, set_module_level
 from core.database import get_db_manager, Base
 
 

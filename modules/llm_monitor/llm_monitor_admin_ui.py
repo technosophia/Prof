@@ -7,8 +7,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from core.logging import log, set_module_level
 
-from shared.common import log
+
 from shared.cached import get_user_manager
 from shared.cached import get_llm_manager
 

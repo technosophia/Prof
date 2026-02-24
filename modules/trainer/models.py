@@ -6,10 +6,13 @@ Defines tables for plugin data.
 from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, JSON, Boolean, ForeignKey, Index
 from sqlalchemy.orm import relationship
-from shared.common import Base, get_db_manager, log
+
 import uuid
 
 
+from core.logging import log, set_module_level
+from core.database import Base
+from shared.cached import get_db_manager
 class PluginData(Base):
     """Generic storage for plugin data."""
     __tablename__ = 'trainer_plugin_data'

@@ -8,12 +8,14 @@ from datetime import datetime, timezone
 
 import yaml
 
-from shared.common import init_database, get_db_manager
+
 
 from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore, ensure_tables_exist
 from modules.benchmarker.comparer import Comparer
 
 
+from core.database import init_database
+from shared.cached import get_db_manager
 def setup_function(_):
     init_database(use_memory=True)
     ensure_tables_exist()

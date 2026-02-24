@@ -9,9 +9,10 @@ from typing import Dict, List, Any, Optional, Callable, Tuple
 import tiktoken  # For token estimation
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy import func, and_, desc
-from shared.common import Base
+from core.logging import log, set_module_level
+from core.database import Base
+
 from shared.cached import get_db_manager
-from shared.common import log
 from shared.cached import get_config
 from shared.cached import get_user_manager
 from shared.cached import get_conversation_manager

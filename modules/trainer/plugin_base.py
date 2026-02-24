@@ -45,10 +45,12 @@ from pathlib import Path
 import importlib.util
 import inspect
 
-from shared.common import log, _
+
 from shared.cached import get_config
 
 
+from core.logging import log, set_module_level
+from shared.cached import _
 @dataclass
 class PluginManifest:
     """Plugin metadata from plugin.json."""

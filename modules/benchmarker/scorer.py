@@ -19,11 +19,13 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from shared.common import get_current_llm_id, get_db_manager, get_llm_manager, get_prompt, log
+from shared.common import get_current_llm_id, get_llm_manager, get_prompt
 
 from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
 
 
+from core.logging import log, set_module_level
+from shared.cached import get_db_manager
 @dataclass
 class ScoringResult:
     session_path: str

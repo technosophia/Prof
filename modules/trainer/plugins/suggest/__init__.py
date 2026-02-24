@@ -13,7 +13,7 @@ import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean, and_
 from sqlalchemy.orm.attributes import flag_modified
-from shared.common import Base, get_prompt, log, _
+from shared.common import get_prompt
 from shared.cached import get_db_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
@@ -23,6 +23,9 @@ from shared.cached import get_llm_manager
 
 
 # ============= DATABASE MODEL =============
+from core.logging import log, set_module_level
+from core.database import Base
+from shared.cached import _
 class StudentSuggestionConfig(Base):
     """Store suggestion configuration per student."""
     __tablename__ = 'trainer_suggest_config'

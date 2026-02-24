@@ -13,7 +13,7 @@ Combines functionality from:
 import streamlit as st
 import asyncio
 from datetime import datetime
-from shared.common import _, log, Message
+from shared.common import Message
 from shared.cached import get_config, get_conversation_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
 from typing import List, Dict, Optional, Tuple, Any, Callable
@@ -21,6 +21,8 @@ from shared.ui_registry import UIRegistry
 from shared.cached import get_conversation_manager
 
 
+from core.logging import log, set_module_level
+from shared.cached import _
 def get_conversation_history_for_llm(messages):
     """Convert conversation messages to LLM history format."""
     history = []

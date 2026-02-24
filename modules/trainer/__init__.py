@@ -29,9 +29,9 @@ File Naming Convention:
 
 from typing import Dict
 
+from core.logging import log, set_module_level
 from shared.common import (
     get_driver,
-    log,
     record_plugin_event,
     register_action,
     register_option,

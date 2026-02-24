@@ -9,11 +9,12 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from shared.common import get_db_manager
+
 
 from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
 
 
+from shared.cached import get_db_manager
 @dataclass
 class GroupStats:
     option_value: str

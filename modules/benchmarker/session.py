@@ -13,9 +13,11 @@ from typing import Dict, List
 
 import yaml
 
-from shared.common import get_section, log
 
 
+
+from core.logging import log, set_module_level
+from shared.cached import get_section
 class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
 

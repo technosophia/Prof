@@ -6,7 +6,7 @@ from typing import Dict, List
 import streamlit as st
 import yaml
 
-from shared.common import get_db_manager, get_driver, get_prompt
+from shared.common import get_driver, get_prompt
 
 from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
 from modules.benchmarker.comparer import Comparer
@@ -14,6 +14,7 @@ from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
 
 
+from shared.cached import get_db_manager
 def _p(key: str, default: str) -> str:
     return get_prompt(f"benchmarker.{key}", default)
 
