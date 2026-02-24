@@ -19,18 +19,20 @@ Manages multiple LLM providers and models with unified interface. Supports strea
 - `get_current_llm_info()`: Get current LLM details
 - `get_current_llm_id()`: Get current LLM identifier
 - `get_llm_by_name()`: Find LLM by name
-- `get_embedding()`: Embed a single string and return a float vector (384 dims for `all-MiniLM-L6-v2`)
-- `get_embeddings()`: Embed a list of strings and return float vectors (384 dims each)
 - `register_llm_callback()`: Register context generation callback - legacy
-- `unregister_llm_callback()`: Remove context callback - legacy
+- `unregister_llm_callback()`: Remove callback - legacy
 - `register_llm_context_callback()`: Register structured context callback
-- `unregister_llm_context_callback()`: Remove structured context callback
+- `unregister_llm_context_callback()`: Remove  callback
+- `register_monitor_callback()`: Register callback to monitor every llm call
+- `unregister_monitor_callback()`: Remove monitor callback
 
 # Prompt Management System (`shared/prompt_manager.py`)
 Centralized prompt management with dot-notation access. Automatically discovers and merges prompts.yaml files throughout the project. Supports multilingual prompts.
 
 **Exported functions:**
 - `get_prompt()`: Get prompt by key using dot notation
+- `set_prompt()`: Set prompt in memory
+- `save_prompt()`: Save prompt on disk
 - `get_all_prompts()`: Get all loaded prompts
 - `get_module_prompts()`: Get prompts for a specific module
 - `list_modules_with_prompts()`: List all modules with prompts
@@ -103,14 +105,3 @@ def inject_weather_context(user_id: str, messages: List[Dict]) -> tuple:
 # Register the enhanced callback
 register_context_callback(inject_weather_context)
 ```
-
-
-## Driver integration (LLM call recording)
-
-`LLMManager.internal_response()` performs best-effort recording of LLM usage in the shared driver session log.
-
-Behavior:
-- After a successful LLM response, it tries to import `get_driver()` from `shared.driver`.
-- If available, it records `llm_id`, `prompt_tokens`, and `completion_tokens` through `record_llm_call(...)`.
-- This is a soft dependency: any import/init/runtime error is silently ignored so startup and LLM behavior are not blocked.
-

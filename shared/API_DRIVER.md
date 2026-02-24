@@ -5,6 +5,10 @@
 
 # API — driver
 
+Programmatic app driver for non-UI interactions.
+
+# API — driver
+
 Programmatic app driver for Professor that can run interactions without Streamlit UI.
 
 ## Data Models
