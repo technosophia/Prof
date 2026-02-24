@@ -3,7 +3,7 @@
 import os, sys
 from typing import Optional, Dict, List, Tuple, Any, Callable
 import streamlit as st
-from core.logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict
+from core.logging import log as _log, configure_logging_from_dict as _configure_logging_from_dict, set_module_level as _set_module_level
 from core.translate import get_translation
 from core.config import load_all_configs
 from core.database import Base as _Base, init_database as _init_database
@@ -50,6 +50,7 @@ def _(key: str, lang: str | None = None) -> str:
 
 log = _log
 configure_logging_from_dict = _configure_logging_from_dict
+set_module_level = _set_module_level
 
 # Configuration ================================================
 
@@ -71,7 +72,7 @@ Base = _Base
 UserRole = _UserRole
 init_database = _init_database
 
-# Users
+# Users ========================================================
 
 def init_user_manager(create_default_users: bool = True):
     """Initialize the user manager."""

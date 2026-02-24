@@ -1,18 +1,28 @@
 <!-- /core/API.md -->
 
 # Configuration System (`core/config.py`)
-Centralized configuration management with dot-notation access. Automatically discovers and merges CONFIG_FILE files throughout the project directory structure. Supports test overrides when TEST_MODE is enabled.
+
+Centralized configuration management with dot-notation access. Automatically discovers and loads `config.json` files throughout the project directory structure, with keys prefixed by their relative path (e.g., `modules/rag/config.json` becomes accessible under `modules.rag`).
+
+Configuration merging follows this priority order (highest last):
+1. Base `config.json` files
+2. `local_config.json` files (override base)
+3. `tests/test_config.json` files (override both, only when `TEST_MODE=true` or running with pytest)
 
 **Exported functions:**
 - `get_config()`: Access the global configuration object
 - `get_section(prefix)`: Get module-specific configuration section
-- `save_config(prefix, data)`: Save module configuration back to file
+- `save_config(prefix, data)`: Save module configuration back to its original file
 
 # Logging System (`core/logging.py`)
-Simple, configurable logging with multiple severity levels and stack trace support. Integrates with the configuration system.
+
+Simple, configurable logging with multiple severity levels and stack trace support. Integrates with the configuration system. Supports both global and per-module log levels.
 
 **Exported functions:**
 - `log(level, message, *args, exc_info=False)`: Main logging function
+- `debug()`, `info()`, `warning()`, `error()`, `critical()`: Level-specific shortcuts
+- `set_level(level, module=None)`: Set global or module-specific log level
+- `set_module_level(level)`: Enable debug for current module (auto-detects module name)
 - `configure_logging_from_dict(config_dict)`: Apply logging configuration
 
 # Translation System (`core/translate.py`)
