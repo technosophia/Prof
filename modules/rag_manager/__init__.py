@@ -73,6 +73,34 @@ def _deactivate_rag_engine(name: str) -> None:
         unregister_llm_context_callback(callback)
 
 
+
+def _clear_registered_context_callbacks() -> None:
+    """Unregister all registered RAG context callbacks."""
+    for callback in list(_ENGINE_CONTEXT_CALLBACKS.values()):
+        try:
+            unregister_llm_context_callback(callback)
+        except Exception as exc:
+            log("debug", f"Failed to unregister RAG callback: {exc}")
+
+
+def on_module_activated() -> None:
+    """Module lifecycle hook called by ModuleHandler on activation."""
+    initialize()
+
+
+def on_module_deactivated() -> None:
+    """Module lifecycle hook called by ModuleHandler on deactivation."""
+    global _INITIALIZED
+    _clear_registered_context_callbacks()
+    _INITIALIZED = False
+
+
+def on_module_config_changed() -> None:
+    """Module lifecycle hook called when module config changes."""
+    rag_manager.refresh_config()
+    _clear_registered_context_callbacks()
+
+
 def initialize() -> bool:
     """Register RAG engine options into the app driver."""
     global _INITIALIZED, _RAG_OPTIONS_REGISTERED
@@ -113,4 +141,7 @@ __all__ = [
     "RAGManager",
     "rag_manager",
     "initialize",
+    "on_module_activated",
+    "on_module_deactivated",
+    "on_module_config_changed",
 ]

@@ -15,6 +15,7 @@ from shared.common import register_llm_callback, unregister_llm_callback
 from typing import List, Dict, Optional
 from modules.rag_manager import initialize as initialize_rag_manager, rag_manager
 from core.config import CONFIG_FILE
+from shared.module_handler import notify_module_config_changed
 
 
 from core.logging import log, set_module_level
@@ -486,6 +487,7 @@ def inject_ui_sidebar():
                     # Update in-memory config
                     config.set("rag_manager.default_engine", selected_engine)
                     rag_manager.default_engine = selected_engine
+                    notify_module_config_changed("rag_manager")
 
                     st.sidebar.success(f"Default engine set to: {selected_engine}")
                     st.sidebar.info("Changes will take effect immediately")
