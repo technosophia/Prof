@@ -49,6 +49,7 @@ Usage:
 
 import os
 import json
+import importlib
 import importlib.util
 import sys
 from typing import Dict, List, Optional, Set
@@ -296,6 +297,52 @@ class ModuleHandler:
             self.initialize()
         return module_name in self.active_modules
 
+
+    def _refresh_module_cache(self, module_name: str):
+        """Clear Python import cache entries for a module and its UI files."""
+        keys_to_remove = [
+            key
+            for key in list(sys.modules.keys())
+            if key == module_name
+            or key == f"modules.{module_name}"
+            or key.startswith(f"modules.{module_name}.")
+            or key == f"{module_name}_ui"
+            or key.startswith(f"{module_name}_")
+        ]
+
+        for key in keys_to_remove:
+            sys.modules.pop(key, None)
+
+        if keys_to_remove:
+            log("debug", f"Refreshed cache for module '{module_name}' ({len(keys_to_remove)} entries)")
+
+    def _call_module_hook(self, module_name: str, hook_name: str):
+        """Call a lifecycle hook on a module package when available."""
+        module_path = f"modules.{module_name}"
+        try:
+            package = importlib.import_module(module_path)
+        except Exception as e:
+            log("debug", f"Module hook skipped for {module_name}: cannot import {module_path}: {e}")
+            return
+
+        hook = getattr(package, hook_name, None)
+        if not callable(hook):
+            return
+
+        try:
+            hook()
+            log("info", f"Executed module hook {module_path}.{hook_name}()")
+        except Exception as e:
+            log("warning", f"Module hook failed {module_path}.{hook_name}(): {e}", exc_info=True)
+
+    def notify_module_config_changed(self, module_name: str):
+        """Refresh module cache and invoke per-module config change hook."""
+        if module_name not in self.modules:
+            self.refresh()
+
+        self._refresh_module_cache(module_name)
+        self._call_module_hook(module_name, "on_module_config_changed")
+
     def toggle_module(self, module_name: str, activate: bool) -> bool:
         """Activate or deactivate a module.
 
@@ -330,12 +377,16 @@ class ModuleHandler:
         if activate:
             if module_name not in self.active_modules:
                 self.active_modules.add(module_name)
+                self._refresh_module_cache(module_name)
+                self._call_module_hook(module_name, "on_module_activated")
                 log("info", f"Activated module: {module_name}")
                 self._save_modules_file()
                 return True
         else:
             if module_name in self.active_modules:
+                self._call_module_hook(module_name, "on_module_deactivated")
                 self.active_modules.remove(module_name)
+                self._refresh_module_cache(module_name)
                 log("info", f"Deactivated module: {module_name}")
                 self._save_modules_file()
                 return True
@@ -441,6 +492,14 @@ def toggle_module(module_name: str, activate: bool) -> bool:
     handler = ModuleHandler()
     handler.initialize()
     return handler.toggle_module(module_name, activate)
+
+
+
+def notify_module_config_changed(module_name: str) -> None:
+    """Convenience function to notify that a module configuration changed."""
+    handler = ModuleHandler()
+    handler.initialize()
+    handler.notify_module_config_changed(module_name)
 
 
 # Singleton instance (used in prof.py via session_state)

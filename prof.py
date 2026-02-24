@@ -24,7 +24,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 from st_shared.cached import get_config
 from core.logging import configure_logging_from_dict
 
-from st_shared.cached import get_db_manager
+from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
 from shared.common import init_user_manager
 from st_shared.cached import get_prompt_manager
 from shared.export_import import auto_import_conversations_from_config
@@ -76,7 +76,11 @@ except Exception as e:
 
 init_user_manager(create_default_users=True)
 get_prompt_manager()
-auto_import_conversations_from_config()
+auto_import_conversations_from_config(
+    user_manager=get_user_manager(),
+    conversation_manager=get_conversation_manager(),
+    config=get_config(),
+)
 
 # Initialize UI registry - do this here, not inside main()
 # The registry will be cached in session state
