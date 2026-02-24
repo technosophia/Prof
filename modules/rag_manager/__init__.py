@@ -2,8 +2,8 @@
 
 from typing import Callable, Dict, List
 
+from core.logging import log, set_module_level
 from shared.common import (
-    log,
     register_llm_context_callback,
     register_option,
     unregister_llm_context_callback,

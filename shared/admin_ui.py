@@ -10,12 +10,14 @@ Uses the new UI injection mechanism with admin_tab injection point.
 import streamlit as st
 import os
 import sys
-from shared.common import _, log
+
 from shared.cached import get_config
 from shared.cached import get_user_manager
 from shared.ui_registry import _discover_ui_modules  # Import the standalone function
 
 
+from core.logging import log, set_module_level
+from shared.cached import _
 def force_reload_modules():
     """Force reload all active modules by clearing cache and re-importing."""
     if 'module_handler' not in st.session_state:

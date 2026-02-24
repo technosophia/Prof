@@ -2,10 +2,11 @@
 
 import streamlit as st
 
-from shared.common import log
+
 from modules.trainer import initialize as initialize_trainer
 
 
+from core.logging import log, set_module_level
 def inject_ui_initialize():
     """Ensure trainer module core initialization runs once app UI initializes."""
     try:

@@ -5,12 +5,14 @@ from datetime import datetime
 import pytest
 import yaml
 
-from shared.common import get_db_manager, init_database
+
 
 from modules.benchmarker.benchmarker import ensure_tables_exist, BenchmarkScore
 from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
 
 
+from core.database import init_database
+from shared.cached import get_db_manager
 def _session_fixture(tmp_path):
     session_path = tmp_path / "session.yaml"
     session = {
@@ -138,7 +140,7 @@ def test_score_session_no_llm(tmp_path):
     assert all(v is None for v in result.scores.values())
     assert result.llm_used is None
 
-    from shared.common import get_db_manager
+
 
     with get_db_manager().get_session() as db:
         assert db.query(BenchmarkScore).count() == 0

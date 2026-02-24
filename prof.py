@@ -11,16 +11,19 @@ import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables FIRST
+from core.logging import log, set_module_level
+from core.database import init_database
+from shared.cached import _, get_available_languages
 load_dotenv()
 
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
-from shared.common import _, get_available_languages
+
 from shared.cached import get_config
-from shared.common import log, configure_logging_from_dict
-from shared.common import init_database
+from core.logging import configure_logging_from_dict
+
 from shared.cached import get_db_manager
 from shared.common import init_user_manager
 from shared.cached import get_prompt_manager

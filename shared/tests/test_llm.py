@@ -12,8 +12,9 @@ from dotenv import load_dotenv
 
 from shared.common import get_available_llms, set_current_llm, llm_conversation_generate
 from shared.cached import get_llm_manager
-from shared.common import log
 
+
+from core.logging import log, set_module_level
 class TestLLMManager:
     """Test LLM Manager functionality."""
 

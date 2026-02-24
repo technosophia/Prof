@@ -10,13 +10,15 @@ import uuid
 import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, and_, desc
-from shared.common import Base, get_prompt, register_llm_context_callback, log, get_current_llm_id
+from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id
 from shared.cached import get_db_manager, get_conversation_manager, get_llm_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 
 
 # Database model (will be created by plugin initialization)
+from core.logging import log, set_module_level
+from core.database import Base
 class StudentMemory(Base):
     """Store pedagogical memory for each student with version history."""
     __tablename__ = 'trainer_student_memories'

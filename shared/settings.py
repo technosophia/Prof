@@ -10,7 +10,7 @@ Provides user settings interface where users can customize:
 """
 
 from typing import Dict, Any, Optional, Tuple
-from core.logging import log
+from core.logging import log, set_module_level
 from shared.users import get_user_manager, UserRole
 
 class UserSettingsManager:

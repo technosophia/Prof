@@ -12,9 +12,11 @@ import importlib.util
 import inspect
 from typing import Dict, List, Callable, Any, Set, Tuple
 import streamlit as st
-from shared.common import _, log
+
 from shared.cached import get_config
 
+from core.logging import log, set_module_level
+from shared.cached import _
 @st.cache_resource
 def _discover_ui_modules(active_modules_tuple: Tuple[str, ...]) -> Tuple[Dict[str, Dict], Set[str]]:
     """Cached discovery of all UI modules and their render functions."""

@@ -31,6 +31,7 @@ from playwright.sync_api import sync_playwright
 # ---------------------------------------------------------------------------
 # 0.  Silence noisy third-party warnings ONCE
 # ---------------------------------------------------------------------------
+from core.database import init_database
 _SILENCED_WARNINGS = [
     ("ignore", UserWarning,       "streamlit.runtime.scriptrunner_utils"),
     ("ignore", UserWarning,       "streamlit.runtime.state.session_state_proxy"),
@@ -96,7 +97,7 @@ _BROWSER_SCOPE = "module"
 # 3.  Shared imports (after path + .env are ready)
 # ---------------------------------------------------------------------------
 from shared.cached import get_config, get_db_manager, get_user_manager
-from shared.common import init_database, init_user_manager
+from shared.common import init_user_manager
 from shared.module_handler import ModuleHandler
 from shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager

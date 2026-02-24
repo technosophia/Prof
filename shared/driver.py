@@ -177,9 +177,10 @@ from typing import Callable, Dict, List, Optional
 
 import streamlit as st
 
-from shared.common import log
 
 
+
+from core.logging import log, set_module_level
 class DriverError(Exception):
     """Base class for driver errors."""
 

@@ -4,6 +4,7 @@ import os
 import streamlit as st
 
 from core.config import Config, _load_config
+from core.translate import get_translation
 from core.database import get_db_manager as _get_db_manager
 from core.translate import load_all_translations
 from .conversation import get_conversation_manager as _get_conversation_manager
@@ -22,6 +23,18 @@ def _load_translations() -> dict[str, dict[str, str]]:
 def get_config() -> Config:
     """Primary way to access configuration from anywhere."""
     return _load_config()
+
+
+def get_section(prefix: str = "") -> dict:
+    """Convenient wrapper for module-specific sections."""
+    return get_config().get_section(prefix)
+
+
+def save_config(prefix: str = "", data: dict | None = None) -> bool:
+    """Convenient wrapper to save a module/section back to its CONFIG_FILE."""
+    if data is None:
+        raise ValueError("save_config requires the data dict to save")
+    return get_config().save_section(prefix, data)
 
 
 @st.cache_resource
@@ -81,3 +94,17 @@ def get_prompt_manager():
 def get_user_settings_manager():
     """Get or create the user settings manager."""
     return UserSettingsManager()
+
+
+def get_available_languages() -> list[str]:
+    """Return sorted list of dynamic available language codes."""
+    return sorted(_load_translations().keys())
+
+
+def _(key: str, lang: str | None = None) -> str:
+    """Central translation function using cached translation resources."""
+    if lang is None:
+        if "current_language" not in st.session_state:
+            st.session_state.current_language = "en"
+        lang = st.session_state.current_language
+    return get_translation(key, lang, _load_translations())

@@ -6,13 +6,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
-from shared.common import log
-from shared.common import _
+
+
 from typing import Dict, List, Any, Optional, Callable, Tuple
 from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.display_utils import render_llm_call_details, render_rate_limit_summary
 
 
+from core.logging import log, set_module_level
+from shared.cached import _
 def inject_ui_initialize():
     """Initialize the LLM monitor UI module."""
     # Initialize session state variables

@@ -8,12 +8,14 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Callable, Tuple
-from shared.common import Base
-from shared.common import log
+
+
 from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable
 
 
+from core.logging import log, set_module_level
+from core.database import Base
 def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usage"):
     """Render a gauge chart for rate limit usage."""
     if not usage or not usage.get("limits"):

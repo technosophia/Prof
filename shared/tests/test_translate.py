@@ -5,10 +5,11 @@ import tempfile
 import pytest
 
 from core.translate import load_all_translations
-from shared.common import _, get_available_languages
+
 from shared.cached import _load_translations
 
 
+from shared.cached import _, get_available_languages
 @pytest.fixture(autouse=True)
 def clear_translation_cache():
     """Clear the Streamlit cache before each test to prevent leakage between tests"""
