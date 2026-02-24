@@ -8,6 +8,7 @@ from shared.llm_engine import LLMEngine
 
 
 from core.logging import log, set_module_level
+
 try:
     from groq import Groq
     HAS_GROQ = True
@@ -30,7 +31,7 @@ class GroqEngine(LLMEngine):
     SUPPORTED_MODELS = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "openai/gpt-oss-120b"
+        "openai/gpt-oss-120b",
     ]
 
     def __init__(self):
@@ -49,12 +50,14 @@ class GroqEngine(LLMEngine):
     def _validate_api_key_format(self, api_key: str) -> bool:
         """Validate that API key has the correct format."""
         if not api_key.startswith(self.API_KEY_PREFIX):
-            error_msg = f"Invalid GROQ_API_KEY format: API key must start with '{self.API_KEY_PREFIX}'"
+            error_msg = (
+                f"Invalid GROQ_API_KEY format: API key must start with '{self.API_KEY_PREFIX}'"
+            )
             log("error", error_msg)
             raise ValueError(error_msg)
         return True
 
-    def _initialize_client(self, api_key: str) -> Optional[Groq]:
+    def _initialize_client(self, api_key: str) -> Optional["Groq"]:
         """Initialize Groq client with API key."""
         try:
             return Groq(api_key=api_key)
@@ -66,14 +69,11 @@ class GroqEngine(LLMEngine):
         """Check if Groq is available (API key present and valid format)."""
         if not HAS_GROQ:
             return False
-
         api_key = self._get_api_key()
         if not api_key:
             return False
-
         self._validate_api_key_format(api_key)
         self.client = self._initialize_client(api_key)
-
         return self.client is not None
 
     def is_available(self) -> bool:
@@ -89,31 +89,21 @@ class GroqEngine(LLMEngine):
             log("warning", "No messages provided")
             return []
 
-        # Basic formatting
         formatted_messages = [
-            {"role": msg["role"], "content": msg["content"]}
-            for msg in messages
+            {"role": msg["role"], "content": msg["content"]} for msg in messages
         ]
 
-        # Ensure we have at least one user message
         if not any(msg["role"] == "user" for msg in formatted_messages):
             log("warning", "No user message found, adding default")
-            formatted_messages.append({
-                "role": "user",
-                "content": self.DEFAULT_USER_MESSAGE
-            })
+            formatted_messages.append({"role": "user", "content": self.DEFAULT_USER_MESSAGE})
 
-        # Ensure last message is from user
         if formatted_messages[-1]["role"] != "user":
             log("warning", "Last message not from user, adjusting...")
             user_messages = [m for m in formatted_messages if m["role"] == "user"]
             if user_messages:
                 formatted_messages.append(user_messages[-1])
             else:
-                formatted_messages.append({
-                    "role": "user",
-                    "content": self.DEFAULT_FALLBACK_MESSAGE
-                })
+                formatted_messages.append({"role": "user", "content": self.DEFAULT_FALLBACK_MESSAGE})
 
         return formatted_messages
 
@@ -123,8 +113,6 @@ class GroqEngine(LLMEngine):
             error_msg = "Groq not available. Check API key and installation."
             log("error", error_msg)
             raise RuntimeError(error_msg)
-
-        # Double-check API key format before making the request
         api_key = self._get_api_key()
         if api_key:
             self._validate_api_key_format(api_key)
@@ -143,45 +131,61 @@ class GroqEngine(LLMEngine):
         """Handle non-streaming response from Groq."""
         return completion.choices[0].message.content
 
-    async def generate(self, model: str, messages: List[Dict[str, str]],
-                      stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from Groq."""
+    async def generate(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        stream_callback: Optional[Callable] = None,
+        response_format: Optional[str] = None,
+    ) -> str:
+        """Generate response from Groq.
+
+        Args:
+            model: Groq model name.
+            messages: Conversation messages.
+            stream_callback: Optional streaming callback.
+            response_format: Pass ``"json"`` to set ``response_format`` to
+                ``{"type": "json_object"}`` in the API request (OpenAI-compatible
+                JSON mode). The model will always return valid JSON. Note: JSON
+                mode is incompatible with streaming on Groq; if both are
+                requested, streaming takes precedence and JSON mode is skipped
+                with a warning. Defaults to ``None`` (plain text).
+        """
         log("debug", f"Generating Groq response with model: {model}")
 
         try:
-            # Validate request
             self._validate_request()
 
-            # Format messages
             formatted_messages = self._format_messages(messages)
             if not formatted_messages:
                 return "No valid messages provided"
 
-            # Common parameters for both streaming and non-streaming
-            common_params = {
+            common_params: Dict[str, Any] = {
                 "model": model,
                 "messages": formatted_messages,
                 "temperature": self.DEFAULT_TEMPERATURE,
-                "max_tokens": self.DEFAULT_MAX_TOKENS
+                "max_tokens": self.DEFAULT_MAX_TOKENS,
             }
 
-            # Generate response based on mode
+            # Groq uses the OpenAI-compatible response_format field.
+            # JSON mode is not supported with streaming; skip it with a warning.
+            if response_format == "json":
+                if stream_callback:
+                    log("warning", "Groq JSON mode is not supported with streaming; ignoring response_format")
+                else:
+                    common_params["response_format"] = {"type": "json_object"}
+                    log("debug", "Groq JSON mode enabled (response_format=json_object)")
+
             if stream_callback:
                 log("debug", "Using streaming mode for Groq")
-                stream = self.client.chat.completions.create(
-                    **common_params,
-                    stream=True
-                )
+                stream = self.client.chat.completions.create(**common_params, stream=True)
                 full_response = self._handle_streaming_response(stream, stream_callback)
             else:
                 log("debug", "Using non-streaming mode for Groq")
                 completion = self.client.chat.completions.create(**common_params)
                 full_response = self._handle_non_streaming_response(completion)
 
-            # Handle empty response
-            if not full_response:
-                full_response = "No response generated"
-
+            full_response = full_response or "No response generated"
             log("debug", f"Groq response length: {len(full_response)}")
             return full_response
 

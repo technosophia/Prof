@@ -14,9 +14,24 @@ class LLMEngine(ABC):
         self.available = False
 
     @abstractmethod
-    async def generate(self, model: str, messages: List[Dict[str, str]],
-                      stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from the LLM."""
+    async def generate(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        stream_callback: Optional[Callable] = None,
+        response_format: Optional[str] = None,
+    ) -> str:
+        """Generate response from the LLM.
+
+        Args:
+            model: Model identifier to use.
+            messages: Conversation messages in role/content format.
+            stream_callback: Optional callable receiving incremental chunks.
+            response_format: Optional output format hint. Pass ``"json"`` to
+                request a structured JSON response. Each engine translates this
+                to its own native API parameter. Defaults to ``None`` (plain
+                text), preserving backward-compatible behaviour.
+        """
         pass
 
     @abstractmethod

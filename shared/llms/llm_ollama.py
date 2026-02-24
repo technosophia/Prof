@@ -10,8 +10,9 @@ from typing import List, Dict, Any, Optional, Callable
 from shared.llm_engine import LLMEngine
 
 
-
 from core.logging import log, set_module_level
+
+
 class OllamaEngine(LLMEngine):
     """Ollama LLM engine for local models."""
 
@@ -25,7 +26,7 @@ class OllamaEngine(LLMEngine):
         try:
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
     def is_available(self) -> bool:
@@ -35,13 +36,12 @@ class OllamaEngine(LLMEngine):
         """Get list of available Ollama models."""
         if not self.available:
             return []
-
         try:
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 return [model["name"] for model in data.get("models", [])]
-        except:
+        except Exception:
             pass
         return []
 
@@ -50,61 +50,68 @@ class OllamaEngine(LLMEngine):
         if not response:
             return response
 
-        # Remove <think> tags and everything between them
         response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
-        # Also handle unclosed <think> tags
         response = re.sub(r'<think>.*', '', response, flags=re.DOTALL)
         response = re.sub(r'.*</think>', '', response, flags=re.DOTALL)
-
-        # Remove any leftover XML-like tags
         response = re.sub(r'<\s*/\s*think\s*>', '', response, flags=re.IGNORECASE)
         response = re.sub(r'<[^>]*think[^>]*>', '', response, flags=re.IGNORECASE)
-
-        # Clean up extra whitespace
         response = re.sub(r'\n\s*\n', '\n\n', response)
         response = re.sub(r'^\s+', '', response)
         response = re.sub(r'\s+$', '', response)
 
         return response.strip()
 
-    async def generate(self, model: str, messages: List[Dict[str, str]],
-                      stream_callback: Optional[Callable] = None) -> str:
-        """Generate response from Ollama."""
+    async def generate(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        stream_callback: Optional[Callable] = None,
+        response_format: Optional[str] = None,
+    ) -> str:
+        """Generate response from Ollama.
+
+        Args:
+            model: Ollama model name.
+            messages: Conversation messages.
+            stream_callback: Optional streaming callback.
+            response_format: Pass ``"json"`` to enable Ollama native JSON mode
+                (sets ``format: "json"`` in the request payload). This instructs
+                the model to always return valid JSON. Defaults to ``None``.
+        """
         log("debug", f"Generating Ollama response with model: {model}")
 
         try:
-            # Format messages for Ollama
-            formatted_messages = []
-            for msg in messages:
-                formatted_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
+            formatted_messages = [
+                {"role": msg["role"], "content": msg["content"]}
+                for msg in messages
+            ]
 
-            # Check last message is from user
             if formatted_messages and formatted_messages[-1]["role"] != "user":
                 log("warning", "Last message not from user, adjusting...")
                 formatted_messages.append({
                     "role": "user",
-                    "content": "Please respond to the conversation"
+                    "content": "Please respond to the conversation",
                 })
 
-            # Ollama API endpoint
             ollama_url = f"{self.base_url}/api/chat"
 
-            # Prepare request
-            payload = {
+            payload: Dict[str, Any] = {
                 "model": model,
                 "messages": formatted_messages,
                 "stream": stream_callback is not None,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": 2048
+                    "num_predict": 2048,
                 },
             }
 
+            # Enable native Ollama JSON mode when requested.
+            # Ollama uses a top-level "format" key (not nested in "options").
+            if response_format == "json":
+                payload["format"] = "json"
+                log("debug", "Ollama JSON mode enabled")
+
             if stream_callback:
-                # Streaming response
                 log("debug", "Using streaming mode for Ollama")
                 response = requests.post(
                     ollama_url,
@@ -126,27 +133,35 @@ class OllamaEngine(LLMEngine):
                             if "message" in data and "content" in data["message"]:
                                 chunk = data["message"]["content"]
                                 full_response += chunk
-                                if stream_callback:
-                                    stream_callback(chunk)
+                                stream_callback(chunk)
                         except json.JSONDecodeError:
                             continue
                         except Exception as e:
                             log("error", f"Error parsing Ollama stream: {e}")
                             continue
 
-                # Clean the response
-                cleaned_response = self._clean_response(full_response)
-                log("debug", f"Ollama response length: {len(cleaned_response)}")
-                return cleaned_response if cleaned_response else "No response generated"
+                # Skip think-tag cleanup in JSON mode to avoid corrupting output.
+                if response_format == "json":
+                    cleaned = full_response.strip()
+                else:
+                    cleaned = self._clean_response(full_response)
+
+                log("debug", f"Ollama response length: {len(cleaned)}")
+                return cleaned or "No response generated"
+
             else:
-                # Non-streaming response
                 log("debug", "Using non-streaming mode for Ollama")
                 response = requests.post(ollama_url, json=payload, timeout=120)
                 if response.status_code == 200:
                     response_text = response.json()["message"]["content"]
-                    cleaned_response = self._clean_response(response_text)
-                    log("debug", f"Ollama response length: {len(cleaned_response)}")
-                    return cleaned_response if cleaned_response else "No response generated"
+
+                    if response_format == "json":
+                        cleaned = response_text.strip()
+                    else:
+                        cleaned = self._clean_response(response_text)
+
+                    log("debug", f"Ollama response length: {len(cleaned)}")
+                    return cleaned or "No response generated"
                 else:
                     error_msg = f"Ollama error: {response.status_code}"
                     log("error", error_msg)
