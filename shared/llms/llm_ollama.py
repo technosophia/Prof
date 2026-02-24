@@ -99,7 +99,7 @@ class OllamaEngine(LLMEngine):
                 "stream": stream_callback is not None,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": 512
+                    "num_predict": 2048
                 },
             }
 
