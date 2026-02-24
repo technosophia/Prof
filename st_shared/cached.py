@@ -30,10 +30,10 @@ from core.config import Config, _load_config
 from core.translate import get_translation
 from core.database import get_db_manager as _get_db_manager
 from core.translate import load_all_translations
-from .conversation import get_conversation_manager as _get_conversation_manager
-from .llm import LLMManager
-from .settings import UserSettingsManager
-from .users import get_user_manager as _get_user_manager
+from shared.conversation import get_conversation_manager as _get_conversation_manager
+from shared.llm import LLMManager
+from shared.settings import UserSettingsManager
+from shared.users import get_user_manager as _get_user_manager
 
 
 @st.cache_resource
@@ -131,3 +131,25 @@ def _(key: str, lang: str | None = None) -> str:
             st.session_state.current_language = "en"
         lang = st.session_state.current_language
     return get_translation(key, lang, _load_translations())
+
+
+@st.cache_resource
+def get_active_modules() -> list[str]:
+    """Cached proxy for shared.module_handler.get_active_modules."""
+    from shared.module_handler import get_active_modules as _get_active_modules
+    return _get_active_modules()
+
+
+@st.cache_resource
+def _discover_ui_modules(active_modules_tuple: tuple[str, ...]):
+    """Cached proxy for shared.ui_registry._discover_ui_modules."""
+    from shared.ui_registry import _discover_ui_modules as _registry_discover
+    shared_ui_dir = get_config().get("ui.shared_dir", None)
+    return _registry_discover(active_modules_tuple, shared_ui_dir)
+
+
+@st.cache_resource
+def get_driver():
+    """Cached proxy for shared.driver.get_driver."""
+    from shared.driver import get_driver as _get_driver
+    return _get_driver()

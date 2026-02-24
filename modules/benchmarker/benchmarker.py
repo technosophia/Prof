@@ -10,7 +10,7 @@ from sqlalchemy import Column, DateTime, Float, Integer, JSON, String, Text
 
 from core.logging import log, set_module_level
 from core.database import Base
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 class BenchmarkRun(Base):
     """Database record for one benchmark scenario run."""
 

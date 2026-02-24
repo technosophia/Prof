@@ -11,7 +11,7 @@ from unittest.mock import patch, Mock
 from dotenv import load_dotenv
 
 from shared.common import get_available_llms, set_current_llm, llm_conversation_generate
-from shared.cached import get_llm_manager
+from st_shared.cached import get_llm_manager
 
 
 # Load environment variables from .env file

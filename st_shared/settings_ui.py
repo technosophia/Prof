@@ -12,14 +12,14 @@ Provides user settings interface where users can customize:
 import streamlit as st
 from typing import Dict, Any, Optional, Tuple
 
-from shared.cached import get_config, get_user_settings_manager, get_user_manager
+from st_shared.cached import get_config, get_user_settings_manager, get_user_manager
 from shared.common import get_available_llms, set_current_llm, get_current_llm_info
 
 from shared.common import UserRole
 
 
 from core.logging import log, set_module_level
-from shared.cached import _, get_available_languages
+from st_shared.cached import _, get_available_languages
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""
     config = get_config()

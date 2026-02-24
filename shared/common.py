@@ -63,7 +63,7 @@ from .users import UserRole as _UserRole
 from .conversation import Message as _Message
 from .conversation import UserMessageCallback
 from .prompt_manager import is_multilingual as _is_multilingual, set_default_language as _set_default_language
-from .cached import (
+from st_shared.cached import (
     get_user_manager,
     get_conversation_manager,
     get_llm_manager,

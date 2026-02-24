@@ -14,7 +14,7 @@ from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
 
 
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 def _p(key: str, default: str) -> str:
     return get_prompt(f"benchmarker.{key}", default)
 

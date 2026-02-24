@@ -15,13 +15,13 @@ import streamlit as st
 import asyncio
 import json
 
-from shared.cached import get_config, get_user_manager
+from st_shared.cached import get_config, get_user_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
 
 
 # Try to import ui_registry for injection point debugging
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _
 try:
     from shared.ui_registry import UIRegistry
     UI_REGISTRY_AVAILABLE = True

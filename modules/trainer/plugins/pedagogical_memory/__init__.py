@@ -14,7 +14,7 @@ import numpy as np
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Float, LargeBinary, desc
 
 from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id, get_embedding
-from shared.cached import get_db_manager, get_conversation_manager, get_llm_manager, get_user_manager, get_config
+from st_shared.cached import get_db_manager, get_conversation_manager, get_llm_manager, get_user_manager, get_config
 from modules.trainer.plugin_base import TrainerPlugin
 from modules.trainer.manager import get_trainer_manager
 

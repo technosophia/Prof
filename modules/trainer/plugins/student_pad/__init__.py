@@ -11,14 +11,14 @@ import uuid
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Integer, and_
 from shared.common import get_prompt, register_llm_context_callback
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 
 # ============= DATABASE MODEL =============
 from core.logging import log, set_module_level
 from core.database import Base
-from shared.cached import _
+from st_shared.cached import _
 class StudentNote(Base):
     """Store notes/pad for each student with version history."""
     __tablename__ = 'trainer_student_notes'
@@ -148,7 +148,7 @@ class StudentPadPlugin(TrainerPlugin):
         formatted with appropriate labels.
         """
         # Get the student's trainer (parent)
-        from shared.cached import get_user_manager
+        from st_shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(student_id)
 
@@ -181,7 +181,7 @@ class StudentPadPlugin(TrainerPlugin):
         Returns tuple: (context, role, position)
         """
         # Get the student's trainer (parent)
-        from shared.cached import get_user_manager
+        from st_shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(user_id)
 
@@ -212,7 +212,7 @@ class StudentPadPlugin(TrainerPlugin):
         Teacher notes are only visible to the AI, not to the student.
         """
         # Get the student's trainer (parent)
-        from shared.cached import get_user_manager
+        from st_shared.cached import get_user_manager
         user_manager = get_user_manager()
         user = user_manager.get_user(user_id)
 
@@ -241,7 +241,7 @@ class StudentPadPlugin(TrainerPlugin):
 
     def add_note(self, student_id: str, content: str, topic: str = "") -> Dict:
         """Append a note to the student's pad using existing storage."""
-        from shared.cached import get_user_manager
+        from st_shared.cached import get_user_manager
 
         user = get_user_manager().get_user(student_id)
         if not user or not user.get("parent_id"):

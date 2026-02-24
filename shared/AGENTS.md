@@ -20,7 +20,7 @@ See :
 - /shared/API_DRIVER.md for programmatic app driving API (context, options, actions, session log)
 Special : 
 - /shared/API_MODULE_HANDLER.md for module handling (main app only)
-- MODULE.md to get the list of injection points aviable for modules and directory structure
+- /shared/MODULE.md to get the list of injection points aviable for modules and directory structure
 
 If needed (only special cases, should be avoided unless strictly necessary to access some internals) : 
 /core/API.md for logging, database, configuration, translation

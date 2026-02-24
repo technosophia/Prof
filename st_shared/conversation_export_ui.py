@@ -14,9 +14,9 @@ from typing import List, Optional, Dict, Any
 from core.logging import log, set_module_level
 
 
-from shared.cached import _
-from shared.cached import get_conversation_manager, get_user_manager
-from shared.cached import get_conversation_manager, get_user_manager
+from st_shared.cached import _
+from st_shared.cached import get_conversation_manager, get_user_manager
+from st_shared.cached import get_conversation_manager, get_user_manager
 from shared.export_import import (
     export_conversation_to_file, import_conversation_from_file,
     export_all_conversations_to_file, import_bulk_conversations_from_file,

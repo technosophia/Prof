@@ -20,7 +20,7 @@ from modules.benchmarker.session import SessionSerializer
 
 
 from core.logging import log, set_module_level
-from shared.cached import get_section, get_db_manager
+from st_shared.cached import get_section, get_db_manager
 @dataclass
 class AssertionResult:
     """Result of a single scenario assertion."""

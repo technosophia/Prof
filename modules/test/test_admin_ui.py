@@ -1,10 +1,10 @@
 import streamlit as st
 import asyncio
 
-from shared.cached import get_config
+from st_shared.cached import get_config
 
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _
 def show_test_admin_content():
     """Display the Debug Admin content."""
     st.header("Test")

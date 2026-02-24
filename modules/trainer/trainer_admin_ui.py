@@ -10,16 +10,16 @@ from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
 
 from shared.common import get_prompt, UserRole
-from shared.cached import get_user_manager, get_config, get_db_manager, get_conversation_manager
+from st_shared.cached import get_user_manager, get_config, get_db_manager, get_conversation_manager
 from modules.trainer.manager import get_trainer_manager
 from modules.trainer.plugin_base import get_plugin_manager
 
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _
 def set_training_program(trainer_id: str, program_content: str):
     """Save training program using prompt manager."""
     from shared.common import save_prompt
-    from shared.cached import get_prompt_manager
+    from st_shared.cached import get_prompt_manager
 
     try:
         # Save using the full prompt key

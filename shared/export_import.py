@@ -16,14 +16,14 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from shared.common import Message
-from shared.cached import get_conversation_manager, get_user_manager
-from shared.cached import get_conversation_manager, get_user_manager
+from st_shared.cached import get_conversation_manager, get_user_manager
+from st_shared.cached import get_conversation_manager, get_user_manager
 # Import the table models directly
 from shared.conversation import ConversationTable, MessageTable
 
 
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _
 @dataclass
 class ExportedMessage:
     """Message structure for export/import."""
@@ -521,7 +521,7 @@ def auto_import_conversations_from_config(config: Optional[Dict[str, Any]] = Non
         Dict with counts of imported, skipped, and error conversations
     """
 
-    from shared.cached import get_config
+    from st_shared.cached import get_config
     from shared.users import get_user_manager
     from shared.conversation import get_conversation_manager
     import os

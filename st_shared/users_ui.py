@@ -5,14 +5,14 @@ User Management UI Module
 
 import streamlit as st
 from shared.common import UserRole
-from shared.cached import get_user_manager
+from st_shared.cached import get_user_manager
 
-from shared.cached import get_config
+from st_shared.cached import get_config
 from shared.common import set_current_llm, get_current_llm_info
 from datetime import datetime, timedelta
 
 from core.logging import log, set_module_level
-from shared.cached import _, get_available_languages
+from st_shared.cached import _, get_available_languages
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""
     config = get_config()
@@ -37,7 +37,7 @@ def apply_user_preferences(user):
 
     # Import settings manager
     try:
-        from shared.settings_ui import get_user_settings_manager
+        from st_shared.settings_ui import get_user_settings_manager
         settings_manager = get_user_settings_manager()
     except Exception as e:
         log("warning", f"Settings UI module not available for applying preferences: {e}", exc_info=True)
@@ -221,7 +221,7 @@ def render_reset_password_form(form_key="reset_form"):
                         try:
                             import os
                             from datetime import datetime, timedelta
-                            from shared.cached import get_config
+                            from st_shared.cached import get_config
 
                             # Get database path from config
                             config = get_config()
@@ -319,7 +319,7 @@ def render_reset_password_form(form_key="reset_form"):
                     if username.lower() == 'admin':
                         try:
                             import os
-                            from shared.cached import get_config
+                            from st_shared.cached import get_config
 
                             config = get_config()
                             db_path = config.get("database.path", "data")

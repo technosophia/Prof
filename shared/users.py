@@ -540,7 +540,7 @@ class UserManager:
                 return True
 
         # Get config
-        from shared.cached import get_config
+        from st_shared.cached import get_config
         config = get_config()
 
         # Check if auto-import is configured
@@ -556,7 +556,7 @@ class UserManager:
 
         # Resolve file path
         import os
-        from shared.cached import get_config
+        from st_shared.cached import get_config
         shared_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.dirname(shared_dir)
 
@@ -613,7 +613,7 @@ class UserManager:
 
         Now checks config and uses auto-import if configured, otherwise creates default users.
         """
-        from shared.cached import get_config
+        from st_shared.cached import get_config
         config = get_config()
 
         # Check if auto-import is configured

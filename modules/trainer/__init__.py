@@ -37,7 +37,7 @@ from shared.common import (
     register_option,
     set_prompt,
 )
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 from shared.driver import DriverContext
 
 from .models import PluginData, PluginActivation, ensure_tables_exist

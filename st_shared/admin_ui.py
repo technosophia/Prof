@@ -11,13 +11,12 @@ import streamlit as st
 import os
 import sys
 
-from shared.cached import get_config
-from shared.cached import get_user_manager
-from shared.ui_registry import _discover_ui_modules  # Import the standalone function
+from st_shared.cached import get_config
+from st_shared.cached import get_user_manager
 
 
 from core.logging import log, set_module_level
-from shared.cached import _
+from st_shared.cached import _, _discover_ui_modules, get_active_modules
 def force_reload_modules():
     """Force reload all active modules by clearing cache and re-importing."""
     if 'module_handler' not in st.session_state:
@@ -25,7 +24,7 @@ def force_reload_modules():
         return [], []
 
     module_handler = st.session_state.module_handler
-    active_modules = module_handler.get_active_modules()
+    active_modules = get_active_modules()
 
     # Track reloaded modules
     reloaded = []
@@ -70,7 +69,7 @@ def force_reload_modules():
             try:
                 log("info", "Re-initializing UI registry after module reload")
                 # Get current active modules
-                active_modules = module_handler.get_active_modules()
+                active_modules = get_active_modules()
                 # Call the standalone discovery function
                 modules, injection_points = _discover_ui_modules(tuple(sorted(active_modules)))
                 # Update the registry's internal state
@@ -97,7 +96,7 @@ def show_system_admin_content():
 
     # Get active modules
     try:
-        active_modules = module_handler.get_active_modules()
+        active_modules = get_active_modules()
         all_modules = module_handler.get_all_modules()
     except Exception as e:
         st.error(f"Error loading modules: {str(e)}")
@@ -161,7 +160,7 @@ def show_system_admin_content():
                             # Re-initialize UI registry
                             if 'ui_registry' in st.session_state:
                                 # Get current active modules
-                                active_mods = module_handler.get_active_modules()
+                                active_mods = get_active_modules()
                                 # Call the standalone discovery function
                                 modules, injection_points = _discover_ui_modules(tuple(sorted(active_mods)))
                                 # Update the registry's internal state

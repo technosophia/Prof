@@ -12,7 +12,7 @@ import uuid
 
 from core.logging import log, set_module_level
 from core.database import Base
-from shared.cached import get_db_manager
+from st_shared.cached import get_db_manager
 class PluginData(Base):
     """Generic storage for plugin data."""
     __tablename__ = 'trainer_plugin_data'
