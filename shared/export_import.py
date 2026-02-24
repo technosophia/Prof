@@ -16,14 +16,13 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from shared.common import Message
-from st_shared.cached import get_conversation_manager, get_user_manager
-from st_shared.cached import get_conversation_manager, get_user_manager
+from shared.conversation import get_conversation_manager
+from shared.users import get_user_manager
 # Import the table models directly
 from shared.conversation import ConversationTable, MessageTable
 
 
 from core.logging import log, set_module_level
-from st_shared.cached import _
 @dataclass
 class ExportedMessage:
     """Message structure for export/import."""
@@ -508,26 +507,28 @@ def import_bulk_conversations_from_file(file_path: str, target_user_id: str) -> 
         return importer.import_bulk_conversations(yaml_data, target_user_id)
     return []
 
-def auto_import_conversations_from_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+def auto_import_conversations_from_config(
+    user_manager,
+    conversation_manager,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, int]:
     """
     Auto-import conversations from configured YAML files.
     Only runs if there are NO conversations in the database.
     Called during application startup after database and user manager are initialized.
 
     Args:
-        config: Optional configuration dict. If not provided, loads from get_config()
+        user_manager: User manager instance.
+        conversation_manager: Conversation manager instance.
+        config: Optional configuration dict.
 
     Returns:
         Dict with counts of imported, skipped, and error conversations
     """
-
-    from st_shared.cached import get_config
-    from shared.users import get_user_manager
-    from shared.conversation import get_conversation_manager
     import os
 
     if config is None:
-        config = get_config()
+        raise ValueError("config must be provided for auto-import")
 
     db_config = config.get("database", {})
     auto_import_config = db_config.get("auto_import_conversations", {})
@@ -542,7 +543,6 @@ def auto_import_conversations_from_config(config: Optional[Dict[str, Any]] = Non
         return {"imported": 0, "skipped": 0, "errors": 0}
 
     # Check if there are ANY conversations in the database
-    conversation_manager = get_conversation_manager()
     with conversation_manager.db.get_session() as session:
         from shared.conversation import ConversationTable
         conversation_count = session.query(ConversationTable).count()
@@ -553,7 +553,6 @@ def auto_import_conversations_from_config(config: Optional[Dict[str, Any]] = Non
 
     log("info", "No conversations found in database, proceeding with auto-import")
 
-    user_manager = get_user_manager()
     imported_count = 0
     error_count = 0
 
