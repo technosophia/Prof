@@ -21,11 +21,7 @@ def _engine_exists(name: str) -> bool:
     if rag_manager.get_engine(name) is None:
         return False
 
-    engines_config = rag_manager.rag_config.get("engines", {})
-    if name in engines_config:
-        return bool(engines_config[name].get("enabled", False))
-
-    return True
+    return rag_manager.is_engine_enabled(name)
 
 
 def _make_engine_context_callback(name: str) -> Callable[[str, List[Dict]], tuple[str, str, str]]:
@@ -38,6 +34,9 @@ def _make_engine_context_callback(name: str) -> Callable[[str, List[Dict]], tupl
 
         query = user_messages[-1].get("content", "")
         if not query:
+            return "", "system", "bottom"
+
+        if not rag_manager.is_rag_enabled() or not rag_manager.is_engine_enabled(name):
             return "", "system", "bottom"
 
         context = rag_manager.get_rag_context(user_id=user_id, query=query, engine_type=name)

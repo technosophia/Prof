@@ -796,3 +796,46 @@ def test_get_rag_context_returns_query_when_no_result(temp_rag_manager, test_use
     query = "unfindable routeforge token"
     context = temp_rag_manager.get_rag_context(test_user_id, query, engine_type="simple")
     assert context == f"No result found for : '{query}'"
+
+
+def test_search_returns_no_results_when_rag_disabled_in_config(temp_rag_manager, test_user_id):
+    """RAG search must be disabled when modules.rag_manager.enabled is false."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("Kevin lives at 1 place du Louvre, Paris")
+        temp_path = f.name
+
+    try:
+        filename = temp_rag_manager.upload_document(temp_path, "rag_disabled_doc.txt", user_id=test_user_id)
+        assert filename is not None
+        assert temp_rag_manager.index_document(filename, "simple", test_user_id) is True
+
+        temp_rag_manager.config["modules.rag_manager"]["enabled"] = False
+
+        results = temp_rag_manager.search(test_user_id, "Where does Kevin live?", engine_type="simple")
+        assert results == {}
+
+        context = temp_rag_manager.get_rag_context(test_user_id, "Where does Kevin live?", engine_type="simple")
+        assert context == ""
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+def test_get_rag_context_returns_empty_when_engine_disabled_in_config(temp_rag_manager, test_user_id):
+    """RAG context must not be injected when the selected engine is disabled."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("Kevin lives at 1 place du Louvre, Paris")
+        temp_path = f.name
+
+    try:
+        filename = temp_rag_manager.upload_document(temp_path, "engine_disabled_doc.txt", user_id=test_user_id)
+        assert filename is not None
+        assert temp_rag_manager.index_document(filename, "simple", test_user_id) is True
+
+        temp_rag_manager.config["modules.rag_manager"]["engines"]["simple"]["enabled"] = False
+
+        context = temp_rag_manager.get_rag_context(test_user_id, "Where does Kevin live?", engine_type="simple")
+        assert context == ""
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)

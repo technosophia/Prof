@@ -164,7 +164,8 @@ class RAGManager:
         """Refresh configuration from config file."""
         from st_shared.cached import get_config
         self.config = get_config()
-        rag_config = self.config.get("rag_manager", {})
+        rag_config = self.config.get("modules.rag_manager", {})
+        self.rag_config = rag_config
         self.default_engine = rag_config.get("default_engine", "simple")
 
         log("debug", f"RAG manager config refreshed, default engine: {self.default_engine}")
@@ -220,6 +221,20 @@ class RAGManager:
     def get_default_engine(self) -> Optional[RAGEngine]:
         """Get the default RAG engine."""
         return self.get_engine(self.default_engine)
+
+    def is_rag_enabled(self) -> bool:
+        """Return whether RAG context injection is globally enabled in config."""
+        rag_config = self.config.get("modules.rag_manager", {})
+        return bool(rag_config.get("enabled", True))
+
+    def is_engine_enabled(self, engine_type: str) -> bool:
+        """Return whether a given engine is enabled in config."""
+        rag_config = self.config.get("modules.rag_manager", {})
+        engines_config = rag_config.get("engines", {})
+        engine_cfg = engines_config.get(engine_type)
+        if isinstance(engine_cfg, dict):
+            return bool(engine_cfg.get("enabled", True))
+        return True
 
     def get_available_engines(self) -> List[Dict[str, Any]]:
         """Get list of available RAG engines."""
@@ -486,6 +501,10 @@ class RAGManager:
         """Search across RAG engines."""
         results = {}
 
+        if not self.is_rag_enabled():
+            log("debug", "RAG search skipped: modules.rag_manager.enabled is false")
+            return results
+
         target_engine = engine_type
         if not target_engine and not search_all:
             target_engine = self.default_engine
@@ -509,6 +528,11 @@ class RAGManager:
         )
 
         engine_types = [target_engine] if target_engine else list(self.engines.keys())
+        engine_types = [eng for eng in engine_types if self.is_engine_enabled(eng)]
+
+        if not engine_types:
+            log("debug", "RAG search skipped: no enabled engines")
+            return results
 
         for eng_type in engine_types:
             engine = self.get_engine(eng_type)
@@ -531,8 +555,15 @@ class RAGManager:
     def get_rag_context(self, user_id: str, query: str,
                        engine_type: Optional[str] = None) -> str:
         """Get RAG context for a query."""
+        if not self.is_rag_enabled():
+            return ""
+
         if not engine_type:
             engine_type = self.default_engine
+
+        if not self.is_engine_enabled(engine_type):
+            log("debug", f"RAG context skipped: engine {engine_type} disabled in config")
+            return ""
 
         search_results = self.search(user_id, query, engine_type, limit=3)
 
