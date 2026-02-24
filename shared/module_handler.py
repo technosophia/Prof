@@ -82,7 +82,6 @@ def _compute_modules_signature() -> str:
     return ";".join(sig_parts)
 
 
-@st.cache_resource
 def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
     """Cached discovery of all potential modules from disk."""
     modules_dir = Path("modules")
@@ -412,7 +411,7 @@ class ModuleHandler:
             self.initialize()
         return self.modules.get(module_name)
 
-
+@st.cache_resource
 def get_active_modules() -> List[str]:
     """[api] Convenience function to get active modules without creating a handler.
 
