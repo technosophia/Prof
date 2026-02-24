@@ -265,7 +265,7 @@ def get_available_prompt_languages() -> List[str]:
 # Driver =======================================================
 
 def get_driver():
-    from st_shared.driver import get_driver as _get_driver
+    from shared.driver import get_driver as _get_driver
     return _get_driver()
 
 

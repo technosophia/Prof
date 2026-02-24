@@ -10,7 +10,7 @@ from modules.benchmarker.core_actions import (
     action_user_send_message,
 )
 from shared.common import get_driver
-from st_shared.driver import DriverContext, DriverContextError
+from shared.driver import DriverContext, DriverContextError
 
 
 def test_create_conversation_returns_id(monkeypatch):

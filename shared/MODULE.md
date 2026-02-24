@@ -96,7 +96,7 @@ def inject_ui_settings_content():
 
 ### Registry Usage
 ```python
-from st_shared.ui_registry import ui_registry
+from shared.ui_registry import ui_registry
 
 # Get all injection points
 points = ui_registry.get_all_injection_points()

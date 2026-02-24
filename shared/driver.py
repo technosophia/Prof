@@ -175,7 +175,6 @@ from datetime import datetime, timezone
 from threading import RLock
 from typing import Callable, Dict, List, Optional
 
-import streamlit as st
 
 
 
@@ -555,7 +554,11 @@ class AppDriver:
             }
 
 
-@st.cache_resource
+_driver_singleton: AppDriver | None = None
+
 def get_driver() -> AppDriver:
     """Get or create the global AppDriver instance."""
-    return AppDriver()
+    global _driver_singleton
+    if _driver_singleton is None:
+        _driver_singleton = AppDriver()
+    return _driver_singleton

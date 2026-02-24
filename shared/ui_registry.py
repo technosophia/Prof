@@ -12,12 +12,9 @@ import importlib.util
 import inspect
 from typing import Dict, List, Callable, Any, Set, Tuple
 from functools import lru_cache
-from st_shared.cached import get_config
-
-from core.logging import log, set_module_level
-from st_shared.cached import _
+from core.logging import log
 @lru_cache(maxsize=32)
-def _discover_ui_modules(active_modules_tuple: Tuple[str, ...]) -> Tuple[Dict[str, Dict], Set[str]]:
+def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: str | None = None) -> Tuple[Dict[str, Dict], Set[str]]:
     """Cached discovery of all UI modules and their render functions."""
     active_modules = set(active_modules_tuple)
     modules: Dict[str, Dict] = {}
@@ -25,7 +22,7 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...]) -> Tuple[Dict[st
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
-    shared_dir = current_dir
+    shared_dir = shared_ui_dir or current_dir
 
     def _recursive_discover(directory: str, is_shared: bool, base_name: str):
         if not os.path.exists(directory):
@@ -108,16 +105,19 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...]) -> Tuple[Dict[st
 class UIRegistry:
     """Registry for UI modules and their render functions."""
 
-    def __init__(self):
+    def __init__(self, shared_ui_dir: str | None = None):
         self.modules: Dict[str, Dict] = {}
         self.injection_points: Set[str] = set()
         self.render_callbacks: List[Callable[[str, str, Any], Any]] = []
         self.last_active_hash: Tuple[str, ...] | None = None
         self.module_handler = None
+        self.shared_ui_dir = shared_ui_dir
 
-    def set_module_handler(self, handler):
-        """Set the module handler instance."""
+    def set_module_handler(self, handler, shared_ui_dir: str | None = None):
+        """Set the module handler instance and optional shared UI directory override."""
         self.module_handler = handler
+        if shared_ui_dir is not None:
+            self.shared_ui_dir = shared_ui_dir
 
     def ensure_initialized(self):
         """Ensure the registry is initialized and refreshed if active modules changed."""
@@ -135,7 +135,7 @@ class UIRegistry:
         current_hash = tuple(sorted(active_modules))
 
         if current_hash != self.last_active_hash:
-            self.modules, self.injection_points = _discover_ui_modules(current_hash)
+            self.modules, self.injection_points = _discover_ui_modules(current_hash, self.shared_ui_dir)
             self.last_active_hash = current_hash
             log("info", f"UI Registry refreshed: {len(self.modules)} modules registered")
             log("info", f"Registered UI modules: {list(self.modules.keys())}")

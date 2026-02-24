@@ -637,7 +637,7 @@ class LLMManager:
 
             # Soft dependency: record LLM usage in driver when available
             try:
-                from st_shared.driver import get_driver
+                from shared.driver import get_driver
 
                 prompt_tokens = sum(len((msg.get("content") or "").split()) for msg in filtered_messages)
                 completion_tokens = len((response or "").split())

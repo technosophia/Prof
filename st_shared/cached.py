@@ -142,6 +142,14 @@ def get_active_modules() -> list[str]:
 
 @st.cache_resource
 def _discover_ui_modules(active_modules_tuple: tuple[str, ...]):
-    """Cached proxy for st_shared.ui_registry._discover_ui_modules."""
-    from st_shared.ui_registry import _discover_ui_modules as _registry_discover
-    return _registry_discover(active_modules_tuple)
+    """Cached proxy for shared.ui_registry._discover_ui_modules."""
+    from shared.ui_registry import _discover_ui_modules as _registry_discover
+    shared_ui_dir = get_config().get("ui.shared_dir", None)
+    return _registry_discover(active_modules_tuple, shared_ui_dir)
+
+
+@st.cache_resource
+def get_driver():
+    """Cached proxy for shared.driver.get_driver."""
+    from shared.driver import get_driver as _get_driver
+    return _get_driver()

@@ -17,7 +17,7 @@ from shared.common import Message
 from st_shared.cached import get_config, get_conversation_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
 from typing import List, Dict, Optional, Tuple, Any, Callable
-from st_shared.ui_registry import UIRegistry
+from shared.ui_registry import UIRegistry
 from st_shared.cached import get_conversation_manager
 
 

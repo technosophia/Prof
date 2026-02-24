@@ -33,7 +33,7 @@ from shared.export_import import auto_import_conversations_from_config
 from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
 
 # Import UI registry system
-from st_shared.ui_registry import UIRegistry
+from shared.ui_registry import UIRegistry
 # Import module handler
 from shared.module_handler import ModuleHandler
 from st_shared.users_ui import auto_login_first_user
@@ -86,7 +86,7 @@ if 'ui_registry' not in st.session_state:
 
 # Get the registry from session state
 ui_registry = st.session_state.ui_registry
-ui_registry.set_module_handler(module_handler)
+ui_registry.set_module_handler(module_handler, get_config().get("ui.shared_dir", None))
 
 # Page configuration
 st.set_page_config(
