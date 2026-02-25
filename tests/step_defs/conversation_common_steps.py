@@ -26,7 +26,6 @@ def check_conversation_persists(context):
 
     print("\n=== Checking if conversation persists ===")
 
-    # Take screenshot to see current state
     take_screenshot(page, "conversation_persistence_check.png", debug_enabled, full_page=True)
 
     # Check multiple indicators
@@ -85,7 +84,6 @@ def create_new_conversation(context, conversation_name):
 
     print(f"\n=== Creating conversation: {conversation_name} ===")
 
-    # Take screenshot before
     take_screenshot(page, "conversation_before_create.png", debug_enabled)
 
     # Wait for page to be ready
@@ -126,7 +124,6 @@ def create_new_conversation(context, conversation_name):
             break
 
     if not new_convo_button:
-        # Take screenshot for debugging
         take_screenshot(page, "conversation_no_new_button.png", debug_enabled, full_page=True)
 
         # Get all text on page for debugging

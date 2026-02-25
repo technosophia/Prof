@@ -84,8 +84,7 @@ def verify_result_section_empty(context):
                     break
 
     if has_content:
-        if debug_enabled:
-            take_screenshot(page, "debug_result_not_empty.png", debug_enabled)
+        take_screenshot(page, "debug_result_not_empty.png", debug_enabled)
         raise AssertionError("Result section should be empty but contains content")
 
     print("✓ Result section is empty")

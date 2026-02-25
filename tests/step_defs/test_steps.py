@@ -8,6 +8,7 @@ import re
 from pytest_bdd import given, when, then, scenarios, parsers
 import sys
 import os
+import time
 from playwright.sync_api import Page, expect
 
 pytestmark = [pytest.mark.bdd, pytest.mark.playwright]
@@ -61,19 +62,15 @@ def verify_admin_content(context, expected_text):
         page.wait_for_load_state("domcontentloaded", timeout=30000)
 
     # Get all text from the page
-    page_text = page.locator("body").text_content(timeout=10000)
-
-    # Check if expected text is in page text
-    if expected_text not in page_text:
-        print(f"Page text (first 500 chars): {page_text[:500]}")
-        if debug_enabled:
-            take_screenshot(page, "test_admin_content_not_found.png", debug_enabled)
+    try:
+        expect(page.get_by_text(expected_text, exact=False)).to_be_visible(timeout=15000)
+    except AssertionError:
+        take_screenshot(page, "test_admin_content_not_found.png", debug_enabled)
         raise AssertionError(f"Expected text '{expected_text}' not found in admin content")
 
     print(f"✓ Found expected text: {expected_text}")
 
-    if debug_enabled:
-        take_screenshot(page, "test_admin_content_found.png", debug_enabled)
+    take_screenshot(page, "test_admin_content_found.png", debug_enabled)
 
     return
 
@@ -179,11 +176,9 @@ def verify_text_in_header_for_test(context, expected_text):
             pass
 
     if not found:
-        if debug_enabled:
-            take_screenshot(page, "test_header_not_found.png", debug_enabled)
+        take_screenshot(page, "test_header_not_found.png", debug_enabled)
         raise AssertionError(f"Expected text '{expected_text}' not found in any header or on page")
 
-    if debug_enabled:
-        take_screenshot(page, "test_header_found.png", debug_enabled)
+    take_screenshot(page, "test_header_found.png", debug_enabled)
 
     return
