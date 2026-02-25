@@ -166,6 +166,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          FORCE_LLM: ${{ vars.FORCE_LLM}}
 
       - name: Check test results
         if: steps.tests.outcome != 'success'
