@@ -21,7 +21,7 @@ from st_shared.cached import get_user_manager
 from modules.rag_manager.rag_engine import RAGEngine
 from modules.rag_manager.rag_simple import SimpleRAGEngine
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from core.database import init_database
 from st_shared.cached import _
 user_manager = get_user_manager()

@@ -14,7 +14,7 @@ from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from core.database import Base
 def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usage"):
     """Render a gauge chart for rate limit usage."""

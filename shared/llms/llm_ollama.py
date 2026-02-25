@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, Callable
 from shared.llm_engine import LLMEngine
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 
 
 class OllamaEngine(LLMEngine):

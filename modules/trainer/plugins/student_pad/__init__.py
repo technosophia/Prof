@@ -16,7 +16,7 @@ from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 from modules.trainer.manager import get_trainer_manager
 
 # ============= DATABASE MODEL =============
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from core.database import Base
 from st_shared.cached import _
 class StudentNote(Base):

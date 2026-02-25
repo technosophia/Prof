@@ -57,7 +57,7 @@ from pathlib import Path
 
 from core.config import CONFIG_FILE
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 def _compute_modules_signature() -> str:
     """Compute a signature based on module directories and key file modification times."""
     modules_dir = Path("modules")

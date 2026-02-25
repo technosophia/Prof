@@ -11,7 +11,7 @@ from st_shared.cached import get_config
 from shared.common import set_current_llm, get_current_llm_info
 from datetime import datetime, timedelta
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _, get_available_languages
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""

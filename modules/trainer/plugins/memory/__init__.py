@@ -17,7 +17,7 @@ from modules.trainer.manager import get_trainer_manager
 
 
 # Database model (will be created by plugin initialization)
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from core.database import Base
 class StudentMemory(Base):
     """Store pedagogical memory for each student with version history."""

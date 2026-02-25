@@ -14,7 +14,7 @@ from st_shared.cached import get_user_manager, get_config, get_db_manager, get_c
 from modules.trainer.manager import get_trainer_manager
 from modules.trainer.plugin_base import get_plugin_manager
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 def set_training_program(trainer_id: str, program_content: str):
     """Save training program using prompt manager."""

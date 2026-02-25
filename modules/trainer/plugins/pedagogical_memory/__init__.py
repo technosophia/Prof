@@ -19,7 +19,7 @@ from modules.trainer.plugin_base import TrainerPlugin
 from modules.trainer.manager import get_trainer_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from core.database import Base
 EMBEDDING_DIMENSION = 384
 

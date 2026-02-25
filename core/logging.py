@@ -27,35 +27,36 @@ class Logger:
         self.name = name
         self._level = LogLevel.INFO  # Default global level
         self._module_levels = {}  # Per-module level overrides
-        self._format = "[{level}] {timestamp} - {message}"  # Default format
+        self._format = "[{level}({function})] {timestamp} - {message}"  # Default format with function name
         self._handlers = []
         self._include_traceback = False
 
         # Add default console handler
         self.add_handler(self._console_handler)
 
-    def get_calling_module(self, skip_frames: int = 0) -> str:
+    def get_calling_info(self, skip_frames: int = 0) -> tuple:
         """
-        Determine the module that called the logging function.
+        Determine the module and function that called the logging function.
 
         Args:
             skip_frames: Number of additional frames to skip
 
         Returns:
-            str: Module name of the caller
+            tuple: (module_name, function_name) of the caller
         """
         # Get the call stack
         stack = inspect.stack()
 
         # Find the first frame outside of logging.py
-        # Start from frame 1 to skip get_calling_module itself
+        # Start from frame 1 to skip get_calling_info itself
         start_frame = 1 + skip_frames
         for frame_info in stack[start_frame:]:
             module = inspect.getmodule(frame_info.frame)
             if module and module.__name__ != __name__:  # Not this module
-                return module.__name__
+                function_name = frame_info.function
+                return module.__name__, function_name
 
-        return "unknown"
+        return "unknown", "unknown"
 
     def set_level(self, level: str, module: Optional[str] = None):
         """
@@ -76,7 +77,7 @@ class Logger:
         else:
             self._level = level_enum
 
-    def set_module_level(self, level: str):
+    def set_log_module_level(self, level: str):
         """
         Set log level for the module that calls this function.
         Automatically detects the calling module.
@@ -84,8 +85,8 @@ class Logger:
         Args:
             level: Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         """
-        # Skip 1 frame to get the caller of set_module_level
-        module = self.get_calling_module(skip_frames=1)
+        # Skip 1 frame to get the caller of set_log_module_level
+        module, _ = self.get_calling_info(skip_frames=1)
         self.set_level(level, module)
 
     def get_effective_level(self, module: str) -> LogLevel:
@@ -109,10 +110,11 @@ class Logger:
         """Enable or disable traceback inclusion."""
         self._include_traceback = include
 
-    def _format_message(self, level: str, message: str, module: str, include_traceback: bool = False) -> str:
+    def _format_message(self, level: str, message: str, module: str, function: str, include_traceback: bool = False) -> str:
         """Format log message according to current format."""
         base_message = self._format.format(
             level=level.upper(),
+            function=function,
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             message=message,
             logger=self.name,
@@ -152,8 +154,8 @@ class Logger:
 
     def _log(self, level: LogLevel, level_name: str, message: str, *args: Any, include_traceback: bool = False):
         """Internal logging method."""
-        # Get calling module
-        module = self.get_calling_module()
+        # Get calling module and function
+        module, function = self.get_calling_info()
 
         # Check if this level should be logged for this module
         effective_level = self.get_effective_level(module)
@@ -166,7 +168,7 @@ class Logger:
             formatted_msg = message % args
 
         # Format according to configuration
-        formatted_output = self._format_message(level_name, formatted_msg, module, include_traceback)
+        formatted_output = self._format_message(level_name, formatted_msg, module, function, include_traceback)
 
         # Send to all handlers
         for handler in self._handlers:
@@ -270,7 +272,7 @@ def set_level(level: str, module: Optional[str] = None):
     logger = get_logger()
     logger.set_level(level, module)
 
-def set_module_level(level: str):
+def set_log_module_level(level: str):
     """
     Set log level for the module that calls this function.
     Automatically detects the calling module.
@@ -282,11 +284,11 @@ def set_module_level(level: str):
 
     Example:
         # In your module, just call:
-        set_module_level("DEBUG")
+        set_log_module_level("DEBUG")
         # This will enable DEBUG logging only for this module
     """
     logger = get_logger()
-    logger.set_module_level(level)
+    logger.set_log_module_level(level)
 
 def configure_logging_from_dict(config_dict: dict):
     """

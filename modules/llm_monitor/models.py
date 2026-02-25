@@ -7,7 +7,7 @@ from sqlalchemy import Column, String, Text, DateTime, Float, Integer, JSON, For
 from sqlalchemy.orm import Session
 
 from core.database import Base
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 
 
 class LLMCallTable(Base):

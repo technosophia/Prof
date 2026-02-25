@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from core.database import db_manager
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 
 
 def inject_ui_admin_tab():

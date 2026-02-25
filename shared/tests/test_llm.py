@@ -14,7 +14,7 @@ from shared.common import get_available_llms, set_current_llm, llm_conversation_
 from st_shared.cached import get_llm_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 class TestLLMManager:
     """Test LLM Manager functionality."""
 

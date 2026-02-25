@@ -12,7 +12,7 @@ from st_shared.cached import get_db_manager, get_user_manager, get_conversation_
 from modules.trainer.plugin_base import get_plugin_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 class TrainerManager:
     """Main manager for trainer functionality."""

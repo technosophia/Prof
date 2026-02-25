@@ -21,7 +21,7 @@ from shared.ui_registry import UIRegistry
 from st_shared.cached import get_conversation_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 def get_conversation_history_for_llm(messages):
     """Convert conversation messages to LLM history format."""

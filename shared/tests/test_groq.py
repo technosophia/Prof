@@ -15,7 +15,7 @@ from st_shared.cached import get_llm_manager
 
 
 # Load environment variables from .env file
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 load_dotenv()
 log("info", f"Current working directory: {os.getcwd()}")
 log("info", f".env file exists: {os.path.exists('.env')}")

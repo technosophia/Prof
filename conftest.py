@@ -52,7 +52,7 @@ warnings.filterwarnings(
 )
 
 # Disable Streamlit loggers entirely so their output never leaks into pytest
-for _logger_name in (
+for logger_name in (
     "streamlit",
     "streamlit.runtime",
     "streamlit.runtime.scriptrunner_utils",
@@ -60,11 +60,11 @@ for _logger_name in (
     "streamlit.runtime.state",
     "streamlit.runtime.state.session_state_proxy",
 ):
-    _logger = logging.getLogger(_logger_name)
-    _logger.handlers.clear()
-    _logger.propagate = False
-    _logger.disabled = True
-    _logger.setLevel(logging.CRITICAL)
+    logger = logging.getLogger(logger_name)
+    logger.handlers.clear()
+    logger.propagate = False
+    logger.disabled = True
+    logger.setLevel(logging.CRITICAL)
 
 
 # ---------------------------------------------------------------------------
@@ -101,19 +101,12 @@ from shared.common import init_user_manager
 from shared.module_handler import ModuleHandler
 from shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager
+from core.logging import log, set_log_module_level
 
-
-# ---------------------------------------------------------------------------
-# 4.  Logging helper
-# ---------------------------------------------------------------------------
-def _log(message: str, level: str = "INFO") -> None:
-    print(f"[{level}] {message}")
-
-
-_log(f"Python path  : {sys.path}")
-_log(f"Conftest dir : {_CONFTEST_DIR}")
-_log(f"Project root : {PROJECT_ROOT}")
-_log(f"prof.py found: {(PROJECT_ROOT / 'prof.py').exists()}")
+log("debug", f"Python path  : {sys.path}")
+log("debug", f"Conftest dir : {_CONFTEST_DIR}")
+log("debug", f"Project root : {PROJECT_ROOT}")
+log("debug", f"prof.py found: {(PROJECT_ROOT / 'prof.py').exists()}")
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +162,7 @@ def _init_db_with_retry(raw_url: str, db_full_path: str, *, attempts: int = 2) -
                 init_database(use_memory=False, db_path=db_full_path)
             return
         except Exception as exc:
-            _log(f"DB init attempt {attempt}/{attempts} failed: {exc}", level="ERROR")
+            log("debug", f"DB init attempt {attempt}/{attempts} failed: {exc}", level="ERROR")
             get_db_manager().dispose()
             if attempt == attempts:
                 raise
@@ -183,29 +176,29 @@ def _reset_db() -> str:
     db_dir, db_full_path = _get_db_paths()
     raw = _db_url()
 
-    _log(f"DB path : {db_full_path}  (exists={os.path.exists(db_full_path)})")
+    log("debug", f"DB path : {db_full_path}  (exists={os.path.exists(db_full_path)})")
 
     if get_db_manager().is_initialized():
-        _log("Disposing existing DB connections…")
+        log("debug", "Disposing existing DB connections…")
         get_db_manager().dispose()
 
-    _log("Initialising database…")
+    log("debug", "Initialising database…")
     _init_db_with_retry(raw, db_full_path)
-    _log("✓ Database initialised")
+    log("debug", "✓ Database initialised")
 
     if get_db_manager().is_initialized():
         if get_db_manager().empty_all_tables():
-            _log("✓ Database wiped")
+            log("debug", "✓ Database wiped")
         else:
-            _log("⚠ Could not wipe database", level="WARNING")
+            log("debug", "⚠ Could not wipe database", level="WARNING")
     else:
-        _log("❌ Database not initialised after init call!", level="ERROR")
+        log("debug", "❌ Database not initialised after init call!", level="ERROR")
 
     try:
         get_user_manager()._create_default_users_fallback()
-        _log("✓ Default users created")
+        log("debug", "✓ Default users created")
     except Exception as exc:
-        _log(f"⚠ Could not create default users: {exc}", level="ERROR")
+        log("debug", f"⚠ Could not create default users: {exc}", level="ERROR")
 
     return db_dir
 
@@ -222,7 +215,7 @@ def _init_modules() -> None:
     ui_registry = UIRegistry()
     ui_registry.set_module_handler(handler, get_config().get("ui.shared_dir", None))
     ui_registry.render_all("initialize")
-    _log("✓ Modules initialised")
+    log("debug", "✓ Modules initialised")
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +242,7 @@ def _setup_rag_test_data() -> None:
     for attempt in range(1, 6):
         try:
             if not get_db_manager().is_initialized():
-                _log(f"DB not ready, RAG setup attempt {attempt}/5")
+                log("debug", f"DB not ready, RAG setup attempt {attempt}/5")
                 time.sleep(0.5)
                 continue
 
@@ -265,11 +258,11 @@ def _setup_rag_test_data() -> None:
                 )
                 for strategy in ("classic", "simple"):
                     rag_manager.index_document(filename, strategy, user_id)
-                _log(f"[SETUP] Indexed {filename} for {user_id}")
+                log("debug", f"[SETUP] Indexed {filename} for {user_id}")
             return
 
         except Exception as exc:
-            _log(f"RAG setup attempt {attempt}/5 failed: {exc}", level="ERROR")
+            log("debug", f"RAG setup attempt {attempt}/5 failed: {exc}", level="ERROR")
             time.sleep(0.5)
 
     raise RuntimeError("Failed to set up RAG test data after 5 attempts")
@@ -282,7 +275,7 @@ def _cleanup_directory(directory: str) -> None:
     import shutil
     if not os.path.exists(directory):
         return
-    _log(f"Cleaning directory: {directory}")
+    log("debug", f"Cleaning directory: {directory}")
     for name in os.listdir(directory):
         item = os.path.join(directory, name)
         try:
@@ -290,32 +283,32 @@ def _cleanup_directory(directory: str) -> None:
                 os.unlink(item)
             elif os.path.isdir(item):
                 shutil.rmtree(item)
-            _log(f"  ✓ Removed: {name}")
+            log("debug", f"  ✓ Removed: {name}")
         except Exception as exc:
-            _log(f"  ⚠ Could not remove {item}: {exc}", level="WARNING")
+            log("debug", f"  ⚠ Could not remove {item}: {exc}", level="WARNING")
 
 
 # ---------------------------------------------------------------------------
 # 9.  Session hooks
 # ---------------------------------------------------------------------------
 def pytest_sessionstart(session) -> None:  # noqa: ARG001
-    _log("=== SESSION START ===")
+    log("debug", "=== SESSION START ===")
     _reset_db()
 
-    _log("Initialising modules and UI registry…")
+    log("debug", "Initialising modules and UI registry…")
     try:
         init_user_manager(create_default_users=True)
     except Exception as exc:
-        _log(f"⚠ init_user_manager failed: {exc}", level="ERROR")
+        log("debug", f"⚠ init_user_manager failed: {exc}", level="ERROR")
     _init_modules()
 
-    _log("Preparing shared RAG corpus…")
+    log("debug", "Preparing shared RAG corpus…")
     _setup_rag_test_data()
-    _log("✓ Session setup complete")
+    log("debug", "✓ Session setup complete")
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
-    _log("\n=== SESSION FINISH – CLEANUP ===")
+    log("debug", "\n=== SESSION FINISH – CLEANUP ===")
     time.sleep(1)  # let file handles close
 
     subprocess.run(
@@ -329,7 +322,7 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
 
     if os.path.exists(db_full_path):
         os.unlink(db_full_path)
-        _log(f"✓ Deleted DB file: {db_full_path}")
+        log("debug", f"✓ Deleted DB file: {db_full_path}")
 
     _cleanup_directory(db_dir)
 
@@ -342,8 +335,8 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
 # 10.  BDD step logging
 # ---------------------------------------------------------------------------
 def pytest_bdd_before_step(request, feature, scenario, step, step_func):  # noqa: ARG001
-    _log(f"\n[STEP] {feature.name} › {scenario.name}")
-    _log(f"       @{step.type} {step.name}")
+    log("debug", f"\n[STEP] {feature.name} › {scenario.name}")
+    log("debug", f"       @{step.type} {step.name}")
 
 
 # ---------------------------------------------------------------------------
@@ -361,28 +354,28 @@ def pytest_collection_modifyitems(items) -> None:
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Ensure CWD is set correctly and clean up env vars afterwards."""
-    _log("=== TEST ENVIRONMENT SETUP ===")
+    log("debug", "=== TEST ENVIRONMENT SETUP ===")
     original_cwd = os.getcwd()
     db_dir, _ = _get_db_paths()
 
     if original_cwd != str(PROJECT_ROOT):
         os.chdir(PROJECT_ROOT)
-        _log(f"CWD → {PROJECT_ROOT}")
+        log("debug", f"CWD → {PROJECT_ROOT}")
 
     yield {"db_path": db_dir}
 
-    _log("=== TEST ENVIRONMENT CLEANUP ===")
+    log("debug", "=== TEST ENVIRONMENT CLEANUP ===")
     if os.getcwd() != original_cwd:
         os.chdir(original_cwd)
     for var in ("TEST_MODE", "PLAYWRIGHT_ASYNCIO"):
         os.environ.pop(var, None)
-    _log("✓ Env cleanup done")
+    log("debug", "✓ Env cleanup done")
 
 
 @pytest.fixture(scope="session")
 def streamlit_server(setup_test_environment):
     """Start a Streamlit server for end-to-end tests."""
-    _log("=== STARTING STREAMLIT SERVER ===")
+    log("debug", "=== STARTING STREAMLIT SERVER ===")
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
     # Wait for the DB file to be ready
@@ -404,7 +397,7 @@ def streamlit_server(setup_test_environment):
         "--server.enableCORS", "false",
         "--server.enableXsrfProtection", "false",
     ]
-    _log(f"Command : {' '.join(cmd)}")
+    log("debug", f"Command : {' '.join(cmd)}")
 
     process = subprocess.Popen(
         cmd,
@@ -414,7 +407,7 @@ def streamlit_server(setup_test_environment):
         cwd=PROJECT_ROOT,
         preexec_fn=os.setsid,
     )
-    _log(f"Streamlit PID: {process.pid}")
+    log("debug", f"Streamlit PID: {process.pid}")
 
     health_url = f"http://localhost:{TEST_PORT}/_stcore/health"
     if not _poll_until(
@@ -427,7 +420,7 @@ def streamlit_server(setup_test_environment):
 
     yield process
 
-    _log("=== SHUTTING DOWN STREAMLIT ===")
+    log("debug", "=== SHUTTING DOWN STREAMLIT ===")
     _kill_process_group(process, graceful=True)
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
@@ -446,7 +439,7 @@ def playwright():
 def browser(playwright, request):
     """Chromium browser, headed when ``--headed`` is passed."""
     headless = not request.config.getoption("--headed")
-    _log(f"Browser: {'HEADLESS' if headless else 'HEADED'}")
+    log("debug", f"Browser: {'HEADLESS' if headless else 'HEADED'}")
     b = playwright.chromium.launch(
         headless=headless,
         slow_mo=200,
@@ -543,10 +536,10 @@ def _poll_until(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if condition():
-            _log(f"✓ {label}")
+            log("debug", f"✓ {label}")
             return True
         time.sleep(interval)
-    _log(f"⚠ Timed out waiting for: {label}", level="WARNING")
+    log("debug", f"⚠ Timed out waiting for: {label}", level="WARNING")
     return False
 
 
@@ -557,14 +550,14 @@ def _kill_process_group(process, *, graceful: bool = False) -> None:
             os.killpg(pgid, signal.SIGTERM)
             try:
                 process.wait(timeout=5)
-                _log("✓ Process terminated gracefully")
+                log("debug", "✓ Process terminated gracefully")
                 return
             except subprocess.TimeoutExpired:
-                _log("Graceful shutdown timed out, killing…", level="WARNING")
+                log("debug", "Graceful shutdown timed out, killing…", level="WARNING")
         os.killpg(pgid, signal.SIGKILL)
         process.wait(timeout=2)
-        _log("✓ Process killed")
+        log("debug", "✓ Process killed")
     except ProcessLookupError:
-        _log("Process already gone")
+        log("debug", "Process already gone")
     except Exception as exc:
-        _log(f"Error killing process: {exc}", level="ERROR")
+        log("debug", f"Error killing process: {exc}", level="ERROR")

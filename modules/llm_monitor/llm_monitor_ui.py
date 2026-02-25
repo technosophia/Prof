@@ -13,7 +13,7 @@ from modules.llm_monitor.llm_monitor import get_llm_monitor
 from modules.llm_monitor.display_utils import render_llm_call_details, render_rate_limit_summary
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 def inject_ui_initialize():
     """Initialize the LLM monitor UI module."""

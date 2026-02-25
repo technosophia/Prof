@@ -12,7 +12,7 @@ from st_shared.cached import get_db_manager
 from shared.common import get_user_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 SCENARIOS = [
     Path("modules/benchmarker/scenarios/example_basic.yaml"),
     Path("modules/benchmarker/scenarios/full_nexoria.yaml"),

@@ -15,7 +15,7 @@ from st_shared.cached import get_config
 from st_shared.cached import get_user_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _, _discover_ui_modules, get_active_modules
 def force_reload_modules():
     """Force reload all active modules by clearing cache and re-importing."""

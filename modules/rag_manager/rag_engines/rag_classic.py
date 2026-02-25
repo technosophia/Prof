@@ -15,7 +15,7 @@ from shared.common import get_embedding, get_embeddings
 from st_shared.cached import get_config
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 class ClassicRAGEngine(RAGEngine):
     """FAISS-based RAG engine using sentence embeddings and vector similarity search."""
 

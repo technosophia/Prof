@@ -18,7 +18,7 @@ from core.config import CONFIG_FILE
 from shared.module_handler import module_handler, notify_module_config_changed
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 def rag_context_callback(user_id: str, messages: List[Dict]) -> str:
     """

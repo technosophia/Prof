@@ -23,7 +23,7 @@ from st_shared.cached import get_llm_manager
 
 
 # ============= DATABASE MODEL =============
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from core.database import Base
 from st_shared.cached import _
 class StudentSuggestionConfig(Base):

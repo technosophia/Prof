@@ -22,7 +22,7 @@ from shared.users import get_user_manager
 from shared.conversation import ConversationTable, MessageTable
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 @dataclass
 class ExportedMessage:
     """Message structure for export/import."""

@@ -12,7 +12,7 @@ from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_
 from st_shared.cached import get_prompt_manager
 
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 def format_prompt_for_display(prompt_value, prompt_path="", full_module_path="", max_height=400, language=None, editable=False, instance_id=""):
     """Format a prompt value for display in Streamlit."""

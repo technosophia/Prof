@@ -110,7 +110,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable, Tuple, Union
 import asyncio
 from enum import Enum
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from shared.llm_engine import LLMEngine
 
 
@@ -542,6 +542,16 @@ class LLMManager:
                 Defaults to ``None`` (plain text), preserving full backward
                 compatibility for existing callers.
         """
+        # Check for FORCE_LLM environment variable to override llm_id
+        force_llm = os.getenv("FORCE_LLM")
+        if force_llm:
+            # Validate that the forced LLM exists in config
+            if force_llm in self.config.get("llms", {}):
+                original_llm_id = llm_id
+                llm_id = force_llm
+                log("debug", f"FORCE_LLM environment variable overrides LLM choice: {original_llm_id} -> {llm_id}")
+            else:
+                log("warning", f"FORCE_LLM environment variable set to '{force_llm}' but this LLM is not configured. Using original: {llm_id}")
         log("info", f"Generating response with LLM: {llm_id}")
         log("debug", f"Messages: {len(messages)} messages, response_format={response_format!r}")
 

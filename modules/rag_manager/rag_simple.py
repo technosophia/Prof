@@ -12,7 +12,7 @@ from modules.rag_manager.rag_engine import RAGEngine
 
 from st_shared.cached import get_config
 
-from core.logging import log, set_module_level
+from core.logging import log, set_log_module_level
 from st_shared.cached import _
 class SimpleRAGEngine(RAGEngine):
     """Simple RAG engine using basic text matching."""
