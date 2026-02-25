@@ -1,4 +1,4 @@
-<!-- shared/common.py -->
+<!-- shared/_docs/API_COMMON.md -->
 
 <!-- GENERATED FILE - do not edit manually -->
 <!-- Source: shared/common.py -->

@@ -1,7 +1,7 @@
-<!-- shared/cached.py -->
+<!-- st_shared/_docs/API_CACHED.md -->
 
 <!-- GENERATED FILE - do not edit manually -->
-<!-- Source: shared/cached.py -->
+<!-- Source: st_shared/cached.py -->
 
 # API — cached
 

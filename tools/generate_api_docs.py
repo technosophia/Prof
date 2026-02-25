@@ -205,7 +205,7 @@ def process_file(filepath: Path) -> Optional[str]:
     except ValueError:
         rel_path = filepath
 
-    lines = [f"<!-- {rel_path} -->\n"]
+    lines = [f"<!-- {output_filename(rel_path)} -->\n"]
     lines.append(f"<!-- GENERATED FILE - do not edit manually -->")
     lines.append(f"<!-- Source: {rel_path} -->\n")
 
@@ -231,7 +231,7 @@ def output_filename(source_path: Path) -> Path:
     # e.g. shared/common.py → shared/API_COMMON.md
     # e.g. modules/rag_manager/rag_engine.py → modules/rag_manager/API_RAG_ENGINE.md
     stem = source_path.stem.upper()
-    return source_path.parent / f"API_{stem}.md"
+    return source_path.parent / f"_docs/API_{stem}.md"
 
 
 def scan_and_generate(root: Path, dry_run: bool = False) -> int:

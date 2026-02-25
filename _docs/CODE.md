@@ -1,4 +1,4 @@
-<!-- /RULES.md -->
+<!-- /_docs/CODE.md -->
 
 # Coding Rules
 

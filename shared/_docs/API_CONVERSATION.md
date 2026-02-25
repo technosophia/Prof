@@ -1,4 +1,4 @@
-<!-- shared/conversation.py -->
+<!-- shared/_docs/API_CONVERSATION.md -->
 
 <!-- GENERATED FILE - do not edit manually -->
 <!-- Source: shared/conversation.py -->

@@ -1,4 +1,4 @@
-<!-- /shared/CODE.md -->
+<!-- /shared/_docs/CODE.md -->
 
 # Best Practices Quick Reference
 

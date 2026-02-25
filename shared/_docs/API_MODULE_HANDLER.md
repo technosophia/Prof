@@ -1,4 +1,4 @@
-<!-- shared/module_handler.py -->
+<!-- shared/_docs/API_MODULE_HANDLER.md -->
 
 <!-- GENERATED FILE - do not edit manually -->
 <!-- Source: shared/module_handler.py -->

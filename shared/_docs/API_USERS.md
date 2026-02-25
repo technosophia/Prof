@@ -1,4 +1,4 @@
-<!-- shared/users.py -->
+<!-- shared/_docs/API_USERS.md -->
 
 <!-- GENERATED FILE - do not edit manually -->
 <!-- Source: shared/users.py -->

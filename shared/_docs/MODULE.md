@@ -1,4 +1,4 @@
-<!-- /shared/MODULE.md -->
+<!-- /shared/_docs/MODULE.md -->
 
 # Module System & UI Injection API
 

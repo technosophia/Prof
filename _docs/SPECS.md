@@ -1,4 +1,4 @@
-<!-- /SPECS.md --> 
+<!-- /_docs/SPECS.md --> 
 
 # Functional High-Level Specifications
 

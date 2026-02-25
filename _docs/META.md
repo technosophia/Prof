@@ -1,4 +1,4 @@
-<!-- /META.md -->
+<!-- /_docs/META.md -->
 
 # Doc about the doc
 
@@ -27,3 +27,19 @@ The meta-goal is to for the developper himself and agentic coding :
 1. enhance coding agentivity for LLM with better coding framework -> observability and steerability with context enginiering
 2. create a bio-coding framework for LLM. 
 Bio-coding is a way to create evolvable code so that new modules can be quickly implemented and discareded if negative user return ! We do not code disposable app, but disposable module within a barebone app
+
+# How to write a document 
+
+<!-- /path/FILE.md -->
+## Purpose
+[1 phrase : what the directory does]
+
+## Key files
+- `file.py` : what's it's role
+
+## Do / Don't
+- Do: ...
+- Don't: ...
+
+## See also
+- [link toward API or other docs]
