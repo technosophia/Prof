@@ -266,7 +266,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
                 })
 
             self._save_user_index(user_id)
-            log("info", f"Indexed document {filename} for user {user_id} ({len(chunks_data)} hierarchical chunks) using faiss_hierarchical")
+            log("debug", f"Indexed document {filename} for user {user_id} ({len(chunks_data)} hierarchical chunks) using faiss_hierarchical")
             return True
 
         except Exception as e:

@@ -101,7 +101,9 @@ from shared.common import init_user_manager
 from shared.module_handler import ModuleHandler
 from shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager
-from core.logging import log, set_log_module_level
+from core.logging import log, set_log_module_level, configure_logging_from_dict
+
+configure_logging_from_dict(get_config().get("logging", {}))
 
 log("debug", f"Python path  : {sys.path}")
 log("debug", f"Conftest dir : {_CONFTEST_DIR}")

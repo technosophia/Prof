@@ -139,7 +139,6 @@ class ClassicRAGEngine(RAGEngine):
             embeddings = self._encode_texts(chunks)
 
             file_size = os.path.getsize(file_path)
-            log("info", f"Indexed 1")
             # Create or retrieve index
             if user_id not in self.indices:
                 index = faiss.IndexFlatIP(self.dimension)
@@ -149,7 +148,6 @@ class ClassicRAGEngine(RAGEngine):
                 index = self.indices[user_id]
 
             index.add(embeddings)
-            log("info", f"Indexed 2")
             # Append metadata (order matches vector order)
             for i, chunk_text in enumerate(chunks):
                 self.metadata[user_id].append({
@@ -159,9 +157,8 @@ class ClassicRAGEngine(RAGEngine):
                     'file_path': file_path,
                     'indexed_at': datetime.now().isoformat()
                 })
-            log("info", f"Indexed 3")
             self._save_user_index(user_id)
-            log("info", f"Indexed document {filename} for user {user_id} ({len(chunks)} chunks) using FAISS")
+            log("debug", f"Indexed document {filename} for user {user_id} ({len(chunks)} chunks) using FAISS")
             return True
 
         except Exception as e:

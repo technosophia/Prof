@@ -267,7 +267,7 @@ def _show_documents_tab():
 
                     if result:
                         success_count += 1
-                        log("info", f"Successfully uploaded: {uploaded_file.name}")
+                        log("debug", f"Successfully uploaded: {uploaded_file.name}")
                     else:
                         error_count += 1
                         st.error(f"Failed to upload {uploaded_file.name}")
@@ -1015,12 +1015,12 @@ def test_rag_manager():
     try:
         # Test engine discovery
         engines = rag_manager.get_available_engines()
-        log("info", f"Test: Found {len(engines)} RAG engines")
+        log("debug", f"Test: Found {len(engines)} RAG engines")
 
         # Test default engine
         default_engine = rag_manager.get_default_engine()
         if default_engine:
-            log("info", f"Test: Default engine is {default_engine.engine_type}")
+            log("debug", f"Test: Default engine is {default_engine.engine_type}")
 
         return True
     except Exception as e:

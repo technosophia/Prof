@@ -3,7 +3,7 @@ import traceback
 import time
 import inspect
 from enum import IntEnum
-from typing import Optional, Callable, Any, Dict
+from typing import Optional, Callable, Any, Dict, List, Set
 from datetime import datetime
 
 class LogLevel(IntEnum):
@@ -30,6 +30,7 @@ class Logger:
         self._format = "[{level}({function})] {timestamp} - {message}"  # Default format with function name
         self._handlers = []
         self._include_traceback = False
+        self._filtered_functions: Set[str] = set()  # Set of function names to filter out
 
         # Add default console handler
         self.add_handler(self._console_handler)
@@ -88,6 +89,36 @@ class Logger:
         # Skip 1 frame to get the caller of set_log_module_level
         module, _ = self.get_calling_info(skip_frames=1)
         self.set_level(level, module)
+
+    def log_filter_out_caller(self, function_names: List[str]):
+        """
+        Add function names to be filtered out from logging output for DEBUG and INFO levels.
+        WARNING, ERROR, and CRITICAL logs are NEVER filtered out regardless of function name.
+        Calls to this function are cumulative.
+
+        Args:
+            function_names: List of function names (strings) to exclude from DEBUG and INFO logging
+        """
+        self._filtered_functions.update(function_names)
+
+    def is_function_filtered(self, function_name: str, level: LogLevel) -> bool:
+        """
+        Check if a function should be filtered based on its name and log level.
+        Only filters DEBUG and INFO levels. WARNING, ERROR, and CRITICAL are never filtered.
+
+        Args:
+            function_name: Name of the function to check
+            level: The log level being attempted
+
+        Returns:
+            bool: True if the log should be filtered out
+        """
+        # Never filter out WARNING, ERROR, or CRITICAL levels
+        if level >= LogLevel.WARNING:
+            return False
+
+        # Only filter DEBUG and INFO levels
+        return function_name in self._filtered_functions
 
     def get_effective_level(self, module: str) -> LogLevel:
         """
@@ -156,6 +187,10 @@ class Logger:
         """Internal logging method."""
         # Get calling module and function
         module, function = self.get_calling_info()
+
+        # Check if this function should be filtered out based on level
+        if self.is_function_filtered(function, level):
+            return
 
         # Check if this level should be logged for this module
         effective_level = self.get_effective_level(module)
@@ -290,6 +325,29 @@ def set_log_module_level(level: str):
     logger = get_logger()
     logger.set_log_module_level(level)
 
+def log_filter_out_caller(function_names: List[str]):
+    """
+    Add function names to be filtered out from logging output for DEBUG and INFO levels.
+    WARNING, ERROR, and CRITICAL logs are NEVER filtered out regardless of function name.
+    Calls to this function are cumulative.
+
+    This is a convenience function that operates on the global logger instance.
+
+    Args:
+        function_names: List of function names (strings) to exclude from DEBUG and INFO logging
+
+    Example:
+        # Filter out DEBUG and INFO logs from internal_helper and _private_func
+        log_filter_out_caller(["internal_helper", "_private_func"])
+
+        # Add more functions to filter (cumulative)
+        log_filter_out_caller(["another_function"])
+
+        # WARNING and ERROR logs from these functions will still appear
+    """
+    logger = get_logger()
+    logger.log_filter_out_caller(function_names)
+
 def configure_logging_from_dict(config_dict: dict):
     """
     Configure logging from a dictionary.
@@ -311,3 +369,6 @@ def configure_logging_from_dict(config_dict: dict):
 
     if "include_traceback" in config_dict:
         logger.include_traceback(config_dict["include_traceback"])
+
+    if "filtered_functions" in config_dict and isinstance(config_dict["filtered_functions"], list):
+        logger.log_filter_out_caller(config_dict["filtered_functions"])

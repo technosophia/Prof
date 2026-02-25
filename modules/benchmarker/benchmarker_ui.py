@@ -456,3 +456,8 @@ def render() -> None:
             hide_index=True,
         )
         st.caption("Context is set at scenario run time. Between runs it may be stale from the last run.")
+
+
+# Just to remove warning
+def inject_ui_main_content():
+    pass

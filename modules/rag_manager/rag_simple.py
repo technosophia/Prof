@@ -79,7 +79,7 @@ class SimpleRAGEngine(RAGEngine):
                 }
             }
 
-            log("info", f"Indexed document {filename} for user {user_id} using simple engine")
+            log("debug", f"Indexed document {filename} for user {user_id} using simple engine")
             self._save_user_index(user_id)
             return True
 

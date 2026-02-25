@@ -2,7 +2,23 @@
   "logging": {
     "level": "INFO",
     "format": "[{level}] {timestamp} - {message}",
-    "include_traceback": true
+    "include_traceback": true,
+    "filtered_functions": [
+      "_initialize",
+      "_create_all_tables",
+      "empty_all_tables",
+      "_create_default_users_fallback",
+      "_load_potential_modules",
+      "_sync_with_disk",
+      "_recursive_discover",
+      "_discover_ui_modules",
+      "ensure_initialized",
+      "_load_plugin",
+      "initialize",
+      "clear_all_documents",
+      "upload_document",
+      "dispose"
+    ]
   },
   "app": {
     "name": "Professor",

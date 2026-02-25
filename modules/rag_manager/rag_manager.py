@@ -202,7 +202,7 @@ class RAGManager:
                                 try:
                                     engine = attr()
                                     self.register_engine(engine)
-                                    log("info", f"Registered RAG engine: {engine.engine_type}")
+                                    log("debug", f"Registered RAG engine: {engine.engine_type}")
                                 except Exception as e:
                                     log("error", f"Failed to instantiate engine {attr_name}: {e}")
                     except Exception as e:
@@ -354,7 +354,7 @@ class RAGManager:
             # Save metadata
             self._save_metadata()
 
-            log("info", f"Document uploaded: {original_filename} -> {unique_filename} by user {user_id}")
+            log("debug", f"Document uploaded: {original_filename} -> {unique_filename} by user {user_id}")
             return unique_filename
 
         except Exception as e:
@@ -401,7 +401,7 @@ class RAGManager:
                 doc_info['indexed_in'][engine_type] = datetime.now().isoformat()
                 self._save_metadata()
 
-                log("info", f"Document {filename} indexed with engine {engine_type}")
+                log("debug", f"Document {filename} indexed with engine {engine_type}")
                 return True
 
             return False
@@ -440,7 +440,7 @@ class RAGManager:
             del self.documents[filename]
             self._save_metadata()
 
-            log("info", f"Document deleted: {filename}")
+            log("debug", f"Document deleted: {filename}")
             return True
 
         except Exception as e:
@@ -622,7 +622,7 @@ class RAGManager:
             for filename in docs_to_delete:
                 self.delete_document(filename, user_id)
 
-            log("info", f"Cleared {len(docs_to_delete)} documents by user {user_id}")
+            log("debug", f"Cleared {len(docs_to_delete)} documents by user {user_id}")
             return True
 
         except Exception as e:
@@ -654,7 +654,7 @@ class RAGManager:
 
             if docs_to_delete:
                 self._save_metadata()
-                log("info", f"Deleted {len(docs_to_delete)} documents for deleted user {user_id}")
+                log("debug", f"Deleted {len(docs_to_delete)} documents for deleted user {user_id}")
 
             return True
         except Exception as e:
@@ -685,7 +685,7 @@ class RAGManager:
                 return
 
             if not user_manager.db.is_initialized():
-                log("info", "Database not initialized before RAG auto-import, initializing now")
+                log("debug", "Database not initialized before RAG auto-import, initializing now")
                 init_database()
 
             if user_manager.db.is_initialized():
