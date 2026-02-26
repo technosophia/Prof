@@ -112,6 +112,9 @@ _BROWSER_SCOPE = "module"
 # 3.  Shared imports (after path + .env are ready)
 # ---------------------------------------------------------------------------
 from st_shared.cached import get_config, get_db_manager, get_user_manager
+from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
+from st_shared.cached import get_prompt_manager, get_llm_manager
+
 from shared.common import init_user_manager
 from shared.module_handler import ModuleHandler, module_handler
 from shared.ui_registry import UIRegistry
@@ -356,6 +359,10 @@ def pytest_sessionstart(session) -> None:  # noqa: ARG001
     services = ServiceLocator()
     services.register("config", get_config())
     services.register("user_manager", get_user_manager())
+    services.register("db_manager", get_db_manager())
+    services.register("conversation_manager", get_conversation_manager())
+    services.register("prompt_manager", get_prompt_manager())
+    services.register("llm_manager", get_llm_manager())
     # Add other services as needed
     module_handler.set_services(services)
 

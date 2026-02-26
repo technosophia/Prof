@@ -518,7 +518,7 @@ class LLMManager:
         if user_id and (self.llm_callbacks or self.context_callbacks):
             messages = self._add_llm_context(user_id, messages)
 
-        return await self.internal_response(self.current_llm, messages, stream_callback)
+        return await self.internal_response(self.current_llm, messages, stream_callback, user_id=user_id)
 
     async def internal_response(
         self,
@@ -526,6 +526,7 @@ class LLMManager:
         messages: list,
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> str:
         """Generate a response from the selected LLM.
 
@@ -613,7 +614,7 @@ class LLMManager:
                         "messages": filtered_messages,
                         "response": response,
                         "response_format": response_format,
-                        "user_id": None,
+                        "user_id": user_id,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "engine_type": engine.engine_type,
                         "success": True,
