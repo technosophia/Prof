@@ -15,12 +15,38 @@ Principles:
 - Store only essential data in history exports
 - Follow bio-coding: make plugins easy to create and discard
 
+Architecture — two-layer design (enforced by convention, future: two classes):
+─────────────────────────────────────────────────────────────────────────────
+  DATA LAYER  (below the line)
+    Methods: get_context(), export_history(), import_history(), on_activate(),
+             on_deactivate(), export_config(), import_config(), and any private
+             helpers they call.
+    Rules:
+      - MUST use self.<service> attributes set in initialize(services)
+      - MUST NOT import from st_shared.cached
+      - MUST NOT import streamlit
+      - MUST be callable headless (no Streamlit process)
+
+  UI LAYER  (above the line)
+    Methods: render_student_widgets(), render_dashboard_widgets(),
+             render_student_header_widgets(), get_admin_tabs()
+    Rules:
+      - MUST only call self.<data_method>() for all data access
+      - MAY import and use streamlit freely
+      - MUST NOT call st_shared.cached or database code directly
+
+  Future split: when two-class separation is needed, data methods move to
+  PluginLogic and render methods move to PluginUI. The only change in render
+  methods will be: self.xxx() → self._logic.xxx(). No logic rewrite needed.
+─────────────────────────────────────────────────────────────────────────────
+
 How to create a new plugin:
 1. Create a directory in /modules/trainer/plugins/ with your plugin ID
 2. Add plugin.json manifest (see example below)
 3. Create __init__.py with your plugin class inheriting from TrainerPlugin
 4. Implement required abstract methods
-5. Override hooks as needed
+5. Call super().__init__(manifest) and set service attributes in initialize()
+6. Override hooks as needed, respecting the data/UI layer rules above
 
 Plugin manifest example (plugin.json):
 {
@@ -33,7 +59,7 @@ Plugin manifest example (plugin.json):
     "category": "analytics"
 }
 
-See AGENTS.md in the trainer module for more context on plugin architecture.
+See PLUGIN_MIGRATE.md for step-by-step migration of existing plugins.
 """
 
 from abc import ABC, abstractmethod
@@ -46,11 +72,9 @@ import importlib.util
 import inspect
 
 
-from st_shared.cached import get_config
-
-
 from core.logging import log, set_log_module_level
-from st_shared.cached import _
+
+
 @dataclass
 class PluginManifest:
     """Plugin metadata from plugin.json."""
@@ -71,18 +95,22 @@ class TrainerPlugin(ABC):
     Override the optional methods to add functionality at specific hooks.
 
     Lifecycle:
-    1. Plugin is discovered and initialized (initialize() called once)
-    2. For each trainer, on_activate() called when plugin is enabled
-    3. Plugin hooks are called when relevant UI is rendered
-    4. When trainer disables plugin, on_deactivate() called for cleanup
-    5. On export/import, history methods are called
+    1. Plugin is discovered — initialize(services) called once at startup.
+       services is a ServiceLocator or None (legacy / Streamlit-cached fallback).
+    2. For each trainer, on_activate() called when plugin is enabled.
+    3. Plugin hooks are called when relevant UI is rendered.
+    4. When trainer disables plugin, on_deactivate() called for cleanup.
+    5. On export/import, history methods are called.
 
-    Best practices:
-    - Keep initialization lightweight in __init__
-    - Use initialize() for heavy setup (DB connections, file creation)
-    - Clean up resources in on_deactivate()
-    - Return empty lists from hook methods when no content
-    - Keep exported history minimal and reconstructable
+    Service attributes (set in initialize, used by data methods):
+        self.db              — db_manager
+        self.user_manager    — user_manager
+        self.conversation_manager — conversation_manager
+        self.llm_manager     — llm_manager (if needed)
+        self.config          — config (if needed)
+
+    Plugins that have not yet been migrated may still use st_shared.cached
+    inside initialize() as a fallback when services is None. See PLUGIN_MIGRATE.md.
     """
 
     def __init__(self, manifest: PluginManifest):
@@ -96,6 +124,18 @@ class TrainerPlugin(ABC):
         self.id = manifest.id
         self._is_active: bool = False
 
+        # Service attributes — set in initialize(services).
+        # Data methods must use these; never call st_shared.cached directly.
+        self.db = None
+        self.user_manager = None
+        self.conversation_manager = None
+        self.llm_manager = None
+        self.config = None
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Internal helpers
+    # ─────────────────────────────────────────────────────────────────────
+
     def _mark_active(self) -> None:
         """Called by the trainer module when this plugin is activated."""
         self._is_active = True
@@ -108,16 +148,58 @@ class TrainerPlugin(ABC):
         """Return True if this plugin is currently the active backend."""
         return self._is_active
 
+    def _resolve_services(self, services=None) -> None:
+        """
+        Resolve and store service references from ServiceLocator or st_shared.cached.
+
+        Called at the top of initialize(). Migrated plugins pass a real services
+        object; legacy plugins pass None and fall back to st_shared.cached.
+
+        This is the ONLY place in the plugin where st_shared.cached is permitted
+        (as a fallback), and only until the plugin is fully migrated.
+        """
+        if services is not None:
+            self.db = services.get("db_manager")
+            self.user_manager = services.get("user_manager")
+            self.conversation_manager = services.get("conversation_manager")
+            self.llm_manager = services.get("llm_manager")
+            self.config = services.get("config")
+        else:
+            # Legacy fallback — allowed only during migration
+            try:
+                from st_shared.cached import (
+                    get_db_manager,
+                    get_user_manager,
+                    get_conversation_manager,
+                    get_llm_manager,
+                )
+                self.db = get_db_manager()
+                self.user_manager = get_user_manager()
+                self.conversation_manager = get_conversation_manager()
+                self.llm_manager = get_llm_manager()
+            except Exception as e:
+                log("warning", f"plugin {self.id}: could not resolve services from st_shared.cached: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Lifecycle — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
     @abstractmethod
-    def initialize(self) -> bool:
+    def initialize(self, services=None) -> bool:
         """
         [api] Initialize the plugin. Called once at module startup.
 
-        Use this for one-time setup like creating database tables,
-        registering event handlers, or loading resources.
+        Pattern for migrated plugins:
+            def initialize(self, services=None) -> bool:
+                self._resolve_services(services)
+                # one-time setup: create DB tables, register callbacks, etc.
+                return True
+
+        Args:
+            services: ServiceLocator passed by PluginManager, or None (legacy).
 
         Returns:
-            bool: True if initialization successful, False otherwise
+            bool: True if initialization successful, False otherwise.
         """
         pass
 
@@ -125,9 +207,7 @@ class TrainerPlugin(ABC):
         """
         [api] Called when the plugin is activated for a specific trainer.
 
-        Override to perform per-trainer setup when plugin is turned on.
-        This is where you might create trainer-specific data structures
-        or initialize per-trainer state.
+        DATA LAYER — no st.* calls allowed here.
 
         Args:
             trainer_id: The trainer's ID
@@ -138,89 +218,21 @@ class TrainerPlugin(ABC):
         """
         [api] Called when the plugin is deactivated for a specific trainer.
 
-        Override to perform per-trainer cleanup when plugin is turned off.
-        Release resources, close connections, or archive data.
+        DATA LAYER — no st.* calls allowed here.
 
         Args:
             trainer_id: The trainer's ID
         """
         pass
 
-    def get_admin_tabs(self, trainer_id: str) -> List[tuple]:
-        """
-        [api] Return list of admin UI tabs for this plugin.
-
-        Each tab is a tuple of (tab_name: str, render_function: callable).
-        The render function will be called with the request context and
-        should return HTML content.
-
-        Args:
-            trainer_id: The trainer's ID
-
-        Returns:
-            List of (tab_name, render_function) tuples
-        """
-        return []
-
-    def render_dashboard_widgets(self, trainer_id: str, students: List[Dict]) -> List[Callable]:
-        """
-        [api] Return list of render functions for dashboard widgets.
-
-        Widgets appear on the trainer's main dashboard. Each render function
-        should accept the request context and return HTML.
-
-        Args:
-            trainer_id: The trainer's ID
-            students: List of student data dictionaries
-
-        Returns:
-            List of callable render functions
-        """
-        return []
-
-    def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
-        """
-        [api] Return list of render functions for student-specific widgets.
-
-        Widgets appear on individual student pages when viewed by trainer.
-
-        Args:
-            trainer_id: The trainer's ID
-            student: Student data dictionary
-
-        Returns:
-            List of callable render functions
-        """
-        return []
-
-    def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
-        """
-        [api] Return list of render functions for student header area.
-
-        Called when a student views their own page. Use this to show
-        student-facing information or controls.
-
-        Args:
-            student_id: The student's ID
-            trainer_id: The trainer's ID
-
-        Returns:
-            List of callable render functions
-        """
-        return []
-
     def get_context(self, student_id: str) -> Dict[str, str]:
         """
         [api] Get plugin-specific context information for a student.
 
-        This provides key-value pairs for student context display.
-        All values must be strings for consistent UI rendering.
-
-        Args:
-            student_id: The student's ID
+        DATA LAYER — use self.<service> attributes only.
 
         Returns:
-            Dictionary of context strings (key: description, value: context data)
+            Dictionary of context strings (key: label, value: context data)
         """
         return {}
 
@@ -228,10 +240,7 @@ class TrainerPlugin(ABC):
         """
         [api] Export plugin configuration for YAML export.
 
-        Return None if no configuration to export.
-
-        Args:
-            trainer_id: The trainer's ID
+        DATA LAYER — use self.<service> attributes only.
 
         Returns:
             Dictionary of configuration data or None
@@ -242,12 +251,7 @@ class TrainerPlugin(ABC):
         """
         [api] Import plugin configuration from YAML.
 
-        Args:
-            trainer_id: The trainer's ID
-            config: Dictionary of configuration data
-
-        Returns:
-            True if import successful, False otherwise
+        DATA LAYER — use self.<service> attributes only.
         """
         return True
 
@@ -256,18 +260,12 @@ class TrainerPlugin(ABC):
         """
         [api] Export plugin-specific history events in minimal format.
 
+        DATA LAYER — use self.<service> attributes only.
+
         Each event must contain at minimum:
         - timestamp: ISO format datetime
         - type: event type (e.g., 'plugin.score_update')
         - plugin_id: this plugin's ID
-
-        Additional fields must be kept minimal. Do not include data that
-        can be inferred from configuration (like student names). The goal
-        is to export only what's necessary for reconstructing history.
-
-        Args:
-            trainer_id: The trainer's ID
-            student_id: Optional student ID to filter history for a specific student
 
         Returns:
             List of minimal event dictionaries
@@ -275,22 +273,68 @@ class TrainerPlugin(ABC):
         return []
 
     @abstractmethod
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
+    def import_history(self, trainer_id: str, events: List[Dict[str, Any]],
+                       student_info: Dict = None) -> bool:
         """
         [api] Import plugin-specific history events.
 
-        Reconstruct plugin state from minimal event data. Use student_info
-        to map IDs to names or other context when needed.
-
-        Args:
-            trainer_id: The trainer's ID
-            events: List of minimal event dictionaries to import
-            student_info: Optional dictionary with student information for reconstruction
+        DATA LAYER — use self.<service> attributes only.
 
         Returns:
             True if import successful, False otherwise
         """
         return True
+
+    # ─────────────────────────────────────────────────────────────────────
+    # UI LAYER — render methods
+    # Rules: call self.<data_method>() for data; use st.* freely; no db/cache.
+    # When splitting into two classes, self.xxx() becomes self._logic.xxx().
+    # ─────────────────────────────────────────────────────────────────────
+
+    def get_admin_tabs(self, trainer_id: str) -> List[tuple]:
+        """
+        [api] Return list of admin UI tabs for this plugin.
+
+        UI LAYER — may use st.*; must call self.<data_method>() for data.
+
+        Returns:
+            List of (tab_name, render_function) tuples
+        """
+        return []
+
+    def render_dashboard_widgets(self, trainer_id: str, students: List[Dict]) -> List[Callable]:
+        """
+        [api] Return list of render functions for dashboard widgets.
+
+        UI LAYER — may use st.*; must call self.<data_method>() for data.
+
+        Returns:
+            List of callable render functions
+        """
+        return []
+
+    def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
+        """
+        [api] Return list of render functions for student-specific widgets.
+
+        UI LAYER — may use st.*; must call self.<data_method>() for data.
+
+        Returns:
+            List of callable render functions
+        """
+        return []
+
+    def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
+        """
+        [api] Return list of render functions for student header area.
+
+        UI LAYER — may use st.*; must call self.<data_method>() for data.
+
+        Returns:
+            List of callable render functions
+        """
+        return []
+
 
 class PluginManager:
     """Manages plugin discovery, loading, and lifecycle."""
@@ -298,7 +342,18 @@ class PluginManager:
     def __init__(self):
         self.plugins: Dict[str, TrainerPlugin] = {}
         self.plugin_paths: Dict[str, Path] = {}
+        self._services = None  # Set by set_services() before discover
         self.discover_plugins()
+
+    def set_services(self, services) -> None:
+        """
+        Provide the ServiceLocator to the plugin manager.
+
+        Must be called before discover_plugins() to ensure plugins receive
+        injected services during initialize(). In practice, call this from
+        the TrainerManager or module __init__ before the manager is used.
+        """
+        self._services = services
 
     def discover_plugins(self):
         """Discover all plugins in the plugins directory."""
@@ -349,7 +404,8 @@ class PluginManager:
                 issubclass(attr, TrainerPlugin) and
                 attr != TrainerPlugin):
                 plugin_instance = attr(manifest)
-                if plugin_instance.initialize():
+                # Pass services to initialize — None is safe for legacy plugins
+                if plugin_instance.initialize(self._services):
                     self.plugins[manifest.id] = plugin_instance
                     self.plugin_paths[manifest.id] = plugin_dir
                     log("info", f"Loaded plugin: {manifest.id} v{manifest.version}")
@@ -383,7 +439,8 @@ class PluginManager:
             method = getattr(plugin, hook_name, None)
             if method and callable(method):
                 # Check if it's not the base class implementation
-                if method.__func__ != getattr(TrainerPlugin, hook_name, getattr(TrainerPlugin, hook_name, None)):
+                base_method = getattr(TrainerPlugin, hook_name, None)
+                if base_method and method.__func__ != base_method:
                     result.append(plugin)
 
         return result
@@ -393,9 +450,15 @@ class PluginManager:
 _plugin_manager = None
 
 
-def get_plugin_manager():
+def get_plugin_manager() -> PluginManager:
     """Get the global PluginManager instance."""
     global _plugin_manager
     if _plugin_manager is None:
         _plugin_manager = PluginManager()
     return _plugin_manager
+
+
+def reset_plugin_manager() -> None:
+    """Reset the singleton (for tests)."""
+    global _plugin_manager
+    _plugin_manager = None
