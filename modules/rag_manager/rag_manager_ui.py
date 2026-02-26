@@ -116,13 +116,14 @@ def inject_ui_sidebar():
         )
         if rag_injection_enabled != st.session_state.get('rag_injection_enabled'):
             st.session_state.rag_injection_enabled = rag_injection_enabled
-            # Toggle the active engine's callback
             from modules.rag_manager import _activate_rag_engine, _deactivate_rag_engine
             if rag_injection_enabled:
                 _activate_rag_engine(rag_manager.default_engine)
+                log("info", f"[RAG UI] RAG ENABLED via UI toggle for engine {rag_manager.default_engine}")
                 st.sidebar.success("RAG context injection enabled")
             else:
                 _deactivate_rag_engine(rag_manager.default_engine)
+                log("info", f"[RAG UI] RAG DISABLED via UI toggle for engine {rag_manager.default_engine}")
                 st.sidebar.info("RAG context injection disabled")
             st.rerun()
 

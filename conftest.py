@@ -272,19 +272,8 @@ def _init_modules() -> None:
 # ---------------------------------------------------------------------------
 def _setup_rag_test_data() -> None:
     """Upload and index shared RAG fixtures once per test session."""
-    import tempfile
-
-    test_content = (
-        "The address of Kevin is 1 place du Louvre, Paris.\n"
-        "Kevin works as a software engineer at TechCorp.\n"
-        "His phone number is +33 1 23 45 67 89."
-    )
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as fh:
-        fh.write(test_content)
-        kevin_path = Path(fh.name)
-
     docs = [
-        (kevin_path, "admin"),
+        (PROJECT_ROOT / "tests" / "kevin.txt", "admin"),
         (PROJECT_ROOT / "modules" / "benchmarker" / "tests" / "nexoria.md", "master1"),
     ]
 
