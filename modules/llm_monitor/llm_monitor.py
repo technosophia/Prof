@@ -1,21 +1,15 @@
 """
 LLM Monitoring and Cost Tracking Core Module
 """
-import asyncio
 import json
 import time
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Any, Optional, Callable, Tuple
 import tiktoken  # For token estimation
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
-from sqlalchemy import func, and_, desc
-from core.logging import log, set_log_module_level
-from core.database import Base
+from sqlalchemy.orm import Session
+from sqlalchemy import func, and_
 
-from st_shared.cached import get_db_manager
-from st_shared.cached import get_config
-from st_shared.cached import get_user_manager
-from st_shared.cached import get_conversation_manager
+from core.logging import log
 
 # Import models
 from modules.llm_monitor.models import (
@@ -29,28 +23,22 @@ from modules.llm_monitor.models import (
 class LLMMonitor:
     """Main class for monitoring LLM usage, costs, and rate limits."""
 
-    _instance = None
+    def __init__(self, config, db_manager):
+        """Initialize with injected dependencies."""
+        self.config = config
+        self.db = db_manager
+        self._ensure_tables_exist()
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+        # Get LLM configurations from the config
+        module_config = config.get("modules.llm_monitor", {})
+        self.llm_configs = module_config.get("llms", {})
 
-    def __init__(self):
-        if not hasattr(self, '_initialized'):
-            self.config = get_config().get("modules.llm_monitor", {})
-            self.db = get_db_manager()
-            self._ensure_tables_exist()
+        self.enabled = module_config.get("enabled", True)
+        self.auto_collect = module_config.get("auto_collect", True)
+        self.rate_limit_tracking = module_config.get("rate_limit_tracking", {"enabled": True})
+        self._token_encoder_cache = {}
 
-            # Get LLM configurations from the new structure
-            self.llm_configs = self.config.get("llms", {})
-
-            self.enabled = self.config.get("enabled", True)
-            self.auto_collect = self.config.get("auto_collect", True)
-            self.rate_limit_tracking = self.config.get("rate_limit_tracking", {"enabled": True})
-            self._token_encoder_cache = {}
-            self._initialized = True
-            log("info", "LLMMonitor initialized with flat configuration structure")
+        log("info", "LLMMonitor initialized with injected dependencies")
 
     def _ensure_tables_exist(self):
         """Ensure monitoring tables exist."""
@@ -70,11 +58,10 @@ class LLMMonitor:
 
     def _get_token_encoder(self, model: str):
         """Get token encoder for a model."""
-        # Simple model to encoder mapping
         model_to_encoder = {
             "gpt-3.5": "cl100k_base",
             "gpt-4": "cl100k_base",
-            "llama": "cl100k_base",  # Llama models use similar tokenization
+            "llama": "cl100k_base",
             "qwen": "cl100k_base",
             "gemini": "cl100k_base",
             "default": "cl100k_base"
@@ -106,33 +93,25 @@ class LLMMonitor:
         if encoder:
             return len(encoder.encode(text))
 
-        # Fallback: rough estimate (4 chars per token)
         return len(text) // 4
 
     def estimate_message_tokens(self, messages: List[Dict[str, str]], model: str) -> int:
         """Estimate total tokens for a list of messages."""
         total_tokens = 0
-
-        # Format similar to OpenAI's API
-        tokens_per_message = 3  # Every message follows <|start|>{role/name}\n{content}<|end|>\n
-        tokens_per_name = 1     # If there's a name, the role is omitted
+        tokens_per_message = 3
+        tokens_per_name = 1
 
         for message in messages:
             total_tokens += tokens_per_message
             content = message.get("content", "")
             total_tokens += self.estimate_tokens(content, model)
-
-            # Add tokens for role
             total_tokens += self.estimate_tokens(message.get("role", ""), model)
 
-            # Add tokens for name if present
             if "name" in message:
                 total_tokens += tokens_per_name
                 total_tokens += self.estimate_tokens(message["name"], model)
 
-        # Add tokens for the final assistant prompt
-        total_tokens += 3  # For the final assistant message
-
+        total_tokens += 3
         return total_tokens
 
     def get_llm_config(self, llm_id: str) -> Dict[str, Any]:
@@ -140,17 +119,10 @@ class LLMMonitor:
         return self.llm_configs.get(llm_id, {})
 
     def is_free_provider(self, llm_type: str) -> bool:
-        """Check if the provider is free (no cost).
-
-        A provider is considered free if both input and output costs are 0.
-        """
+        """Check if the provider is free (no cost)."""
         llm_config = self.get_llm_config(llm_type)
-
-        # Check if both costs are 0 or not present
         input_cost = llm_config.get("input_cost_per_million_tokens", 0)
         output_cost = llm_config.get("output_cost_per_million_tokens", 0)
-
-        # If both costs are 0, it's a free provider
         return input_cost == 0 and output_cost == 0
 
     def calculate_cost(self, llm_type: str, input_tokens: int, output_tokens: int) -> Dict[str, float]:
@@ -171,14 +143,8 @@ class LLMMonitor:
         }
 
     def get_rate_limits(self, provider: str, model: str) -> Dict[str, Any]:
-        """Get rate limits for a specific provider and model.
-
-        Note: The model parameter is kept for backward compatibility, but rate limits
-        are now configured per LLM ID rather than per model.
-        """
+        """Get rate limits for a specific provider and model."""
         llm_config = self.get_llm_config(provider)
-
-        # Extract rate limit fields
         return {
             "rpm": llm_config.get("rpm", 0),
             "rpd": llm_config.get("rpd", 0),
@@ -189,20 +155,12 @@ class LLMMonitor:
     def update_rate_limit_usage(self, provider: str, model: str,
                                tokens_used: int, user_id: Optional[str] = None,
                                rate_limit_headers: Optional[Dict] = None):
-        """Update rate limit usage for a provider using estimated tokens.
-
-        Rate limits are tracked whenever they're configured, regardless of whether
-        the provider is free or paid. This allows tracking free tier limits on
-        providers that also offer paid plans.
-        """
+        """Update rate limit usage for a provider using estimated tokens."""
         if not self.rate_limit_tracking.get("enabled", True):
             return
 
         try:
-            # Check if rate limits are configured for this provider
             limits = self.get_rate_limits(provider, model)
-
-            # Only track if we have non-zero limits configured
             has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
 
             if not has_limits:
@@ -221,22 +179,15 @@ class LLMMonitor:
     def _update_rate_limit_usage_internal(self, session: Session, provider: str,
                                          model: str, tokens_used: int,
                                          user_id: Optional[str] = None):
-        """Internal method to update rate limit usage within an existing session.
-
-        This method doesn't commit - it's the caller's responsibility.
-        """
+        """Internal method to update rate limit usage within an existing session."""
         try:
             today = datetime.utcnow().strftime("%Y-%m-%d")
             current_hour = datetime.utcnow().hour
 
-            # Get the rate limits for this provider to know what limits exist
             limits = self.get_rate_limits(provider, model)
-
-            # Only track if we have non-zero limits configured
             has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
 
             if not has_limits:
-                log("debug", f"No rate limits configured for {provider}, skipping tracking")
                 return
 
             # Update daily usage
@@ -252,22 +203,16 @@ class LLMMonitor:
                 daily_usage = RateLimitUsageTable(
                     provider=provider,
                     model=model,
-                    plan_type="free",  # Default to free plan
+                    plan_type="free",
                     period_date=today,
-                    requests_count=0,  # Initialize to 0
-                    tokens_count=0,    # Initialize to 0
+                    requests_count=0,
+                    tokens_count=0,
                     user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
                 )
                 session.add(daily_usage)
 
-            # Ensure values are not None before incrementing
-            if daily_usage.requests_count is None:
-                daily_usage.requests_count = 0
-            if daily_usage.tokens_count is None:
-                daily_usage.tokens_count = 0
-
-            daily_usage.requests_count += 1
-            daily_usage.tokens_count += tokens_used
+            daily_usage.requests_count = (daily_usage.requests_count or 0) + 1
+            daily_usage.tokens_count = (daily_usage.tokens_count or 0) + tokens_used
             daily_usage.last_updated = datetime.utcnow()
 
             # Update hourly usage
@@ -286,27 +231,21 @@ class LLMMonitor:
                     plan_type="free",
                     period_date=today,
                     period_hour=current_hour,
-                    requests_count=0,  # Initialize to 0
-                    tokens_count=0,    # Initialize to 0
+                    requests_count=0,
+                    tokens_count=0,
                     user_id=user_id if self.rate_limit_tracking.get("track_per_user", False) else None
                 )
                 session.add(hourly_usage)
 
-            # Ensure values are not None before incrementing
-            if hourly_usage.requests_count is None:
-                hourly_usage.requests_count = 0
-            if hourly_usage.tokens_count is None:
-                hourly_usage.tokens_count = 0
-
-            hourly_usage.requests_count += 1
-            hourly_usage.tokens_count += tokens_used
+            hourly_usage.requests_count = (hourly_usage.requests_count or 0) + 1
+            hourly_usage.tokens_count = (hourly_usage.tokens_count or 0) + tokens_used
             hourly_usage.last_updated = datetime.utcnow()
 
-            log("debug", f"Updated rate limit usage for {provider}: +1 request, +{tokens_used} tokens (daily: {daily_usage.requests_count}/{limits.get('rpd', '∞')}, hourly: {hourly_usage.requests_count}/{limits.get('rpm', '∞')})")
+            log("debug", f"Updated rate limit usage for {provider}: +1 request, +{tokens_used} tokens")
 
         except Exception as e:
             log("error", f"Failed to update rate limit usage (internal): {e}", exc_info=True)
-            raise  # Re-raise so the parent can handle rollback
+            raise
 
     def get_rate_limit_usage(self, provider: str, model: str,
                             user_id: Optional[str] = None) -> Dict[str, Any]:
@@ -316,10 +255,7 @@ class LLMMonitor:
                 today = datetime.utcnow().strftime("%Y-%m-%d")
                 current_hour = datetime.utcnow().hour
 
-                # Get limits for this provider
                 limits = self.get_rate_limits(provider, model)
-
-                # Check if any limits are configured
                 has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
 
                 if not has_limits:
@@ -327,28 +263,12 @@ class LLMMonitor:
                         "provider": provider,
                         "model": model,
                         "limits": {},
-                        "daily": {
-                            "requests": 0,
-                            "tokens": 0,
-                            "requests_limit": None,
-                            "tokens_limit": None,
-                            "requests_percentage": 0,
-                            "tokens_percentage": 0
-                        },
-                        "hourly": {
-                            "requests": 0,
-                            "tokens": 0,
-                            "requests_limit": None,
-                            "tokens_limit": None,
-                            "requests_percentage": 0,
-                            "tokens_percentage": 0
-                        }
+                        "daily": {"requests": 0, "tokens": 0, "requests_limit": None, "tokens_limit": None},
+                        "hourly": {"requests": 0, "tokens": 0, "requests_limit": None, "tokens_limit": None}
                     }
 
                 tracked_user_id = user_id if self.rate_limit_tracking.get("track_per_user", False) else None
 
-                # Rate limits are configured per provider, not per concrete model name.
-                # Aggregate usage across all models for the selected provider.
                 daily_totals = session.query(
                     func.coalesce(func.sum(RateLimitUsageTable.requests_count), 0).label("requests"),
                     func.coalesce(func.sum(RateLimitUsageTable.tokens_count), 0).label("tokens")
@@ -369,21 +289,16 @@ class LLMMonitor:
                     RateLimitUsageTable.user_id == tracked_user_id
                 ).one()
 
-                # Fallback: rate_limit_info is often empty and older data may not have
-                # aggregated rows in rate_limit_usage. In that case, derive usage directly
-                # from llm_call records while keeping config-based limits.
+                # Fallback to LLM calls if no rate limit records
                 if daily_totals.requests == 0 and daily_totals.tokens == 0:
                     daily_call_query = session.query(
                         func.count(LLMCallTable.id).label("requests"),
                         func.coalesce(func.sum(LLMCallTable.total_tokens), 0).label("tokens")
-                    ).filter(
-                        LLMCallTable.llm_type == provider
-                    )
+                    ).filter(LLMCallTable.llm_type == provider)
 
                     if tracked_user_id:
                         daily_call_query = daily_call_query.filter(LLMCallTable.user_id == tracked_user_id)
 
-                    # Database-agnostic date filtering
                     day_start = datetime.strptime(today, "%Y-%m-%d")
                     day_end = day_start + timedelta(days=1)
 
@@ -391,34 +306,7 @@ class LLMMonitor:
                         LLMCallTable.timestamp >= day_start,
                         LLMCallTable.timestamp < day_end
                     )
-
                     daily_totals = daily_call_query.one()
-
-                if hourly_totals.requests == 0 and hourly_totals.tokens == 0:
-                    hourly_call_query = session.query(
-                        func.count(LLMCallTable.id).label("requests"),
-                        func.coalesce(func.sum(LLMCallTable.total_tokens), 0).label("tokens")
-                    ).filter(
-                        LLMCallTable.llm_type == provider
-                    )
-
-                    if tracked_user_id:
-                        hourly_call_query = hourly_call_query.filter(LLMCallTable.user_id == tracked_user_id)
-
-                    # Database-agnostic date and time filtering
-                    # Filter by date range (start of day to end of day)
-                    day_start = datetime.strptime(today, "%Y-%m-%d")
-
-                    # Filter for the specific hour
-                    hour_start = day_start.replace(hour=current_hour, minute=0, second=0, microsecond=0)
-                    hour_end = hour_start + timedelta(hours=1)
-
-                    hourly_call_query = hourly_call_query.filter(
-                        LLMCallTable.timestamp >= hour_start,
-                        LLMCallTable.timestamp < hour_end
-                    )
-
-                    hourly_totals = hourly_call_query.one()
 
                 result = {
                     "provider": provider,
@@ -429,39 +317,25 @@ class LLMMonitor:
                         "tokens": int(daily_totals.tokens or 0),
                         "requests_limit": limits.get("rpd") if limits.get("rpd", 0) > 0 else None,
                         "tokens_limit": limits.get("tpd") if limits.get("tpd", 0) > 0 else None,
-                        "requests_reset_at": None,
-                        "tokens_reset_at": None,
                     },
                     "hourly": {
                         "requests": int(hourly_totals.requests or 0),
                         "tokens": int(hourly_totals.tokens or 0),
                         "requests_limit": limits.get("rpm") if limits.get("rpm", 0) > 0 else None,
                         "tokens_limit": limits.get("tpm") if limits.get("tpm", 0) > 0 else None,
-                        "requests_reset_at": None,
-                        "tokens_reset_at": None,
                     }
                 }
 
-                # Calculate percentages with safe division
-                if result["daily"]["requests_limit"] and result["daily"]["requests_limit"] > 0:
-                    result["daily"]["requests_percentage"] = (result["daily"]["requests"] / result["daily"]["requests_limit"]) * 100
-                else:
-                    result["daily"]["requests_percentage"] = 0
-
-                if result["daily"]["tokens_limit"] and result["daily"]["tokens_limit"] > 0:
-                    result["daily"]["tokens_percentage"] = (result["daily"]["tokens"] / result["daily"]["tokens_limit"]) * 100
-                else:
-                    result["daily"]["tokens_percentage"] = 0
-
-                if result["hourly"]["requests_limit"] and result["hourly"]["requests_limit"] > 0:
-                    result["hourly"]["requests_percentage"] = (result["hourly"]["requests"] / result["hourly"]["requests_limit"]) * 100
-                else:
-                    result["hourly"]["requests_percentage"] = 0
-
-                if result["hourly"]["tokens_limit"] and result["hourly"]["tokens_limit"] > 0:
-                    result["hourly"]["tokens_percentage"] = (result["hourly"]["tokens"] / result["hourly"]["tokens_limit"]) * 100
-                else:
-                    result["hourly"]["tokens_percentage"] = 0
+                # Calculate percentages
+                for period in ["daily", "hourly"]:
+                    for metric in ["requests", "tokens"]:
+                        limit_key = f"{metric}_limit"
+                        if result[period].get(limit_key) and result[period][limit_key] > 0:
+                            result[period][f"{metric}_percentage"] = (
+                                result[period][metric] / result[period][limit_key] * 100
+                            )
+                        else:
+                            result[period][f"{metric}_percentage"] = 0
 
                 return result
 
@@ -471,24 +345,11 @@ class LLMMonitor:
 
     def extract_context_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Extract context messages (system messages and LLM callbacks) from conversation."""
-        context_messages = []
-
-        for msg in messages:
-            if msg.get("role") == "system":
-                context_messages.append(msg.copy())
-            # You can add more conditions here for other context types
-
-        return context_messages
+        return [msg.copy() for msg in messages if msg.get("role") == "system"]
 
     def extract_user_assistant_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Extract only user and assistant messages (for display)."""
-        display_messages = []
-
-        for msg in messages:
-            if msg.get("role") in ["user", "assistant"]:
-                display_messages.append(msg.copy())
-
-        return display_messages
+        return [msg.copy() for msg in messages if msg.get("role") in ["user", "assistant"]]
 
     def log_llm_call(self, data: Dict[str, Any]):
         """Log an LLM call to the database."""
@@ -497,19 +358,8 @@ class LLMMonitor:
 
         try:
             with self.db.get_session() as session:
-                # Extract user_id from conversation if available
                 user_id = data.get("user_id")
                 conversation_id = data.get("conversation_id")
-
-                if conversation_id and not user_id:
-                    # Try to get user_id from conversation
-                    try:
-                        conv_manager = get_conversation_manager()
-                        conversation = conv_manager.get_conversation(conversation_id, include_messages=False)
-                        if conversation:
-                            user_id = conversation.user_id
-                    except:
-                        pass
 
                 # Estimate tokens
                 input_tokens = data.get("input_tokens")
@@ -526,13 +376,10 @@ class LLMMonitor:
                 # Calculate costs
                 costs = self.calculate_cost(data["llm_type"], input_tokens or 0, output_tokens or 0)
 
-                # Extract context messages
+                # Extract messages
                 all_messages = data["messages"]
                 context_messages = self.extract_context_messages(all_messages)
                 display_messages = self.extract_user_assistant_messages(all_messages)
-
-                # Extract rate limit headers if available
-                rate_limit_info = data.get("rate_limit_info", {})
 
                 # Create LLM call record
                 llm_call = LLMCallTable(
@@ -556,7 +403,7 @@ class LLMMonitor:
                     success=data.get("success", 1),
                     error_message=data.get("error"),
                     call_metadata=data.get("metadata", {}),
-                    rate_limit_info=rate_limit_info
+                    rate_limit_info=data.get("rate_limit_info", {})
                 )
 
                 session.add(llm_call)
@@ -572,13 +419,9 @@ class LLMMonitor:
                                                input_tokens or 0, output_tokens or 0,
                                                costs["total_cost"])
 
-                # ALWAYS update rate limit usage based on config limits
-                # Check if rate limits are configured for this provider
+                # Update rate limit usage if configured
                 limits = self.get_rate_limits(data["llm_type"], data["model"])
-                has_limits = any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
-
-                if has_limits:
-                    log("debug", f"Tracking rate limit for {data['llm_type']} with {total_tokens} tokens (limits: {limits})")
+                if any(limits.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"]):
                     self._update_rate_limit_usage_internal(
                         session=session,
                         provider=data["llm_type"],
@@ -586,10 +429,7 @@ class LLMMonitor:
                         tokens_used=total_tokens,
                         user_id=user_id
                     )
-                else:
-                    log("debug", f"No rate limits configured for {data['llm_type']}, skipping tracking")
 
-                # Commit all changes
                 session.commit()
                 log("debug", f"Logged LLM call: {data['llm_id']} for user {user_id}")
 
@@ -601,16 +441,15 @@ class LLMMonitor:
         """Update daily cost summary."""
         try:
             today = datetime.utcnow().strftime("%Y-%m-%d")
+            llm_config = self.get_llm_config(provider)
+            input_cost_per_million = llm_config.get("input_cost_per_million_tokens", 0)
+            output_cost_per_million = llm_config.get("output_cost_per_million_tokens", 0)
 
             summary = session.query(DailyCostSummaryTable).filter_by(
                 date=today,
                 provider=provider,
                 model=model
             ).first()
-
-            llm_config = self.get_llm_config(provider)
-            input_cost_per_million = llm_config.get("input_cost_per_million_tokens", 0)
-            output_cost_per_million = llm_config.get("output_cost_per_million_tokens", 0)
 
             if summary:
                 summary.total_calls += 1
@@ -772,19 +611,14 @@ class LLMMonitor:
 
                 if user_id:
                     query = query.filter_by(user_id=user_id)
-
                 if llm_type:
                     query = query.filter_by(llm_type=llm_type)
-
                 if model:
                     query = query.filter_by(model=model)
-
                 if conversation_id:
                     query = query.filter_by(conversation_id=conversation_id)
-
                 if start_date:
                     query = query.filter(LLMCallTable.timestamp >= start_date)
-
                 if end_date:
                     query = query.filter(LLMCallTable.timestamp <= end_date)
 
@@ -855,28 +689,19 @@ class LLMMonitor:
             return 0
 
     def clear_user_logs(self, user_id: str) -> int:
-        """Clear all LLM logs for a specific user.
-        Returns: number of records deleted."""
+        """Clear all LLM logs for a specific user."""
         if not self.enabled:
             return 0
 
         try:
             with self.db.get_session() as session:
-                # Get count before deletion
-                count = session.query(LLMCallTable).filter_by(user_id=user_id).count()
-
-                # Delete the calls
                 deleted = session.query(LLMCallTable).filter_by(user_id=user_id).delete()
-
-                # Also clear user stats
                 session.query(UserLLMStatsTable).filter_by(user_id=user_id).delete()
 
-                # Clear rate limit usage if per-user tracking is enabled
                 if self.rate_limit_tracking.get("track_per_user", False):
                     session.query(RateLimitUsageTable).filter_by(user_id=user_id).delete()
 
                 session.commit()
-
                 log("info", f"Cleared {deleted} LLM calls for user {user_id}")
                 return deleted
         except Exception as e:
@@ -884,20 +709,17 @@ class LLMMonitor:
             return 0
 
     def clear_all_logs(self) -> Dict[str, int]:
-        """Clear all LLM logs from the system.
-        Returns: dictionary with counts of deleted records."""
+        """Clear all LLM logs from the system."""
         if not self.enabled:
             return {"llm_calls": 0, "user_stats": 0, "rate_limit_usage": 0, "daily_summary": 0}
 
         try:
             with self.db.get_session() as session:
-                # Get counts before deletion
                 llm_calls_count = session.query(LLMCallTable).count()
                 user_stats_count = session.query(UserLLMStatsTable).count()
                 rate_limit_count = session.query(RateLimitUsageTable).count()
                 daily_summary_count = session.query(DailyCostSummaryTable).count()
 
-                # Delete all records
                 session.query(LLMCallTable).delete()
                 session.query(UserLLMStatsTable).delete()
                 session.query(RateLimitUsageTable).delete()
@@ -905,7 +727,7 @@ class LLMMonitor:
 
                 session.commit()
 
-                log("info", f"Cleared all LLM logs: {llm_calls_count} calls, {user_stats_count} user stats, {rate_limit_count} rate limit records, {daily_summary_count} daily summaries")
+                log("info", f"Cleared all LLM logs: {llm_calls_count} calls, {user_stats_count} user stats")
 
                 return {
                     "llm_calls": llm_calls_count,
@@ -916,8 +738,3 @@ class LLMMonitor:
         except Exception as e:
             log("error", f"Failed to clear all logs: {e}")
             return {"llm_calls": 0, "user_stats": 0, "rate_limit_usage": 0, "daily_summary": 0}
-
-
-def get_llm_monitor():
-    """Get the LLM monitor instance."""
-    return LLMMonitor()
