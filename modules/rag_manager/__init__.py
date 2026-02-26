@@ -71,19 +71,26 @@ def _engine_exists(name: str) -> bool:
 
 def _make_engine_context_callback(name: str) -> Callable:
     def _callback(user_id: str, messages: List[Dict]) -> tuple:
+        log("debug", f"[RAG CALLBACK] Called for engine '{name}', user='{user_id}'")
         user_messages = [msg for msg in messages if msg.get("role") == "user"]
         if not user_messages:
             return "", "system", "bottom"
 
         query = user_messages[-1].get("content", "")
         if not query:
+            log("debug", "[RAG CALLBACK] No user messages found")
             return "", "system", "bottom"
 
         mgr = _get_manager()
         if not mgr.is_rag_enabled() or not mgr.is_engine_enabled(name):
+            log("debug", "[RAG CALLBACK] RAG/engine disabled, skipping")
             return "", "system", "bottom"
 
         context = mgr.get_rag_context(user_id=user_id, query=query, engine_type=name)
+        if context and context != f"No result found for : '{query}'":
+             log("debug", f"[RAG CALLBACK] ✓ Context found ({len(context)} chars)")
+         else:
+             log("debug", f"[RAG CALLBACK] ✗ No context found")
         return context, "system", "bottom"
 
     _callback.__name__ = f"rag_context_callback_{name}"
