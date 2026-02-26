@@ -145,7 +145,7 @@ def inject_ui_sidebar():
                     with open(rag_config_path, 'w', encoding='utf-8') as f:
                         json.dump(rag_config_data, f, indent=2, ensure_ascii=False)
 
-                    config.set("rag_manager.default_engine", selected_engine)
+                    config.set("modules.rag_manager.default_engine", selected_engine)
                     rag_manager.default_engine = selected_engine
                     notify_module_config_changed("rag_manager")
 
