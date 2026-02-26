@@ -17,34 +17,58 @@ Key Features:
 - Auto-discovery of translations and prompts
 - Auto-discovery of injection points for UI integration with main App
 
-Module Requirements:
-1. Must be placed in modules/ directory as a subdirectory
-2. Must contain a module.json file with metadata
-3. UI modules should follow *_ui.py naming convention and inject_ui_xxx for UI integration
-4. Can include CONFIG_FILE for module-specific configuration
-5. Can include translation/xx.json for language-specific translations
-6. Can include prompts.xx.json for language-specific prompts
-7. Can include tests in the test/ directory for pytest automatic testing
+NO STREAMLIT DEPENDENCY. This module must remain importable without Streamlit.
+All Streamlit-specific logic belongs in ui_registry.py or *_ui.py files.
+
+--- Module Lifecycle Hooks ---
+
+ModuleHandler calls the following hooks on the module's Python *package*
+(i.e. modules/<name>/__init__.py) when they exist and are callable.
+
+FUNCTIONAL hooks (no Streamlit, called by ModuleHandler):
+    on_module_activated(services: ServiceLocator)
+        Called when a module is activated.
+        Receives a ServiceLocator with injected dependencies (config, user_manager, etc.)
+        Use this to register driver options, LLM callbacks, etc.
+
+    on_module_deactivated()
+        Called when a module is deactivated.
+        Use this to unregister driver options, LLM callbacks, etc.
+
+    on_module_config_changed()
+        Called when the module's config file changes.
+        Use this to refresh in-memory config state.
+
+LEGACY hook (still supported for backward compatibility):
+    inject_ui_initialize()
+        Old-style hook called from UI layer (ui_registry / Streamlit startup).
+        Kept for backward-compatible modules. New modules should use
+        on_module_activated() instead for functional setup, and
+        inject_ui_initialize() ONLY for st.session_state initialization.
+
+--- Service Locator ---
+
+on_module_activated(services) receives a ServiceLocator object:
+
+    services.config          -> dict-like config object (NOT Streamlit-cached)
+    services.get(name)       -> get any registered service by name
+    services.register(name, obj) -> register a service (used by app startup)
+
+The ServiceLocator is populated by the application startup code, not by
+ModuleHandler itself. This keeps ModuleHandler dependency-free.
 
 Module JSON Structure:
 ```json
 {
-    "name": "module_name",           // Must match directory name
-    "version": "1.0.0",              // Semantic version
+    "name": "module_name",
+    "version": "1.0.0",
     "description": "Module description",
     "author": "Author name",
-    "enabled_by_default": true,      // Auto-activate on first discovery
-    "category": "category",           // For grouping in UI
-    "dependencies": []                // Other module names required
+    "enabled_by_default": true,
+    "category": "category",
+    "dependencies": []
 }
 ```
-
-Class: ModuleHandler
-Description: Main handler for module discovery, activation, and management.
-Usage:
-    handler = ModuleHandler()
-    handler.initialize()
-    active_modules = handler.get_active_modules()
 """
 
 import os
@@ -52,14 +76,65 @@ import json
 import importlib
 import importlib.util
 import sys
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from pathlib import Path
 
 from core.config import CONFIG_FILE
+from core.logging import log
 
-from core.logging import log, set_log_module_level
+
+# ---------------------------------------------------------------------------
+# Service Locator  (dependency injection container, no Streamlit)
+# ---------------------------------------------------------------------------
+
+class ServiceLocator:
+    """
+    Lightweight dependency injection container passed to on_module_activated().
+
+    The application startup code registers services here before activating
+    modules. Functional module hooks receive this object and use it to access
+    config, managers, etc. without importing from st_shared.
+
+    Example (app startup):
+        services = ServiceLocator()
+        services.register("config", get_plain_config())
+        services.register("user_manager", user_manager)
+        services.register("llm_manager", llm_manager)
+        module_handler.set_services(services)
+
+    Example (module on_module_activated):
+        def on_module_activated(services):
+            config = services.get("config")
+            llm_manager = services.get("llm_manager")
+            llm_manager.register_context_callback(my_callback)
+    """
+
+    def __init__(self):
+        self._services: Dict[str, Any] = {}
+
+    def register(self, name: str, obj: Any) -> None:
+        """Register a service by name."""
+        self._services[name] = obj
+
+    def get(self, name: str, default: Any = None) -> Any:
+        """Get a service by name. Returns default if not found."""
+        return self._services.get(name, default)
+
+    @property
+    def config(self) -> Any:
+        """Shortcut to the 'config' service."""
+        return self._services.get("config")
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._services
+
+
+# ---------------------------------------------------------------------------
+# Module discovery helpers (no Streamlit, pure filesystem)
+# ---------------------------------------------------------------------------
+
 def _compute_modules_signature() -> str:
-    """Compute a signature based on module directories and key file modification times."""
+    """Compute a signature based on module directories and key file mtimes."""
     modules_dir = Path("modules")
     if not modules_dir.exists():
         return "no_modules_dir"
@@ -111,6 +186,16 @@ def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
             config_file = module_dir / CONFIG_FILE
             has_config = config_file.exists()
 
+            # Detect which lifecycle hooks the module package exposes
+            pkg_init = module_dir / "__init__.py"
+            has_new_hooks = False
+            if pkg_init.exists():
+                try:
+                    src = pkg_init.read_text(encoding="utf-8")
+                    has_new_hooks = "on_module_activated" in src
+                except Exception:
+                    pass
+
             potential[module_name] = {
                 'name': module_name,
                 'path': str(module_dir),
@@ -122,24 +207,55 @@ def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
                 'ui_file': str(ui_file) if has_ui else None,
                 'config_file': str(config_file) if has_config else None,
                 'dependencies': module_config.get('dependencies', []),
-                'category': module_config.get('category', 'general')
+                'category': module_config.get('category', 'general'),
+                # NEW: whether this module uses the new hook protocol
+                'has_new_hooks': has_new_hooks,
             }
 
     log("info", f"Cached discovery completed: {len(potential)} potential modules found")
     return potential
 
 
+# ---------------------------------------------------------------------------
+# ModuleHandler
+# ---------------------------------------------------------------------------
+
 class ModuleHandler:
-    """Handles module discovery, activation, and management."""
+    """
+    Handles module discovery, activation, and management.
+
+    No Streamlit dependency. All UI concerns are delegated to ui_registry.py.
+    """
 
     def __init__(self):
         self.modules: Dict[str, Dict] = {}
         self.active_modules: Set[str] = set()
         self.modules_file = "modules.json"
         self._initialized = False
+        self._services: Optional[ServiceLocator] = None
+
+    # ------------------------------------------------------------------
+    # Service injection (called by app startup, not by Streamlit)
+    # ------------------------------------------------------------------
+
+    def set_services(self, services: ServiceLocator) -> None:
+        """
+        Inject the ServiceLocator that will be passed to on_module_activated().
+
+        Call this from application startup before any module is activated.
+        """
+        self._services = services
+        log("debug", "ModuleHandler: ServiceLocator registered")
+
+    def get_services(self) -> Optional[ServiceLocator]:
+        """Return the current ServiceLocator, or None if not set."""
+        return self._services
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
 
     def _load_modules_file(self):
-        """Load modules.json file or initialize empty."""
         if os.path.exists(self.modules_file):
             try:
                 with open(self.modules_file, 'r') as f:
@@ -153,7 +269,6 @@ class ModuleHandler:
             self.active_modules = set()
 
     def _save_modules_file(self):
-        """Save modules.json file."""
         try:
             data = {
                 'active_modules': sorted(self.active_modules),
@@ -165,27 +280,27 @@ class ModuleHandler:
         except Exception as e:
             log("error", f"Failed to save {self.modules_file}: {str(e)}")
 
+    # ------------------------------------------------------------------
+    # Discovery / sync
+    # ------------------------------------------------------------------
+
     def _sync_with_disk(self):
-        """Synchronize internal state with disk (used in init and refresh)."""
+        """Synchronize internal state with disk."""
         signature = _compute_modules_signature()
         potential_modules = _load_potential_modules(signature)
 
         updated = False
 
-        # Add new modules and update existing ones
         for name, info in potential_modules.items():
             if name not in self.modules:
-                # New module discovered
                 self.modules[name] = info
                 if info.get('enabled_by_default', True) and name not in self.active_modules:
                     self.active_modules.add(name)
                     log("info", f"Auto-activated new module '{name}' (enabled by default)")
                     updated = True
             else:
-                # Update existing module metadata (e.g., if module.json changed)
                 self.modules[name].update(info)
 
-        # Remove deleted modules
         for name in list(self.modules.keys()):
             if name not in potential_modules:
                 del self.modules[name]
@@ -199,19 +314,19 @@ class ModuleHandler:
 
         log("info", f"Module sync complete: {len(self.modules)} discovered, {len(self.active_modules)} active")
 
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
 
     def initialize(self):
-        """Initialize the module handler.
+        """
+        Initialize the module handler.
 
-        Must be called before using any other methods. This loads the modules.json
-        file and synchronizes with the filesystem to discover all available modules.
+        Must be called before using any other methods. Loads modules.json and
+        synchronizes with the filesystem to discover all available modules.
 
-        Returns:
-            None
-
-        Example:
-            handler = ModuleHandler()
-            handler.initialize()
+        Does NOT call any module hooks. Call activate_all() separately when
+        the ServiceLocator is ready.
         """
         if self._initialized:
             return
@@ -221,103 +336,88 @@ class ModuleHandler:
         self._initialized = True
         log("info", "Module handler fully initialized")
 
-    def refresh(self):
-        """Refresh module discovery from disk.
-
-        Useful during development when modules are added/removed without restarting.
-        This will rescan the modules directory and update the internal cache.
-
-        Returns:
-            None
-
-        Example:
-            handler.refresh()  # After adding a new module
+    def activate_all(self) -> None:
         """
+        Call on_module_activated() for every currently active module.
+
+        Should be called once at application startup, after set_services() and
+        after initialize(). This triggers functional setup (driver registration,
+        LLM callback registration, etc.) for all active modules.
+
+        Safe to call multiple times — modules that were already activated are
+        skipped (tracked via _activated set).
+        """
+        if not self._initialized:
+            self.initialize()
+
+        for name in sorted(self.active_modules):
+            self._call_module_hook(name, "on_module_activated", pass_services=True)
+
+    def refresh(self):
+        """Refresh module discovery from disk."""
         self._sync_with_disk()
 
+    # ------------------------------------------------------------------
+    # Module info
+    # ------------------------------------------------------------------
+
     def get_all_modules(self) -> Dict[str, Dict]:
-        """Get all discovered modules with their metadata.
-
-        Returns:
-            Dictionary mapping module names to their metadata:
-            {
-                'module_name': {
-                    'name': str,           # Module name
-                    'path': str,            # Filesystem path
-                    'description': str,     # Module description
-                    'version': str,         # Semantic version
-                    'author': str,          # Author name
-                    'enabled_by_default': bool,
-                    'has_ui': bool,         # Whether module has UI file
-                    'ui_file': str or None, # Path to UI file if exists
-                    'config_file': str or None,
-                    'dependencies': List[str],
-                    'category': str
-                }
-            }
-
-        Example:
-            all_modules = handler.get_all_modules()
-            for name, info in all_modules.items():
-                st.write(f"{name}: {info['description']}")
-        """
         if not self._initialized:
             self.initialize()
         return self.modules
 
     def get_active_modules(self) -> List[str]:
-        """Get list of active module names.
-
-        Returns:
-            Sorted list of module names that are currently active.
-
-        Example:
-            active = handler.get_active_modules()
-            if "analytics" in active:
-                show_analytics()
-        """
         if not self._initialized:
             self.initialize()
         return sorted(self.active_modules)
 
     def is_module_active(self, module_name: str) -> bool:
-        """Check if a specific module is active.
-
-        Args:
-            module_name: Name of the module to check
-
-        Returns:
-            True if module exists and is active, False otherwise
-
-        Example:
-            if handler.is_module_active("notifications"):
-                show_notification_settings()
-        """
         if not self._initialized:
             self.initialize()
         return module_name in self.active_modules
 
+    def get_module_info(self, module_name: str) -> Optional[Dict]:
+        if not self._initialized:
+            self.initialize()
+        return self.modules.get(module_name)
+
+    # ------------------------------------------------------------------
+    # Import-cache helpers
+    # ------------------------------------------------------------------
 
     def _refresh_module_cache(self, module_name: str):
         """Clear Python import cache entries for a module and its UI files."""
         keys_to_remove = [
-            key
-            for key in list(sys.modules.keys())
+            key for key in list(sys.modules.keys())
             if key == module_name
             or key == f"modules.{module_name}"
             or key.startswith(f"modules.{module_name}.")
             or key == f"{module_name}_ui"
             or key.startswith(f"{module_name}_")
         ]
-
         for key in keys_to_remove:
             sys.modules.pop(key, None)
-
         if keys_to_remove:
             log("debug", f"Refreshed cache for module '{module_name}' ({len(keys_to_remove)} entries)")
 
-    def _call_module_hook(self, module_name: str, hook_name: str):
-        """Call a lifecycle hook on a module package when available."""
+    # ------------------------------------------------------------------
+    # Hook dispatch  (NO Streamlit dependency here)
+    # ------------------------------------------------------------------
+
+    def _call_module_hook(
+        self,
+        module_name: str,
+        hook_name: str,
+        pass_services: bool = False,
+    ) -> None:
+        """
+        Import the module package and call a lifecycle hook if it exists.
+
+        For on_module_activated, passes the ServiceLocator when pass_services=True.
+
+        This method is deliberately Streamlit-free. UI hooks (inject_ui_xxx) are
+        called exclusively by ui_registry.py in a Streamlit context.
+        """
         module_path = f"modules.{module_name}"
         try:
             package = importlib.import_module(module_path)
@@ -330,44 +430,51 @@ class ModuleHandler:
             return
 
         try:
-            hook()
+            if pass_services and hook_name == "on_module_activated":
+                # New protocol: pass ServiceLocator
+                import inspect
+                sig = inspect.signature(hook)
+                if len(sig.parameters) > 0:
+                    hook(self._services or ServiceLocator())
+                else:
+                    # Module declares on_module_activated() with no args → call without
+                    hook()
+            else:
+                hook()
             log("info", f"Executed module hook {module_path}.{hook_name}()")
         except Exception as e:
             log("warning", f"Module hook failed {module_path}.{hook_name}(): {e}", exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Config change notification
+    # ------------------------------------------------------------------
+
     def notify_module_config_changed(self, module_name: str):
-        """Refresh module cache and invoke per-module config change hook."""
+        """Refresh module cache and invoke on_module_config_changed hook."""
         if module_name not in self.modules:
             self.refresh()
 
         self._refresh_module_cache(module_name)
         self._call_module_hook(module_name, "on_module_config_changed")
 
+    # ------------------------------------------------------------------
+    # Toggle activation
+    # ------------------------------------------------------------------
+
     def toggle_module(self, module_name: str, activate: bool) -> bool:
-        """Activate or deactivate a module.
+        """
+        Activate or deactivate a module.
 
-        This will update modules.json and persist the change. The change takes
-        effect immediately for the current session and will persist across restarts.
+        When activating a new-style module, on_module_activated(services) is called.
+        When activating a legacy module, only on_module_activated() (no args) is
+        attempted for backward compatibility; the UI layer remains responsible for
+        calling inject_ui_initialize() to set up Streamlit state.
 
-        Args:
-            module_name: Name of the module to toggle
-            activate: True to activate, False to deactivate
-
-        Returns:
-            True if the operation succeeded, False if module not found
-
-        Example:
-            # Activate a module
-            if handler.toggle_module("analytics", True):
-                st.success("Analytics module activated")
-
-            # Deactivate a module
-            handler.toggle_module("old_feature", False)
+        When deactivating, on_module_deactivated() is called regardless of style.
         """
         if not self._initialized:
             self.initialize()
 
-        # If module not known, attempt refresh in case it was added
         if module_name not in self.modules:
             self.refresh()
             if module_name not in self.modules:
@@ -378,7 +485,7 @@ class ModuleHandler:
             if module_name not in self.active_modules:
                 self.active_modules.add(module_name)
                 self._refresh_module_cache(module_name)
-                self._call_module_hook(module_name, "on_module_activated")
+                self._call_module_hook(module_name, "on_module_activated", pass_services=True)
                 log("info", f"Activated module: {module_name}")
                 self._save_modules_file()
                 return True
@@ -393,22 +500,16 @@ class ModuleHandler:
 
         return False
 
+    # ------------------------------------------------------------------
+    # Legacy: load UI module (kept for backward compatibility)
+    # ------------------------------------------------------------------
+
     def load_module_ui(self, module_name: str) -> Optional[object]:
-        """Load a module's UI module.
+        """
+        Load a module's UI module (*_ui.py).
 
-        Dynamically imports and executes the module's *_ui.py file. This is used
-        internally by the UI registry but can be called directly for manual UI loading.
-
-        Args:
-            module_name: Name of the module whose UI to load
-
-        Returns:
-            The imported module object if successful, None otherwise
-
-        Example:
-            ui_module = handler.load_module_ui("analytics")
-            if ui_module and hasattr(ui_module, 'inject_ui_sidebar'):
-                ui_module.inject_ui_sidebar()
+        Used internally by ui_registry but can be called directly.
+        Returns the imported module object, or None on failure.
         """
         if not self._initialized:
             self.initialize()
@@ -441,58 +542,23 @@ class ModuleHandler:
             log("error", f"Failed to load UI module {module_name}: {str(e)}", exc_info=True)
             return None
 
-    def get_module_info(self, module_name: str) -> Optional[Dict]:
-        """Get detailed information about a specific module.
 
-        Args:
-            module_name: Name of the module to query
-
-        Returns:
-            Module metadata dictionary if found, None otherwise.
-            See get_all_modules() for the dictionary structure.
-
-        Example:
-            info = handler.get_module_info("analytics")
-            if info:
-                st.write(f"Version: {info['version']}")
-                st.write(f"Author: {info['author']}")
-        """
-        if not self._initialized:
-            self.initialize()
-        return self.modules.get(module_name)
+# ---------------------------------------------------------------------------
+# Convenience functions
+# ---------------------------------------------------------------------------
 
 def get_active_modules() -> List[str]:
-    """[api] Convenience function to get active modules without creating a handler.
-
-    Returns:
-        Sorted list of active module names
-
-    Example:
-        if "analytics" in get_active_modules():
-            show_analytics()
-    """
+    """[api] Convenience function to get active modules without creating a handler."""
     handler = ModuleHandler()
     handler.initialize()
     return handler.get_active_modules()
 
+
 def toggle_module(module_name: str, activate: bool) -> bool:
-    """Convenience function to toggle a module without creating a handler.
-
-    Args:
-        module_name: Name of the module to toggle
-        activate: True to activate, False to deactivate
-
-    Returns:
-        True if successful, False if module not found
-
-    Example:
-        if toggle_module("analytics", True):
-            st.success("Analytics activated")
-    """
+    """Convenience function to toggle a module."""
     handler = ModuleHandler()
     handler.initialize()
     return handler.toggle_module(module_name, activate)
-
 
 
 def notify_module_config_changed(module_name: str) -> None:
@@ -502,18 +568,5 @@ def notify_module_config_changed(module_name: str) -> None:
     handler.notify_module_config_changed(module_name)
 
 
-# Singleton instance (used in prof.py via session_state)
+# Singleton instance
 module_handler = ModuleHandler()
-"""[api] Singleton instance of ModuleHandler for global use.
-
-This is the recommended way to access the module handler throughout the application.
-It ensures a single consistent state across all imports.
-
-Example:
-    from shared.module_handler import module_handler
-
-    if not module_handler._initialized:
-        module_handler.initialize()
-
-    active = module_handler.get_active_modules()
-"""

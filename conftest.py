@@ -2,6 +2,23 @@
 """
 Pytest configuration and fixtures for all tests.
 
+Module initialisation (two phases)
+-----------------------------------
+Phase 1 — Functional (headless):
+    module_handler.initialize() calls on_module_activated() on every active
+    NEW-STYLE module. Driver options and LLM callbacks are registered here,
+    no Streamlit context required.
+
+Phase 2 — Legacy inject_ui_initialize() (headless-tolerant):
+    OLD-STYLE modules that have not yet been migrated to on_module_activated()
+    still register their driver options/actions inside inject_ui_initialize().
+    We call this for each module, swallowing Streamlit errors (st.session_state
+    writes fail headless, but the functional registrations happen first and are
+    NOT rolled back on exception).
+
+    This phase must remain until every module has been migrated.
+    See MIGRATE.md for the migration checklist.
+
 Structure:
   - Logging
   - Path / DB helpers
@@ -32,11 +49,12 @@ from playwright.sync_api import sync_playwright
 # 0.  Silence noisy third-party warnings ONCE
 # ---------------------------------------------------------------------------
 from core.database import init_database
+
 _SILENCED_WARNINGS = [
-    ("ignore", UserWarning,       "streamlit.runtime.scriptrunner_utils"),
-    ("ignore", UserWarning,       "streamlit.runtime.state.session_state_proxy"),
-    ("ignore", UserWarning,       r"torch\.cuda"),
-    ("ignore", DeprecationWarning, None),   # SwigPy* built-in type warnings
+    ("ignore", UserWarning,        "streamlit.runtime.scriptrunner_utils"),
+    ("ignore", UserWarning,        "streamlit.runtime.state.session_state_proxy"),
+    ("ignore", UserWarning,        r"torch\.cuda"),
+    ("ignore", DeprecationWarning, None),
 ]
 for action, category, module in _SILENCED_WARNINGS:
     kw = {"category": category}
@@ -44,14 +62,12 @@ for action, category, module in _SILENCED_WARNINGS:
         kw["module"] = module
     warnings.filterwarnings(action, **kw)
 
-# Also silence the ScriptRunContext warning by message (it has no stable module path)
 warnings.filterwarnings(
     "ignore",
     message="Thread 'MainThread': missing ScriptRunContext!",
     category=UserWarning,
 )
 
-# Disable Streamlit loggers entirely so their output never leaks into pytest
 for logger_name in (
     "streamlit",
     "streamlit.runtime",
@@ -60,16 +76,15 @@ for logger_name in (
     "streamlit.runtime.state",
     "streamlit.runtime.state.session_state_proxy",
 ):
-    logger = logging.getLogger(logger_name)
-    logger.handlers.clear()
-    logger.propagate = False
-    logger.disabled = True
-    logger.setLevel(logging.CRITICAL)
+    _logger = logging.getLogger(logger_name)
+    _logger.handlers.clear()
+    _logger.propagate = False
+    _logger.disabled = True
+    _logger.setLevel(logging.CRITICAL)
 
 
 # ---------------------------------------------------------------------------
 # 1.  Load .env BEFORE any shared imports
-#     (shared.common instantiates singletons at import time)
 # ---------------------------------------------------------------------------
 from dotenv import load_dotenv
 load_dotenv()
@@ -98,7 +113,7 @@ _BROWSER_SCOPE = "module"
 # ---------------------------------------------------------------------------
 from st_shared.cached import get_config, get_db_manager, get_user_manager
 from shared.common import init_user_manager
-from shared.module_handler import ModuleHandler
+from shared.module_handler import ModuleHandler, module_handler
 from shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager
 from core.logging import log, set_log_module_level, configure_logging_from_dict
@@ -115,47 +130,34 @@ log("debug", f"prof.py found: {(PROJECT_ROOT / 'prof.py').exists()}")
 # 5.  Database helpers
 # ---------------------------------------------------------------------------
 def _extract_sqlite_path(db_url_or_path: str) -> str:
-    """
-    Convert a ``sqlite:///...`` URL to a plain file path.
-    Returns the input unchanged if it is already a plain path.
-    """
     if not db_url_or_path or not isinstance(db_url_or_path, str):
         return db_url_or_path
-
     match = re.match(r"^sqlite:///(.+)$", db_url_or_path)
     if not match:
         return db_url_or_path
-
     file_path = match.group(1)
-    # Strip the leading slash that appears before Windows drive letters (/C:/…)
     if file_path.startswith("/") and len(file_path) > 2 and file_path[2] == ":":
         file_path = file_path[1:]
     return file_path
 
 
 def _get_db_paths() -> tuple[str, str]:
-    """
-    Return ``(db_directory, db_file_path)`` derived from the project config.
-    """
     config = get_config()
     db_config = config.get("database", {})
     raw = db_config.get("url") or db_config.get("path", ".")
     file_path = _extract_sqlite_path(raw)
-
     if os.path.isdir(file_path) or not file_path.endswith(".db"):
         return file_path, os.path.join(file_path, "app.db")
     return os.path.dirname(file_path), file_path
 
 
 def _db_url() -> str:
-    """Return the raw database URL / path from config."""
     config = get_config()
     db_config = config.get("database", {})
     return db_config.get("url") or db_config.get("path", ".")
 
 
 def _init_db_with_retry(raw_url: str, db_full_path: str, *, attempts: int = 2) -> None:
-    """Initialise the database, retrying once on failure."""
     for attempt in range(1, attempts + 1):
         try:
             if raw_url.startswith("sqlite:///"):
@@ -171,10 +173,6 @@ def _init_db_with_retry(raw_url: str, db_full_path: str, *, attempts: int = 2) -
 
 
 def _reset_db() -> str:
-    """
-    Dispose → re-initialise → wipe all tables → recreate default users.
-    Returns the database directory path.
-    """
     db_dir, db_full_path = _get_db_paths()
     raw = _db_url()
 
@@ -206,17 +204,63 @@ def _reset_db() -> str:
 
 
 # ---------------------------------------------------------------------------
-# 6.  Module / UI initialisation helper
+# 6.  Module initialisation helper
 # ---------------------------------------------------------------------------
 def _init_modules() -> None:
-    handler = ModuleHandler()
-    handler.initialize()
-    for module_name in handler.get_active_modules():
-        handler.load_module_ui(module_name)
+    """Initialise all active modules in two phases.
 
-    ui_registry = UIRegistry()
-    ui_registry.set_module_handler(handler, get_config().get("ui.shared_dir", None))
-    ui_registry.render_all("initialize")
+    Phase 1 — new-style functional hooks (headless, no Streamlit):
+        module_handler.initialize() calls on_module_activated() for every
+        active module that implements it.  Driver options + LLM callbacks
+        are registered here.
+
+    Phase 2 — legacy inject_ui_initialize() (headless-tolerant):
+        Old-style modules that have NOT yet been migrated to on_module_activated()
+        still register their driver options/actions inside inject_ui_initialize().
+        We load each *_ui.py and call inject_ui_initialize(), catching any
+        Streamlit exception (st.session_state writes fail headless, but the
+        functional registrations happen before any st.* call and are NOT
+        rolled back on exception).
+
+        This phase is safe to run for new-style modules too: their
+        inject_ui_initialize() only sets session_state defaults, so the
+        exception is caught and ignored harmlessly.
+
+        Remove this phase once every module has been migrated.
+        See MIGRATE.md migration checklist.
+    """
+    # Phase 1 — new-style on_module_activated()
+    if not module_handler._initialized:
+        module_handler.initialize()
+        # IMPORTANT: After initialization, we need to activate all modules
+        # to trigger on_module_activated() hooks
+        module_handler.activate_all()
+        log("debug", "Module handler initialized and activated")
+    else:
+        log("debug", "module_handler already initialized, skipping Phase 1")
+
+    log("debug", f"Active modules: {module_handler.get_active_modules()}")
+
+    # Phase 2 — legacy inject_ui_initialize() for old-style modules
+    for module_name in module_handler.get_active_modules():
+        module_info = module_handler.get_module_info(module_name)
+        if not module_info or not module_info.get("has_ui"):
+            continue
+        ui_mod = module_handler.load_module_ui(module_name)
+        if ui_mod is None:
+            continue
+        fn = getattr(ui_mod, "inject_ui_initialize", None)
+        if not callable(fn):
+            continue
+        try:
+            fn()
+            log("debug", f"  inject_ui_initialize OK: {module_name}")
+        except Exception:
+            # Streamlit context errors are expected and harmless here.
+            # Functional side-effects (register_option/register_action calls
+            # that happen before any st.* line) are already applied.
+            log("debug", f"  inject_ui_initialize partial (headless): {module_name}")
+
     log("debug", "✓ Modules initialised")
 
 
@@ -295,23 +339,40 @@ def _cleanup_directory(directory: str) -> None:
 # ---------------------------------------------------------------------------
 def pytest_sessionstart(session) -> None:  # noqa: ARG001
     log("debug", "=== SESSION START ===")
+
+    # Step 1: DB must exist before users or modules.
     _reset_db()
 
-    log("debug", "Initialising modules and UI registry…")
+    # Step 2: Users before modules (some modules query users at activation).
+    log("debug", "Creating default users…")
     try:
         init_user_manager(create_default_users=True)
     except Exception as exc:
         log("debug", f"⚠ init_user_manager failed: {exc}", level="ERROR")
+
+    # IMPORTANT: Set up services for modules BEFORE initialization
+    from shared.module_handler import ServiceLocator
+
+    services = ServiceLocator()
+    services.register("config", get_config())
+    services.register("user_manager", get_user_manager())
+    # Add other services as needed
+    module_handler.set_services(services)
+
+    # Step 3: Module initialisation (Phase 1: on_module_activated; Phase 2: legacy).
+    log("debug", "Initialising modules…")
     _init_modules()
 
+    # Step 4: RAG test corpus.
     log("debug", "Preparing shared RAG corpus…")
     _setup_rag_test_data()
+
     log("debug", "✓ Session setup complete")
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
     log("debug", "\n=== SESSION FINISH – CLEANUP ===")
-    time.sleep(1)  # let file handles close
+    time.sleep(1)
 
     subprocess.run(
         "pkill -9 -f 'streamlit run prof.py'",
@@ -380,7 +441,6 @@ def streamlit_server(setup_test_environment):
     log("debug", "=== STARTING STREAMLIT SERVER ===")
     subprocess.run("pkill -9 -f 'streamlit run prof.py'", shell=True, capture_output=True)
 
-    # Wait for the DB file to be ready
     _, db_full_path = _get_db_paths()
     _poll_until(
         lambda: os.path.exists(db_full_path) and os.path.getsize(db_full_path) > 0,
@@ -503,12 +563,12 @@ def page(browser_context):
 # ---------------------------------------------------------------------------
 def pytest_configure(config) -> None:
     markers = [
-        ("bdd",                "BDD tests using pytest-bdd"),
-        ("integration",        "Integration tests with UI"),
-        ("unit",               "Unit tests without UI"),
-        ("streamlit_testing",  "Tests using streamlit.testing.v1 (no browser)"),
-        ("playwright",         "Tests using Playwright (browser automation)"),
-        ("rag",                "Tests using RAG"),
+        ("bdd",               "BDD tests using pytest-bdd"),
+        ("integration",       "Integration tests with UI"),
+        ("unit",              "Unit tests without UI"),
+        ("streamlit_testing", "Tests using streamlit.testing.v1 (no browser)"),
+        ("playwright",        "Tests using Playwright (browser automation)"),
+        ("rag",               "Tests using RAG"),
     ]
     for name, description in markers:
         config.addinivalue_line("markers", f"{name}: {description}")
@@ -531,10 +591,6 @@ def _poll_until(
     interval: float = 1.0,
     label: str = "condition",
 ) -> bool:
-    """
-    Poll ``condition()`` until it returns truthy or ``timeout`` seconds elapse.
-    Returns True on success, False on timeout.
-    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if condition():

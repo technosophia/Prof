@@ -4,6 +4,15 @@ Provides a modular UI injection system for Streamlit applications. UI modules
 can register render functions that are automatically discovered and injected
 into predefined injection points.
 
+STREAMLIT DEPENDENCY IS INTENTIONAL HERE. This module runs only in a Streamlit
+context and is responsible for:
+  1. Discovering *_ui.py files
+  2. Calling inject_ui_xxx() functions (Streamlit rendering)
+  3. Calling inject_ui_initialize() for LEGACY modules (backward compatibility)
+     New modules use on_module_activated() via module_handler instead.
+
+ui_registry NEVER calls on_module_activated / on_module_deactivated — those are
+the responsibility of module_handler (no Streamlit).
 """
 
 import os
@@ -13,7 +22,11 @@ import inspect
 from typing import Dict, List, Callable, Any, Set, Tuple
 from core.logging import log
 
-def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: str | None = None) -> Tuple[Dict[str, Dict], Set[str]]:
+
+def _discover_ui_modules(
+    active_modules_tuple: Tuple[str, ...],
+    shared_ui_dir: str | None = None,
+) -> Tuple[Dict[str, Dict], Set[str]]:
     """Cached discovery of all UI modules and their render functions."""
     active_modules = set(active_modules_tuple)
     modules: Dict[str, Dict] = {}
@@ -28,14 +41,12 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: s
             return
 
         for root, dirs, files in os.walk(directory):
-            # Skip __pycache__ directories
             dirs[:] = [d for d in dirs if d != '__pycache__']
 
             for file_name in files:
                 if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
                     file_path = os.path.join(root, file_name)
 
-                    # Generate unique module key
                     if is_shared:
                         rel_path = os.path.relpath(file_path, directory)
                         module_key = rel_path[:-3].replace(os.path.sep, '_')
@@ -59,9 +70,9 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: s
 
                         for name, obj in inspect.getmembers(module):
                             if (inspect.isfunction(obj) and
-                                not name.startswith('_') and
-                                not inspect.isclass(obj) and
-                                name.startswith(PREFIX)):
+                                    not name.startswith('_') and
+                                    not inspect.isclass(obj) and
+                                    name.startswith(PREFIX)):
                                 injection_point = name[len(PREFIX):]
                                 injection_points.add(injection_point)
                                 render_functions[injection_point] = obj
@@ -72,19 +83,17 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: s
                                 'render_functions': render_functions,
                                 'path': file_path,
                                 'is_shared': is_shared,
-                                'base_name': base_name
+                                'base_name': base_name,
                             }
-                            log("info", f"Successfully registered UI module: {module_key} with {len(render_functions)} render functions: {list(render_functions.keys())}")
+                            log("info", f"Registered UI module: {module_key} with {len(render_functions)} functions: {list(render_functions.keys())}")
                         else:
                             log("warning", f"No render functions found in module: {module_key}")
 
                     except Exception as e:
                         log("error", f"Failed to register UI module {module_key}: {str(e)}", exc_info=True)
 
-    # Discover shared UI modules (always included)
     _recursive_discover(shared_dir, is_shared=True, base_name="shared")
 
-    # Discover module UI modules (only active ones)
     modules_dir = os.path.join(project_root, "modules")
     if os.path.exists(modules_dir):
         for module_name in os.listdir(modules_dir):
@@ -102,7 +111,18 @@ def _discover_ui_modules(active_modules_tuple: Tuple[str, ...], shared_ui_dir: s
 
 
 class UIRegistry:
-    """Registry for UI modules and their render functions."""
+    """
+    Registry for UI modules and their render functions.
+
+    Responsible ONLY for Streamlit UI injection points (inject_ui_xxx).
+    Functional module lifecycle (on_module_activated etc.) is handled by
+    module_handler, not here.
+
+    Backward compatibility:
+    - inject_ui_initialize() is still called for ALL modules (legacy + new)
+      because it is the only safe place to set up st.session_state.
+    - on_module_activated() is called by module_handler (no Streamlit).
+    """
 
     def __init__(self, shared_ui_dir: str | None = None):
         self.modules: Dict[str, Dict] = {}
@@ -111,9 +131,11 @@ class UIRegistry:
         self.last_active_hash: Tuple[str, ...] | None = None
         self.module_handler = None
         self.shared_ui_dir = shared_ui_dir
+        # Track which modules have had inject_ui_initialize called
+        self._initialized_modules: Set[str] = set()
 
     def set_module_handler(self, handler, shared_ui_dir: str | None = None):
-        """Set the module handler instance and optional shared UI directory override."""
+        """Set the module handler instance."""
         self.module_handler = handler
         if shared_ui_dir is not None:
             self.shared_ui_dir = shared_ui_dir
@@ -126,7 +148,6 @@ class UIRegistry:
             self.module_handler = module_handler
             log("info", "Falling back to imported module handler")
 
-        # Ensure module handler itself is initialized
         if hasattr(self.module_handler, '_initialized') and not self.module_handler._initialized:
             self.module_handler.initialize()
 
@@ -137,14 +158,43 @@ class UIRegistry:
             self.modules, self.injection_points = _discover_ui_modules(current_hash, self.shared_ui_dir)
             self.last_active_hash = current_hash
             log("info", f"UI Registry refreshed: {len(self.modules)} modules registered")
-            log("info", f"Registered UI modules: {list(self.modules.keys())}")
             log("debug", f"Discovered injection points: {sorted(self.injection_points)}")
 
+            # Call inject_ui_initialize for newly discovered modules
+            # This is the ONLY place inject_ui_initialize is called automatically.
+            # It is intentionally Streamlit-aware: it sets up st.session_state.
+            self._run_initialize_hooks(current_hash)
+
+    def _run_initialize_hooks(self, active_modules_tuple: Tuple[str, ...]) -> None:
+        """
+        Call inject_ui_initialize() for any module that hasn't been initialized yet.
+
+        This covers:
+        - Legacy modules that use inject_ui_initialize for ALL setup
+        - New-style modules that use inject_ui_initialize ONLY for st.session_state setup
+
+        Functional setup (driver registration, LLM callbacks) must have already been
+        done via on_module_activated() by the time this runs.
+        """
+        for module_key, module_info in self.modules.items():
+            base_name = module_info['base_name']
+            if base_name in self._initialized_modules:
+                continue
+
+            init_fn = module_info['render_functions'].get('initialize')
+            if init_fn is not None:
+                try:
+                    init_fn()
+                    log("info", f"Called inject_ui_initialize for module: {base_name}")
+                except Exception as e:
+                    log("error", f"inject_ui_initialize failed for {base_name}: {e}", exc_info=True)
+
+            self._initialized_modules.add(base_name)
+
     def register_render_callback(self, callback: Callable[[str, str, Any], Any]):
-        """Register a callback to process render results (for debugging/alteration)."""
+        """Register a callback to process render results."""
         if callable(callback):
             self.render_callbacks.append(callback)
-            log("debug", f"Registered render callback: {callback.__name__ if hasattr(callback, '__name__') else 'anonymous'}")
         else:
             log("warning", "Attempted to register non-callable as render callback")
 
@@ -159,15 +209,16 @@ class UIRegistry:
                     result = new_result
             return result
         except Exception as e:
-            log("error", f"Error rendering injection point - {injection_point} from {module_key}: {str(e)}", exc_info=True)
+            log("error", f"Error rendering {injection_point} from {module_key}: {str(e)}", exc_info=True)
             return None
 
     def render(self, injection_point: str) -> Dict[str, Any]:
-        """Render all functions for a specific injection point.
+        """
+        Render all functions for a specific injection point.
 
-        Returns a dictionary where:
+        Returns a dict:
         - For admin_tab: keys are tab names, values are content functions
-        - For other injection points: keys are module keys, values are results (usually None)
+        - For other injection points: keys are module keys, values are results
         """
         self.ensure_initialized()
 
@@ -179,7 +230,7 @@ class UIRegistry:
             base_name = module_info['base_name']
 
             if not is_shared and base_name not in active_modules:
-                log("debug", f"Skipping module {module_key} because base module {base_name} is not active")
+                log("debug", f"Skipping {module_key}: base module {base_name} is not active")
                 continue
 
             render_func = module_info['render_functions'].get(injection_point)
@@ -188,42 +239,30 @@ class UIRegistry:
 
                 if result is not None:
                     if injection_point == 'admin_tab':
-                        # For admin tabs, expect (tab_name, content_func) tuple
                         if isinstance(result, tuple) and len(result) == 2:
                             tab_name, content_func = result
                             results[tab_name] = content_func
                             log("debug", f"ADDED TAB '{tab_name}' from {module_key}")
                         else:
-                            log("warning", f"Module {module_key} returned invalid format for admin_tab. Expected (tab_name, content_func) tuple.")
+                            log("warning", f"Module {module_key} returned invalid format for admin_tab.")
                     else:
-                        # For other injection points, store by module key
                         results[module_key] = result
 
         return results
 
     def render_all(self, injection_point: str) -> List[Any]:
-        """Legacy method: Call all render functions for a specific injection point.
-
-        Returns a list of results (for backward compatibility).
-        """
-        results_dict = self.render(injection_point)
-        return list(results_dict.values())
+        """Legacy: returns list of results."""
+        return list(self.render(injection_point).values())
 
     def render_admin_tabs(self) -> Dict[str, Any]:
-        """Render all admin tabs from registered modules.
-
-        Returns a dictionary of {tab_name: content_function}
-        """
-        admin_tabs = self.render("admin_tab")
-        return admin_tabs
+        """Render all admin tabs. Returns {tab_name: content_function}."""
+        return self.render("admin_tab")
 
     def get_all_injection_points(self) -> List[str]:
-        """Get all registered injection points, sorted alphabetically."""
         self.ensure_initialized()
         return sorted(self.injection_points)
 
     def get_injection_point_stats(self) -> Dict[str, int]:
-        """Get statistics about injection point usage across all modules."""
         self.ensure_initialized()
         stats = {}
         for injection_point in self.injection_points:
@@ -232,15 +271,13 @@ class UIRegistry:
         return stats
 
     def get_module(self, module_key: str) -> Dict:
-        """Get information about a registered module."""
         self.ensure_initialized()
         return self.modules.get(module_key)
 
     def has_module(self, module_key: str) -> bool:
-        """Check if a module is registered."""
         self.ensure_initialized()
         return module_key in self.modules
 
 
-# Create a singleton instance
+# Singleton instance
 ui_registry = UIRegistry()
