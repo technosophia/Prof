@@ -48,7 +48,7 @@ def load_all_translations() -> Dict[str, Dict[str, str]]:
 
     # Log starting point
     cwd = os.getcwd()
-    log("info", f"Starting translation loading from working directory: {cwd}")
+    log("debug", f"Starting translation loading from working directory: {cwd}")
 
     # Walk only from the project root – this covers everything recursively
     base_dir = "."
@@ -78,9 +78,9 @@ def load_all_translations() -> Dict[str, Dict[str, str]]:
                         rel_dir = os.path.relpath(root, os.getcwd())
                         translation_files.append((filepath, rel_dir))
 
-    log("info", f"Directory scan complete. Checked {directories_checked} directories")
-    log("info", f"Found {translations_dirs_found} directories named 'translations'")
-    log("info", f"Found {len(translation_files)} translation JSON files")
+    log("debug", f"Directory scan complete. Checked {directories_checked} directories")
+    log("debug", f"Found {translations_dirs_found} directories named 'translations'")
+    log("debug", f"Found {len(translation_files)} translation JSON files")
 
     if not translation_files:
         log("warning", "No translation files found in any 'translations' directories")

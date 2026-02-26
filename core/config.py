@@ -64,7 +64,7 @@ class Config:
             if prefix_parts:
                 last_part = prefix_parts[-1]
                 if len(data) == 1 and last_part in data and isinstance(data[last_part], dict):
-                    print(f"Auto-flattening wrapped config: {file_path} (using inner '{last_part}')")
+                    log("debug", f"Auto-flattening wrapped config: {file_path} (using inner '{last_part}')")
                     data = data[last_part]
 
             current = self._config
@@ -75,7 +75,7 @@ class Config:
             self._source_files[tuple(prefix_parts)] = file_path
 
             prefix_str = ".".join(prefix_parts) if prefix_parts else "root"
-            print(f"Loaded config from {file_path} (prefix: {prefix_str})")
+            log("debug", f"Loaded config from {file_path} (prefix: {prefix_str})")
         except Exception as e:
             print(f"Error loading config file {file_path}: {e}")
 
@@ -216,14 +216,14 @@ def _load_config() -> Config:
         shared_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Debug logging
-        log("info", f"_load_config: __file__ = {__file__}")
-        log("info", f"_load_config: shared_dir = {shared_dir}")
+        log("debug", f"_load_config: __file__ = {__file__}")
+        log("debug", f"_load_config: shared_dir = {shared_dir}")
 
         if not shared_dir:
             raise ValueError("shared_dir is None or empty")
 
         root_dir = os.path.dirname(shared_dir)
-        log("info", f"_load_config: root_dir = {root_dir}")
+        log("debug", f"_load_config: root_dir = {root_dir}")
 
         if not root_dir or not os.path.exists(root_dir):
             raise ValueError(f"Invalid root_dir: {root_dir}")
@@ -235,11 +235,11 @@ def _load_config() -> Config:
         if test_mode:
             additional_prefixes.append('tests/test')
 
-        log("info", f"_load_config: test_mode = {test_mode}")
-        log("info", f"_load_config: additional_prefixes = {additional_prefixes}")
+        log("debug", f"_load_config: test_mode = {test_mode}")
+        log("debug", f"_load_config: additional_prefixes = {additional_prefixes}")
 
         config = load_all_configs(root_dir, additional_prefixes)
-        log("info", f"_load_config: config loaded successfully, has {len(config)} top-level sections")
+        log("debug", f"_load_config: config loaded successfully, has {len(config)} top-level sections")
 
         return config
 

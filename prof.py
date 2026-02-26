@@ -45,7 +45,7 @@ get_available_languages()
 
 # Initialize Module Handler - store in session state
 if 'module_handler' not in st.session_state:
-    log("info", "Initializing module handler in session state")
+    log("debug", "Initializing module handler in session state")
     st.session_state.module_handler = ModuleHandler()
 
     # Set up services BEFORE initialization
@@ -101,7 +101,7 @@ auto_import_conversations_from_config(
 # Initialize UI registry - do this here, not inside main()
 # The registry will be cached in session state
 if 'ui_registry' not in st.session_state:
-    log("info", "Initializing UI registry in session state")
+    log("debug", "Initializing UI registry in session state")
     st.session_state.ui_registry = UIRegistry()
 
 # Get the registry from session state

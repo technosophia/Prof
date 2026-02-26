@@ -67,7 +67,7 @@ class ClassicRAGEngine(RAGEngine):
                 if meta_file.exists():
                     with open(meta_file, 'rb') as f:
                         self.metadata[user_id] = pickle.load(f)
-                log("info", f"Loaded FAISS index for user {user_id} with {index.ntotal} vectors")
+                log("debug", f"Loaded FAISS index for user {user_id} with {index.ntotal} vectors")
             except Exception as e:
                 log("error", f"Failed to load FAISS index for user {user_id}: {str(e)}")
 

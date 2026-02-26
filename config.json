@@ -1,10 +1,11 @@
 {
   "logging": {
     "level": "INFO",
-    "format": "[{level}] {timestamp} - {message}",
+    "format": "[{level}({function})] {timestamp} - {message}",
     "include_traceback": true,
     "filtered_functions": [
       "_initialize",
+      "_load_config",
       "_create_all_tables",
       "empty_all_tables",
       "_create_default_users_fallback",
@@ -17,7 +18,21 @@
       "initialize",
       "clear_all_documents",
       "upload_document",
-      "dispose"
+      "dispose",
+      "discover_engines",
+      "__init__",
+      "_run_initialize_hooks",
+      "_load_indices",
+      "_init_data_directory",
+      "_call_module_hook",
+      "_register_monitor_callback",
+      "on_module_activated",
+      "load_all_translations",
+      "load_all_prompts",
+      "validate_config",
+      "initialize_current_llm",
+      "_get_embedding_model",
+      "auto_login_first_user"
     ]
   },
   "app": {
