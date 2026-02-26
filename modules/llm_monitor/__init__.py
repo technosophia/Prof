@@ -1,20 +1,32 @@
 # modules/llm_monitor/__init__.py
 """
 LLM Monitor Module - Core functionality for monitoring LLM usage.
-NO Streamlit imports here.
+
+NO Streamlit imports here! This module follows the Functional Core / UI Separation pattern:
+- Business logic is in llm_monitor.py (pure functional)
+- Streamlit dependencies are injected via ServiceLocator in on_module_activated()
+- UI code is isolated in llm_monitor_ui.py
+
+The module lifecycle hooks receive services from the ServiceLocator, which provides
+all dependencies (config, db_manager, llm_manager) without touching st_shared.cached.
 """
 
 from typing import Optional, Any
 from core.logging import log
 
-# Module state
+# Module state - store references to services for later use (unregistration)
 _INITIALIZED = False
 _MONITOR_CALLBACK_REGISTERED = False
-_LLM_MANAGER = None  # Store reference to llm_manager from services
+_LLM_MANAGER = None  # Store reference to llm_manager from services for unregistration
+_SERVICES = None     # Store services for later use if needed
 
 
 def _get_manager(services=None):
-    """Get or create the LLM monitor instance with injected dependencies."""
+    """Get or create the LLM monitor instance with injected dependencies.
+
+    This factory function uses the service locator to inject dependencies
+    instead of importing from st_shared.cached.
+    """
     from modules.llm_monitor.llm_monitor_factory import get_llm_monitor, reset_llm_monitor
 
     if services is not None:
@@ -33,12 +45,15 @@ def _get_manager(services=None):
 def _create_monitor_callback(monitor):
     """Create a callback function for monitoring LLM calls."""
     def monitor_callback(data: dict):
-        """Callback to log LLM calls."""
-        # Just pass the data through - user_id and conversation_id
-        # should already be in the data from the LLM manager
+        """Callback to log LLM calls.
+
+        CRITICAL: This callback runs headless - NO Streamlit access!
+        The data should already contain user_id and conversation_id from the
+        LLM manager (the caller), not from st.session_state.
+        """
         monitor.log_llm_call(data)
 
-    # Preserve the function name for debugging
+    # Set metadata for debugging and unregistration
     monitor_callback.__name__ = "monitor_callback"
     monitor_callback.__module__ = "modules.llm_monitor"
     return monitor_callback
@@ -53,7 +68,7 @@ def _register_monitor_callback(llm_manager):
 
     try:
         # Get the monitor instance
-        monitor = _get_manager()
+        monitor = _get_manager(_SERVICES)
 
         # Create and register the callback
         callback = _create_monitor_callback(monitor)
@@ -88,21 +103,32 @@ def _unregister_monitor_callback(llm_manager):
 
 
 # ---------------------------------------------------------------------------
-# Module lifecycle hooks  (NO Streamlit)
+# Module lifecycle hooks  (NO Streamlit, called by ModuleHandler)
 # ---------------------------------------------------------------------------
 
 def on_module_activated(services: Optional[Any] = None) -> None:
     """
     Called by ModuleHandler when module is activated.
-    This runs in headless context - no Streamlit!
+
+    This is the ONLY place where services are injected. The function:
+    1. Stores service references for later use (unregistration)
+    2. Initializes the monitor with injected dependencies
+    3. Registers callbacks with the LLM manager
+
+    CRITICAL: This runs in headless context - no Streamlit access!
 
     Args:
-        services: Optional ServiceLocator with injected dependencies
-                 (config, db_manager, llm_manager, etc.)
+        services: ServiceLocator with ALL dependencies the module needs:
+                 - config: Configuration object
+                 - db_manager: Database manager for storing logs
+                 - llm_manager: LLM manager for callback registration
     """
-    global _LLM_MANAGER
+    global _LLM_MANAGER, _SERVICES
 
     log("info", "LLM Monitor module activated")
+
+    # Store services for later use (unregistration, config changes)
+    _SERVICES = services
 
     # Initialize the monitor with injected services if provided
     if services is not None:
@@ -116,9 +142,7 @@ def on_module_activated(services: Optional[Any] = None) -> None:
         else:
             log("warning", "LLM manager not available in services")
     else:
-        log("debug", "LLM Monitor using default initialization")
-        # Try to get llm_manager from elsewhere? For now, warn
-        log("warning", "No services provided, cannot access LLM manager")
+        log("warning", "No services provided - LLM monitor may not function correctly")
         return
 
     # Register the monitor callback with the LLM manager
@@ -129,8 +153,12 @@ def on_module_activated(services: Optional[Any] = None) -> None:
 
 
 def on_module_deactivated() -> None:
-    """Called by ModuleHandler when module is deactivated."""
-    global _LLM_MANAGER
+    """
+    Called by ModuleHandler when module is deactivated.
+
+    Cleans up by unregistering callbacks using stored service references.
+    """
+    global _LLM_MANAGER, _MONITOR_CALLBACK_REGISTERED, _SERVICES, _INITIALIZED
 
     log("info", "LLM Monitor module deactivated")
 
@@ -140,32 +168,57 @@ def on_module_deactivated() -> None:
     else:
         log("warning", "LLM manager not available, cannot unregister callbacks")
 
+    # Reset state
+    _LLM_MANAGER = None
+    _MONITOR_CALLBACK_REGISTERED = False
+    _SERVICES = None
+    _INITIALIZED = False
+
 
 def on_module_config_changed() -> None:
-    """Called when module configuration changes."""
+    """
+    Called by ModuleHandler when module configuration changes.
+
+    Refreshes the monitor and re-registers callbacks.
+    """
     log("info", "LLM Monitor configuration changed, reloading")
+
+    # Reset the monitor instance
     from modules.llm_monitor.llm_monitor_factory import reset_llm_monitor
     reset_llm_monitor()
 
-    # Re-register callback with fresh monitor instance if we have llm_manager
+    # Re-register callback with fresh monitor instance
     if _LLM_MANAGER:
         _unregister_monitor_callback(_LLM_MANAGER)
         _register_monitor_callback(_LLM_MANAGER)
 
 
 # ---------------------------------------------------------------------------
-# Legacy initialization (kept for backward compatibility)
+# Legacy initialization - DEPRECATED
 # ---------------------------------------------------------------------------
 
 def initialize() -> bool:
-    """Legacy initialization function - kept for backward compatibility."""
+    """
+    DEPRECATED: Legacy initialization function.
+
+    This function should NOT be used in new code. It relies on st_shared.cached
+    which breaks headless operation. Use on_module_activated(services) instead.
+
+    Kept only for backward compatibility during migration.
+    """
     global _INITIALIZED
 
+    log("warning", "LLM Monitor: Using deprecated initialize() - should migrate to on_module_activated(services)")
+
     try:
-        # This should only be called in Streamlit context with llm_manager
-        # available via get_llm_manager() from cached.py
+        # This is the ONLY place that should import from st_shared.cached
+        # Once migration is complete, this function will be removed
         from st_shared.cached import get_llm_manager
         llm_manager = get_llm_manager()
+
+        # Store the llm_manager reference
+        global _LLM_MANAGER
+        _LLM_MANAGER = llm_manager
 
         # Register the monitor callback
         _register_monitor_callback(llm_manager)
@@ -174,3 +227,11 @@ def initialize() -> bool:
     except Exception as exc:
         log("error", f"Failed to initialize LLM monitor: {exc}", exc_info=True)
         return False
+
+
+__all__ = [
+    "on_module_activated",
+    "on_module_deactivated",
+    "on_module_config_changed",
+    "initialize",  # Deprecated, kept for compatibility
+]

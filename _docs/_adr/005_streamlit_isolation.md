@@ -1,6 +1,3 @@
-Yes, absolutely! The migration guide needs to be updated to reflect the lessons learned from this migration. Here's an improved version of `005_streamlit_isolation.md` with more accurate guidance:
-
-```markdown
 # Module Migration Guide: Functional Core / UI Separation
 
 This document explains how to migrate existing modules to the new architecture
@@ -15,56 +12,68 @@ The goal is to allow any module's functional logic to run:
 - **In tests** without Streamlit, without patching `st_shared.cached`
 - **In future non-Streamlit interfaces** (REST API, etc.)
 
-The Streamlit UI layer remains intentionally Streamlit-dependent — that is fine.
-The problem was mixing the two in the same functions.
+**CRITICAL:** The key architectural violation we're fixing is the use of `st_shared.cached` in business logic. 
+This module provided convenient access to singletons, but it **binds your code to Streamlit's runtime**.
+After migration, **NO business logic file should import from `st_shared.cached`** - all dependencies come from the ServiceLocator.
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  APPLICATION STARTUP  (app.py or equivalent)        │
-│  - builds ServiceLocator                            │
-│  - registers ALL shared services:                   │
-│    • config (plain config object)                   │
+┌──────────────────────────────────────────────────────┐
+│  APPLICATION STARTUP  (app.py or equivalent)         │
+│  - builds ServiceLocator                             │
+│  - registers ALL shared services:                    │
+│    • config (plain config object)                    │
 │    • db_manager                                      │
 │    • user_manager                                    │
-│    • llm_manager          ← IMPORTANT!              │
+│    • llm_manager                                     │
 │    • conversation_manager                            │
 │    • prompt_manager                                  │
 │    • any other shared services                       │
 │  - calls module_handler.set_services(services)       │
 │  - calls module_handler.initialize()                 │
-│  - calls module_handler.activate_all()   ← NEW       │
+│  - calls module_handler.activate_all()               │
 │  - calls ui_registry.ensure_initialized() (Streamlit)│
-└─────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────┘
            │                        │
            ▼                        ▼
-┌─────────────────┐      ┌──────────────────────────┐
-│  module_handler │      │  ui_registry              │
-│  (NO Streamlit) │      │  (Streamlit context only) │
-│                 │      │                           │
-│  calls:         │      │  calls:                   │
-│  on_module_     │      │  inject_ui_initialize()   │
-│  activated()    │      │  inject_ui_sidebar()      │
-│  on_module_     │      │  inject_ui_xxx()          │
-│  deactivated()  │      └──────────────────────────┘
-│  on_module_     │
+┌──────────────────┐      ┌───────────────────────────┐
+│  module_handler  │      │  ui_registry              │
+│  (NO Streamlit)  │      │  (Streamlit context only) │
+│                  │      │                           │
+│  calls:          │      │  calls:                   │
+│  on_module_      │      │  inject_ui_initialize()   │
+│  activated()     │      │  inject_ui_sidebar()      │
+│  on_module_      │      │  inject_ui_xxx()          │
+│  deactivated()   │      └───────────────────────────┘
+│  on_module_      │
 │  config_changed()│
-└─────────────────┘
+└──────────────────┘
 ```
+
+**Key Invariant:** The left side (functional core) has ZERO knowledge of Streamlit. The right side (UI) is the ONLY place where `st.*` calls exist.
 
 ---
 
-## The 4 Callback Types
+## The Golden Rule: NO `st_shared.cached` in Business Logic
 
-| Type | Streamlit? | Where registered | When called |
-|------|-----------|-----------------|-------------|
-| **Driver option/action** | No | `on_module_activated()` | By driver (headless OK) |
-| **LLM monitor callback** | No | `on_module_activated()` | By llm_manager |
-| **LLM context callback** | No | `on_module_activated()` | By llm_manager |
-| **UI injection point** | Yes | `inject_ui_xxx()` | By ui_registry (Streamlit) |
+```python
+# ❌ WRONG - This binds your module to Streamlit
+from st_shared.cached import get_config, get_user_manager, get_llm_manager
+
+class YourManager:
+    def __init__(self):
+        self.config = get_config()  # Can only run in Streamlit!
+        self.user_manager = get_user_manager()  # Will crash headless!
+
+# ✅ RIGHT - Dependencies are injected
+class YourManager:
+    def __init__(self, config, user_manager):
+        self.config = config  # Plain object, works anywhere
+        self.user_manager = user_manager  # Works in any context
+```
 
 ---
 
@@ -75,10 +84,10 @@ The problem was mixing the two in the same functions.
 from shared.module_handler import ServiceLocator, module_handler
 
 services = ServiceLocator()
-services.register("config", plain_config_object)      # NOT st_shared.cached
+services.register("config", plain_config_object)      # NOT st_shared.cached!
 services.register("db_manager", db_manager)           # Database manager
 services.register("user_manager", user_manager)       # User management
-services.register("llm_manager", llm_manager)         # ← CRITICAL for LLM monitoring!
+services.register("llm_manager", llm_manager)         # For LLM callbacks
 services.register("conversation_manager", conversation_manager)
 services.register("prompt_manager", prompt_manager)
 # ... any other shared services that modules might need
@@ -88,52 +97,36 @@ module_handler.initialize()
 module_handler.activate_all()   # calls on_module_activated(services) for each active module
 ```
 
-**IMPORTANT**: The ServiceLocator must contain **ALL** services that modules might need access to in their `on_module_activated()` hooks. The most commonly needed services are:
-- `config` - Plain configuration object
-- `db_manager` - Database access
-- `user_manager` - User management
-- `llm_manager` - LLM access (for monitoring callbacks, context injection)
-- `conversation_manager` - Conversation management
-- `prompt_manager` - Prompt management
+**IMPORTANT**: The ServiceLocator must contain **ALL** services that modules might need. 
+The old pattern of importing from `st_shared.cached` is replaced by receiving these services 
+in `on_module_activated()`.
 
 ---
 
 ## Step-by-Step Migration
 
-### Step 1 — Audit your module
+### Step 1 — Audit your module for `st_shared.cached` imports
 
-In your module directory, identify:
+Search your module for:
+```bash
+grep -r "st_shared.cached" modules/your_module/
+```
 
-**Functional (should have NO Streamlit):**
-- Business logic classes (managers, engines, etc.)
-- Driver registration (`register_option`, `register_action`)
-- LLM callbacks (monitor, context injection)
-- Configuration loading
-
-**UI (should ONLY be in `*_ui.py`):**
-- `st.*` calls
-- `st.session_state` access
-- `st.sidebar.*`, `st.expander`, etc.
-- `inject_ui_xxx` functions
-
-**Mixed (the problem):**
-- `inject_ui_initialize()` doing both `st.session_state` setup AND driver registration
-- Functional classes calling `get_config()` from `st_shared.cached`
-- `rag_context_callback` writing to `st.session_state`
-- Monitor callbacks trying to access `st.session_state` for user_id (should come from LLM manager)
-
----
+Every file that imports from `st_shared.cached` needs to be refactored. The ONLY exception
+is the factory file (`your_module_factory.py`), which serves as the bridge between
+Streamlit-cached singletons and the functional core.
 
 ### Step 2 — Create a factory (the Streamlit bridge)
 
 For any module that has a singleton built with Streamlit-cached objects,
-create `your_module_factory.py`:
+create `your_module_factory.py`. This is the **ONLY** file in your module
+that may import from `st_shared.cached`:
 
 ```python
 # modules/your_module/your_module_factory.py
 """
 Bridge between Streamlit-cached singletons and the pure functional core.
-This is the ONLY file in this module that may import from st_shared.
+This is the ONLY file in this module that may import from st_shared.cached.
 """
 
 from __future__ import annotations
@@ -150,6 +143,7 @@ def get_your_manager(config=None, user_manager=None) -> "YourManager":
     if _instance is not None:
         return _instance
 
+    # This is the ONLY place where st_shared.cached is allowed!
     if config is None or user_manager is None:
         from st_shared.cached import get_config, get_user_manager
         if config is None:
@@ -168,8 +162,6 @@ def reset_your_manager() -> None:
     _instance = None
 ```
 
----
-
 ### Step 3 — Refactor the functional core
 
 Remove ALL `st_shared.cached` imports from your business logic class.
@@ -177,32 +169,36 @@ Accept dependencies as constructor parameters:
 
 ```python
 # modules/your_module/your_module.py
-# NO import from st_shared here
+# NO import from st_shared here - this file must be pure!
 
 class YourManager:
     def __init__(self, config, user_manager):
-        self._config = config
-        self._user_manager = user_manager
+        self._config = config  # Injected, not imported
+        self._user_manager = user_manager  # Injected, not imported
         rag_cfg = config.get("modules.your_module", {})
         # ... rest of init
+    
+    def do_something(self, user_id):
+        # user_id should come from caller, not from st.session_state!
+        user = self._user_manager.get_user(user_id)
+        # ... business logic
 ```
-
----
 
 ### Step 4 — Add module lifecycle hooks in `__init__.py`
 
 Replace `inject_ui_initialize()` doing functional work with proper hooks.
-**CRITICAL**: Store references to services you need for later use (like unregistration):
+**CRITICAL**: Store references to services you need for later use:
 
 ```python
 # modules/your_module/__init__.py
-# NO Streamlit import here
+# NO Streamlit import here - NO st_shared.cached!
 
 from .your_module import YourManager
 
 _INITIALIZED = False
 # Store references to services you'll need later
-_LLM_MANAGER = None  # Example: store llm_manager for callback registration
+_LLM_MANAGER = None  # Store for callback unregistration
+_SERVICES = None     # Store for later use
 
 def _get_manager(services=None):
     from modules.your_module.your_module_factory import get_your_manager, reset_your_manager
@@ -221,6 +217,7 @@ def _create_monitor_callback(manager):
     """Create a callback with proper module attribution."""
     def callback(data: dict):
         # The data should already contain user_id from the caller
+        # NEVER try to get user_id from st.session_state here!
         manager.do_something(data)
     
     # Important for debugging and unregistration
@@ -232,14 +229,21 @@ def _create_monitor_callback(manager):
 def on_module_activated(services=None) -> None:
     """
     Called by ModuleHandler (no Streamlit).
+    
+    This is the ONLY place where services are injected. All dependencies
+    come from the ServiceLocator, NOT from st_shared.cached.
+    
     Register driver options, LLM callbacks, etc.
     """
-    global _LLM_MANAGER
+    global _LLM_MANAGER, _SERVICES
+    
+    # Store services for later use
+    _SERVICES = services
     
     # Initialize manager with injected services
     manager = _get_manager(services)
     
-    # STORE REFERENCES TO SERVICES YOU NEED
+    # Get service references - these come from ServiceLocator, not st_shared.cached!
     if services is not None:
         _LLM_MANAGER = services.get("llm_manager") if hasattr(services, "get") else None
     
@@ -253,10 +257,10 @@ def on_module_activated(services=None) -> None:
 
 
 def on_module_deactivated() -> None:
-    """Called by ModuleHandler. Unregister callbacks."""
-    global _INITIALIZED, _LLM_MANAGER
+    """Called by ModuleHandler. Unregister callbacks using stored references."""
+    global _INITIALIZED, _LLM_MANAGER, _SERVICES
     
-    # Use stored reference to unregister
+    # Use stored reference to unregister - no need to import from st_shared!
     if _LLM_MANAGER:
         # Filter out callbacks from this module
         if hasattr(_LLM_MANAGER, '_monitor_callbacks'):
@@ -268,26 +272,13 @@ def on_module_deactivated() -> None:
     _unregister_all_callbacks()
     _INITIALIZED = False
     _LLM_MANAGER = None
-
-
-def on_module_config_changed() -> None:
-    """Called by ModuleHandler when config file changes."""
-    from modules.your_module.your_module_factory import reset_your_manager
-    reset_your_manager()
-    _get_manager().refresh_config()
+    _SERVICES = None
 ```
-
-**Key points for LLM callbacks:**
-1. Don't import `get_llm_manager()` from anywhere - get it from services
-2. Store the reference for later unregistration
-3. Set `__name__` and `__module__` on callbacks for debugging
-4. The callback should receive data with `user_id` already populated by the caller
-
----
 
 ### Step 5 — Clean up `*_ui.py`
 
-The UI file should ONLY contain:
+The UI file should ONLY contain Streamlit rendering code. 
+**NO business logic, NO service registration, NO callbacks:**
 
 ```python
 # modules/your_module/your_module_ui.py
@@ -298,6 +289,7 @@ from core.logging import log
 
 
 def _get_manager():
+    # This is fine - the factory handles the Streamlit-cached singleton
     from modules.your_module.your_module_factory import get_your_manager
     return get_your_manager()
 
@@ -309,7 +301,6 @@ def inject_ui_initialize() -> bool:
     """
     if 'your_module_enabled' not in st.session_state:
         st.session_state.your_module_enabled = True
-    # etc.
     return True
 
 
@@ -320,105 +311,68 @@ def inject_ui_sidebar():
 ```
 
 **Remove from `*_ui.py`:**
-- Any callback registration (`register_llm_callback`, `register_option`, etc.)
-- Any business logic
-- Any attempt to access `user_id` from `st.session_state` for monitoring data (should come from LLM manager)
+- ❌ Any callback registration (`register_llm_callback`, `register_option`, etc.)
+- ❌ Any business logic
+- ❌ Any attempt to access `user_id` from `st.session_state` for monitoring data
+- ❌ Any imports from `st_shared.cached` (the factory handles this)
 
 ---
 
-## What Changes in Application Startup
+## Common Pitfalls with `st_shared.cached`
 
-### BEFORE (incomplete service registration)
+### 1. Importing `get_llm_manager()` in functional code
 ```python
-services = ServiceLocator()
-services.register("config", get_config())
-services.register("user_manager", get_user_manager())
-# Missing llm_manager, db_manager, etc.
-module_handler.set_services(services)
-```
-
-### AFTER (complete service registration)
-```python
-services = ServiceLocator()
-services.register("config", get_config())
-services.register("db_manager", get_db_manager())
-services.register("user_manager", get_user_manager())
-services.register("llm_manager", get_llm_manager())          # ← CRITICAL!
-services.register("conversation_manager", get_conversation_manager())
-services.register("prompt_manager", get_prompt_manager())
-# Add any other services modules might need
-module_handler.set_services(services)
-```
-
----
-
-## What Changes in `module_handler`
-
-### Before
-```
-module_handler.toggle_module("x", True)
-  → calls inject_ui_initialize()  ← WRONG: Streamlit in functional layer
-```
-
-### After
-```
-module_handler.toggle_module("x", True)
-  → calls on_module_activated(services)  ← functional only
-
-ui_registry.ensure_initialized()
-  → calls inject_ui_initialize()  ← Streamlit context only
-```
-
-The key invariant: **`module_handler` never calls any `inject_ui_xxx` function.**
-
----
-
-## Common Pitfalls
-
-### 1. Missing services in ServiceLocator
-```python
-# WRONG - modules can't access llm_manager
-services.register("config", config)
-services.register("user_manager", user_manager)
-
-# RIGHT - register ALL services modules might need
-services.register("config", config)
-services.register("user_manager", user_manager)
-services.register("llm_manager", llm_manager)
-services.register("db_manager", db_manager)
-services.register("conversation_manager", conversation_manager)
-services.register("prompt_manager", prompt_manager)
-```
-
-### 2. Importing get_llm_manager() in functional code
-```python
-# WRONG - imports from st_shared.cached
+# ❌ WRONG - imports from st_shared.cached, binds to Streamlit
 from st_shared.cached import get_llm_manager
 
-# RIGHT - get from services in on_module_activated
+def my_function():
+    llm_manager = get_llm_manager()  # Will crash headless!
+
+# ✅ RIGHT - get from services in on_module_activated
 def on_module_activated(services):
-    llm_manager = services.get("llm_manager")
+    llm_manager = services.get("llm_manager")  # Injected, works anywhere
 ```
 
-### 3. Trying to access st.session_state in monitor callbacks
+### 2. Using `st_shared.cached` in business logic classes
 ```python
-# WRONG - monitor callbacks run headless
+# ❌ WRONG - class depends on Streamlit at import time
+class MyManager:
+    def __init__(self):
+        self.config = get_config()  # Imported at module top-level
+    
+    def do_something(self):
+        user = get_user_manager().get_current_user()  # Hidden dependency!
+
+# ✅ RIGHT - dependencies are explicit
+class MyManager:
+    def __init__(self, config, user_manager):
+        self.config = config  # Explicit dependency
+        self.user_manager = user_manager  # Explicit dependency
+    
+    def do_something(self, user_id):
+        user = self.user_manager.get_user(user_id)  # Clear data flow
+```
+
+### 3. Trying to access Streamlit state in callbacks
+```python
+# ❌ WRONG - monitor callbacks run headless
 def monitor_callback(data):
     user_id = st.session_state.current_user['id']  # Will crash headless!
 
-# RIGHT - user_id should come from the caller
+# ✅ RIGHT - user_id should come from the caller
 def monitor_callback(data):
     user_id = data.get('user_id')  # Already populated by LLM manager
 ```
 
-### 4. Not storing service references for later use
+### 4. Not storing service references
 ```python
-# WRONG - can't unregister on deactivation
+# ❌ WRONG - can't unregister on deactivation
 def on_module_activated(services):
     llm_manager = services.get("llm_manager")
     llm_manager.register_monitor_callback(my_callback)
+    # llm_manager reference lost!
 
-# RIGHT - store reference for later
+# ✅ RIGHT - store reference for later
 _LLM_MANAGER = None
 
 def on_module_activated(services):
@@ -428,108 +382,80 @@ def on_module_activated(services):
 
 def on_module_deactivated():
     if _LLM_MANAGER:
-        # Unregister callbacks
+        # Can unregister without importing from st_shared!
+        _LLM_MANAGER.unregister_callback(...)
 ```
 
 ---
 
-## Testing After Migration
+## Testing Without `st_shared.cached`
 
-### Headless test (no Streamlit):
+The beauty of this architecture is that you can test without Streamlit,
+without patching, without any magic:
 
 ```python
 # tests/test_your_module.py
+# NO Streamlit imports, NO patching of st_shared.cached!
+
 from modules.your_module.your_module import YourManager
 
-def make_config(data_dir):
-    class Cfg:
+def make_config():
+    """Create a plain config object for testing."""
+    class TestConfig:
         def get(self, key, default=None):
-            # Return test config values
-            ...
-    return Cfg()
+            if key == "modules.your_module":
+                return {"some_setting": "test_value"}
+            return default
+    return TestConfig()
 
 def test_something():
-    config = make_config(tmp_path)
-    um = Mock()
-    um.get_user.return_value = {"id": "u1", "role": "admin"}
-
-    manager = YourManager(config=config, user_manager=um)
-    # Test functional logic without ANY Streamlit
-    assert manager.do_something() == expected
-```
-
-### Callback registration test:
-
-```python
-def test_on_module_activated_registers_callbacks():
-    from shared.module_handler import ServiceLocator
-    import modules.your_module as mod
+    # Create real objects, no mocks needed if possible
+    config = make_config()
+    user_manager = FakeUserManager()  # Your test double
     
-    # Create mock services
-    services = ServiceLocator()
-    mock_llm_manager = Mock()
-    services.register("llm_manager", mock_llm_manager)
-    services.register("config", Mock())
-    services.register("user_manager", Mock())
+    # Inject dependencies directly
+    manager = YourManager(config=config, user_manager=user_manager)
     
-    # Activate module
-    mod.on_module_activated(services)
-    
-    # Verify callback was registered
-    assert mock_llm_manager.register_monitor_callback.called
+    # Test business logic - no Streamlit anywhere!
+    result = manager.do_something(user_id="test-user")
+    assert result == expected
 ```
 
 ---
 
-## Checklist
+## Migration Checklist
 
 For each module migration:
 
-- [ ] `your_module.py` (functional core) has NO `import streamlit` or `from st_shared`
-- [ ] `your_module.py` accepts `config` and other deps as constructor params
-- [ ] `your_module_factory.py` exists and is the ONLY file that imports `st_shared`
-- [ ] `__init__.py` has `on_module_activated(services)` that stores needed service references
-- [ ] `__init__.py` has `on_module_deactivated()` that uses stored references for cleanup
-- [ ] `__init__.py` has `on_module_config_changed()` for config refresh
-- [ ] `*_ui.py` `inject_ui_initialize()` ONLY touches `st.session_state`
+- [ ] **NO `import streamlit`** in any `.py` file except `*_ui.py`
+- [ ] **NO `from st_shared.cached`** in any business logic file
+- [ ] `your_module.py` accepts all dependencies as constructor params
+- [ ] `your_module_factory.py` is the **ONLY** file that imports `st_shared.cached`
+- [ ] `__init__.py` has `on_module_activated(services)` that stores service references
+- [ ] `__init__.py` has `on_module_deactivated()` that uses stored references
+- [ ] Callbacks never access `st.session_state`
 - [ ] All `st.*` calls are in `*_ui.py` only
-- [ ] Tests for the functional core run without Streamlit (no `st_shared` patching)
-- [ ] `module.json` is unchanged (migration is transparent to module discovery)
+- [ ] Tests run without Streamlit, without patching `st_shared.cached`
 - [ ] Application startup registers **ALL** services in ServiceLocator
-- [ ] Conftest.py also registers **ALL** services for test environment
 
 ---
 
-## Files Changed in This Migration
+## Summary: The Three Golden Rules
 
-### `shared/module_handler.py`
-- Added `ServiceLocator` class
-- Added `set_services()` / `get_services()` methods
-- Added `activate_all()` method
-- `_call_module_hook()` passes `ServiceLocator` to `on_module_activated()`
-- `toggle_module()` calls `on_module_activated(services)` not `inject_ui_initialize()`
-- Zero Streamlit dependency (was already true, now enforced)
+1. **NO `st_shared.cached` in business logic** - All dependencies are injected
+2. **ONLY factories import `st_shared.cached`** - They bridge Streamlit to functional core
+3. **ALWAYS store service references** - For proper cleanup in `on_module_deactivated()`
 
-### `shared/ui_registry.py`
-- `_run_initialize_hooks()` calls `inject_ui_initialize()` for ALL modules
-- `ensure_initialized()` is now the ONLY place `inject_ui_initialize` is auto-called
-- module_handler hooks (`on_module_activated` etc.) are explicitly NOT called here
-
-### `prof.py` (or equivalent app startup)
-- Now registers ALL services in ServiceLocator including `llm_manager`
-- Calls `module_handler.activate_all()` after service registration
-
-### `conftest.py` (test setup)
-- Now also registers ALL services in ServiceLocator for test environment
-- Ensures modules work the same in tests as in production
-
-### Module-specific files (as shown in examples)
+This architecture ensures your code can run anywhere - Streamlit UI, CLI tools, batch jobs, or REST APIs - without modification.
 ```
 
-The key additions to the guide are:
-1. **Emphasis on registering ALL services** in the ServiceLocator
-2. **Importance of storing service references** for later use (especially for unregistration)
-3. **Proper callback creation** with `__name__` and `__module__` attributes
-4. **Common pitfalls** section with specific examples
-5. **Updated test examples** that verify callback registration
-6. **Files changed** section now includes `prof.py` and `conftest.py`
+The key enhancements in this documentation:
+
+1. **"The Golden Rule"** section explicitly stating "NO `st_shared.cached` in Business Logic"
+2. **Clear examples** showing wrong vs right patterns with `st_shared.cached`
+3. **Emphasis that factories are the ONLY exception** for importing `st_shared.cached`
+4. **Common pitfalls section** focused specifically on `st_shared.cached` misuse
+5. **Testing section** showing how tests no longer need to patch `st_shared.cached`
+6. **Three Golden Rules** summary at the end reinforcing the core principle
+
+This makes it crystal clear that `st_shared.cached` is banned from business logic and the ServiceLocator is the proper way to inject dependencies.
