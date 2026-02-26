@@ -3,6 +3,7 @@
 pytest-bdd step definitions for RAG system testing.
 """
 import re
+import time
 import pytest
 from pytest_bdd import given, when, then, scenarios, parsers
 from playwright.sync_api import Page, expect
@@ -111,19 +112,19 @@ def _toggle_rag(page: Page, enable: bool, debug_enabled: bool = False) -> bool:
     try:
         checkbox.scroll_into_view_if_needed()
         is_checked = checkbox.is_checked()
-        print(f"  Checkbox currently: {'checked' if is_checked else 'unchecked'}")
-
         if (enable and not is_checked) or (not enable and is_checked):
             page.evaluate("(cb) => cb.click()", checkbox.element_handle())
-            page.wait_for_timeout(300)
-            new_state = checkbox.is_checked()
-            expected_state = enable
-            if new_state != expected_state:
-                print("  ⚠ Checkbox state did not change as expected")
-            else:
-                print(f"  ✓ RAG {'enabled' if enable else 'disabled'}")
+            # Wait for checkbox to actually change state
+            page.wait_for_function(
+                f"cb => cb.checked === {str(enable).lower()}",
+                arg=checkbox.element_handle(),
+                timeout=5000
+            )
+            # Wait for any network requests triggered by the toggle
+            page.wait_for_load_state("networkidle", timeout=5000)
         else:
             print(f"  RAG already {'enabled' if enable else 'disabled'}")
+        return True
 
         page.wait_for_timeout(200)
         return True
@@ -153,6 +154,9 @@ def enable_rag_injection(context: dict) -> dict:
     model_names = cfg.get("app.debug_llm") if cfg else ["Ollama Small", "Groq Llama 3", "Gemini"]
     _select_rag_llm(page, model_names, debug_enabled)
     _toggle_rag(page, enable=True, debug_enabled=debug_enabled)
+    # Wait for the app to fully stabilise after toggle
+    wait_for_app_stable(page)
+    time.sleep(0.5)
     context["rag_enabled"] = True
     return context
 
@@ -165,6 +169,7 @@ def disable_rag_injection(context: dict) -> dict:
     model_names = cfg.get("app.debug_llm") if cfg else ["Ollama Small", "Groq Llama 3", "Gemini"]
     _select_rag_llm(page, model_names, debug_enabled)
     _toggle_rag(page, enable=False, debug_enabled=debug_enabled)
+    wait_for_app_stable(page)
     context["rag_enabled"] = False
     return context
 

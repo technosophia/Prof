@@ -26,7 +26,7 @@ from core.logging import configure_logging_from_dict
 
 from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
 from shared.common import init_user_manager
-from st_shared.cached import get_prompt_manager
+from st_shared.cached import get_prompt_manager, get_llm_manager
 from shared.export_import import auto_import_conversations_from_config
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
@@ -47,7 +47,23 @@ get_available_languages()
 if 'module_handler' not in st.session_state:
     log("info", "Initializing module handler in session state")
     st.session_state.module_handler = ModuleHandler()
+
+    # Set up services BEFORE initialization
+    from shared.module_handler import ServiceLocator
+
+    services = ServiceLocator()
+    services.register("config", get_config())
+    services.register("user_manager", get_user_manager())
+    services.register("db_manager", get_db_manager())
+    services.register("conversation_manager", get_conversation_manager())
+    services.register("prompt_manager", get_prompt_manager())
+    services.register("llm_manager", get_llm_manager())
+    # Add any other services that modules might need
+
+    st.session_state.module_handler.set_services(services)
     st.session_state.module_handler.initialize()
+    # IMPORTANT: Activate all modules to trigger on_module_activated() hooks
+    st.session_state.module_handler.activate_all()
 
 # Use the session state module handler
 module_handler = st.session_state.module_handler

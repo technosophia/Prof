@@ -10,7 +10,11 @@ from pathlib import Path
 import tempfile
 
 from st_shared.cached import get_config
-from modules.rag_manager.rag_manager import rag_manager
+
+def _get_rag_manager():
+    """Lazy accessor — never called at module import time."""
+    from modules.rag_manager.rag_factory import get_rag_manager
+    return get_rag_manager()
 
 
 from core.logging import log, set_log_module_level
@@ -53,13 +57,13 @@ def _show_cache_tab():
     st.header("🔄 Cache Management")
 
     # Check if cache management is available
-    if not hasattr(rag_manager, 'get_cache_info'):
+    if not hasattr(_get_rag_manager(), 'get_cache_info'):
         st.warning("Cache management is not available in this version.")
         st.info("Ensure you have the latest RAG manager with caching support.")
         return
 
     # Get cache information
-    cache_info = rag_manager.get_cache_info()
+    cache_info = _get_rag_manager().get_cache_info()
 
     # Cache status display
     col1, col2, col3 = st.columns(3)
@@ -89,7 +93,7 @@ def _show_cache_tab():
         if st.button("🔄 Clear Cache", type="primary", width='stretch',
                    help="Clear all cached model weights. Models will reload on next use."):
             with st.spinner("Clearing cache..."):
-                if rag_manager.clear_model_cache():
+                if _get_rag_manager().clear_model_cache():
                     st.success("Cache cleared successfully!")
                     st.rerun()
                 else:
@@ -103,7 +107,7 @@ def _show_cache_tab():
         if st.button("⚙️ Reload Config", width='stretch',
                    help="Reload RAG configuration from config file"):
             with st.spinner("Reloading config..."):
-                rag_manager.refresh_config()
+                _get_rag_manager().refresh_config()
                 st.success("Configuration reloaded!")
                 st.rerun()
 
@@ -223,7 +227,7 @@ def _show_documents_tab():
 
     # Get configuration
     config = get_config()
-    rag_config = config.get("modules.rag_manager", {})
+    rag_config = config.get("modules._get_rag_manager()", {})
     allowed_extensions = rag_config.get("allowed_extensions", [".txt", ".pdf", ".md"])
     allowed_types = [ext.lstrip('.') for ext in allowed_extensions]
 
@@ -255,7 +259,7 @@ def _show_documents_tab():
                         tmp_path = tmp_file.name
 
                     # Upload to RAG manager
-                    result = rag_manager.upload_document(
+                    result = _get_rag_manager().upload_document(
                         tmp_path,
                         uploaded_file.name,
                         user_id,
@@ -284,7 +288,7 @@ def _show_documents_tab():
     # Document List Section
     st.subheader("Your Documents")
 
-    documents = rag_manager.get_user_documents(user_id)
+    documents = _get_rag_manager().get_user_documents(user_id)
 
     if not documents:
         st.info("No documents uploaded yet.")
@@ -328,7 +332,7 @@ def _show_documents_tab():
                     delete_key = f"delete_{doc['filename']}"
                     if st.button("🗑️", key=delete_key, help="Delete this document"):
                         if st.session_state.get(f"confirm_{delete_key}", False):
-                            if rag_manager.delete_document(doc['filename'], user_id):
+                            if _get_rag_manager().delete_document(doc['filename'], user_id):
                                 st.success("Document deleted")
                                 st.rerun()
                         else:
@@ -338,7 +342,7 @@ def _show_documents_tab():
                 # Indexing dialog
                 if st.session_state.get(f"indexing_{doc['filename']}", False):
                     with st.expander(f"Index {doc['original_filename']}", expanded=True):
-                        engines = rag_manager.get_available_engines()
+                        engines = _get_rag_manager().get_available_engines()
                         engine_options = [e['type'] for e in engines if e['available']]
 
                         selected_engine = st.selectbox(
@@ -350,7 +354,7 @@ def _show_documents_tab():
                         col_a, col_b = st.columns(2)
                         with col_a:
                             if st.button("✅ Index", type="primary"):
-                                if rag_manager.index_document(doc['filename'], selected_engine, user_id):
+                                if _get_rag_manager().index_document(doc['filename'], selected_engine, user_id):
                                     st.success(f"Document indexed with {selected_engine} engine")
                                     st.session_state[f"indexing_{doc['filename']}"] = False
                                     st.rerun()
@@ -364,7 +368,7 @@ def _show_engines_tab():
     """Show RAG engines management tab."""
     st.header("RAG Engines")
 
-    engines = rag_manager.get_available_engines()
+    engines = _get_rag_manager().get_available_engines()
 
     if not engines:
         st.warning("No RAG engines available")
@@ -393,7 +397,7 @@ def _show_engines_tab():
                     st.info(f"Setting {engine['type']} as default would require config update")
 
     # Default engine info
-    default_engine = rag_manager.get_default_engine()
+    default_engine = _get_rag_manager().get_default_engine()
     if default_engine:
         st.divider()
         st.subheader("Default Engine Info")
@@ -420,10 +424,10 @@ def _show_search_test_tab():
 
     user_id = current_user['id']
     user_role = current_user.get('role')
-    engines = rag_manager.get_available_engines()
+    engines = _get_rag_manager().get_available_engines()
     available_engine_types = [e['type'] for e in engines if e['available']]
 
-    docs = rag_manager.get_user_documents(user_id)
+    docs = _get_rag_manager().get_user_documents(user_id)
 
     with st.expander("🔬 System Diagnostics", expanded=False):
         st.write(f"**Current user:** `{user_id}` (role: `{user_role}`)")
@@ -443,7 +447,7 @@ def _show_search_test_tab():
 
         st.subheader("Engine Index Contents")
         for eng_type in available_engine_types:
-            eng = rag_manager.get_engine(eng_type)
+            eng = _get_rag_manager().get_engine(eng_type)
             indexed_docs = eng.get_indexed_documents(user_id) if eng else []
             if indexed_docs:
                 st.success(f"{eng_type}: {len(indexed_docs)} document(s) indexed under user_id `{user_id}`")
@@ -459,7 +463,7 @@ def _show_search_test_tab():
                 'uploaded_by': owner_id
             }
             for eng_type in available_engine_types:
-                eng = rag_manager.get_engine(eng_type)
+                eng = _get_rag_manager().get_engine(eng_type)
                 owner_present = False
                 if eng:
                     if eng_type == 'simple':
@@ -501,11 +505,11 @@ def _show_search_test_tab():
         check_rows = []
         failed_docs = []
 
-        user_docs = rag_manager.get_user_documents(user_id)
+        user_docs = _get_rag_manager().get_user_documents(user_id)
         for doc in user_docs:
             filename = doc['filename']
             owner_id = doc['uploaded_by']
-            metadata_doc = rag_manager.documents.get(filename, {})
+            metadata_doc = _get_rag_manager().documents.get(filename, {})
             file_path = metadata_doc.get('file_path', '')
             file_exists = bool(file_path) and os.path.exists(file_path)
 
@@ -528,7 +532,7 @@ def _show_search_test_tab():
                 continue
 
             for eng_type in indexed_in:
-                eng = rag_manager.get_engine(eng_type)
+                eng = _get_rag_manager().get_engine(eng_type)
                 if not eng:
                     check_rows.append({
                         'filename': filename,
@@ -571,7 +575,7 @@ def _show_search_test_tab():
                         if not indexed_in:
                             indexed_in = available_engine_types
                         for eng_type in indexed_in:
-                            if rag_manager.index_document(filename, eng_type, user_id):
+                            if _get_rag_manager().index_document(filename, eng_type, user_id):
                                 repaired += 1
                     st.success(f"Re-index complete. Successful indexing operations: {repaired}")
                     rows_after, failures_after = run_integrity_check()
@@ -585,16 +589,16 @@ def _show_search_test_tab():
 
     if query and st.button("🔍 Search", type="primary"):
         vector_engine_types = ['classic', 'faiss_hierarchical']
-        original_thresholds = rag_manager.set_similarity_thresholds({
+        original_thresholds = _get_rag_manager().set_similarity_thresholds({
             engine_type: threshold for engine_type in vector_engine_types
         })
 
         try:
             with st.spinner("Searching..."):
                 if selected_engine == "All":
-                    results = rag_manager.search(user_id, query, search_all=True)
+                    results = _get_rag_manager().search(user_id, query, search_all=True)
                 else:
-                    results = rag_manager.search(user_id, query, selected_engine)
+                    results = _get_rag_manager().search(user_id, query, selected_engine)
 
                 if selected_engine == "All":
                     for engine_type in available_engine_types:
@@ -623,7 +627,7 @@ def _show_search_test_tab():
                         st.info(f"No results found from {selected_engine.upper()} engine")
 
                 with st.expander("🔍 Raw Debug Results (no threshold filtering)", expanded=False):
-                    debug_original_thresholds = rag_manager.set_similarity_thresholds({
+                    debug_original_thresholds = _get_rag_manager().set_similarity_thresholds({
                         engine_type: 0.0 for engine_type in vector_engine_types
                     })
 
@@ -633,11 +637,11 @@ def _show_search_test_tab():
                             if selected_engine != 'All' and eng_type != selected_engine:
                                 continue
 
-                            eng = rag_manager.get_engine(eng_type)
+                            eng = _get_rag_manager().get_engine(eng_type)
                             if not eng:
                                 continue
 
-                            owner_ids = sorted({d['uploaded_by'] for d in rag_manager.get_user_documents(user_id)})
+                            owner_ids = sorted({d['uploaded_by'] for d in _get_rag_manager().get_user_documents(user_id)})
                             if eng_type == 'simple':
                                 query_terms = [w for w in query.lower().split() if w]
                                 for owner in owner_ids:
@@ -669,12 +673,12 @@ def _show_search_test_tab():
                         else:
                             st.info('No raw results returned even with threshold=0.0')
                     finally:
-                        rag_manager.restore_similarity_thresholds(debug_original_thresholds)
+                        _get_rag_manager().restore_similarity_thresholds(debug_original_thresholds)
 
                 with st.expander("🔧 Debug Info", expanded=False):
                     st.json(results)
         finally:
-            rag_manager.restore_similarity_thresholds(original_thresholds)
+            _get_rag_manager().restore_similarity_thresholds(original_thresholds)
 
 
 def _show_stats_tab():
@@ -695,24 +699,24 @@ def _show_stats_tab():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        total_docs = rag_manager.get_document_count()
+        total_docs = _get_rag_manager().get_document_count()
         st.metric("Total Documents", total_docs)
 
     with col2:
-        user_docs = rag_manager.get_document_count(user_id)
+        user_docs = _get_rag_manager().get_document_count(user_id)
         st.metric("Your Documents", user_docs)
 
     with col3:
-        total_size = rag_manager.get_total_size_mb()
+        total_size = _get_rag_manager().get_total_size_mb()
         st.metric("Total Size", f"{total_size} MB")
 
     # Engine stats
     st.subheader("Engine Statistics")
 
-    engines = rag_manager.get_available_engines()
+    engines = _get_rag_manager().get_available_engines()
     for engine in engines:
         if engine['available']:
-            stats = rag_manager.get_engine_stats(engine['type'], user_id)
+            stats = _get_rag_manager().get_engine_stats(engine['type'], user_id)
             if stats:
                 with st.expander(f"{engine['type'].upper()} Engine Stats"):
                     for key, value in stats.items():
@@ -726,7 +730,7 @@ def _show_stats_tab():
             with col1:
                 if st.button("🗑️ Clear All Your Documents", type="secondary"):
                     if st.session_state.get("confirm_clear_all", False):
-                        if rag_manager.clear_all_documents(user_id):
+                        if _get_rag_manager().clear_all_documents(user_id):
                             st.success("All your documents cleared")
                             st.rerun()
                     else:
@@ -753,7 +757,7 @@ def _show_index_tab():
     # Helper function to clear engine index and metadata
     def clear_engine_index_for_user(engine_type, user_id):
         """Clear engine index for a user and update metadata."""
-        engine = rag_manager.get_engine(engine_type)
+        engine = _get_rag_manager().get_engine(engine_type)
         if not engine:
             return False, "Engine not found"
 
@@ -763,7 +767,7 @@ def _show_index_tab():
 
         # Update metadata
         updated_count = 0
-        for filename, doc_info in rag_manager.documents.items():
+        for filename, doc_info in _get_rag_manager().documents.items():
             # Check if this document belongs to the user
             if 'uploaded_by' in doc_info and doc_info['uploaded_by'] == user_id:
                 # Check if it's indexed in this engine
@@ -773,12 +777,12 @@ def _show_index_tab():
                     updated_count += 1
 
         # Save the updated metadata
-        rag_manager._save_metadata()
+        _get_rag_manager()._save_metadata()
 
         return True, f"Cleared index for {updated_count} documents"
 
     # Get available engines
-    engines = rag_manager.get_available_engines()
+    engines = _get_rag_manager().get_available_engines()
     available_engines = [e for e in engines if e['available']]
 
     if not available_engines:
@@ -796,7 +800,7 @@ def _show_index_tab():
     )
 
     # Get documents for current user
-    documents = rag_manager.get_user_documents(user_id)
+    documents = _get_rag_manager().get_user_documents(user_id)
 
     if not documents:
         st.info("No documents available for indexing. Upload documents first.")
@@ -859,7 +863,7 @@ def _show_index_tab():
 
                 with st.spinner(f"Indexing {len(selected_docs)} document(s)..."):
                     for doc in selected_docs:
-                        if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                        if _get_rag_manager().index_document(doc['filename'], selected_engine_type, user_id):
                             success_count += 1
                         else:
                             failed_count += 1
@@ -878,7 +882,7 @@ def _show_index_tab():
 
                 with st.spinner(f"Indexing {len(unindexed_documents)} document(s)..."):
                     for doc in unindexed_documents:
-                        if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                        if _get_rag_manager().index_document(doc['filename'], selected_engine_type, user_id):
                             success_count += 1
                         else:
                             failed_count += 1
@@ -897,7 +901,7 @@ def _show_index_tab():
 
                 with st.spinner(f"Re-indexing {len(documents)} document(s)..."):
                     for doc in documents:
-                        if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                        if _get_rag_manager().index_document(doc['filename'], selected_engine_type, user_id):
                             success_count += 1
                         else:
                             failed_count += 1
@@ -918,7 +922,7 @@ def _show_index_tab():
 
             with st.spinner(f"Re-indexing {len(documents)} document(s)..."):
                 for doc in documents:
-                    if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                    if _get_rag_manager().index_document(doc['filename'], selected_engine_type, user_id):
                         success_count += 1
                     else:
                         failed_count += 1
@@ -941,7 +945,7 @@ def _show_index_tab():
                     st.write(f"**{doc['original_filename']}**")
                 with col2:
                     # Get indexing date if available
-                    doc_info = rag_manager.documents.get(doc['filename'], {})
+                    doc_info = _get_rag_manager().documents.get(doc['filename'], {})
                     indexed_info = doc_info.get('indexed_in', {})
                     if selected_engine_type in indexed_info:
                         index_date = datetime.fromisoformat(indexed_info[selected_engine_type]).strftime("%Y-%m-%d %H:%M")
@@ -950,7 +954,7 @@ def _show_index_tab():
                     # Re-index button for individual document
                     if st.button("↻", key=f"reindex_{doc['filename']}_{selected_engine_type}", help="Re-index this document"):
                         with st.spinner(f"Re-indexing {doc['original_filename']}..."):
-                            if rag_manager.index_document(doc['filename'], selected_engine_type, user_id):
+                            if _get_rag_manager().index_document(doc['filename'], selected_engine_type, user_id):
                                 st.success(f"Re-indexed {doc['original_filename']}")
                                 st.rerun()
 
@@ -958,7 +962,7 @@ def _show_index_tab():
     st.divider()
     st.subheader("4. Engine Management")
 
-    selected_engine = rag_manager.get_engine(selected_engine_type)
+    selected_engine = _get_rag_manager().get_engine(selected_engine_type)
     if selected_engine:
         col1, col2 = st.columns(2)
 
@@ -1014,11 +1018,11 @@ def test_rag_manager():
     """Test the RAG manager functionality."""
     try:
         # Test engine discovery
-        engines = rag_manager.get_available_engines()
+        engines = _get_rag_manager().get_available_engines()
         log("debug", f"Test: Found {len(engines)} RAG engines")
 
         # Test default engine
-        default_engine = rag_manager.get_default_engine()
+        default_engine = _get_rag_manager().get_default_engine()
         if default_engine:
             log("debug", f"Test: Default engine is {default_engine.engine_type}")
 

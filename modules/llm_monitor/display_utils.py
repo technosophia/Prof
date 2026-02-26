@@ -9,13 +9,9 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Callable, Tuple
 
-
-from modules.llm_monitor.llm_monitor import get_llm_monitor
-from modules.llm_monitor.models import LLMCallTable, UserLLMStatsTable
+from core.logging import log
 
 
-from core.logging import log, set_log_module_level
-from core.database import Base
 def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usage"):
     """Render a gauge chart for rate limit usage."""
     if not usage or not usage.get("limits"):
@@ -34,12 +30,12 @@ def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usag
                 daily_requests_percentage = (daily_requests / daily_requests_limit) * 100
 
                 fig = go.Figure(go.Indicator(
-                    mode = "gauge+number+delta",
-                    value = daily_requests,
-                    number = {"suffix": f" / {daily_requests_limit}"},
-                    title = {"text": "Daily Requests"},
-                    delta = {"reference": daily_requests_limit},
-                    gauge = {
+                    mode="gauge+number+delta",
+                    value=daily_requests,
+                    number={"suffix": f" / {daily_requests_limit}"},
+                    title={"text": "Daily Requests"},
+                    delta={"reference": daily_requests_limit},
+                    gauge={
                         "axis": {"range": [0, daily_requests_limit]},
                         "bar": {"color": "darkblue"},
                         "steps": [
@@ -64,12 +60,12 @@ def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usag
                 daily_tokens_percentage = (daily_tokens / daily_tokens_limit) * 100
 
                 fig = go.Figure(go.Indicator(
-                    mode = "gauge+number+delta",
-                    value = daily_tokens,
-                    number = {"suffix": f" / {daily_tokens_limit}", "format": ",.0f"},
-                    title = {"text": "Daily Tokens"},
-                    delta = {"reference": daily_tokens_limit},
-                    gauge = {
+                    mode="gauge+number+delta",
+                    value=daily_tokens,
+                    number={"suffix": f" / {daily_tokens_limit}", "format": ",.0f"},
+                    title={"text": "Daily Tokens"},
+                    delta={"reference": daily_tokens_limit},
+                    gauge={
                         "axis": {"range": [0, daily_tokens_limit]},
                         "bar": {"color": "darkblue"},
                         "steps": [
@@ -98,12 +94,12 @@ def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usag
                 hourly_requests_percentage = (hourly_requests / hourly_requests_limit) * 100
 
                 fig = go.Figure(go.Indicator(
-                    mode = "gauge+number+delta",
-                    value = hourly_requests,
-                    number = {"suffix": f" / {hourly_requests_limit}"},
-                    title = {"text": "Hourly Requests"},
-                    delta = {"reference": hourly_requests_limit},
-                    gauge = {
+                    mode="gauge+number+delta",
+                    value=hourly_requests,
+                    number={"suffix": f" / {hourly_requests_limit}"},
+                    title={"text": "Hourly Requests"},
+                    delta={"reference": hourly_requests_limit},
+                    gauge={
                         "axis": {"range": [0, hourly_requests_limit]},
                         "bar": {"color": "darkblue"},
                         "steps": [
@@ -128,12 +124,12 @@ def render_rate_limit_gauge(usage: Dict[str, Any], title: str = "Rate Limit Usag
                 hourly_tokens_percentage = (hourly_tokens / hourly_tokens_limit) * 100
 
                 fig = go.Figure(go.Indicator(
-                    mode = "gauge+number+delta",
-                    value = hourly_tokens,
-                    number = {"suffix": f" / {hourly_tokens_limit}", "format": ",.0f"},
-                    title = {"text": "Hourly Tokens"},
-                    delta = {"reference": hourly_tokens_limit},
-                    gauge = {
+                    mode="gauge+number+delta",
+                    value=hourly_tokens,
+                    number={"suffix": f" / {hourly_tokens_limit}", "format": ",.0f"},
+                    title={"text": "Hourly Tokens"},
+                    delta={"reference": hourly_tokens_limit},
+                    gauge={
                         "axis": {"range": [0, hourly_tokens_limit]},
                         "bar": {"color": "darkblue"},
                         "steps": [
@@ -158,14 +154,12 @@ def render_rate_limit_summary(monitor, provider: str = "groq"):
         st.info("Rate limit tracking is disabled")
         return
 
-    # Get configuration for this provider
     provider_config = monitor.get_llm_config(provider)
 
     if not provider_config:
         st.info(f"No configuration found for {provider}")
         return
 
-    # Check if any rate limits are configured
     limits = {
         "rpm": provider_config.get("rpm", 0),
         "rpd": provider_config.get("rpd", 0),
@@ -228,9 +222,7 @@ def render_rate_limit_summary(monitor, provider: str = "groq"):
                         delta_color="inverse"
                     )
 
-        # Add progress bars for visual representation - FIXED with min()
         if usage["daily"].get("requests_limit") and usage["daily"]["requests_limit"] > 0:
-            # Cap progress value at 1.0 to avoid Streamlit error
             progress_value = min(usage["daily"]["requests"] / usage["daily"]["requests_limit"], 1.0)
             st.progress(
                 progress_value,
@@ -238,7 +230,6 @@ def render_rate_limit_summary(monitor, provider: str = "groq"):
             )
 
         if usage["hourly"].get("requests_limit") and usage["hourly"]["requests_limit"] > 0:
-            # Cap progress value at 1.0 to avoid Streamlit error
             progress_value = min(usage["hourly"]["requests"] / usage["hourly"]["requests_limit"], 1.0)
             st.progress(
                 progress_value,
@@ -246,7 +237,6 @@ def render_rate_limit_summary(monitor, provider: str = "groq"):
             )
 
         if usage["daily"].get("tokens_limit") and usage["daily"]["tokens_limit"] > 0:
-            # Cap progress value at 1.0 to avoid Streamlit error
             progress_value = min(usage["daily"]["tokens"] / usage["daily"]["tokens_limit"], 1.0)
             st.progress(
                 progress_value,
@@ -262,7 +252,6 @@ def render_llm_call_details(call: dict):
         st.info("No LLM call data available")
         return
 
-    # Basic info in columns
     col1, col2 = st.columns(2)
 
     with col1:
@@ -281,23 +270,18 @@ def render_llm_call_details(call: dict):
         st.write(f"**Output Tokens:** {call['output_tokens'] or 'N/A'}")
         st.write(f"**Total Tokens:** {call['total_tokens'] or 'N/A'}")
 
-        monitor = get_llm_monitor()
-        if monitor.is_free_provider(call['llm_type']):
-            st.write(f"**Cost:** Free")
-        else:
-            llm_config = monitor.get_llm_config(call['llm_type'])
+        if call['total_cost'] > 0:
             st.write(f"**Cost:** ${call['total_cost']:.6f}")
-            st.write(f"**Rate:** ${llm_config.get('input_cost_per_million_tokens', 0):.2f}/M input, ${llm_config.get('output_cost_per_million_tokens', 0):.2f}/M output")
+        else:
+            st.write(f"**Cost:** Free")
 
         if call['duration_ms']:
             st.write(f"**Duration:** {call['duration_ms']}ms")
 
-    # Rate limit info if available
     if call.get('rate_limit_info'):
         with st.expander("⏱️ Rate Limit Info", expanded=False):
             st.json(call['rate_limit_info'])
 
-    # Messages sent to LLM (user/assistant only)
     if call['messages']:
         with st.expander(f"💬 Messages ({len(call['messages'])} messages)", expanded=False):
             for i, msg in enumerate(call['messages']):
@@ -306,7 +290,6 @@ def render_llm_call_details(call: dict):
                     st.write("**Content:**")
                     st.text(msg["content"])
 
-    # Context messages (system messages, etc.)
     if call['context_messages']:
         with st.expander(f"🔧 Context ({len(call['context_messages'])} items)", expanded=False):
             for i, msg in enumerate(call['context_messages']):
@@ -315,13 +298,10 @@ def render_llm_call_details(call: dict):
                     st.write("**Content:**")
                     st.text(msg["content"])
 
-    # LLM Response
     with st.expander(f"🤖 Response ({len(call['response'])} chars)", expanded=False):
         st.text(call["response"])
 
-    # Raw data (for debugging)
     with st.expander("📊 Raw Data", expanded=False):
-        # Create a copy without the full response to avoid huge display
         call_copy = call.copy()
         if 'response' in call_copy and len(call_copy['response']) > 1000:
             call_copy['response'] = call_copy['response'][:1000] + "... [truncated]"
@@ -334,23 +314,21 @@ def render_llm_calls_table(calls: list):
         st.info("No LLM calls found")
         return
 
-    # Create a DataFrame for the summary table
     summary_data = []
     for call in calls:
         summary_data.append({
-            "ID": call["id"][:8],  # Short ID for display
+            "ID": call["id"][:8],
             "Timestamp": call["timestamp"],
             "User": call["user_id"][:8] if call["user_id"] else "N/A",
             "LLM": f"{call['llm_type']}/{call['model']}",
             "Tokens": call["total_tokens"] if call["total_tokens"] is not None else None,
-            "Cost": "Free" if get_llm_monitor().is_free_provider(call['llm_type']) else f"${call['total_cost']:.6f}",
+            "Cost": "Free" if call['total_cost'] == 0 else f"${call['total_cost']:.6f}",
             "Success": "✅" if call["success"] else "❌"
         })
 
     df_summary = pd.DataFrame(summary_data)
     st.dataframe(df_summary, width='stretch')
 
-    # Detailed view for each call
     for i, call in enumerate(calls):
         with st.expander(f"Call {i+1}: {call['timestamp']} - {call['llm_type']}/{call['model']}", expanded=False):
             render_llm_call_details(call)
@@ -362,9 +340,6 @@ def render_user_stats(user_stats: dict):
         st.info("No LLM usage data available")
         return
 
-    monitor = get_llm_monitor()
-
-    # Overall metrics
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
@@ -382,7 +357,6 @@ def render_user_stats(user_stats: dict):
         else:
             st.metric("Total Cost", "Free")
 
-    # Breakdown by LLM type
     if user_stats["by_llm_type"]:
         st.subheader("Breakdown by LLM Type")
 
@@ -394,12 +368,11 @@ def render_user_stats(user_stats: dict):
                 "Input Tokens": stats["total_input_tokens"],
                 "Output Tokens": stats["total_output_tokens"],
                 "Total Tokens": stats["total_input_tokens"] + stats["total_output_tokens"],
-                "Cost": stats["total_cost"] if not monitor.is_free_provider(llm_type) else 0
+                "Cost": stats["total_cost"] if stats["total_cost"] > 0 else 0
             })
 
         df_breakdown = pd.DataFrame(breakdown_data)
 
-        # Format based on provider type
         formatters = {
             "Calls": "{:,}",
             "Input Tokens": "{:,}",
@@ -407,8 +380,7 @@ def render_user_stats(user_stats: dict):
             "Total Tokens": "{:,}"
         }
 
-        # Only add cost formatter if there are paid providers
-        if any(not monitor.is_free_provider(llm) for llm in user_stats["by_llm_type"].keys()):
+        if any(d["Cost"] > 0 for d in breakdown_data):
             formatters["Cost"] = lambda x: "${:.4f}".format(x) if x > 0 else "Free"
 
         st.dataframe(
@@ -416,7 +388,6 @@ def render_user_stats(user_stats: dict):
             width='stretch'
         )
 
-        # Visualizations
         if len(breakdown_data) > 1:
             col1, col2 = st.columns(2)
 
@@ -431,7 +402,6 @@ def render_user_stats(user_stats: dict):
                 st.plotly_chart(fig_calls, width='stretch')
 
             with col2:
-                # Only show cost pie if there are paid providers with non-zero cost
                 paid_costs = [d for d in breakdown_data if d["Cost"] > 0]
                 if paid_costs:
                     fig_cost = px.pie(
@@ -447,16 +417,15 @@ def render_system_overview(monitor):
     """Render system-wide overview."""
     try:
         with monitor.db.get_session() as session:
-            # Get total calls
+            from modules.llm_monitor.models import LLMCallTable
+
             total_calls = session.query(LLMCallTable).count()
 
-            # Get calls by LLM type
             calls_by_type = session.query(
                 LLMCallTable.llm_type,
                 LLMCallTable.total_cost
             ).all()
 
-            # Get recent calls for time series (last 30 days)
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
             recent_calls = session.query(
                 LLMCallTable.timestamp,
@@ -467,7 +436,6 @@ def render_system_overview(monitor):
                 LLMCallTable.timestamp >= thirty_days_ago
             ).all()
 
-        # Display metrics
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -482,18 +450,13 @@ def render_system_overview(monitor):
             st.metric("Total Cost", f"${total_cost:.4f}")
 
         with col4:
-            # Count unique users with calls
             with monitor.db.get_session() as session:
-                unique_users = session.query(
-                    LLMCallTable.user_id
-                ).distinct().count()
+                unique_users = session.query(LLMCallTable.user_id).distinct().count()
             st.metric("Active Users", unique_users)
 
-        # Rate limit summary section
         if monitor.rate_limit_tracking.get("enabled", True):
             st.subheader("⏱️ Rate Limit Status")
 
-            # Get all providers that have any rate limits configured
             providers_with_limits = []
             for provider, config in monitor.llm_configs.items():
                 has_limits = any(config.get(k, 0) > 0 for k in ["rpm", "rpd", "tpm", "tpd"])
@@ -509,25 +472,21 @@ def render_system_overview(monitor):
             else:
                 st.info("No providers with rate limits configured")
 
-        # Create DataFrame for visualization
         if recent_calls:
             df = pd.DataFrame(recent_calls, columns=['timestamp', 'llm_type', 'total_tokens', 'total_cost'])
             df['date'] = pd.to_datetime(df['timestamp']).dt.date
 
-            # Daily usage chart
             daily_usage = df.groupby(['date', 'llm_type']).agg({
                 'total_tokens': 'sum',
                 'total_cost': 'sum'
             }).reset_index()
 
-            # Create subplots
             fig = make_subplots(
                 rows=2, cols=1,
                 subplot_titles=('Daily Token Usage', 'Daily Cost'),
                 vertical_spacing=0.15
             )
 
-            # Token usage by LLM type
             for llm_type in daily_usage['llm_type'].unique():
                 llm_data = daily_usage[daily_usage['llm_type'] == llm_type]
                 fig.add_trace(
@@ -540,7 +499,6 @@ def render_system_overview(monitor):
                     row=1, col=1
                 )
 
-            # Cost by LLM type (only for paid providers)
             paid_llm_types = [t for t in daily_usage['llm_type'].unique()
                             if not monitor.is_free_provider(t)]
 
@@ -559,7 +517,6 @@ def render_system_overview(monitor):
             fig.update_layout(height=600, showlegend=True)
             st.plotly_chart(fig, width='stretch')
 
-            # LLM type distribution
             st.subheader("LLM Type Distribution")
             col1, col2 = st.columns(2)
 
@@ -573,7 +530,6 @@ def render_system_overview(monitor):
                 st.plotly_chart(fig_pie, width='stretch')
 
             with col2:
-                # Only show costs for paid providers
                 paid_df = df[df['llm_type'].isin(paid_llm_types)]
                 if not paid_df.empty:
                     cost_by_type = paid_df.groupby('llm_type')['total_cost'].sum()
