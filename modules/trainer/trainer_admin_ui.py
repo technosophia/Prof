@@ -71,7 +71,7 @@ def inject_ui_admin_tab():
         ]
 
         # Add plugin tabs from active plugins
-        active_plugins = plugin_manager.get_active_plugins(trainer_id)
+        active_plugins = plugin_manager.get_active_ui_plugins(trainer_id)
         plugin_tabs = []
         for plugin in active_plugins:
             plugin_tabs.extend(plugin.render_get_admin_tabs(trainer_id))
@@ -117,7 +117,7 @@ def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
         trainer_manager: The trainer manager instance
     """
     # Get all active plugins that implement student widgets
-    active_plugins = plugin_manager.get_plugins_by_hook(trainer_id, "render_student_widgets")
+    active_plugins = plugin_manager.get_ui_plugins_by_hook(trainer_id, "render_student_widgets")
 
     if not active_plugins:
         st.info("No active plugins provide student views. Activate plugins in the Plugins tab.")
@@ -213,7 +213,7 @@ def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager)
                     tab_names = ["Profile"]
 
                     # Get active plugins that implement student widgets
-                    active_plugins = plugin_manager.get_plugins_by_hook(trainer_id, "render_student_widgets")
+                    active_plugins = plugin_manager.get_ui_plugins_by_hook(trainer_id, "render_student_widgets")
                     tab_names.extend([plugin.manifest.name for plugin in active_plugins if
                                     plugin.render_student_widgets(trainer_id, student)])
 
@@ -278,7 +278,7 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
         students.append(student)
 
     # Plugin dashboard widgets (non-student specific)
-    active_plugins = plugin_manager.get_active_plugins(trainer_id)
+    active_plugins = plugin_manager.get_active_ui_plugins(trainer_id)
     for plugin in active_plugins:
         widgets = plugin.render_dashboard_widgets(trainer_id, students)
         for widget in widgets:
