@@ -35,7 +35,7 @@ from shared.export_import import auto_import_conversations_from_config
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
-
+from st_shared.cached import register_all_services
 # Import UI registry system
 from shared.ui_registry import UIRegistry
 # Import module handler
@@ -46,16 +46,11 @@ configure_logging_from_dict(get_config().get("logging", {}))
 
 get_available_languages()
 
-services = ServiceLocator()
-services.register("config", get_config())
-services.register("user_manager", get_user_manager())
-services.register("db_manager", get_db_manager())
-services.register("conversation_manager", get_conversation_manager())
-services.register("prompt_manager", get_prompt_manager())
-services.register("llm_manager", get_llm_manager())
-services.register("driver", get_driver())
+db_path = get_config().get("database", {}).get("path", "data/app.db")
+init_database(use_memory=False, db_path=db_path)
+
+register_all_services()
 # Add other services as needed
-module_handler.set_services(services)
 module_handler.initialize()
     # IMPORTANT: Activate all modules to trigger on_module_activated() hooks
 module_handler.activate_all()
@@ -69,9 +64,6 @@ for module_name in active_modules:
         log("debug", f"Successfully loaded UI for module: {module_name}")
     else:
         log("warning", f"Could not load UI for module: {module_name}")
-
-db_path = get_config().get("database", {}).get("path", "data/app.db")
-init_database(use_memory=False, db_path=db_path)
 
 # Auto-upgrade database schema if needed
 log("debug", "Checking database schema version...")

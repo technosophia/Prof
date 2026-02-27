@@ -26,6 +26,7 @@ Here is the list of exportable public functions from `shared/common.py`:
 import os
 import streamlit as st
 
+from core.service import ServiceLocator
 from core.config import Config, _load_config
 from core.translate import get_translation
 from core.database import get_db_manager as _get_db_manager
@@ -34,7 +35,7 @@ from shared.conversation import get_conversation_manager as _get_conversation_ma
 from shared.llm import LLMManager
 from shared.settings import UserSettingsManager
 from shared.users import get_user_manager as _get_user_manager
-
+from shared.module_handler import module_handler as global_module_handler
 
 @st.cache_resource
 def _load_translations() -> dict[str, dict[str, str]]:
@@ -153,3 +154,39 @@ def get_driver():
     """Cached proxy for shared.driver.get_driver."""
     from shared.driver import get_driver as _get_driver
     return _get_driver()
+
+
+def register_all_services(module_handler_instance=None):
+    """
+    Register all cached services with the module handler's ServiceLocator.
+
+    This function should be called once at application startup (in prof.py and conftest.py)
+    to set up the ServiceLocator with all available services from st_shared.cached.
+
+    Args:
+        module_handler_instance: Optional module handler instance. If not provided,
+                                 uses the global module_handler.
+
+    Returns:
+        The ServiceLocator instance that was registered.
+    """
+
+    # Use provided module handler or global one
+    handler = module_handler_instance or global_module_handler
+
+    # Create and populate ServiceLocator
+    services = ServiceLocator()
+    services.register("config", get_config())
+    services.register("user_manager", get_user_manager())
+    services.register("db_manager", get_db_manager())
+    services.register("conversation_manager", get_conversation_manager())
+    services.register("prompt_manager", get_prompt_manager())
+    services.register("llm_manager", get_llm_manager())
+    services.register("user_settings_manager", get_user_settings_manager())
+    services.register("driver", get_driver())
+    # Add other services as needed
+
+    # Register with module handler
+    handler.set_services(services)
+
+    return services
