@@ -14,12 +14,8 @@ from tests.step_defs.common_steps import *
 from tests.step_defs.user_steps import *
 from tests.step_defs.conversation_common_steps import *
 
+from st_shared.cached import get_config
 
-try:
-    from st_shared.cached import get_config
-except ImportError:
-    def get_config():
-        return {}
 
 scenarios("../../tests/features/rag.feature")
 
@@ -192,8 +188,7 @@ def verify_rag_enhanced_response(context: dict) -> dict:
         r"1 place du Louvre",
         r"place du Louvre",
         r"Paris",
-        r"address.*Kevin",
-        r"Kevin.*lives",
+        r"Louvre",
         r"Louvre.*Paris",
     )
 
@@ -229,7 +224,8 @@ def verify_generic_response(context: dict) -> dict:
         "1 place du Louvre",
         "place du Louvre",
         "1 place du Louvre, Paris",
-        "Louvre, Paris",
+        "Louvre",
+        "Paris",
     )
     leaked = [f for f in forbidden if f.lower() in response_text.lower()]
     if leaked:

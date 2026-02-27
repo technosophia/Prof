@@ -75,12 +75,13 @@ _BROWSER_SCOPE = "module"
 # ---------------------------------------------------------------------------
 # 3.  Shared imports (after path + .env are ready)
 # ---------------------------------------------------------------------------
+from shared.module_handler import ServiceLocator, module_handler
+
 from st_shared.cached import get_config, get_db_manager, get_user_manager
 from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
-from st_shared.cached import get_prompt_manager, get_llm_manager
+from st_shared.cached import get_prompt_manager, get_llm_manager, get_driver
 
 from shared.common import init_user_manager
-from shared.module_handler import ModuleHandler, module_handler
 from shared.ui_registry import UIRegistry
 from modules.rag_manager import rag_manager
 from core.logging import log, set_log_module_level, configure_logging_from_dict
@@ -296,6 +297,18 @@ def _cleanup_directory(directory: str) -> None:
 def pytest_sessionstart(session) -> None:  # noqa: ARG001
     log("debug", "=== SESSION START ===")
 
+    # IMPORTANT: Set up services for modules BEFORE initialization
+    services = ServiceLocator()
+    services.register("config", get_config())
+    services.register("user_manager", get_user_manager())
+    services.register("db_manager", get_db_manager())
+    services.register("conversation_manager", get_conversation_manager())
+    services.register("prompt_manager", get_prompt_manager())
+    services.register("llm_manager", get_llm_manager())
+    services.register("driver", get_driver())
+    # Add other services as needed
+    module_handler.set_services(services)
+
     # Step 1: DB must exist before users or modules.
     _reset_db()
 
@@ -306,18 +319,7 @@ def pytest_sessionstart(session) -> None:  # noqa: ARG001
     except Exception as exc:
         log("debug", f"⚠ init_user_manager failed: {exc}", level="ERROR")
 
-    # IMPORTANT: Set up services for modules BEFORE initialization
-    from shared.module_handler import ServiceLocator
 
-    services = ServiceLocator()
-    services.register("config", get_config())
-    services.register("user_manager", get_user_manager())
-    services.register("db_manager", get_db_manager())
-    services.register("conversation_manager", get_conversation_manager())
-    services.register("prompt_manager", get_prompt_manager())
-    services.register("llm_manager", get_llm_manager())
-    # Add other services as needed
-    module_handler.set_services(services)
 
     # Step 3: Module initialisation (Phase 1: on_module_activated; Phase 2: legacy).
     log("debug", "Initialising modules…")

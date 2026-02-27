@@ -45,8 +45,10 @@ def inject_ui_initialize() -> bool:
     if 'rag_debug_enabled' not in st.session_state:
         st.session_state.rag_debug_enabled = False
 
-    if 'rag_injection_enabled' not in st.session_state:
-        st.session_state.rag_injection_enabled = True
+    # Don't set this here - let the actual engine state determine it
+    # We'll check the actual registered callbacks when rendering
+    # if 'rag_injection_enabled' not in st.session_state:
+    #     st.session_state.rag_injection_enabled = True
 
     if 'last_rag_context' not in st.session_state:
         st.session_state.last_rag_context = ""
@@ -57,7 +59,6 @@ def inject_ui_initialize() -> bool:
 
     log("debug", "rag_manager_ui: session state initialized")
     return True
-
 
 # ---------------------------------------------------------------------------
 # inject_ui_sidebar
@@ -103,19 +104,25 @@ def inject_ui_sidebar():
             value=st.session_state.get('rag_debug_enabled', False),
             help="Shows the RAG context used for LLM queries in an expander",
         )
-        if rag_debug_enabled != st.session_state.get('rag_debug_enabled', True):
+        if rag_debug_enabled != st.session_state.get('rag_debug_enabled', False):
             st.session_state.rag_debug_enabled = rag_debug_enabled
             st.rerun()
 
         st.caption("Displays retrieved document context in chat")
 
+        # FIX: Always ensure the toggle reflects the actual state
+        # Check if the current engine is active by seeing if its callback is registered
+        from modules.rag_manager import _ENGINE_CONTEXT_CALLBACKS
+        current_engine_active = rag_manager.default_engine in _ENGINE_CONTEXT_CALLBACKS
+
         rag_injection_enabled = st.toggle(
             "Enable RAG Context Injection",
-            value=st.session_state.get('rag_injection_enabled', True),
+            value=current_engine_active,  # Use actual state instead of session state
             help="When enabled, RAG context is injected into LLM queries",
         )
-        if rag_injection_enabled != st.session_state.get('rag_injection_enabled'):
-            st.session_state.rag_injection_enabled = rag_injection_enabled
+
+        # FIX: Handle toggle changes properly
+        if rag_injection_enabled != current_engine_active:
             from modules.rag_manager import _activate_rag_engine, _deactivate_rag_engine
             if rag_injection_enabled:
                 _activate_rag_engine(rag_manager.default_engine)
@@ -125,9 +132,11 @@ def inject_ui_sidebar():
                 _deactivate_rag_engine(rag_manager.default_engine)
                 log("info", f"[RAG UI] RAG DISABLED via UI toggle for engine {rag_manager.default_engine}")
                 st.sidebar.info("RAG context injection disabled")
-            st.rerun()
 
         if st.button("Apply Changes", type="secondary", use_container_width=True):
+            changes_made = False
+
+            # Handle engine change
             if selected_engine != current_default:
                 rag_config_path = Path(__file__).parent / CONFIG_FILE
                 try:
@@ -147,12 +156,22 @@ def inject_ui_sidebar():
 
                     config.set("modules.rag_manager.default_engine", selected_engine)
                     rag_manager.default_engine = selected_engine
-                    notify_module_config_changed("rag_manager")
+                    changes_made = True
 
-                    st.sidebar.success(f"Default engine set to: {selected_engine}")
-                    st.rerun()
                 except Exception as e:
                     st.sidebar.error(f"Failed to update config: {str(e)}")
+
+            # Handle the changes
+            if changes_made:
+                notify_module_config_changed("rag_manager")
+
+                # FIX: Re-activate the new engine if injection is enabled
+                if rag_injection_enabled:
+                    from modules.rag_manager import _activate_rag_engine
+                    _activate_rag_engine(selected_engine)
+
+                st.sidebar.success(f"Default engine set to: {selected_engine}")
+                st.rerun()
             else:
                 st.sidebar.info("No changes made")
 
@@ -162,7 +181,8 @@ def inject_ui_sidebar():
         for engine in available_engines:
             status_icon = "✅" if engine['available'] else "❌"
             default_icon = "⭐" if engine['type'] == current_default else ""
-            st.caption(f"{status_icon} {default_icon} {engine['type']}")
+            active_icon = "🔵" if engine['type'] in _ENGINE_CONTEXT_CALLBACKS else ""
+            st.caption(f"{status_icon} {default_icon} {active_icon} {engine['type']}")
 
 
 # ---------------------------------------------------------------------------

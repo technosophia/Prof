@@ -544,29 +544,40 @@ class ModuleHandler:
 
 
 # ---------------------------------------------------------------------------
-# Convenience functions
+# Global singleton instance
+# ---------------------------------------------------------------------------
+
+# Create the global module handler instance
+module_handler = ModuleHandler()
+
+
+# ---------------------------------------------------------------------------
+# Convenience functions (using the global instance)
 # ---------------------------------------------------------------------------
 
 def get_active_modules() -> List[str]:
     """[api] Convenience function to get active modules without creating a handler."""
-    handler = ModuleHandler()
-    handler.initialize()
-    return handler.get_active_modules()
+    module_handler.initialize()
+    return module_handler.get_active_modules()
 
 
 def toggle_module(module_name: str, activate: bool) -> bool:
     """Convenience function to toggle a module."""
-    handler = ModuleHandler()
-    handler.initialize()
-    return handler.toggle_module(module_name, activate)
+    module_handler.initialize()
+    return module_handler.toggle_module(module_name, activate)
 
 
 def notify_module_config_changed(module_name: str) -> None:
     """Convenience function to notify that a module configuration changed."""
-    handler = ModuleHandler()
-    handler.initialize()
-    handler.notify_module_config_changed(module_name)
+    module_handler.initialize()
+    module_handler.notify_module_config_changed(module_name)
 
 
-# Singleton instance
-module_handler = ModuleHandler()
+def get_services() -> Optional[ServiceLocator]:
+    """[api] Get the ServiceLocator from the global module handler."""
+    return module_handler.get_services()
+
+
+def set_services(services: ServiceLocator) -> None:
+    """[api] Set the ServiceLocator on the global module handler."""
+    module_handler.set_services(services)
