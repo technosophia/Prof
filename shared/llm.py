@@ -227,8 +227,8 @@ class LLMManager:
 
     def initialize_current_llm(self):
         """Initialize the current LLM from config."""
-        default_llm_name = self.config.get("app.default_llm", "Ollama Small")
-        log("debug", f"Looking for default LLM: '{default_llm_name}'")
+        default_llm_id = self.config.get("app.default_llm")
+        log("debug", f"Looking for default LLM ID: '{default_llm_id}'")
 
         available_llms = self.get_available_llms()
 
@@ -239,43 +239,49 @@ class LLMManager:
         else:
             log("debug", "No LLMs returned from get_available_llms()")
 
-        for llm in available_llms:
-            if llm["name"] == default_llm_name:
-                if llm["available"]:
-                    self.current_llm = llm["id"]
-                    log("info", f"Current LLM set to: {default_llm_name} (ID: {self.current_llm})")
-                    return
-                else:
-                    log("warning", f"Default LLM '{default_llm_name}' found but not available")
+        # Try to find by ID first (primary method)
+        if default_llm_id:
+            for llm in available_llms:
+                if llm["id"] == default_llm_id:
+                    if llm["available"]:
+                        self.current_llm = llm["id"]
+                        log("info", f"Current LLM set by ID: {default_llm_id} (name: {llm['name']})")
+                        return
+                    else:
+                        log("warning", f"Default LLM ID '{default_llm_id}' found but not available")
+                        break
 
-        for llm in available_llms:
-            if llm["name"].lower() == default_llm_name.lower():
-                if llm["available"]:
-                    self.current_llm = llm["id"]
-                    log("info", f"Current LLM set to: {llm['name']} (ID: {self.current_llm})")
-                    return
-                else:
-                    log("warning", f"Default LLM '{llm['name']}' found (case-insensitive) but not available")
+        # Fallback: try to find by name (for backward compatibility)
+        if default_llm_id:
+            for llm in available_llms:
+                if llm["name"] == default_llm_id:
+                    if llm["available"]:
+                        self.current_llm = llm["id"]
+                        log("warning", f"Default LLM found by name (deprecated): '{default_llm_id}' -> ID: {llm['id']}")
+                        return
+                    else:
+                        log("warning", f"Default LLM '{default_llm_id}' found by name but not available")
 
-        for llm in available_llms:
-            if llm["id"] == default_llm_name:
-                if llm["available"]:
-                    self.current_llm = llm["id"]
-                    log("info", f"Current LLM set by ID: {default_llm_name}")
-                    return
-                else:
-                    log("warning", f"Default LLM ID '{default_llm_name}' found but not available")
+            for llm in available_llms:
+                if llm["name"].lower() == default_llm_id.lower():
+                    if llm["available"]:
+                        self.current_llm = llm["id"]
+                        log("warning", f"Default LLM found by case-insensitive name (deprecated): '{default_llm_id}' -> ID: {llm['id']}")
+                        return
+                    else:
+                        log("warning", f"Default LLM '{default_llm_id}' found by case-insensitive name but not available")
 
+        # Fallback to first available LLM
         for llm in available_llms:
             if llm["available"]:
                 self.current_llm = llm["id"]
-                log("warning", f"No default LLM '{default_llm_name}' found, falling back to: {llm['name']}")
+                log("warning", f"No default LLM '{default_llm_id}' found or available, falling back to: {llm['name']} (ID: {llm['id']})")
                 return
 
         if available_llms:
             log("error", f"No available LLMs found among {len(available_llms)} configured LLMs")
             self.current_llm = available_llms[0]["id"]
-            log("warning", f"Forcing current LLM to first configured: {available_llms[0]['name']}")
+            log("warning", f"Forcing current LLM to first configured: {available_llms[0]['name']} (ID: {available_llms[0]['id']})")
         else:
             log("error", "No LLMs configured at all")
             self.current_llm = None

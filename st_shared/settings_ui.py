@@ -152,7 +152,7 @@ def render_language_llm_tab(current_settings, settings_manager, user_id):
     """Render the Language & LLM tab content."""
     st.subheader("Language & LLM Settings")
 
-    # Language selection
+    # Language selection (unchanged)
     st.write("#### Language Preference")
     language_options = settings_manager.get_language_options()
 
@@ -174,7 +174,7 @@ def render_language_llm_tab(current_settings, settings_manager, user_id):
 
     st.caption("This will affect the language of the interface and responses.")
 
-    # LLM selection
+    # LLM selection - Updated to use default_llm_id
     st.divider()
     st.write("#### Default LLM Selection")
 
@@ -183,8 +183,10 @@ def render_language_llm_tab(current_settings, settings_manager, user_id):
     if not llm_options:
         st.warning("No LLMs available. Please configure LLMs in the admin panel.")
     else:
-        # Get current LLM from settings or use global default
-        current_llm_id = current_settings.get("default_llm")
+        # Get current LLM from settings - try new ID field first, then fallback to old
+        current_llm_id = current_settings.get("default_llm_id")
+        if not current_llm_id:
+            current_llm_id = current_settings.get("default_llm")
 
         # Find current LLM index
         default_llm_idx = 0
@@ -199,7 +201,7 @@ def render_language_llm_tab(current_settings, settings_manager, user_id):
             options=[llm["id"] for llm in llm_options],
             format_func=lambda x: [llm["display"] for llm in llm_options if llm["id"] == x][0],
             index=default_llm_idx,
-            key="settings_llm_select"
+            key="settings_llm_select"  # This will store the ID, not the name
         )
 
         # Show LLM info
@@ -208,6 +210,7 @@ def render_language_llm_tab(current_settings, settings_manager, user_id):
             if selected_llm:
                 with st.expander("Selected LLM Details"):
                     st.write(f"**Name:** {selected_llm['name']}")
+                    st.write(f"**ID:** {selected_llm['id']}")
                     st.write(f"**Type:** {selected_llm['type']}")
                     st.write(f"**Model:** {selected_llm.get('model', 'N/A')}")
                     st.write(f"**Status:** Available ✅")
@@ -323,6 +326,39 @@ def render_preferences_tab(current_settings):
     else:
         st.info("Preferences configuration is not available in production mode for normal users.")
 
+def save_settings(settings_manager, user_id, user_name):
+    """Save settings from widgets."""
+    # Collect all settings from widgets using their keys
+    settings_updates = {
+        "language": st.session_state.get("settings_language_select", "en"),
+        "default_llm_id": st.session_state.get("settings_llm_select", None),  # Changed to default_llm_id
+        "system_prompt": st.session_state.get("settings_system_prompt", ""),
+        "temperature": st.session_state.get("settings_temperature", 0.7),
+        "max_tokens": st.session_state.get("settings_max_tokens", 1000),
+        "auto_save": st.session_state.get("settings_auto_save", True),
+        "notifications": st.session_state.get("settings_notifications", True),
+        "theme": st.session_state.get("settings_theme", "light")
+    }
+
+    # Update settings
+    success = settings_manager.update_user_settings(user_id, settings_updates)
+
+    if success:
+        st.success("✅ Settings saved successfully!")
+
+        # Update session state if language changed
+        if settings_updates["language"] != st.session_state.current_language:
+            st.session_state.current_language = settings_updates["language"]
+
+        # Update current user in session state
+        updated_user = get_user_manager().get_user(user_id)
+        if updated_user:
+            st.session_state.current_user = updated_user
+
+        log("info", f"User settings updated for {user_name}")
+        st.rerun()
+    else:
+        st.error("❌ Failed to save settings. Please try again.")
 
 def render_info_tab(current_user, current_settings):
     """Render the Info tab content."""
@@ -380,7 +416,7 @@ def render_info_tab(current_user, current_settings):
                 if st.button("✅ Confirm Reset"):
                     default_reset = {
                         "language": "en",
-                        "default_llm": None,
+                        "default_llm_id": None,  # Changed from default_llm
                         "system_prompt": "",
                         "temperature": 0.7,
                         "max_tokens": 1000,
@@ -398,42 +434,6 @@ def render_info_tab(current_user, current_settings):
             with col_reset2:
                 if st.button("❌ Cancel"):
                     st.rerun()
-
-
-def save_settings(settings_manager, user_id, user_name):
-    """Save settings from widgets."""
-    # Collect all settings from widgets using their keys
-    settings_updates = {
-        "language": st.session_state.get("settings_language_select", "en"),
-        "default_llm": st.session_state.get("settings_llm_select", None),
-        "system_prompt": st.session_state.get("settings_system_prompt", ""),
-        "temperature": st.session_state.get("settings_temperature", 0.7),
-        "max_tokens": st.session_state.get("settings_max_tokens", 1000),
-        "auto_save": st.session_state.get("settings_auto_save", True),
-        "notifications": st.session_state.get("settings_notifications", True),
-        "theme": st.session_state.get("settings_theme", "light")
-    }
-
-    # Update settings
-    success = settings_manager.update_user_settings(user_id, settings_updates)
-
-    if success:
-        st.success("✅ Settings saved successfully!")
-
-        # Update session state if language changed
-        if settings_updates["language"] != st.session_state.current_language:
-            st.session_state.current_language = settings_updates["language"]
-
-        # Update current user in session state
-        updated_user = get_user_manager().get_user(user_id)
-        if updated_user:
-            st.session_state.current_user = updated_user
-
-        log("info", f"User settings updated for {user_name}")
-        st.rerun()
-    else:
-        st.error("❌ Failed to save settings. Please try again.")
-
 
 def inject_ui_settings_content():
     """Inject settings content."""

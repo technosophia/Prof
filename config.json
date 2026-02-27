@@ -38,10 +38,10 @@
   },
   "app": {
     "name": "Professor",
-    "default_llm": "Groq Llama 3",
+    "default_llm": "groq",
     "version": "1.0.0",
     "auto_login": true,
-    "auto_login_user": "master1",
+    "auto_login_user": "master2",
     "local_mode": true,
     "test_mode": false
   },

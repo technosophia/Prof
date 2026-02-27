@@ -31,7 +31,7 @@ class UserSettingsManager:
         # Ensure default structure
         default_settings = {
             "language": "en",
-            "default_llm": None,
+            "default_llm_id": None,  # Changed from default_llm to default_llm_id
             "system_prompt": "",
             "temperature": 0.7,
             "max_tokens": 1000,
@@ -44,6 +44,11 @@ class UserSettingsManager:
         for key, value in default_settings.items():
             if key not in settings:
                 settings[key] = value
+
+        # Backward compatibility: if old default_llm exists but default_llm_id doesn't
+        if "default_llm" in settings and "default_llm_id" not in settings:
+            settings["default_llm_id"] = settings["default_llm"]
+            log("debug", f"Migrated user {user_id} from default_llm to default_llm_id")
 
         return settings
 
@@ -59,6 +64,10 @@ class UserSettingsManager:
         # Get current settings or create new
         current_settings = profile.get("settings", {})
 
+        # Handle backward compatibility: if default_llm is provided but default_llm_id isn't
+        if "default_llm" in settings_updates and "default_llm_id" not in settings_updates:
+            settings_updates["default_llm_id"] = settings_updates.pop("default_llm")
+
         # Update settings
         current_settings.update(settings_updates)
 
@@ -71,6 +80,51 @@ class UserSettingsManager:
             current_user_id=user_id,
             profile=profile
         )
+
+    def get_user_preferences(self, user: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Get user's preferred language and LLM ID from their profile settings.
+
+        Args:
+            user: User dictionary from user manager
+
+        Returns:
+            Tuple of (preferred_language, preferred_llm_id) or (None, None) if not found
+        """
+        if not user:
+            return None, None
+
+        # Check if user has profile settings
+        profile = user.get("profile", {})
+        preferred_lang = None
+        preferred_llm_id = None
+
+        # Check new settings structure
+        if "settings" in profile:
+            settings = profile.get("settings", {})
+
+            # Get language preference
+            if "language" in settings:
+                preferred_lang = settings.get("language")
+            else:
+                # Fall back to old profile language field
+                if "language" in profile:
+                    preferred_lang = profile.get("language")
+
+            # Get LLM preference - try new ID field first
+            if "default_llm_id" in settings:
+                preferred_llm_id = settings.get("default_llm_id")
+            # Backward compatibility: check old field
+            elif "default_llm" in settings:
+                preferred_llm_id = settings.get("default_llm")
+                log("debug", f"Using legacy default_llm field for user {user.get('id')}")
+
+        else:
+            # Old structure: language might be directly in profile
+            if "language" in profile:
+                preferred_lang = profile.get("language")
+
+        return preferred_lang, preferred_llm_id
 
     def get_language_options(self) -> list:
         """Get available language options."""
@@ -85,44 +139,3 @@ class UserSettingsManager:
             {"code": "ja", "name": "日本語", "flag": "🇯🇵"},
             {"code": "ko", "name": "한국어", "flag": "🇰🇷"},
         ]
-
-    def get_user_preferences(self, user: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Get user's preferred language and LLM from their profile settings.
-
-        Args:
-            user: User dictionary from user manager
-
-        Returns:
-            Tuple of (preferred_language, preferred_llm_id) or (None, None) if not found
-        """
-        if not user:
-            return None, None
-
-        # Check if user has profile settings
-        profile = user.get("profile", {})
-        preferred_lang = None
-        preferred_llm = None
-
-        # Check new settings structure
-        if "settings" in profile:
-            settings = profile.get("settings", {})
-
-            # Get language preference
-            if "language" in settings:
-                preferred_lang = settings.get("language")
-            else:
-                # Fall back to old profile language field
-                if "language" in profile:
-                    preferred_lang = profile.get("language")
-
-            # Get LLM preference
-            if "default_llm" in settings:
-                preferred_llm = settings.get("default_llm")
-
-        else:
-            # Old structure: language might be directly in profile
-            if "language" in profile:
-                preferred_lang = profile.get("language")
-
-        return preferred_lang, preferred_llm

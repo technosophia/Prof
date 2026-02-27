@@ -180,7 +180,7 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
 
     monkeypatch.setattr(runner, "_ensure_test_users", lambda setup: [])
     monkeypatch.setattr(runner, "_persist_run", lambda run_result: None)
-    monkeypatch.setattr("modules.benchmarker.runner.get_current_llm_id", lambda: "mock-default")
+    monkeypatch.setattr("modules.benchmarker.runner.get_current_llm_id", lambda: "mock")
 
     switched = {}
     monkeypatch.setattr("modules.benchmarker.runner.set_current_llm", lambda llm_id: switched.setdefault("llm", llm_id) or True)
@@ -192,9 +192,9 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
 
     result = runner.run(str(tmp_file))
     assert result.success
-    assert switched["llm"] == "mock-default"
+    assert switched["llm"] == "mock"
     context_events = [e for e in runner.driver.get_session_events() if e.get("type") == "context_switch"]
-    assert any(e.get("data", {}).get("llm_id") == "mock-default" for e in context_events)
+    assert any(e.get("data", {}).get("llm_id") == "mock" for e in context_events)
 
 
 def test_injected_context_contains_passes(monkeypatch):
