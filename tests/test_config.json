@@ -4,7 +4,7 @@
     "auto_login": false,
     "local_mode": true,
     "test_mode": true,
-    "debug_llm": ["Ollama Small", "Groq Llama 3", "Gemini"],
+    "debug_llm": ["ollama_qwen", "groq", "gemini"],
     "llm_delay": 500
   },
   "database": {

@@ -26,9 +26,25 @@ pytestmark = [pytest.mark.bdd, pytest.mark.playwright, pytest.mark.rag]
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _select_rag_llm(page: Page, model_names: list, debug_enabled: bool = False) -> bool:
-    """Select an LLM from the dropdown matching any of the given name patterns."""
+def _select_rag_llm(page: Page, model_ids: list, debug_enabled: bool = False) -> bool:
+    """Select an LLM from the dropdown matching any of the given model IDs."""
     wait_for_app_stable(page)
+
+    # Get the full config to map IDs to display names
+    cfg = get_config() if callable(get_config) else {}
+    llms_config = cfg.get("llms", {}) if cfg else {}
+
+    # Convert model IDs to their display names for dropdown selection
+    model_names = []
+    for model_id in model_ids:
+        if model_id in llms_config:
+            model_names.append(llms_config[model_id].get("name", model_id))
+        else:
+            model_names.append(model_id)  # Fallback to ID if not found
+
+    if debug_enabled:
+        print(f"  Looking for models: {model_names} (from IDs: {model_ids})")
+
     selectboxes = page.locator("[data-testid='stSelectbox']")
 
     llm_selectbox = None
@@ -54,11 +70,11 @@ def _select_rag_llm(page: Page, model_names: list, debug_enabled: bool = False) 
             if pattern.lower() in opt_text.lower():
                 options.nth(i).click()
                 wait_for_app_stable(page)
-                print(f"  ✓ Selected LLM: '{opt_text.strip()}'")
+                print(f"  ✓ Selected LLM: '{opt_text.strip()}' (from ID: {model_ids[model_names.index(pattern)]})")
                 return True
 
     page.keyboard.press("Escape")
-    print(f"  ⚠ None of {model_names} found in LLM dropdown")
+    print(f"  ⚠ None of {model_names} (from IDs: {model_ids}) found in LLM dropdown")
     return False
 
 
@@ -122,9 +138,6 @@ def _toggle_rag(page: Page, enable: bool, debug_enabled: bool = False) -> bool:
             print(f"  RAG already {'enabled' if enable else 'disabled'}")
         return True
 
-        page.wait_for_timeout(200)
-        return True
-
     except Exception as exc:
         print(f"  ⚠ Error toggling RAG: {exc}")
         # Fallback: click the label
@@ -147,8 +160,8 @@ def enable_rag_injection(context: dict) -> dict:
     page: Page = context["page"]
     debug_enabled = context.get("debug_enabled", False)
     cfg = get_config() if callable(get_config) else {}
-    model_names = cfg.get("app.debug_llm") if cfg else ["Ollama Small", "Groq Llama 3", "Gemini"]
-    _select_rag_llm(page, model_names, debug_enabled)
+    model_ids = cfg.get("app.debug_llm") if cfg else ["ollama_qwen", "groq", "gemini"]
+    _select_rag_llm(page, model_ids, debug_enabled)
     _toggle_rag(page, enable=True, debug_enabled=debug_enabled)
     # Wait for the app to fully stabilise after toggle
     wait_for_app_stable(page)
@@ -162,8 +175,8 @@ def disable_rag_injection(context: dict) -> dict:
     page: Page = context["page"]
     debug_enabled = context.get("debug_enabled", False)
     cfg = get_config() if callable(get_config) else {}
-    model_names = cfg.get("app.debug_llm") if cfg else ["Ollama Small", "Groq Llama 3", "Gemini"]
-    _select_rag_llm(page, model_names, debug_enabled)
+    model_ids = cfg.get("app.debug_llm") if cfg else ["ollama_qwen", "groq", "gemini"]
+    _select_rag_llm(page, model_ids, debug_enabled)
     _toggle_rag(page, enable=False, debug_enabled=debug_enabled)
     wait_for_app_stable(page)
     time.sleep(0.5)
