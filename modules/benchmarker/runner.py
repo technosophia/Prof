@@ -334,9 +334,13 @@ class ScenarioRunner:
                 )
                 passed = bool(evaluated.get("passed", False))
                 message = str(evaluated.get("message", ""))
-            except Exception as exc:
+            except DriverAssertionError as exc:
                 passed = False
                 message = f"Assertion evaluation failed for type '{atype}': {exc}"
+            except Exception as exc:
+                passed = False
+                message = f"An unexpected error occurred during evaluation of assertion '{aid}' (type: '{atype}'): {exc}"
+                log("error", f"Unexpected error evaluating assertion {aid} ({atype}):", exc_info=True)
 
             results.append(AssertionResult(id=aid, passed=passed, message=message, assertion_type=atype))
 
