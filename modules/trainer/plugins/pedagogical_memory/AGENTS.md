@@ -27,7 +27,6 @@ Maintain a durable, evolvable memory of each student's learning journey as atomi
 - Taxonomy must be evolvable via `config.json` only.
 - Compaction is manual-trigger only (UI button), no automatic background runs.
 - Embeddings are lazy runtime operations; never load embedding models at plugin init.
-- Export stays lean and reconstructable; embeddings are recomputed on import.
 
 ## Key methods
 
@@ -38,7 +37,6 @@ Maintain a durable, evolvable memory of each student's learning journey as atomi
 | `_decide_reconciliation(...)` | LLM call #2 decision for near-matches |
 | `_run_confidence_decay(...)` | Call #3 confidence decay and soft delete |
 | `get_memory_context(user_id, messages)` | Embed current query, retrieve and inject top-K facts |
-| `export_history(...)` / `import_history(...)` | Portable events without embedding bytes; recompute on import |
 
 ## What to avoid
 

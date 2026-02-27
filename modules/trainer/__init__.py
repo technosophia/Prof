@@ -10,7 +10,6 @@ Features:
 - Student dashboard with conversation stats
 - Configurable system prompts for teacher AI
 - Plugin system for extensibility
-- Import/export of configuration
 - Student note-taking pads (via plugin) with student UI injection
 
 Dependencies:
@@ -56,7 +55,10 @@ _DRIVER_REGISTRATION_DONE = False
 
 def _get_plugin(name: str):
     """Return plugin instance by name, or None if not found."""
-    return get_plugin_manager().get_plugin(name)
+    plugin_manager = get_plugin_manager()
+    if hasattr(plugin_manager, "set_trainer_manager"):
+        plugin_manager.set_trainer_manager(get_trainer_manager())
+    return plugin_manager.get_plugin(name)
 
 
 def _activate_memory_plugin(name: str, trainer_id: str) -> None:
@@ -176,6 +178,8 @@ def initialize():
     get_db_manager()
     ensure_tables_exist()
     plugin_manager = get_plugin_manager()
+    if hasattr(plugin_manager, "set_trainer_manager"):
+        plugin_manager.set_trainer_manager(get_trainer_manager())
     log("debug", f"Loaded {len(plugin_manager.get_all_plugins())} Trainer plugins")
 
     if _DRIVER_REGISTRATION_DONE:

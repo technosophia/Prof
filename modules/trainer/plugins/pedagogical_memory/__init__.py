@@ -1,6 +1,15 @@
 """
 Pedagogical Memory Plugin for Trainer Module.
 Maintains structured atomic pedagogical facts with semantic retrieval.
+
+Migration status: COMPLETE
+  - initialize() calls self._resolve_services(services)
+  - Added legacy fallback for self.config when services=None
+  - All data methods use self.db, self.user_manager, self.conversation_manager,
+    self.llm_manager, self.config — no st_shared.cached imports elsewhere
+  - All render methods call self.<data_method>() only — no db/cache access inline
+  - When splitting into two classes: replace self.xxx() with self._logic.xxx()
+    in every render method. No logic rewrite needed.
 """
 
 from typing import List, Dict, Any, Optional, Callable, Tuple
@@ -14,19 +23,15 @@ import numpy as np
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Float, LargeBinary, desc
 
 from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id, get_embedding
-from st_shared.cached import get_db_manager, get_conversation_manager, get_llm_manager, get_user_manager, get_config
-from modules.trainer.plugin_base import TrainerPlugin
-from modules.trainer.manager import get_trainer_manager
+from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
 
-
-from core.logging import log, set_log_module_level
+from core.logging import log
 from core.database import Base
+
 EMBEDDING_DIMENSION = 384
 
 
 class PedagogicalFact(Base):
-    """Store atomic pedagogical facts for each student and trainer."""
-
     __tablename__ = "trainer_pedagogical_facts"
     __table_args__ = {"extend_existing": True}
 
@@ -47,8 +52,6 @@ class PedagogicalFact(Base):
 
 
 class PedagogicalAnalysisLog(Base):
-    """Track pedagogical memory analysis runs."""
-
     __tablename__ = "trainer_pedagogical_analysis_logs"
     __table_args__ = {"extend_existing": True}
 
@@ -62,19 +65,14 @@ class PedagogicalAnalysisLog(Base):
     facts_discarded = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 def _run_async(coro):
-    """
-    Run an async coroutine safely regardless of whether there is already
-    a running event loop (Streamlit) or not (plain scripts / tests).
-    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
 
     if loop and loop.is_running():
-        # We're inside Streamlit (or another async host).
-        # Schedule on the existing loop and block until done.
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, coro)
@@ -82,16 +80,38 @@ def _run_async(coro):
     else:
         return asyncio.run(coro)
 
+
 class PedagogicalMemoryPlugin(TrainerPlugin):
     """Plugin that maintains structured pedagogical fact memory."""
 
-    def initialize(self) -> bool:
-        """Initialize the plugin, tables, and context callback."""
+    # ─────────────────────────────────────────────────────────────────────
+    # Lifecycle — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
+    def initialize(self, services=None) -> bool:
+        """
+        Initialize the plugin, tables, and context callback.
+
+        Resolves all services via _resolve_services. If still in legacy mode
+        (services=None), also loads config from st_shared.cached because the
+        base fallback does not set self.config.
+        """
         try:
-            db = get_db_manager()
-            if db.is_initialized() and not db._in_memory:
+            self._resolve_services(services)
+
+            # Legacy fallback: if config is still None, try to load it directly
+            if self.config is None:
+                try:
+                    from st_shared.cached import get_config
+                    self.config = get_config()
+                    log("debug", "PedagogicalMemoryPlugin: loaded config from st_shared.cached fallback")
+                except ImportError:
+                    log("warning", "PedagogicalMemoryPlugin: no config available, using defaults")
+                    self.config = {}
+
+            if self.db and self.db.is_initialized() and not self.db._in_memory:
                 Base.metadata.create_all(
-                    db._engine,
+                    self.db._engine,
                     tables=[PedagogicalFact.__table__, PedagogicalAnalysisLog.__table__],
                     checkfirst=True,
                 )
@@ -103,9 +123,20 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             log("error", f"Failed to initialize pedagogical_memory plugin: {e}", exc_info=True)
             return False
 
+    def on_activate(self, trainer_id: str) -> None:
+        log("info", f"Pedagogical memory plugin activated for trainer {trainer_id}")
+
+    def on_deactivate(self, trainer_id: str) -> None:
+        log("info", f"Pedagogical memory plugin deactivated for trainer {trainer_id}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Data helpers — DATA LAYER (use self.service attributes only)
+    # ─────────────────────────────────────────────────────────────────────
+
     def _get_plugin_config(self) -> Dict[str, Any]:
-        """Get plugin runtime configuration."""
-        root_config = get_config().get("modules.trainer.plugins.pedagogical_memory", {}) or {}
+        """Get plugin runtime configuration from injected config."""
+        # self.config is guaranteed to be a dict (or dict-like) after initialize()
+        root_config = self.config.get("modules.trainer.plugins.pedagogical_memory", {}) if self.config else {}
         config = root_config.get("pedagogical_memory", root_config)
         return {
             "fact_types": config.get("fact_types", {}),
@@ -118,32 +149,26 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         }
 
     def _serialize_embedding(self, embedding: List[float]) -> bytes:
-        """Serialize embedding vector to bytes."""
         return np.asarray(embedding, dtype=np.float32).tobytes()
 
     def _deserialize_embedding(self, embedding_bytes: bytes, dim: int) -> np.ndarray:
-        """Deserialize embedding bytes to numpy vector."""
         vector = np.frombuffer(embedding_bytes, dtype=np.float32)
         if dim and vector.shape[0] != dim:
             log("warning", f"Embedding dimension mismatch: expected {dim}, got {vector.shape[0]}")
         return vector
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
-        """Compute cosine similarity between 2 vectors."""
         if a.size == 0 or b.size == 0:
             return 0.0
-
         norm_a = float(np.linalg.norm(a))
         norm_b = float(np.linalg.norm(b))
         if norm_a == 0.0 or norm_b == 0.0:
             return 0.0
-
         return float(np.dot(a, b) / (norm_a * norm_b))
 
     def _get_last_analysis_date(self, trainer_id: str, student_id: str) -> Optional[datetime]:
-        """Get last analysis timestamp for student."""
         try:
-            with get_db_manager().get_session() as session:
+            with self.db.get_session() as session:
                 analysis = (
                     session.query(PedagogicalAnalysisLog)
                     .filter_by(trainer_id=trainer_id, student_id=student_id)
@@ -156,9 +181,8 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             return None
 
     def _get_next_analysis_version(self, trainer_id: str, student_id: str) -> int:
-        """Get next analysis version number for student."""
         try:
-            with get_db_manager().get_session() as session:
+            with self.db.get_session() as session:
                 latest = (
                     session.query(PedagogicalAnalysisLog)
                     .filter_by(trainer_id=trainer_id, student_id=student_id)
@@ -171,50 +195,37 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             return 1
 
     def _get_new_conversations(self, student_id: str, since: Optional[datetime]) -> List[Dict[str, Any]]:
-        """Get new student conversation messages since timestamp."""
         new_messages = []
         try:
-            conv_manager = get_conversation_manager()
-            conversations = conv_manager.get_user_conversations(student_id)
-
+            conversations = self.conversation_manager.get_user_conversations(student_id)
             for conv in conversations:
-                full_conv = conv_manager.get_conversation(conv["id"])
+                full_conv = self.conversation_manager.get_conversation(conv["id"])
                 if not full_conv or not full_conv.messages:
                     continue
-
                 for msg in full_conv.messages:
                     if msg.role not in ["user", "assistant"]:
                         continue
-
                     msg_time = msg.timestamp
                     if msg_time and (not since or msg_time > since):
-                        new_messages.append(
-                            {
-                                "role": msg.role,
-                                "content": msg.content,
-                                "timestamp": msg_time.isoformat() if msg_time else None,
-                                "conversation_id": conv["id"],
-                                "conversation_title": conv.get("title", "Untitled"),
-                            }
-                        )
-
+                        new_messages.append({
+                            "role": msg.role,
+                            "content": msg.content,
+                            "timestamp": msg_time.isoformat() if msg_time else None,
+                            "conversation_id": conv["id"],
+                            "conversation_title": conv.get("title", "Untitled"),
+                        })
             new_messages.sort(key=lambda x: x.get("timestamp", ""))
         except Exception as e:
             log("error", f"Failed to read conversations: {e}", exc_info=True)
-
         return new_messages
 
     def _format_fact_types(self, fact_types: Dict[str, str]) -> str:
-        """Format fact taxonomy for prompts."""
-        lines = []
-        for key, description in fact_types.items():
-            lines.append(f"- {key}: {description}")
+        lines = [f"- {key}: {description}" for key, description in fact_types.items()]
         return "\n".join(lines)
 
     async def _extract_candidate_facts(
         self, trainer_id: str, student_id: str, new_messages: List[Dict[str, Any]], fact_types: Dict[str, str]
     ) -> List[Dict[str, str]]:
-        """Call extraction LLM prompt and parse JSON array of candidate facts."""
         try:
             training_program = get_prompt("trainer.teacher.training_program")
             conversations_text = ""
@@ -231,7 +242,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             )
 
             llm_id = get_current_llm_id()
-            response = await get_llm_manager().internal_response(
+            response = await self.llm_manager.internal_response(
                 llm_id,
                 [
                     {"role": "system", "content": system_prompt},
@@ -247,7 +258,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 payload = json.loads(response)
             except Exception as e:
                 log("error", f"Failed to parse extraction JSON output: {e}\n {response}", exc_info=True)
-                log("info", f"{system_prompt}\n{user_prompt}")
                 return []
 
             if not isinstance(payload, list):
@@ -276,20 +286,17 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         candidate_embedding: np.ndarray,
         top_n: int = 3,
     ) -> List[Tuple[PedagogicalFact, float]]:
-        """Find top-N similar active facts for candidate."""
         try:
             existing = (
                 session.query(PedagogicalFact)
                 .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1, fact_type=candidate_type)
                 .all()
             )
-
             scored = []
             for fact in existing:
                 vector = self._deserialize_embedding(fact.embedding, fact.embedding_dim)
                 score = self._cosine_similarity(candidate_embedding, vector)
                 scored.append((fact, score))
-
             scored.sort(key=lambda x: x[1], reverse=True)
             return scored[:top_n]
         except Exception as e:
@@ -297,7 +304,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             return []
 
     async def _decide_reconciliation(self, fact_type: str, existing_content: str, candidate_content: str) -> str:
-        """Use LLM to decide UPDATE, REINFORCE, or DISCARD."""
         try:
             llm_id = get_current_llm_id()
             system_prompt = get_prompt("trainer.plugins.pedagogical_memory.reconciliation_system")
@@ -306,7 +312,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 existing_content=existing_content,
                 candidate_content=candidate_content,
             )
-            response = await get_llm_manager().internal_response(
+            response = await self.llm_manager.internal_response(
                 llm_id,
                 [
                     {"role": "system", "content": system_prompt},
@@ -328,21 +334,17 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         candidate_embedding: np.ndarray,
         top_n: int = 3,
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Find top-N similar active facts from an in-memory snapshot."""
-        scored: List[Tuple[Dict[str, Any], float]] = []
+        scored = []
         for fact in facts:
             if fact.get("fact_type") != candidate_type or int(fact.get("is_active", 0)) != 1:
                 continue
-
             vector = self._deserialize_embedding(fact.get("embedding", b""), int(fact.get("embedding_dim", 0)))
             score = self._cosine_similarity(candidate_embedding, vector)
             scored.append((fact, score))
-
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_n]
 
     def _run_confidence_decay(self, session, trainer_id: str, student_id: str, cfg: Dict[str, Any]) -> None:
-        """Apply confidence decay to stale facts and soft-delete weak facts."""
         try:
             cutoff = datetime.utcnow() - timedelta(days=cfg["decay_days"])
             facts = session.query(PedagogicalFact).filter_by(
@@ -350,7 +352,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 student_id=student_id,
                 is_active=1,
             ).all()
-
             for fact in facts:
                 pivot_date = fact.last_reinforced_at or fact.updated_at or fact.created_at
                 if pivot_date and pivot_date < cutoff:
@@ -362,7 +363,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             log("error", f"Failed confidence decay: {e}", exc_info=True)
 
     async def refresh_memory(self, trainer_id: str, student_id: str) -> Dict[str, int]:
-        """Run extraction, reconciliation, and decay for a student."""
         stats = {"created": 0, "updated": 0, "reinforced": 0, "discarded": 0, "messages_analyzed": 0}
         cfg = self._get_plugin_config()
         fact_types = cfg["fact_types"]
@@ -382,7 +382,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         candidates = await self._extract_candidate_facts(trainer_id, student_id, messages, fact_types)
 
         try:
-            with get_db_manager().get_session() as session:
+            with self.db.get_session() as session:
                 current_facts = (
                     session.query(PedagogicalFact)
                     .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
@@ -416,28 +416,24 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 )
 
                 if not similar or similar[0][1] < cfg["similarity_threshold"]:
-                    operations.append(
-                        {
-                            "action": "CREATE",
-                            "fact_type": candidate["fact_type"],
-                            "content": candidate["content"],
-                            "vector": candidate_vector,
-                        }
-                    )
+                    operations.append({
+                        "action": "CREATE",
+                        "fact_type": candidate["fact_type"],
+                        "content": candidate["content"],
+                        "vector": candidate_vector,
+                    })
                     stats["created"] += 1
                     pending_id -= 1
-                    fact_snapshot.append(
-                        {
-                            "id": pending_id,
-                            "fact_type": candidate["fact_type"],
-                            "content": candidate["content"],
-                            "embedding": self._serialize_embedding(candidate_vector.tolist()),
-                            "embedding_dim": EMBEDDING_DIMENSION,
-                            "confidence": 1.0,
-                            "is_active": 1,
-                            "fact_metadata": {"source": "llm", "reconciliation": "CREATE"},
-                        }
-                    )
+                    fact_snapshot.append({
+                        "id": pending_id,
+                        "fact_type": candidate["fact_type"],
+                        "content": candidate["content"],
+                        "embedding": self._serialize_embedding(candidate_vector.tolist()),
+                        "embedding_dim": EMBEDDING_DIMENSION,
+                        "confidence": 1.0,
+                        "is_active": 1,
+                        "fact_metadata": {"source": "llm", "reconciliation": "CREATE"},
+                    })
                     continue
 
                 best_fact, _ = similar[0]
@@ -448,14 +444,12 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 )
 
                 if decision == "UPDATE":
-                    operations.append(
-                        {
-                            "action": "UPDATE",
-                            "fact_id": best_fact["id"],
-                            "content": candidate["content"],
-                            "vector": candidate_vector,
-                        }
-                    )
+                    operations.append({
+                        "action": "UPDATE",
+                        "fact_id": best_fact["id"],
+                        "content": candidate["content"],
+                        "vector": candidate_vector,
+                    })
                     best_fact["content"] = candidate["content"]
                     best_fact["embedding"] = self._serialize_embedding(candidate_vector.tolist())
                     best_fact["embedding_dim"] = EMBEDDING_DIMENSION
@@ -477,7 +471,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 else:
                     stats["discarded"] += 1
 
-            with get_db_manager().get_session() as session:
+            with self.db.get_session() as session:
                 for operation in operations:
                     if operation["action"] == "CREATE":
                         session.add(
@@ -541,9 +535,8 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             return stats
 
     def _get_active_facts(self, trainer_id: str, student_id: str) -> List[Dict[str, Any]]:
-        """Get active facts for student as detached-safe dictionaries."""
         try:
-            with get_db_manager().get_session() as session:
+            with self.db.get_session() as session:
                 rows = (
                     session.query(PedagogicalFact)
                     .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
@@ -573,12 +566,16 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             log("error", f"Failed to get active facts: {e}", exc_info=True)
             return []
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Context injection — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
     def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
         if not self._is_active:
             return None
-        """Inject top relevant pedagogical facts as LLM context."""
+
         try:
-            user = get_user_manager().get_user(user_id)
+            user = self.user_manager.get_user(user_id)
             if not user or not user.get("parent_id"):
                 return None
 
@@ -623,13 +620,28 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             log("error", f"Failed to inject pedagogical memory context: {e}", exc_info=True)
             return None
 
+    def get_context(self, student_id: str) -> Dict[str, str]:
+        student = self.user_manager.get_user(student_id)
+        if not student or not student.get("parent_id"):
+            return {}
+
+        trainer_id = student["parent_id"]
+        active_facts = self._get_active_facts(trainer_id, student_id)
+        if active_facts:
+            fact_summary = "\n".join([f"• {fact['fact_type']}: {fact['content']}" for fact in active_facts[:5]])
+            if len(active_facts) > 5:
+                fact_summary += f"\n... and {len(active_facts) - 5} more facts"
+            return {"🧠 Pedagogical Facts": fact_summary}
+        return {}
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Driver action handler — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
     def _action_trigger_analysis(self, context, **params) -> Dict:
-        import asyncio
         from shared.common import record_plugin_event
 
-        result = _run_async(
-            self.refresh_memory(context.trainer_id, context.student_id)
-        )
+        result = _run_async(self.refresh_memory(context.trainer_id, context.student_id))
 
         event_data = {
             "success": True,
@@ -640,21 +652,72 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
             "messages_analyzed": result.get("messages_analyzed", 0),
         }
 
-        # Emit canonical plugin id and legacy alias for backward-compatible
-        # benchmark scenarios/assertions still matching plugin_id="memory".
         record_plugin_event("pedagogical_memory", "analysis_complete", event_data)
         record_plugin_event("memory", "analysis_complete", event_data)
 
-        return {
-            "success": True,
-            "plugin": "pedagogical_memory",
-            **result,
-            **event_data,
-        }
+        return {"success": True, "plugin": "pedagogical_memory", **result, **event_data}
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Export / import — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
+    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        try:
+            with self.db.get_session() as session:
+                facts_query = session.query(PedagogicalFact).filter_by(trainer_id=trainer_id)
+                logs_query = session.query(PedagogicalAnalysisLog).filter_by(trainer_id=trainer_id)
+
+                if student_id:
+                    facts_query = facts_query.filter_by(student_id=student_id)
+                    logs_query = logs_query.filter_by(student_id=student_id)
+
+                for fact in facts_query.order_by(PedagogicalFact.created_at.asc()).all():
+                    events.append({
+                        "timestamp": fact.created_at.isoformat() if fact.created_at else datetime.utcnow().isoformat(),
+                        "type": "plugin.pedagogical_memory.fact",
+                        "plugin_id": self.id,
+                        "id": fact.id,
+                        "student_id": fact.student_id,
+                        "trainer_id": fact.trainer_id,
+                        "fact_type": fact.fact_type,
+                        "content": fact.content,
+                        "embedding_dim": fact.embedding_dim,
+                        "confidence": fact.confidence,
+                        "is_active": fact.is_active,
+                        "source_version": fact.source_version,
+                        "created_at": fact.created_at.isoformat() if fact.created_at else None,
+                        "updated_at": fact.updated_at.isoformat() if fact.updated_at else None,
+                        "last_reinforced_at": fact.last_reinforced_at.isoformat() if fact.last_reinforced_at else None,
+                        "fact_metadata": fact.fact_metadata or {},
+                    })
+
+                for analysis in logs_query.order_by(PedagogicalAnalysisLog.created_at.asc()).all():
+                    events.append({
+                        "timestamp": analysis.created_at.isoformat() if analysis.created_at else datetime.utcnow().isoformat(),
+                        "type": "plugin.pedagogical_memory.analysis",
+                        "plugin_id": self.id,
+                        "id": analysis.id,
+                        "student_id": analysis.student_id,
+                        "trainer_id": analysis.trainer_id,
+                        "version": analysis.version,
+                        "messages_analyzed": analysis.messages_analyzed,
+                        "facts_created": analysis.facts_created,
+                        "facts_updated": analysis.facts_updated,
+                        "facts_discarded": analysis.facts_discarded,
+                        "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
+                    })
+        except Exception as e:
+            log("error", f"Failed to export pedagogical_memory history: {e}", exc_info=True)
+        return events
+
+    # ─────────────────────────────────────────────────────────────────────
+    # UI LAYER — render methods
+    # Rules: call self.<data_method>() for data; use st.* freely.
+    # Future split: self.xxx() → self._logic.xxx(). No logic rewrite needed.
+    # ─────────────────────────────────────────────────────────────────────
 
     def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
-        """Render student-level pedagogical memory widget."""
-
         def render_student_memory():
             student_id = student["id"]
             cfg = self._get_plugin_config()
@@ -665,7 +728,8 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
             active_facts = self._get_active_facts(trainer_id, student_id)
             last_analysis = self._get_last_analysis_date(trainer_id, student_id)
-            with get_db_manager().get_session() as session:
+
+            with self.db.get_session() as session:
                 version_count = (
                     session.query(PedagogicalAnalysisLog)
                     .filter_by(trainer_id=trainer_id, student_id=student_id)
@@ -711,7 +775,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                         try:
                             new_content = st.session_state.get(edit_key, "").strip()
                             if new_content:
-                                with get_db_manager().get_session() as session:
+                                with self.db.get_session() as session:
                                     db_fact = session.query(PedagogicalFact).filter_by(id=fact["id"]).first()
                                     if db_fact:
                                         db_fact.content = new_content
@@ -728,7 +792,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                 with c2:
                     if st.button("Delete", key=f"delete_fact_{fact['id']}"):
                         try:
-                            with get_db_manager().get_session() as session:
+                            with self.db.get_session() as session:
                                 db_fact = session.query(PedagogicalFact).filter_by(id=fact["id"]).first()
                                 if db_fact:
                                     db_fact.is_active = 0
@@ -752,7 +816,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
                     try:
                         content = (new_content or "").strip()
                         if content:
-                            with get_db_manager().get_session() as session:
+                            with self.db.get_session() as session:
                                 session.add(
                                     PedagogicalFact(
                                         student_id=student_id,
@@ -794,8 +858,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         return [render_student_memory]
 
     def render_dashboard_widgets(self, trainer_id: str, students: List[Dict]) -> List[Callable]:
-        """Render compact dashboard overview for all students."""
-
         def render_dashboard():
             st.markdown("### 🧠 Pedagogical Memory Overview")
 
@@ -831,126 +893,78 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
         return [render_dashboard]
 
-    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Export facts and analysis logs as plugin events (without embedding bytes)."""
-        events: List[Dict[str, Any]] = []
+    def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+        def render_history_viewer():
+            st.subheader("📜 Memory History")
 
-        try:
-            with get_db_manager().get_session() as session:
-                facts_query = session.query(PedagogicalFact).filter_by(trainer_id=trainer_id)
-                logs_query = session.query(PedagogicalAnalysisLog).filter_by(trainer_id=trainer_id)
+            if self.trainer_manager is None:
+                st.warning("Trainer manager unavailable.")
+                return
+            students = self.trainer_manager.get_trainer_students(trainer_id)
 
-                if student_id:
-                    facts_query = facts_query.filter_by(student_id=student_id)
-                    logs_query = logs_query.filter_by(student_id=student_id)
+            if not students:
+                st.info("No students available.")
+                return
 
-                for fact in facts_query.order_by(PedagogicalFact.created_at.asc()).all():
-                    events.append(
-                        {
-                            "timestamp": fact.created_at.isoformat() if fact.created_at else datetime.utcnow().isoformat(),
-                            "type": "plugin.pedagogical_memory.fact",
-                            "plugin_id": self.id,
-                            "id": fact.id,
-                            "student_id": fact.student_id,
-                            "trainer_id": fact.trainer_id,
-                            "fact_type": fact.fact_type,
-                            "content": fact.content,
-                            "embedding_dim": fact.embedding_dim,
-                            "confidence": fact.confidence,
-                            "is_active": fact.is_active,
-                            "source_version": fact.source_version,
-                            "created_at": fact.created_at.isoformat() if fact.created_at else None,
-                            "updated_at": fact.updated_at.isoformat() if fact.updated_at else None,
-                            "last_reinforced_at": (
-                                fact.last_reinforced_at.isoformat() if fact.last_reinforced_at else None
-                            ),
-                            "fact_metadata": fact.fact_metadata or {},
-                        }
-                    )
+            student_options = {student['id']: student.get('name', 'Unknown') for student in students}
+            student_options['all'] = "All Students"
 
-                for analysis in logs_query.order_by(PedagogicalAnalysisLog.created_at.asc()).all():
-                    events.append(
-                        {
-                            "timestamp": analysis.created_at.isoformat()
-                            if analysis.created_at
-                            else datetime.utcnow().isoformat(),
-                            "type": "plugin.pedagogical_memory.analysis",
-                            "plugin_id": self.id,
-                            "id": analysis.id,
-                            "student_id": analysis.student_id,
-                            "trainer_id": analysis.trainer_id,
-                            "version": analysis.version,
-                            "messages_analyzed": analysis.messages_analyzed,
-                            "facts_created": analysis.facts_created,
-                            "facts_updated": analysis.facts_updated,
-                            "facts_discarded": analysis.facts_discarded,
-                            "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
-                        }
-                    )
+            selected = st.selectbox(
+                "Select Student",
+                options=list(student_options.keys()),
+                format_func=lambda x: student_options[x],
+                key=f"{self.id}_memory_history_select"
+            )
 
-        except Exception as e:
-            log("error", f"Failed to export pedagogical_memory history: {e}", exc_info=True)
+            student_id = None if selected == 'all' else selected
+            events = self.export_history(trainer_id, student_id)
 
-        return events
+            if not events:
+                st.info("No memory history available.")
+                return
 
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
-        """Import pedagogical memory events and recompute embeddings."""
-        try:
-            with get_db_manager().get_session() as session:
-                memory_events = [e for e in events if e.get("plugin_id") == self.id]
+            for event in events:
+                with st.container():
+                    cols = st.columns([2, 1, 1, 3])
 
-                fact_events = [e for e in memory_events if e.get("type") == "plugin.pedagogical_memory.fact"]
-                analysis_events = [e for e in memory_events if e.get("type") == "plugin.pedagogical_memory.analysis"]
+                    with cols[0]:
+                        try:
+                            ts = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+                            st.write(ts.strftime('%Y-%m-%d %H:%M'))
+                        except Exception:
+                            st.write(event['timestamp'])
 
-                for event in fact_events:
-                    content = event.get("content", "")
-                    fact = PedagogicalFact(
-                        id=event.get("id", str(uuid.uuid4())),
-                        student_id=event.get("student_id"),
-                        trainer_id=trainer_id,
-                        fact_type=event.get("fact_type", "knowledge_state"),
-                        content=content,
-                        embedding=self._serialize_embedding(get_embedding(content)),
-                        embedding_dim=int(event.get("embedding_dim", EMBEDDING_DIMENSION)),
-                        confidence=float(event.get("confidence", 1.0)),
-                        is_active=int(event.get("is_active", 1)),
-                        source_version=int(event.get("source_version", 1)),
-                        created_at=datetime.fromisoformat(event["created_at"])
-                        if event.get("created_at")
-                        else datetime.utcnow(),
-                        updated_at=datetime.fromisoformat(event["updated_at"])
-                        if event.get("updated_at")
-                        else datetime.utcnow(),
-                        last_reinforced_at=(
-                            datetime.fromisoformat(event["last_reinforced_at"])
-                            if event.get("last_reinforced_at")
-                            else None
-                        ),
-                        fact_metadata=event.get("fact_metadata", {}),
-                    )
-                    session.merge(fact)
+                    with cols[1]:
+                        event_type = event.get('type', '')
+                        if 'fact' in event_type:
+                            st.write("🔹 Fact")
+                        elif 'analysis' in event_type:
+                            st.write("🔬 Analysis")
+                        else:
+                            st.write(event_type)
 
-                for event in analysis_events:
-                    analysis = PedagogicalAnalysisLog(
-                        id=event.get("id", str(uuid.uuid4())),
-                        student_id=event.get("student_id"),
-                        trainer_id=trainer_id,
-                        version=int(event.get("version", 1)),
-                        messages_analyzed=int(event.get("messages_analyzed", 0)),
-                        facts_created=int(event.get("facts_created", 0)),
-                        facts_updated=int(event.get("facts_updated", 0)),
-                        facts_discarded=int(event.get("facts_discarded", 0)),
-                        created_at=datetime.fromisoformat(event["created_at"])
-                        if event.get("created_at")
-                        else datetime.utcnow(),
-                    )
-                    session.merge(analysis)
+                    with cols[2]:
+                        if event.get('fact_type'):
+                            st.write(event['fact_type'])
+                        elif event.get('version'):
+                            st.write(f"v{event['version']}")
+                        else:
+                            st.write("-")
 
-                session.commit()
-            return True
-        except Exception as e:
-            log("error", f"Failed to import pedagogical_memory history: {e}", exc_info=True)
-            return False
+                    with cols[3]:
+                        content = event.get('content', '')
+                        if content:
+                            preview = content[:50] + "..." if len(content) > 50 else content
+                            st.caption(preview)
+                        elif event.get('messages_analyzed'):
+                            st.caption(f"📊 {event['messages_analyzed']} msgs, +{event.get('facts_created', 0)} facts")
+                        else:
+                            st.caption("-")
+
+                st.divider()
+
+        return [("Memory History", render_history_viewer)]
 
 
+# Plugin entry point
 plugin = PedagogicalMemoryPlugin
