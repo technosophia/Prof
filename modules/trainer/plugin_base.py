@@ -111,7 +111,7 @@ class TrainerPlugin(ABC):
     inside initialize() as a fallback when services is None. See PLUGIN_MIGRATE.md.
     """
 
-    def __init__(self, manifest: PluginManifest):
+    def __init__(self, manifest: PluginManifest, trainer_manager=None):
         """
         Initialize the plugin with its manifest.
 
@@ -121,6 +121,7 @@ class TrainerPlugin(ABC):
         self.manifest = manifest
         self.id = manifest.id
         self._is_active: bool = False
+        self.trainer_manager = trainer_manager
 
         # Service attributes — set in initialize(services).
         # Data methods must use these; never call st_shared.cached directly.
@@ -177,6 +178,10 @@ class TrainerPlugin(ABC):
                 self.llm_manager = get_llm_manager()
             except Exception as e:
                 log("warning", f"plugin {self.id}: could not resolve services from st_shared.cached: {e}")
+
+    def set_trainer_manager(self, trainer_manager) -> None:
+        """Inject trainer manager reference after plugin creation."""
+        self.trainer_manager = trainer_manager
 
     # ─────────────────────────────────────────────────────────────────────
     # Lifecycle — DATA LAYER
@@ -288,11 +293,18 @@ class TrainerPlugin(ABC):
 class PluginManager:
     """Manages plugin discovery, loading, and lifecycle."""
 
-    def __init__(self):
+    def __init__(self, trainer_manager=None):
         self.plugins: Dict[str, TrainerPlugin] = {}
         self.plugin_paths: Dict[str, Path] = {}
         self._services = None  # Set by set_services() before discover
+        self._trainer_manager = trainer_manager
         self.discover_plugins()
+
+    def set_trainer_manager(self, trainer_manager) -> None:
+        """Provide TrainerManager to plugins that need cross-plugin orchestration."""
+        self._trainer_manager = trainer_manager
+        for plugin in self.plugins.values():
+            plugin.set_trainer_manager(trainer_manager)
 
     def set_services(self, services) -> None:
         """
@@ -352,7 +364,12 @@ class PluginManager:
             if (inspect.isclass(attr) and
                 issubclass(attr, TrainerPlugin) and
                 attr != TrainerPlugin):
-                plugin_instance = attr(manifest)
+                try:
+                    plugin_instance = attr(manifest, trainer_manager=self._trainer_manager)
+                except TypeError:
+                    plugin_instance = attr(manifest)
+                    if self._trainer_manager is not None:
+                        plugin_instance.set_trainer_manager(self._trainer_manager)
                 # Pass services to initialize — None is safe for legacy plugins
                 try:
                     result = plugin_instance.initialize(self._services)
@@ -375,12 +392,13 @@ class PluginManager:
 
     def get_active_plugins(self, trainer_id: str) -> List[TrainerPlugin]:
         """Get all plugins active for this trainer."""
-        from .manager import get_trainer_manager
-        trainer_manager = get_trainer_manager()
+        if self._trainer_manager is None:
+            log("warning", "PluginManager.get_active_plugins called without trainer_manager")
+            return []
 
         active = []
         for plugin in self.plugins.values():
-            if trainer_manager.is_plugin_active(trainer_id, plugin.id):
+            if self._trainer_manager.is_plugin_active(trainer_id, plugin.id):
                 active.append(plugin)
         return active
 
@@ -404,11 +422,13 @@ class PluginManager:
 _plugin_manager = None
 
 
-def get_plugin_manager() -> PluginManager:
+def get_plugin_manager(trainer_manager=None) -> PluginManager:
     """Get the global PluginManager instance."""
     global _plugin_manager
     if _plugin_manager is None:
-        _plugin_manager = PluginManager()
+        _plugin_manager = PluginManager(trainer_manager=trainer_manager)
+    elif trainer_manager is not None:
+        _plugin_manager.set_trainer_manager(trainer_manager)
     return _plugin_manager
 
 

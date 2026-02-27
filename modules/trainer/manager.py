@@ -100,6 +100,8 @@ class TrainerManager:
 
         from .plugin_base import get_plugin_manager
         plugin_manager = get_plugin_manager()
+        if hasattr(plugin_manager, "set_trainer_manager"):
+            plugin_manager.set_trainer_manager(self)
         active_plugins = plugin_manager.get_active_plugins(trainer_id)
 
         for plugin in active_plugins:

@@ -21,7 +21,6 @@ from sqlalchemy import Column, String, Text, DateTime, JSON, Integer
 
 from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
-from modules.trainer.manager import get_trainer_manager
 
 from core.logging import log
 from core.database import Base
@@ -81,8 +80,10 @@ class MemoryPlugin(TrainerPlugin):
         log("info", f"Memory plugin activated for trainer {trainer_id}")
 
         try:
-            trainer_manager = get_trainer_manager()
-            students = trainer_manager.get_trainer_students(trainer_id)
+            if self.trainer_manager is None:
+                log("warning", "Memory plugin activated without trainer_manager")
+                return
+            students = self.trainer_manager.get_trainer_students(trainer_id)
 
             for student in students:
                 existing = self._get_current_memory(student['id'], trainer_id)
@@ -564,8 +565,10 @@ class MemoryPlugin(TrainerPlugin):
         def render_history_viewer():
             st.subheader("📜 Memory History")
 
-            trainer_manager = get_trainer_manager()
-            students = trainer_manager.get_trainer_students(trainer_id)
+            if self.trainer_manager is None:
+                log("warning", "Memory plugin activated without trainer_manager")
+                return
+            students = self.trainer_manager.get_trainer_students(trainer_id)
 
             if not students:
                 st.info("No students available.")
