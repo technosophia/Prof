@@ -285,18 +285,24 @@ def render_llm_call_details(call: dict):
     if call['messages']:
         with st.expander(f"💬 Messages ({len(call['messages'])} messages)", expanded=False):
             for i, msg in enumerate(call['messages']):
-                with st.expander(f"{msg['role'].upper()}: {msg['content'][:50]}...", expanded=False):
-                    st.write(f"**Role:** {msg['role']}")
+                role = msg.get('role', 'unknown').upper()
+                content_preview = msg.get('content', '')[:50] + "..." if len(msg.get('content', '')) > 50 else msg.get('content', '')
+                with st.expander(f"{role}: {content_preview}", expanded=False):
+                    st.write(f"**Role:** {msg.get('role', 'unknown')}")
                     st.write("**Content:**")
-                    st.text(msg["content"])
+                    st.text(msg.get("content", ""))
 
     if call['context_messages']:
         with st.expander(f"🔧 Context ({len(call['context_messages'])} items)", expanded=False):
             for i, msg in enumerate(call['context_messages']):
-                with st.expander(f"Context {i+1} ({msg['role']})", expanded=False):
-                    st.write(f"**Role:** {msg['role']}")
+                role = msg.get('role', 'system').upper()
+                source = msg.get('source', f'context_{i+1}')
+                content_preview = msg.get('content', '')[:50] + "..." if len(msg.get('content', '')) > 50 else msg.get('content', '')
+                with st.expander(f"🔧 Context {i+1} [{source}] ({role}): {content_preview}", expanded=False):
+                    st.write(f"**Role:** {msg.get('role', 'system')}")
+                    st.write(f"**Source:** {source}")
                     st.write("**Content:**")
-                    st.text(msg["content"])
+                    st.text(msg.get("content", ""))
 
     with st.expander(f"🤖 Response ({len(call['response'])} chars)", expanded=False):
         st.text(call["response"])

@@ -555,7 +555,7 @@ class RAGManager:
         engine_results = search_results.get(engine_type, []) if search_results else []
 
         if not engine_results:
-            log("warning", f"No RAG results found for query: {query!r}")
+            log("warning", f"No RAG ({engine_type}) results found for query: {query!r}")
             return f"No result found for : '{query}'"
 
         context_parts = [
