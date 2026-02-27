@@ -5,6 +5,14 @@ from pathlib import Path
 import pytest
 
 from modules.benchmarker.runner import ScenarioRunner, StepResult
+from modules.trainer.driver_assertions import (
+    assertion_action_succeeded,
+    assertion_context_field_set,
+    assertion_injected_context_contains,
+    assertion_llm_calls_made,
+    assertion_option_was_active,
+    assertion_plugin_event_occurred,
+)
 
 
 class FakeDriver:
@@ -17,6 +25,14 @@ class FakeDriver:
             {"name": "switch_option"},
         ]
         self.events = []
+        self._assertion_handlers = {
+            "action_succeeded": assertion_action_succeeded,
+            "llm_calls_made": assertion_llm_calls_made,
+            "plugin_event_occurred": assertion_plugin_event_occurred,
+            "option_was_active": assertion_option_was_active,
+            "context_field_set": assertion_context_field_set,
+            "injected_context_contains": assertion_injected_context_contains,
+        }
 
     def list_options(self):
         return self.options
@@ -52,6 +68,13 @@ class FakeDriver:
             "duration_seconds": 0.5,
         }
 
+
+
+    def list_assertions(self):
+        return [{"name": name} for name in self._assertion_handlers.keys()]
+
+    def evaluate_assertion(self, name, **payload):
+        return self._assertion_handlers[name](**payload)
 
 def _scenario_path():
     return str(Path("modules/benchmarker/scenarios/example_basic.yaml"))

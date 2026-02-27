@@ -196,6 +196,10 @@ class DriverActionError(DriverError):
     """Raised when action registration or execution fails."""
 
 
+class DriverAssertionError(DriverError):
+    """Raised when assertion registration or evaluation fails."""
+
+
 @dataclass
 class DriverContext:
     """Execution context for actions performed through the driver."""
@@ -290,6 +294,7 @@ class AppDriver:
         self._options: Dict[str, Dict[str, Dict]] = {}
         self._active_options: Dict[str, str] = {}
         self._actions: Dict[str, Dict] = {}
+        self._assertions: Dict[str, Dict] = {}
         self._session_events: List[Dict] = []
         self._session_meta: Dict = {
             "scenario_name": "",
@@ -340,6 +345,23 @@ class AppDriver:
                 "required_context": list(required_context or []),
             }
             log("debug", f"Driver action registered: {name}")
+
+    def register_assertion(
+        self,
+        name: str,
+        handler_fn: Callable[..., Dict],
+        description: str = "",
+    ) -> None:
+        """Register an assertion evaluator callable."""
+        if not name:
+            raise DriverAssertionError("Assertion registration requires non-empty assertion name")
+
+        with self._lock:
+            self._assertions[name] = {
+                "handler_fn": handler_fn,
+                "description": description,
+            }
+            log("debug", f"Driver assertion registered: {name}")
 
     def set_context(self, **kwargs) -> None:
         """Set one or more context fields and record an event."""
@@ -463,6 +485,33 @@ class AppDriver:
                 }
                 for action_name, action_data in self._actions.items()
             ]
+
+    def list_assertions(self) -> List[Dict]:
+        """List all registered assertion evaluators."""
+        with self._lock:
+            return [
+                {
+                    "name": assertion_name,
+                    "description": assertion_data.get("description", ""),
+                }
+                for assertion_name, assertion_data in self._assertions.items()
+            ]
+
+    def evaluate_assertion(self, name: str, **payload) -> Dict:
+        """Evaluate one registered assertion and return a result payload."""
+        with self._lock:
+            assertion = self._assertions.get(name)
+            if not assertion:
+                raise DriverAssertionError(f"Assertion not registered: {name}")
+
+        result = assertion["handler_fn"](**payload)
+        if not isinstance(result, dict):
+            raise DriverAssertionError(f"Assertion '{name}' returned non-dict result")
+        if "passed" not in result:
+            raise DriverAssertionError(f"Assertion '{name}' result is missing 'passed'")
+        if "message" not in result:
+            raise DriverAssertionError(f"Assertion '{name}' result is missing 'message'")
+        return result
 
     def start_session(self, scenario_name: str = "") -> None:
         """Start a new in-memory session log."""

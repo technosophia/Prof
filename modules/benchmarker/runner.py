@@ -224,6 +224,7 @@ class ScenarioRunner:
                 errors.append(f"Unknown option '{option_name}' in group '{group}'")
 
         actions = {a["name"] for a in self.driver.list_actions()}
+        assertion_types = {a["name"] for a in self.driver.list_assertions()}
         ids = set()
         for idx, step in enumerate(scenario.get("steps", [])):
             sid = step.get("id")
@@ -242,6 +243,11 @@ class ScenarioRunner:
             allowed = self.ALLOWED_BY_ACTOR.get(actor, set())
             if action not in allowed:
                 errors.append(f"Actor '{actor}' cannot execute action '{action}' (step {sid})")
+
+        for assertion in scenario.get("assertions", []):
+            atype = assertion.get("type")
+            if atype not in assertion_types:
+                errors.append(f"Unknown assertion type: {atype}")
 
         return errors
 
@@ -311,178 +317,26 @@ class ScenarioRunner:
 
     def _evaluate_assertions(self, assertions: List[Dict], steps: List[StepResult]) -> List[AssertionResult]:
         events = self.driver.get_session_events()
+        steps_by_id = {step.step_id: step for step in steps}
         results: List[AssertionResult] = []
-
-        def _get_step_result(step_id: str) -> Optional[StepResult]:
-            return next((s for s in steps if s.step_id == step_id), None)
 
         for assertion in assertions:
             atype = assertion.get("type", "")
             aid = assertion.get("id", "")
             params = assertion.get("params", {})
 
-            passed = False
-            message = ""
-            if atype == "action_succeeded":
-                step_id = params.get("step_id")
-                step = _get_step_result(step_id)
-                passed = bool(step and step.success and not step.error)
-                message = f"Step {step_id} completed without error" if passed else f"Step {step_id} failed or missing"
-            elif atype == "llm_calls_made":
-                llm_calls = [e for e in events if e.get("type") == "llm_call"]
-                total = len(llm_calls)
-                min_n = params.get("min", 0)
-                max_n = params.get("max")
-                passed = total >= min_n and (max_n is None or total <= max_n)
-                message = f"{total} LLM calls recorded (min: {min_n}, max: {max_n})"
-            elif atype == "plugin_event_occurred":
-                plugin_id = params.get("plugin_id")
-                event = params.get("event")
-                passed = any(
-                    e.get("type") == "plugin_event" and e.get("plugin_id") == plugin_id and e.get("event") == event
-                    for e in events
+            try:
+                evaluated = self.driver.evaluate_assertion(
+                    atype,
+                    params=params,
+                    steps_by_id=steps_by_id,
+                    events=events,
                 )
-                message = f"Plugin event {plugin_id}:{event} {'found' if passed else 'not found'}"
-            elif atype == "option_was_active":
-                group = params.get("group")
-                name = params.get("name")
-                passed = any(
-                    e.get("type") == "option_switch" and e.get("group") == group and e.get("option") == name
-                    for e in events
-                )
-                message = f"Option {group}.{name} {'was' if passed else 'was not'} activated"
-            elif atype == "context_field_set":
-                field = params.get("field")
-                value = params.get("value", None)
-                matches = [
-                    e
-                    for e in events
-                    if e.get("type") == "context_switch" and field in e.get("data", {})
-                ]
-                if value is None:
-                    passed = any(m.get("data", {}).get(field) is not None for m in matches)
-                else:
-                    passed = any(m.get("data", {}).get(field) == value for m in matches)
-                message = f"Context field {field} {'set' if passed else 'not set'}"
-            elif atype == "injected_context_contains":
-                step_id = params.get("step_id")
-                contains = params.get("contains", "")
-                not_contains = params.get("not_contains", "")
-                source_contains = params.get("source_contains", "")
-
-                step = _get_step_result(step_id)
-                if not step:
-                    message = f"Step '{step_id}' not found in run results"
-                else:
-                    injected = step.result.get("injected_contexts", [])
-                    if not injected:
-                        message = (
-                            f"No injected contexts captured for step '{step_id}'. "
-                            "Check that the monitor callback was registered correctly."
-                        )
-                    else:
-                        candidates = injected
-                        if source_contains:
-                            alias_map = {
-                                "student_pad": ["student_pad", "student_note", "student_notes", "get_student_notes_context"],
-                            }
-                            match_terms = alias_map.get(source_contains.lower(), [source_contains.lower()])
-                            candidates = [
-                                c
-                                for c in injected
-                                if any(term in c.get("source", "").lower() for term in match_terms)
-                            ]
-                            if not candidates:
-                                sources = [c.get("source", "") for c in injected]
-                                message = (
-                                    f"No context with source containing '{source_contains}' found for step '{step_id}'. "
-                                    f"Sources present: {sources}"
-                                )
-
-                        if not message:
-                            def _normalize_text(text: str) -> str:
-                                return re.sub(r"\s+", " ", (text or "").strip().lower())
-
-                            no_rag_markers = [
-                                "no rag results found",
-                                "no rag result found",
-                                "no results found",
-                                "no result found"
-                            ]
-
-                            forbidden_terms = []
-                            if not_contains:
-                                forbidden_terms.append(_normalize_text(not_contains))
-                            forbidden_terms.extend(no_rag_markers)
-
-                            if candidates:
-                                debug_previews = [
-                                    {
-                                        "source": c.get("source", ""),
-                                        "content_preview": (c.get("content", "") or "")[:120],
-                                    }
-                                    for c in candidates
-                                ]
-                                log("debug", f"[benchmarker] injected_context_contains candidates for step {step_id}: {debug_previews}")
-
-                            forbidden_match = None
-                            matched_term = ""
-                            for term in forbidden_terms:
-                                forbidden_match = next(
-                                    (c for c in candidates if term in _normalize_text(c.get("content", ""))),
-                                    None,
-                                )
-                                if forbidden_match:
-                                    matched_term = term
-                                    break
-
-                            if forbidden_match:
-                                preview = forbidden_match.get("content", "")[:140]
-                                log("info", f"[benchmarker] injected_context_contains forbidden term matched for step {step_id}: {matched_term}")
-                                if matched_term in no_rag_markers:
-                                    message = (
-                                        f"Context for step '{step_id}' contains '{matched_term}', "
-                                        "so injected_context_contains cannot pass. "
-                                        f"Content preview: '{preview}...'"
-                                    )
-                                else:
-                                    message = (
-                                        f"Context from source matching '{source_contains}' for step '{step_id}' "
-                                        f"contains forbidden text '{not_contains}'."
-                                    )
-                            elif not_contains:
-                                passed = True
-                                message = (
-                                    f"Context from source matching '{source_contains}' for step '{step_id}' "
-                                    f"does not contain '{not_contains}'."
-                                )
-                            elif contains:
-                                matching = [
-                                    c for c in candidates if contains.lower() in c.get("content", "").lower()
-                                ]
-                                if not matching:
-                                    preview = candidates[0].get("content", "")[:100] if candidates else ""
-                                    message = (
-                                        f"Context from source matching '{source_contains}' found for step '{step_id}' "
-                                        f"but does not contain '{contains}'. Content preview: '{preview}...'"
-                                    )
-                                else:
-                                    passed = True
-                                    message = (
-                                        f"Found '{contains}' in context from "
-                                        f"'{matching[0].get('source', '')}' for step '{step_id}'"
-                                    )
-                            else:
-                                passed = True
-                                if source_contains:
-                                    message = (
-                                        f"Found context from source matching '{source_contains}' "
-                                        f"for step '{step_id}'"
-                                    )
-                                else:
-                                    message = f"Injected contexts captured for step '{step_id}'"
-            else:
-                message = f"Unsupported assertion type: {atype}"
+                passed = bool(evaluated.get("passed", False))
+                message = str(evaluated.get("message", ""))
+            except Exception as exc:
+                passed = False
+                message = f"Assertion evaluation failed for type '{atype}': {exc}"
 
             results.append(AssertionResult(id=aid, passed=passed, message=message, assertion_type=atype))
 
