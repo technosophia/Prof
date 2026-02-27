@@ -23,7 +23,7 @@ Every plugin has two conceptual layers in one class:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  UI LAYER  (render_* and render_get_admin_tabs)                │
+│  UI LAYER  (render_* and render_get_admin_tabs)         │
 │  • May use st.* freely                                  │
 │  • Must call self.<data_method>() for all data access   │
 │  • Must NOT touch self.db, self.user_manager, etc.      │
