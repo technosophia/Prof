@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import yaml
 import json
+import re
 from shared.common import get_prompt
 
 from core.logging import log
@@ -280,7 +281,6 @@ class TrainerManager:
             'events': events
         }
 
-        import re
         yaml_str = yaml.dump(export_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
         yaml_str = re.sub(r'^(- )', r'\n\1', yaml_str, flags=re.MULTILINE)
         yaml_str = yaml_str.lstrip('\n')
