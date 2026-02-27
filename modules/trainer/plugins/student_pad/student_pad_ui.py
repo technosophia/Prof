@@ -6,18 +6,22 @@ File ends with _ui.py and implements inject_ui_main_header() injection point.
 
 import streamlit as st
 from shared.common import UserRole
-from st_shared.cached import get_user_manager
 from modules.trainer.plugin_base import get_plugin_manager
 from modules.trainer.manager import get_trainer_manager
 
 
-from st_shared.cached import _
+def _get_student_pad_plugin():
+    """Get the student pad plugin instance (uses factory)."""
+    from modules.trainer.plugins.student_pad.student_pad_factory import get_student_pad_plugin
+    return get_student_pad_plugin()
+
+
 def inject_ui_main_header():
     """
     Inject student pad UI from active plugins.
     This delegates to plugins that implement render_student_header_widgets.
     """
-    if not ("current_user" in st.session_state and st.session_state.current_user):
+    if "current_user" not in st.session_state or not st.session_state.current_user:
         return
 
     user = st.session_state.current_user
@@ -37,16 +41,17 @@ def inject_ui_main_header():
     # Get the specific student pad plugin
     student_pad_plugin = plugin_manager.get_plugin("student_pad")
 
+    # Fallback to factory if not found in plugin manager (during migration)
+    if student_pad_plugin is None:
+        student_pad_plugin = _get_student_pad_plugin()
+
     # Use trainer_manager to check if plugin is active
     if student_pad_plugin and trainer_manager.is_plugin_active(parent_id, "student_pad"):
-        # Create a container for all student header widgets
         with st.container():
-            # Add a main expander for student tools
-            with st.expander(_("trainer_plugin_student_pad.my_learning_tools"), expanded=False):
-                st.caption(_("trainer_plugin_student_pad.quick_access"))
+            with st.expander("📝 My Learning Tools", expanded=False):
+                st.caption("Quick access to your personal notes")
                 st.divider()
 
-                # Render the student pad widget directly
                 widgets = student_pad_plugin.render_student_header_widgets(user['id'], parent_id)
                 for widget in widgets:
                     widget()
