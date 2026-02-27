@@ -224,9 +224,10 @@ class SuggestPlugin(TrainerPlugin):
             trainer_id = user['parent_id']
 
             # Check if plugin is active for this trainer
-            from modules.trainer.manager import get_trainer_manager
-            trainer_manager = get_trainer_manager()
-            if not trainer_manager.is_plugin_active(trainer_id, self.id):
+            if self.trainer_manager is None:
+                log("warning", "Suggest plugin callback called without trainer_manager")
+                return
+            if not self.trainer_manager.is_plugin_active(trainer_id, self.id):
                 return
 
             # Get student configuration
@@ -284,9 +285,11 @@ class SuggestPlugin(TrainerPlugin):
                 conversation_text += f"{role}: {msg.content}\n\n"
 
             # Get training context from trainer manager
-            from modules.trainer.manager import get_trainer_manager
-            trainer_manager = get_trainer_manager()
-            training_context = trainer_manager.get_all_contexts(student_id)
+            if self.trainer_manager is None:
+                log("warning", "Suggest plugin generating without trainer_manager")
+                training_context = {}
+            else:
+                training_context = self.trainer_manager.get_all_contexts(student_id)
 
             # Format training context as a readable string
             context_parts = []
@@ -1180,9 +1183,10 @@ class SuggestPlugin(TrainerPlugin):
         def render_analytics():
             st.subheader("📊 Suggestion Analytics")
 
-            from modules.trainer.manager import get_trainer_manager
-            trainer_manager = get_trainer_manager()
-            students = trainer_manager.get_trainer_students(trainer_id)
+            if self.trainer_manager is None:
+                st.warning("Trainer manager unavailable.")
+                return
+            students = self.trainer_manager.get_trainer_students(trainer_id)
 
             if not students:
                 st.info("No students available.")

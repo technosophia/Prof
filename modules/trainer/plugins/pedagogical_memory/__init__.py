@@ -24,7 +24,6 @@ from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Float, Lar
 
 from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id, get_embedding
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
-from modules.trainer.manager import get_trainer_manager
 
 from core.logging import log
 from core.database import Base
@@ -898,8 +897,10 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         def render_history_viewer():
             st.subheader("📜 Memory History")
 
-            trainer_manager = get_trainer_manager()
-            students = trainer_manager.get_trainer_students(trainer_id)
+            if self.trainer_manager is None:
+                st.warning("Trainer manager unavailable.")
+                return
+            students = self.trainer_manager.get_trainer_students(trainer_id)
 
             if not students:
                 st.info("No students available.")
