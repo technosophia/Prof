@@ -3,6 +3,9 @@
 Main entry point for application
 """
 
+from st_shared.warnings import ignore_warnings
+ignore_warnings()
+
 
 import streamlit as st
 import os

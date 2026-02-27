@@ -27,60 +27,24 @@ Structure:
   - Function-scoped fixtures
   - Markers
 """
+from st_shared.warnings import ignore_warnings
+ignore_warnings()
 
 import atexit  # noqa: F401 – kept for future use
 import copy
-import logging
 import os
 import re
 import signal
 import subprocess
 import sys
 import time
-import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch  # noqa: F401
 
 import pytest
 import requests
 from playwright.sync_api import sync_playwright
-
-# ---------------------------------------------------------------------------
-# 0.  Silence noisy third-party warnings ONCE
-# ---------------------------------------------------------------------------
 from core.database import init_database
-
-_SILENCED_WARNINGS = [
-    ("ignore", UserWarning,        "streamlit.runtime.scriptrunner_utils"),
-    ("ignore", UserWarning,        "streamlit.runtime.state.session_state_proxy"),
-    ("ignore", UserWarning,        r"torch\.cuda"),
-    ("ignore", DeprecationWarning, None),
-]
-for action, category, module in _SILENCED_WARNINGS:
-    kw = {"category": category}
-    if module:
-        kw["module"] = module
-    warnings.filterwarnings(action, **kw)
-
-warnings.filterwarnings(
-    "ignore",
-    message="Thread 'MainThread': missing ScriptRunContext!",
-    category=UserWarning,
-)
-
-for logger_name in (
-    "streamlit",
-    "streamlit.runtime",
-    "streamlit.runtime.scriptrunner_utils",
-    "streamlit.runtime.scriptrunner_utils.script_run_context",
-    "streamlit.runtime.state",
-    "streamlit.runtime.state.session_state_proxy",
-):
-    _logger = logging.getLogger(logger_name)
-    _logger.handlers.clear()
-    _logger.propagate = False
-    _logger.disabled = True
-    _logger.setLevel(logging.CRITICAL)
 
 
 # ---------------------------------------------------------------------------
