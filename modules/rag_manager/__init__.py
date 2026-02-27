@@ -53,6 +53,10 @@ def _get_llm_callback_registry():
 # ---------------------------------------------------------------------------
 # Lazy singleton accessor (no Streamlit import at module level)
 # ---------------------------------------------------------------------------
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.rag_manager.rag_manager import RAGManager
 
 def _get_manager() -> "RAGManager":
     """Return the RAGManager singleton via the factory."""
