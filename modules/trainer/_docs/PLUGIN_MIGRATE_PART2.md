@@ -3,7 +3,7 @@
 We have a Trainer plugin system where each plugin currently lives in a single class (`TrainerPlugin`) in a single file (`modules/trainer/plugins/<id>/__init__.py`).
 
 A previous migration (part 1) already established a clean data/UI seam inside that single class:
-- **Data methods** (`get_context`, `export_history`, `import_history`, `on_activate`, `on_deactivate`, `export_config`, `import_config`, and all private helpers they call) use only `self.db`, `self.user_manager`, etc. — no `st.*`, no `st_shared.cached`
+- **Data methods** (`get_context`, `export_history`, `on_activate`, `on_deactivate`, and all private helpers they call) use only `self.db`, `self.user_manager`, etc. — no `st.*`, no `st_shared.cached`
 - **UI methods** (`render_student_widgets`, `render_dashboard_widgets`, `render_student_header_widgets`, `get_admin_tabs`) call only `self.<data_method>()` for data, then use `st.*` freely
 
 The invariant to preserve: **if you delete all UI files, the system must continue to work headless.**
@@ -38,7 +38,7 @@ For each plugin, produce:
 
 **`plugin_base_core.py`** — `TrainerPluginCore(ABC)`
 - All current data-layer abstract and concrete methods from `TrainerPlugin`
-- `initialize(services=None)`, `_resolve_services(services)`, `on_activate`, `on_deactivate`, `get_context`, `export_config`, `import_config`, `export_history`, `import_history`
+- `initialize(services=None)`, `_resolve_services(services)`, `on_activate`, `on_deactivate`, `get_context`
 - No UI methods at all
 - No streamlit import
 
@@ -81,7 +81,13 @@ All existing calls to `plugin_manager.get_plugin(id)` return the core. UI render
 7. `modules/trainer/plugins/pedagogical_memory/core.py`
 8. `modules/trainer/plugins/pedagogical_memory/ui.py`
 9. `modules/trainer/plugins/pedagogical_memory/__init__.py`
-10. `PLUGIN_MIGRATE.md` — updated to document the new two-file structure
+10. `modules/trainer/plugins/student_pad/core.py`
+11. `modules/trainer/plugins/student_pad/ui.py`
+12. `modules/trainer/plugins/student_pad/__init__.py`
+13. `modules/trainer/plugins/suggest/core.py`
+14. `modules/trainer/plugins/suggest/ui.py`
+15. `modules/trainer/plugins/suggest/__init__.py`
+16. `PLUGIN_MIGRATE.md` — updated to document the new two-file structure
 
 ---
 
@@ -99,8 +105,10 @@ All existing calls to `plugin_manager.get_plugin(id)` return the core. UI render
 
 Provide these files at the start of the session:
 - `modules/trainer/plugin_base.py` (current, post part-1)
-- `modules/trainer/plugins/memory/__init__.py` (migrated)
-- `modules/trainer/plugins/pedagogical_memory/__init__.py` (migrated)
+- `modules/trainer/plugins/memory/__init__.py` (migrated part1)
+- `modules/trainer/plugins/pedagogical_memory/__init__.py` (migrated part1)
+- `modules/trainer/plugins/student_pad/__init__.py` (migrated part1)
+- `modules/trainer/plugins/suggest/__init__.py` (migrated part1)
 - `modules/trainer/manager.py`
 - `modules/trainer/__init__.py`
 - `modules/trainer/trainer_admin_ui.py`
