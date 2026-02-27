@@ -1120,40 +1120,6 @@ class SuggestPlugin(TrainerPlugin):
     # Export / import — DATA LAYER
     # ─────────────────────────────────────────────────────────────────────
 
-    def export_config(self, trainer_id: str) -> Optional[Dict]:
-        """Export suggestion configuration for all students."""
-        configs = {}
-
-        with self.db.get_session() as session:
-            student_configs = session.query(StudentSuggestionConfig).filter_by(
-                trainer_id=trainer_id
-            ).all()
-
-            for cfg in student_configs:
-                configs[cfg.student_id] = {
-                    'message_interval': cfg.message_interval,
-                    'is_enabled': cfg.is_enabled,
-                    'last_suggestion_index': cfg.last_suggestion_index
-                }
-
-        return {'student_configs': configs} if configs else None
-
-    def import_config(self, trainer_id: str, config: Dict) -> bool:
-        """Import suggestion configuration."""
-        student_configs = config.get('student_configs', {})
-
-        success = True
-        for student_id, cfg_data in student_configs.items():
-            if not self._save_student_config(
-                student_id,
-                trainer_id,
-                cfg_data.get('message_interval', 5),
-                cfg_data.get('is_enabled', True)
-            ):
-                success = False
-
-        return success
-
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Export suggestion history events with full interaction history."""
         events = []
@@ -1208,97 +1174,6 @@ class SuggestPlugin(TrainerPlugin):
                 events.append(event)
 
         return events
-
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
-        """Import suggestion history events with full interaction history."""
-
-        try:
-            with self.db.get_session() as session:
-                for event in events:
-                    if event.get('plugin_id') != self.id:
-                        continue
-
-                    # Check if suggestion already exists
-                    existing = None
-                    if event.get('suggestion_id'):
-                        existing = session.query(StudentSuggestion).filter_by(
-                            id=event['suggestion_id']
-                        ).first()
-
-                    if not existing:
-                        # Parse timestamps
-                        created_at = None
-                        viewed_at = None
-                        used_at = None
-                        dismissed_at = None
-                        deleted_at = None
-                        expires_at = None
-
-                        try:
-                            if event.get('timestamp'):
-                                created_at = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                        except (ValueError, TypeError):
-                            created_at = datetime.utcnow()
-
-                        # Parse other timestamps
-                        for ts_field in ['viewed_at', 'used_at', 'dismissed_at', 'deleted_at', 'expires_at']:
-                            if event.get(ts_field):
-                                try:
-                                    locals()[ts_field] = datetime.fromisoformat(event[ts_field].replace('Z', '+00:00'))
-                                except (ValueError, TypeError):
-                                    pass
-
-                        # Get interaction history or create from individual fields
-                        interaction_history = event.get('interaction_history', [])
-
-                        # Create suggestion
-                        suggestion = StudentSuggestion(
-                            id=event.get('suggestion_id', str(uuid.uuid4())),
-                            student_id=event['student_id'],
-                            trainer_id=trainer_id,
-                            content=event.get('content', ''),
-                            suggestion_type=event.get('suggestion_type', 'question'),
-                            source=event.get('source', 'auto'),
-                            created_at=created_at,
-                            viewed_at=viewed_at,
-                            used_at=used_at,
-                            dismissed_at=dismissed_at,
-                            deleted_at=deleted_at,
-                            expires_at=expires_at,
-                            created_conversation_id=event.get('created_conversation_id'),
-                            related_conversation_ids=event.get('related_conversation_ids', []),
-                            suggestion_metadata=event.get('metadata', {}),
-                            interaction_history=interaction_history
-                        )
-
-                        # Set state flags based on timestamps and history
-                        if used_at:
-                            suggestion.is_clicked = True
-                        if dismissed_at:
-                            suggestion.is_dismissed = True
-                        if deleted_at:
-                            suggestion.is_deleted_by_teacher = True
-
-                        # Check if currently displayed (if within expiration and not used/dismissed/deleted)
-                        now = datetime.utcnow()
-                        if (not suggestion.is_clicked and not suggestion.is_dismissed and
-                            not suggestion.is_deleted_by_teacher and
-                            (not suggestion.expires_at or suggestion.expires_at > now)):
-                            # Check if last interaction was view within reasonable time
-                            last_interaction = suggestion.get_last_interaction()
-                            if last_interaction and last_interaction['action'] == 'viewed':
-                                view_time = datetime.fromisoformat(last_interaction['timestamp'].replace('Z', '+00:00'))
-                                if (now - view_time).total_seconds() < 3600:  # Within last hour
-                                    suggestion.is_displayed = True
-
-                        session.add(suggestion)
-
-                session.commit()
-                return True
-
-        except Exception as e:
-            log("error", f"Failed to import suggestion history: {e}", exc_info=True)
-            return False
 
     def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add a suggestions analytics tab for teachers."""

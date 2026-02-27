@@ -12,14 +12,13 @@ Principles:
 - Keep plugins focused on a single responsibility
 - Minimize coupling between plugins
 - Use provided hooks instead of modifying core code
-- Store only essential data in history exports
 - Follow bio-coding: make plugins easy to create and discard
 
 Architecture — two-layer design (enforced by convention, future: two classes):
 ─────────────────────────────────────────────────────────────────────────────
   DATA LAYER  (below the line)
-    Methods: get_context(), export_history(), import_history(), on_activate(),
-             on_deactivate(), export_config(), import_config(), and any private
+    Methods: get_context(), on_activate(),
+             on_deactivate(), and any private
              helpers they call.
     Rules:
       - MUST use self.<service> attributes set in initialize(services)
@@ -100,7 +99,6 @@ class TrainerPlugin(ABC):
     2. For each trainer, on_activate() called when plugin is enabled.
     3. Plugin hooks are called when relevant UI is rendered.
     4. When trainer disables plugin, on_deactivate() called for cleanup.
-    5. On export/import, history methods are called.
 
     Service attributes (set in initialize, used by data methods):
         self.db              — db_manager
@@ -235,55 +233,6 @@ class TrainerPlugin(ABC):
             Dictionary of context strings (key: label, value: context data)
         """
         return {}
-
-    def export_config(self, trainer_id: str) -> Optional[Dict]:
-        """
-        [api] Export plugin configuration for YAML export.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Returns:
-            Dictionary of configuration data or None
-        """
-        return None
-
-    def import_config(self, trainer_id: str, config: Dict) -> bool:
-        """
-        [api] Import plugin configuration from YAML.
-
-        DATA LAYER — use self.<service> attributes only.
-        """
-        return True
-
-    @abstractmethod
-    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        [api] Export plugin-specific history events in minimal format.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Each event must contain at minimum:
-        - timestamp: ISO format datetime
-        - type: event type (e.g., 'plugin.score_update')
-        - plugin_id: this plugin's ID
-
-        Returns:
-            List of minimal event dictionaries
-        """
-        return []
-
-    @abstractmethod
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]],
-                       student_info: Dict = None) -> bool:
-        """
-        [api] Import plugin-specific history events.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Returns:
-            True if import successful, False otherwise
-        """
-        return True
 
     # ─────────────────────────────────────────────────────────────────────
     # UI LAYER — render methods

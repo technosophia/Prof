@@ -392,44 +392,6 @@ class MemoryPlugin(TrainerPlugin):
     # Export / import — DATA LAYER
     # ─────────────────────────────────────────────────────────────────────
 
-    def export_config(self, trainer_id: str) -> Optional[Dict]:
-        """Export current memories for all students."""
-        trainer_manager = get_trainer_manager()
-        students = trainer_manager.get_trainer_students(trainer_id)
-
-        memories = {}
-        for student in students:
-            memory_data = self._get_memory_with_metadata(student['id'], trainer_id)
-            if memory_data:
-                memories[student['id']] = {
-                    'student_name': student.get('name', student['id']),
-                    'content': memory_data['content'],
-                    'version': memory_data['version'],
-                    'source': memory_data['source'],
-                    'last_analyzed_at': (
-                        memory_data['last_analyzed_at'].isoformat()
-                        if memory_data['last_analyzed_at'] else None
-                    ),
-                    'updated_at': memory_data['updated_at'].isoformat(),
-                    'metadata': memory_data['metadata']
-                }
-
-        return {'student_memories': memories} if memories else None
-
-    def import_config(self, trainer_id: str, config: Dict) -> bool:
-        """Import memories from configuration."""
-        memories = config.get('student_memories', {})
-
-        success = True
-        for student_id, memory_data in memories.items():
-            content = memory_data.get('content', '')
-            source = memory_data.get('source', 'import')
-            if content:
-                if not self._save_memory(student_id, trainer_id, content, source):
-                    success = False
-
-        return success
-
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Export all memory updates as events."""
         events = []
@@ -462,79 +424,6 @@ class MemoryPlugin(TrainerPlugin):
                 events.append(event)
 
         return events
-
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]],
-                       student_info: Dict = None) -> bool:
-        """Import memory history events."""
-        try:
-            with self.db.get_session() as session:
-                memory_events = [e for e in events if e.get('plugin_id') == self.id]
-
-                student_events: Dict[str, List] = {}
-                for event in memory_events:
-                    student_id = event.get('student_id')
-                    if not student_id:
-                        continue
-                    if student_id not in student_events:
-                        student_events[student_id] = []
-                    student_events[student_id].append(event)
-
-                for student_id, evts in student_events.items():
-                    evts.sort(key=lambda x: x.get('timestamp', ''))
-
-                    existing = session.query(StudentMemory).filter_by(
-                        user_id=student_id,
-                        trainer_id=trainer_id
-                    ).all()
-                    for mem in existing:
-                        mem.is_current = 0
-
-                    for event in evts:
-                        timestamp = None
-                        try:
-                            if event.get('timestamp'):
-                                timestamp = datetime.fromisoformat(
-                                    event['timestamp'].replace('Z', '+00:00')
-                                )
-                        except Exception:
-                            timestamp = datetime.utcnow()
-
-                        memory = StudentMemory(
-                            id=event.get('memory_id', str(uuid.uuid4())),
-                            user_id=student_id,
-                            trainer_id=trainer_id,
-                            content=event.get('content', ''),
-                            version=event.get('version', 1),
-                            is_current=1 if event.get('is_current', False) else 0,
-                            source=event.get('source', 'import'),
-                            created_at=timestamp,
-                            updated_at=timestamp,
-                            memory_metadata=event.get('metadata', {})
-                        )
-                        session.add(memory)
-
-                    current_ones = session.query(StudentMemory).filter_by(
-                        user_id=student_id,
-                        trainer_id=trainer_id,
-                        is_current=1
-                    ).all()
-
-                    if len(current_ones) > 1:
-                        current_ones.sort(
-                            key=lambda x: x.updated_at or datetime.min,
-                            reverse=True
-                        )
-                        for i, mem in enumerate(current_ones):
-                            if i == 0:
-                                continue
-                            mem.is_current = 0
-
-                session.commit()
-                return True
-
-        except Exception as e:
-            log("error", f"Failed to import memory history: {e}", exc_info=True)
-            return False
 
     # ─────────────────────────────────────────────────────────────────────
     # UI LAYER — render methods

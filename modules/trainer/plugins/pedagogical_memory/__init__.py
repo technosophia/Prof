@@ -662,12 +662,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
     # Export / import — DATA LAYER
     # ─────────────────────────────────────────────────────────────────────
 
-    def export_config(self, trainer_id: str) -> Optional[Dict]:
-        return None
-
-    def import_config(self, trainer_id: str, config: Dict) -> bool:
-        return True
-
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
         try:
@@ -717,54 +711,6 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
         except Exception as e:
             log("error", f"Failed to export pedagogical_memory history: {e}", exc_info=True)
         return events
-
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
-        try:
-            with self.db.get_session() as session:
-                memory_events = [e for e in events if e.get("plugin_id") == self.id]
-
-                fact_events = [e for e in memory_events if e.get("type") == "plugin.pedagogical_memory.fact"]
-                analysis_events = [e for e in memory_events if e.get("type") == "plugin.pedagogical_memory.analysis"]
-
-                for event in fact_events:
-                    content = event.get("content", "")
-                    fact = PedagogicalFact(
-                        id=event.get("id", str(uuid.uuid4())),
-                        student_id=event.get("student_id"),
-                        trainer_id=trainer_id,
-                        fact_type=event.get("fact_type", "knowledge_state"),
-                        content=content,
-                        embedding=self._serialize_embedding(get_embedding(content)),
-                        embedding_dim=int(event.get("embedding_dim", EMBEDDING_DIMENSION)),
-                        confidence=float(event.get("confidence", 1.0)),
-                        is_active=int(event.get("is_active", 1)),
-                        source_version=int(event.get("source_version", 1)),
-                        created_at=datetime.fromisoformat(event["created_at"]) if event.get("created_at") else datetime.utcnow(),
-                        updated_at=datetime.fromisoformat(event["updated_at"]) if event.get("updated_at") else datetime.utcnow(),
-                        last_reinforced_at=datetime.fromisoformat(event["last_reinforced_at"]) if event.get("last_reinforced_at") else None,
-                        fact_metadata=event.get("fact_metadata", {}),
-                    )
-                    session.merge(fact)
-
-                for event in analysis_events:
-                    analysis = PedagogicalAnalysisLog(
-                        id=event.get("id", str(uuid.uuid4())),
-                        student_id=event.get("student_id"),
-                        trainer_id=trainer_id,
-                        version=int(event.get("version", 1)),
-                        messages_analyzed=int(event.get("messages_analyzed", 0)),
-                        facts_created=int(event.get("facts_created", 0)),
-                        facts_updated=int(event.get("facts_updated", 0)),
-                        facts_discarded=int(event.get("facts_discarded", 0)),
-                        created_at=datetime.fromisoformat(event["created_at"]) if event.get("created_at") else datetime.utcnow(),
-                    )
-                    session.merge(analysis)
-
-                session.commit()
-            return True
-        except Exception as e:
-            log("error", f"Failed to import pedagogical_memory history: {e}", exc_info=True)
-            return False
 
     # ─────────────────────────────────────────────────────────────────────
     # UI LAYER — render methods

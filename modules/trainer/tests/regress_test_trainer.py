@@ -151,8 +151,6 @@ class TestStudentPadPlugin:
         self.plugin._save_student_note = MagicMock(return_value=True)
         self.plugin._get_student_note = MagicMock(return_value="Test note content")
         self.plugin.initialize = MagicMock(return_value=True)
-        self.plugin.export_config = MagicMock(return_value={"student_pads": {}})
-        self.plugin.import_config = MagicMock(return_value=True)
 
         # Mock plugin manager
         self.plugin_manager = get_plugin_manager()
@@ -280,47 +278,6 @@ class TestStudentPadPlugin:
         active_plugins = plugin_manager.get_active_plugins("trainer_123")
         assert len(active_plugins) == 1
         assert active_plugins[0].id == "student_pad"
-
-    def test_export_import_configuration(self):
-        """Test export and import of configuration."""
-        trainer_manager = get_trainer_manager()
-        trainer_manager.db = MagicMock()
-        plugin = self.plugin_manager.get_plugin("student_pad")
-
-        # Mock export
-        mock_export_data = {
-            'student_pads': {
-                'student_456': {
-                    'content': 'Note for Student One',
-                    'teacher_notes': 'Teacher note for Student One'
-                },
-                'student_789': {
-                    'content': 'Note for Student Two',
-                    'teacher_notes': 'Teacher note for Student Two'
-                }
-            }
-        }
-        plugin.export_config.return_value = mock_export_data
-        plugin.import_config.return_value = True
-
-        # Mock get_active_plugins
-        with patch.object(self.plugin_manager, 'get_active_plugins', return_value=[plugin]):
-            # Export
-            yaml_content = trainer_manager.export_configuration("trainer_123")
-            assert yaml_content is not None
-            assert isinstance(yaml_content, str)
-
-            # Parse YAML to verify structure
-            config = yaml.safe_load(yaml_content)
-            assert 'plugins' in config
-            assert 'student_pad' in config['plugins']
-            assert 'student_pads' in config['plugins']['student_pad']
-
-            # Import
-            success = trainer_manager.import_configuration("trainer_123", yaml_content)
-            assert success is True
-            plugin.import_config.assert_called_once()
-
 
 class TestTrainerManagerHelpers:
     """Test TrainerManager helper methods."""

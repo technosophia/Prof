@@ -10,7 +10,6 @@ Features:
 - Student dashboard with conversation stats
 - Configurable system prompts for teacher AI
 - Plugin system for extensibility
-- Import/export of configuration
 - Student note-taking pads (via plugin) with student UI injection
 
 Dependencies:

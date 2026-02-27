@@ -18,14 +18,13 @@ Principles:
 - Keep plugins focused on a single responsibility
 - Minimize coupling between plugins
 - Use provided hooks instead of modifying core code
-- Store only essential data in history exports
 - Follow bio-coding: make plugins easy to create and discard
 
 Architecture — two-layer design (enforced by convention, future: two classes):
 ─────────────────────────────────────────────────────────────────────────────
   DATA LAYER  (below the line)
-    Methods: get_context(), export_history(), import_history(), on_activate(),
-             on_deactivate(), export_config(), import_config(), and any private
+    Methods: get_context(), on_activate(),
+             on_deactivate(), and any private
              helpers they call.
     Rules:
       - MUST use self.<service> attributes set in initialize(services)
@@ -86,7 +85,6 @@ Base class for all Trainer plugins.
     2. For each trainer, on_activate() called when plugin is enabled.
     3. Plugin hooks are called when relevant UI is rendered.
     4. When trainer disables plugin, on_deactivate() called for cleanup.
-    5. On export/import, history methods are called.
 
     Service attributes (set in initialize, used by data methods):
         self.db              — db_manager
@@ -180,11 +178,6 @@ Import plugin configuration from YAML.
 
         DATA LAYER — use self.<service> attributes only.
 
-#### `export_history`
-
-```python
-def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
-```
 
 Export plugin-specific history events in minimal format.
 
