@@ -11,3 +11,4 @@ tests/debug
 tests/logs
 tests/test.db
 tests/data
+*_prod.*
