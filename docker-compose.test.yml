@@ -1,0 +1,129 @@
+version: "2.4"
+
+services:
+  mysql:
+    extends:
+      file: docker-compose.yml
+      service: mysql
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: 3.11.9
+    image: streamlit-coach:python3.11.9-test
+    container_name: coach_tests
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      # Mount code for test execution
+      - ./:/app
+      # Mount test data and reports
+      - ./test_data:/app/test_data
+      - ./test-reports:/app/test-reports
+      # Mount debug screenshots
+      - ./tests/debug:/app/tests/debug
+      # Mount for Playwright traces/videos if needed
+      - ./test-artifacts:/app/test-artifacts
+    networks:
+      - internal
+    environment:
+      # Test mode
+      - TEST_MODE=true
+      - PYTHONPATH=/app
+
+      # Database config (use test database)
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE}_test
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DRIVER=${MYSQL_DRIVER}
+
+      # App config
+      - GIT_TOKEN=${GIT_TOKEN}
+
+      # Streamlit test server config
+      - STREAMLIT_SERVER_PORT=8502
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_ENABLE_CORS=true
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
+
+      # Playwright config (for headed mode)
+      - DISPLAY=${DISPLAY:-:99}
+
+      # Pytest config
+      - PYTEST_DEBUG=${PYTEST_DEBUG:-false}
+      - PYTEST_ADDOPTS=${PYTEST_ADDOPTS:-}
+
+      # Virtual environment
+      - VIRTUAL_ENV=/opt/venv
+      - PATH=/opt/venv/bin:$PATH
+
+    # Command with options - can be overridden
+    command: >
+      sh -c "
+        # Create test database if it doesn't exist
+        mysql -h mysql -u root -p${MYSQL_ROOT_PASSWORD} -e \"CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test;\" 2>/dev/null &&
+
+        # Run tests
+        pytest -v tests/ --tb=short
+      "
+
+    # For interactive debugging
+    stdin_open: true
+    tty: true
+
+  # Optional: Service for headed browser tests with XVFB
+  test-headed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coach_tests_headed
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./test_data:/app/test_data
+      - ./test-reports:/app/test-reports
+      - ./tests/debug:/app/tests/debug
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro  # For X11 forwarding
+    networks:
+      - internal
+    environment:
+      - TEST_MODE=true
+      - PYTHONPATH=/app
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE}_test
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DRIVER=${MYSQL_DRIVER}
+      - GIT_TOKEN=${GIT_TOKEN}
+      - STREAMLIT_SERVER_PORT=8502
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - DISPLAY=${DISPLAY:-:99}
+      - VIRTUAL_ENV=/opt/venv
+      - PATH=/opt/venv/bin:$PATH
+    command: >
+      sh -c "
+        # Start Xvfb for virtual display
+        Xvfb :99 -screen 0 1280x1024x24 &
+
+        # Wait for Xvfb
+        sleep 2 &&
+
+        # Create test database
+        mysql -h mysql -u root -p${MYSQL_ROOT_PASSWORD} -e \"CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test;\" 2>/dev/null &&
+
+        # Run tests with headed mode
+        pytest -v tests/ --headed --tb=short
+      "
+
+networks:
+  internal:
+    external: false
