@@ -222,6 +222,95 @@ class MemoryPluginCore(TrainerPluginCore):
         new_messages.sort(key=lambda x: x.get('timestamp', ''))
         return new_messages
 
+    async def _analyze_with_llm(self, trainer_id: str, student_id: str,
+                                 old_memory: str, new_messages: List[Dict]) -> Optional[Tuple[str, str]]:
+        """Use LLM to analyze conversations and update memory."""
+        training_program = get_prompt('trainer.teacher.training_program')
+
+        conversations_text = ""
+        for msg in new_messages:
+            role_symbol = "👤 Student" if msg['role'] == 'user' else "🤖 Assistant"
+            conversations_text += f"{role_symbol} ({msg['timestamp']}): {msg['content']}\n\n"
+
+        system_prompt = get_prompt('trainer.plugins.memory.analysis_system')
+        user_prompt = get_prompt('trainer.plugins.memory.analysis_user').format(
+            training_program=training_program,
+            old_memory=old_memory or get_prompt('trainer.plugins.memory.empty_memory'),
+            conversations=conversations_text
+        )
+
+        try:
+            llm_id = get_current_llm_id()
+            source = f"llm:{llm_id}"
+        except ValueError:
+            source = "auto"
+            llm_id = "unknown"
+
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            response = await self.llm_manager.internal_response(
+                llm_id if llm_id != "unknown" else None,
+                messages
+            )
+
+            if response and not response.startswith("Error"):
+                return response.strip(), source
+            else:
+                log("error", f"LLM analysis failed: {response}")
+                return None, source
+        except Exception as e:
+            log("error", f"Error during LLM analysis: {e}", exc_info=True)
+            return None, source
+
+    async def refresh_memory(self, trainer_id: str, student_id: str) -> bool:
+        """
+        Refresh memory by analyzing new conversations since last analysis.
+
+        DATA LAYER — callable headless.
+        """
+        log("info", f"Memory refresh started (plugin={self.id}, trainer={trainer_id}, student={student_id})")
+
+        last_analyzed = self._get_last_analyzed(student_id, trainer_id)
+        log("info", f"Memory refresh last_analyzed={last_analyzed}")
+
+        new_messages = self._get_new_conversations(student_id, last_analyzed)
+        log("info", f"Memory refresh fetched {len(new_messages)} new messages")
+
+        if not new_messages:
+            log("info", f"No new messages for student {student_id} since last analysis")
+            return True
+
+        old_memory = self._get_current_memory(student_id, trainer_id)
+        log("info", f"Memory refresh old_memory_present={bool(old_memory)}")
+
+        log("info", "Memory refresh calling _analyze_with_llm")
+        result = await self._analyze_with_llm(trainer_id, student_id, old_memory, new_messages)
+
+        if result:
+            new_memory, source = result
+            log("info", f"Memory refresh analysis done (source={source}, chars={len(new_memory)})")
+
+            metadata = {
+                'messages_analyzed': len(new_messages),
+                'conversations': len(set(m['conversation_id'] for m in new_messages)),
+                'analysis_timestamp': datetime.utcnow().isoformat(),
+                'last_analyzed': last_analyzed.isoformat() if last_analyzed else None,
+                'first_message': new_messages[0]['timestamp'] if new_messages else None,
+                'last_message': new_messages[-1]['timestamp'] if new_messages else None
+            }
+
+            log("info", "Memory refresh calling _save_memory")
+            saved = self._save_memory(student_id, trainer_id, new_memory, source, metadata)
+            log("info", f"Memory refresh save result={saved}")
+            return saved
+
+        log("warning", "Memory refresh analysis returned no result")
+        return False
+
     def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
         """
         LLM context callback — inject student memory into conversations.

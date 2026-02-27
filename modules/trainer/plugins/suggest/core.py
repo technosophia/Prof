@@ -259,6 +259,151 @@ class SuggestPluginCore(TrainerPluginCore):
         except Exception as e:
             log("error", f"Error in suggestion callback: {e}", exc_info=True)
 
+    async def _generate_suggestion_async(self, student_id: str, trainer_id: str,
+                                        conversation_id: str, messages: List[Message],
+                                        source: str = "auto") -> bool:
+        """
+        Generate a suggestion using LLM based on conversation context and training program.
+        Async version to be called from callback.
+        """
+        try:
+            # Get recent messages for context (last 10 messages)
+            recent_messages = messages[-10:] if len(messages) > 10 else messages
+
+            # Format conversation history for the prompt
+            conversation_text = ""
+            for msg in recent_messages:
+                role = "Student" if msg.role == "user" else "Teacher"
+                conversation_text += f"{role}: {msg.content}\n\n"
+
+            # Get training context from trainer manager
+            if self.trainer_manager is None:
+                log("warning", "Suggest plugin generating without trainer_manager")
+                training_context = {}
+            else:
+                training_context = self.trainer_manager.get_all_contexts(student_id)
+
+            # Format training context as a readable string
+            context_parts = []
+            for context_name, context_data in training_context.items():
+                context_parts.append(f"\n=== {context_name} ===")
+                if isinstance(context_data, dict):
+                    for key, value in context_data.items():
+                        context_parts.append(f"{key}: {value}")
+                else:
+                    context_parts.append(str(context_data))
+
+            training_context_text = "\n".join(context_parts)
+
+            # Get the suggestion prompt
+            suggestion_prompt = get_prompt(
+                'trainer.plugins.suggest.generate',
+                """Based on the following conversation and training context, generate ONE helpful suggestion for the student.
+                The suggestion should be a question, learning prompt, or resource recommendation that would help them progress
+                within their training program.
+
+                Conversation:
+                {conversation}
+
+                Training Context:
+                {training_context}
+
+                Generate a single, concise suggestion (max 100 characters) that is specific to the student's current conversation
+                and aligned with their training context. Be specific and helpful.
+                Suggestion:"""
+            )
+
+            prompt = suggestion_prompt.format(
+                conversation=conversation_text,
+                training_context=training_context_text
+            )
+
+            # Get current LLM ID
+            from shared.common import get_current_llm_id
+            try:
+                llm_id = get_current_llm_id()
+            except ValueError:
+                log("error", "No LLM configured for suggestion generation")
+                return False
+
+            # Prepare messages for LLM (just the user prompt, no conversation history)
+            messages_for_llm = [
+                {"role": "system", "content": get_prompt('trainer.teacher.system_prompt')},
+                {"role": "user", "content": prompt}
+            ]
+
+            # Call LLM directly using internal_response
+            suggestion = await self.llm_manager.internal_response(
+                llm_id=llm_id,
+                messages=messages_for_llm,
+                stream_callback=None  # No streaming needed for suggestions
+            )
+
+            if not suggestion or suggestion.startswith("Error"):
+                log("warning", f"Failed to generate suggestion for student {student_id}: {suggestion}")
+                return False
+
+            # Clean up the suggestion
+            suggestion = suggestion.strip().strip('"').strip("'")
+
+            # Save the suggestion
+            with self.db.get_session() as session:
+                config = session.query(StudentSuggestionConfig).filter_by(
+                    student_id=student_id,
+                    trainer_id=trainer_id
+                ).first()
+
+                if config and source == "auto":
+                    # Count current user messages
+                    user_message_count = sum(1 for msg in messages if msg.role == "user")
+                    config.last_suggestion_index = user_message_count
+                    config.updated_at = datetime.utcnow()
+                    session.add(config)
+
+                # Create new suggestion (expires in 7 days by default)
+                now = datetime.utcnow()
+
+                # Initialize related_conversation_ids with the current conversation
+                related_ids = [conversation_id] if conversation_id else []
+
+                # Store the training context used for this suggestion in metadata
+                suggestion_metadata = {
+                    'trigger_message_count': len(messages) if source == "auto" else 0,
+                    'conversation_id': conversation_id,
+                    'teacher_id': trainer_id if source == "teacher" else None,
+                    'training_context_used': list(training_context.keys())  # Store which contexts were used
+                }
+
+                suggestion_record = StudentSuggestion(
+                    student_id=student_id,
+                    trainer_id=trainer_id,
+                    conversation_id=conversation_id,
+                    content=suggestion,
+                    suggestion_type="question",
+                    source=source,
+                    created_at=now,
+                    expires_at=now + timedelta(days=7),
+                    related_conversation_ids=related_ids,
+                    suggestion_metadata=suggestion_metadata,
+                    interaction_history=[]  # Initialize empty list
+                )
+
+                # Add creation interaction
+                suggestion_record.add_interaction('created', {
+                    'source': source,
+                    'conversation_id': conversation_id
+                })
+
+                session.add(suggestion_record)
+                session.commit()
+
+                log("debug", f"Generated {source} suggestion for student {student_id}: {suggestion[:50]}...")
+                return True
+
+        except Exception as e:
+            log("error", f"Failed to generate suggestion: {e}", exc_info=True)
+            return False
+
     def _get_student_config(self, student_id: str, trainer_id: str) -> Optional[Dict]:
         """Get suggestion configuration for a student."""
         with self.db.get_session() as session:

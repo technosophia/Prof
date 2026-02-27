@@ -215,6 +215,60 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         lines = [f"- {key}: {description}" for key, description in fact_types.items()]
         return "\n".join(lines)
 
+    async def _extract_candidate_facts(
+        self, trainer_id: str, student_id: str, new_messages: List[Dict[str, Any]], fact_types: Dict[str, str]
+    ) -> List[Dict[str, str]]:
+        try:
+            training_program = get_prompt("trainer.teacher.training_program")
+            conversations_text = ""
+            for msg in new_messages:
+                role_symbol = "👤 Student" if msg["role"] == "user" else "🤖 Assistant"
+                conversations_text += f"{role_symbol} ({msg['timestamp']}): {msg['content']}\n\n"
+
+            system_prompt = get_prompt("trainer.plugins.pedagogical_memory.extraction_system").format(
+                training_program=training_program,
+                fact_types=self._format_fact_types(fact_types),
+            )
+            user_prompt = get_prompt("trainer.plugins.pedagogical_memory.extraction_user").format(
+                conversations=conversations_text
+            )
+
+            llm_id = get_current_llm_id()
+            response = await self.llm_manager.internal_response(
+                llm_id,
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+
+            if not response or response.startswith("Error"):
+                log("error", f"Extraction call failed: {response}")
+                return []
+
+            try:
+                payload = json.loads(response)
+            except Exception as e:
+                log("error", f"Failed to parse extraction JSON output: {e}\n {response}", exc_info=True)
+                return []
+
+            if not isinstance(payload, list):
+                return []
+
+            allowed_types = set(fact_types.keys())
+            filtered = []
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                fact_type = str(item.get("fact_type", "")).strip()
+                content = str(item.get("content", "")).strip()
+                if fact_type in allowed_types and content:
+                    filtered.append({"fact_type": fact_type, "content": content})
+            return filtered
+        except Exception as e:
+            log("error", f"Failed to extract candidate facts: {e}", exc_info=True)
+            return []
+
     def _find_similar_facts(
         self,
         session,
@@ -240,6 +294,30 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         except Exception as e:
             log("error", f"Failed to search similar facts: {e}", exc_info=True)
             return []
+
+    async def _decide_reconciliation(self, fact_type: str, existing_content: str, candidate_content: str) -> str:
+        try:
+            llm_id = get_current_llm_id()
+            system_prompt = get_prompt("trainer.plugins.pedagogical_memory.reconciliation_system")
+            user_prompt = get_prompt("trainer.plugins.pedagogical_memory.reconciliation_user").format(
+                fact_type=fact_type,
+                existing_content=existing_content,
+                candidate_content=candidate_content,
+            )
+            response = await self.llm_manager.internal_response(
+                llm_id,
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            decision = (response or "").strip().upper()
+            if decision in ["UPDATE", "REINFORCE", "DISCARD"]:
+                return decision
+            return "DISCARD"
+        except Exception as e:
+            log("error", f"Failed reconciliation decision: {e}", exc_info=True)
+            return "DISCARD"
 
     def _find_similar_facts_in_memory(
         self,
@@ -275,6 +353,178 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     fact.updated_at = datetime.utcnow()
         except Exception as e:
             log("error", f"Failed confidence decay: {e}", exc_info=True)
+
+    async def refresh_memory(self, trainer_id: str, student_id: str) -> Dict[str, int]:
+        stats = {"created": 0, "updated": 0, "reinforced": 0, "discarded": 0, "messages_analyzed": 0}
+        cfg = self._get_plugin_config()
+        fact_types = cfg["fact_types"]
+
+        if not fact_types:
+            log("warning", "No fact taxonomy configured for pedagogical_memory")
+            return stats
+
+        last_analysis = self._get_last_analysis_date(trainer_id, student_id)
+        messages = self._get_new_conversations(student_id, last_analysis)
+        stats["messages_analyzed"] = len(messages)
+
+        if not messages:
+            return stats
+
+        version = self._get_next_analysis_version(trainer_id, student_id)
+        candidates = await self._extract_candidate_facts(trainer_id, student_id, messages, fact_types)
+
+        try:
+            with self.db.get_session() as session:
+                current_facts = (
+                    session.query(PedagogicalFact)
+                    .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
+                    .all()
+                )
+
+            fact_snapshot: List[Dict[str, Any]] = [
+                {
+                    "id": fact.id,
+                    "fact_type": fact.fact_type,
+                    "content": fact.content,
+                    "embedding": fact.embedding,
+                    "embedding_dim": fact.embedding_dim,
+                    "confidence": float(fact.confidence or 0.0),
+                    "is_active": int(fact.is_active or 0),
+                    "fact_metadata": fact.fact_metadata or {},
+                }
+                for fact in current_facts
+            ]
+
+            operations: List[Dict[str, Any]] = []
+            pending_id = 0
+
+            for candidate in candidates:
+                candidate_vector = np.asarray(get_embedding(candidate["content"]), dtype=np.float32)
+                similar = self._find_similar_facts_in_memory(
+                    fact_snapshot,
+                    candidate["fact_type"],
+                    candidate_vector,
+                    top_n=3,
+                )
+
+                if not similar or similar[0][1] < cfg["similarity_threshold"]:
+                    operations.append({
+                        "action": "CREATE",
+                        "fact_type": candidate["fact_type"],
+                        "content": candidate["content"],
+                        "vector": candidate_vector,
+                    })
+                    stats["created"] += 1
+                    pending_id -= 1
+                    fact_snapshot.append({
+                        "id": pending_id,
+                        "fact_type": candidate["fact_type"],
+                        "content": candidate["content"],
+                        "embedding": self._serialize_embedding(candidate_vector.tolist()),
+                        "embedding_dim": EMBEDDING_DIMENSION,
+                        "confidence": 1.0,
+                        "is_active": 1,
+                        "fact_metadata": {"source": "llm", "reconciliation": "CREATE"},
+                    })
+                    continue
+
+                best_fact, _ = similar[0]
+                decision = await self._decide_reconciliation(
+                    candidate["fact_type"],
+                    best_fact["content"],
+                    candidate["content"],
+                )
+
+                if decision == "UPDATE":
+                    operations.append({
+                        "action": "UPDATE",
+                        "fact_id": best_fact["id"],
+                        "content": candidate["content"],
+                        "vector": candidate_vector,
+                    })
+                    best_fact["content"] = candidate["content"]
+                    best_fact["embedding"] = self._serialize_embedding(candidate_vector.tolist())
+                    best_fact["embedding_dim"] = EMBEDDING_DIMENSION
+                    best_fact["fact_metadata"] = {
+                        **(best_fact.get("fact_metadata") or {}),
+                        "source": "llm",
+                        "reconciliation": "UPDATE",
+                    }
+                    stats["updated"] += 1
+                elif decision == "REINFORCE":
+                    operations.append({"action": "REINFORCE", "fact_id": best_fact["id"]})
+                    best_fact["confidence"] = min(1.0, float(best_fact.get("confidence", 0.0)) + 0.05)
+                    best_fact["fact_metadata"] = {
+                        **(best_fact.get("fact_metadata") or {}),
+                        "source": "llm",
+                        "reconciliation": "REINFORCE",
+                    }
+                    stats["reinforced"] += 1
+                else:
+                    stats["discarded"] += 1
+
+            with self.db.get_session() as session:
+                for operation in operations:
+                    if operation["action"] == "CREATE":
+                        session.add(
+                            PedagogicalFact(
+                                student_id=student_id,
+                                trainer_id=trainer_id,
+                                fact_type=operation["fact_type"],
+                                content=operation["content"],
+                                embedding=self._serialize_embedding(operation["vector"].tolist()),
+                                embedding_dim=EMBEDDING_DIMENSION,
+                                confidence=1.0,
+                                is_active=1,
+                                source_version=version,
+                                fact_metadata={"source": "llm", "reconciliation": "CREATE"},
+                            )
+                        )
+                        continue
+
+                    db_fact = session.query(PedagogicalFact).filter_by(id=operation["fact_id"]).first()
+                    if not db_fact:
+                        continue
+
+                    if operation["action"] == "UPDATE":
+                        db_fact.content = operation["content"]
+                        db_fact.embedding = self._serialize_embedding(operation["vector"].tolist())
+                        db_fact.embedding_dim = EMBEDDING_DIMENSION
+                        db_fact.updated_at = datetime.utcnow()
+                        db_fact.source_version = version
+                        db_fact.fact_metadata = {
+                            **(db_fact.fact_metadata or {}),
+                            "source": "llm",
+                            "reconciliation": "UPDATE",
+                        }
+                    elif operation["action"] == "REINFORCE":
+                        db_fact.last_reinforced_at = datetime.utcnow()
+                        db_fact.confidence = min(1.0, float(db_fact.confidence) + 0.05)
+                        db_fact.updated_at = datetime.utcnow()
+                        db_fact.fact_metadata = {
+                            **(db_fact.fact_metadata or {}),
+                            "source": "llm",
+                            "reconciliation": "REINFORCE",
+                        }
+
+                self._run_confidence_decay(session, trainer_id, student_id, cfg)
+
+                session.add(
+                    PedagogicalAnalysisLog(
+                        student_id=student_id,
+                        trainer_id=trainer_id,
+                        version=version,
+                        messages_analyzed=stats["messages_analyzed"],
+                        facts_created=stats["created"],
+                        facts_updated=stats["updated"],
+                        facts_discarded=stats["discarded"],
+                    )
+                )
+                session.commit()
+                return stats
+        except Exception as e:
+            log("error", f"Failed to refresh pedagogical memory: {e}", exc_info=True)
+            return stats
 
     def _get_active_facts(self, trainer_id: str, student_id: str) -> List[Dict[str, Any]]:
         try:
