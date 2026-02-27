@@ -1,26 +1,36 @@
 """
 Trainer module business logic.
 Manages students, notes, and plugin coordination.
+
+NO st_shared.cached imports here — all dependencies injected via constructor.
+The factory (manager_factory.py) is the only place that bridges st_shared.cached.
 """
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import yaml
 import json
+import re
 from shared.common import get_prompt
-from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
-from modules.trainer.plugin_base import get_plugin_manager
 
+from core.logging import log
 
-from core.logging import log, set_log_module_level
 
 class TrainerManager:
-    """Main manager for trainer functionality."""
+    """
+    Main manager for trainer functionality.
 
-    def __init__(self):
-        self.db = get_db_manager()
-        self.user_manager = get_user_manager()
-        self.conversation_manager = get_conversation_manager()
+    All dependencies are injected via constructor — no st_shared.cached.
+    """
+
+    def __init__(self, db_manager, user_manager, conversation_manager):
+        self.db = db_manager
+        self.user_manager = user_manager
+        self.conversation_manager = conversation_manager
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Students
+    # ─────────────────────────────────────────────────────────────────────
 
     def get_trainer_students(self, trainer_id: str) -> List[Dict[str, Any]]:
         """Get all normal users that have this trainer as parent."""
@@ -53,25 +63,25 @@ class TrainerManager:
             if updated_at:
                 try:
                     return datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
-                except:
+                except Exception:
                     return None
         return None
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Context aggregation
+    # ─────────────────────────────────────────────────────────────────────
 
     def get_all_contexts(self, student_id: str) -> Dict[str, Dict[str, str]]:
         """
         Get all context information for a student from all active plugins.
 
-        This method aggregates context from all active plugins for the trainer
-        who owns this student, and includes the training program at the top.
-
-        Args:
-            student_id: The student's ID
+        Aggregates context from all active plugins for the trainer who owns
+        this student, and includes the training program at the top.
 
         Returns:
-            Dictionary with plugin IDs as keys and their context dictionaries as values,
-            plus a special 'training_program' key at the top.
+            Dictionary with plugin names as keys and their context dicts as values,
+            plus a 'Training Program' key at the top.
         """
-        # Get the student's trainer (parent)
         student = self.user_manager.get_user(student_id)
         if not student:
             log("error", f"Student {student_id} not found")
@@ -82,24 +92,26 @@ class TrainerManager:
             log("error", f"Student {student_id} has no trainer assigned")
             return {}
 
-        # Start with training program context
         contexts = {
             'Training Program': {
                 'Training Program': get_prompt('trainer.teacher.training_program')
             }
         }
 
-        # Get all active plugins for this trainer
+        from .plugin_base import get_plugin_manager
         plugin_manager = get_plugin_manager()
         active_plugins = plugin_manager.get_active_plugins(trainer_id)
 
-        # Collect context from each plugin
         for plugin in active_plugins:
             plugin_context = plugin.get_context(student_id)
-            if plugin_context:  # Only add if plugin returned non-empty context
+            if plugin_context:
                 contexts[plugin.manifest.name] = plugin_context
 
         return contexts
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Plugin activation
+    # ─────────────────────────────────────────────────────────────────────
 
     def is_plugin_active(self, trainer_id: str, plugin_id: str) -> bool:
         """Check if a plugin is active for this trainer."""
@@ -113,40 +125,7 @@ class TrainerManager:
 
             return activation.is_active if activation else False
 
-
-    def _expand_minimal_events(self, events: List[Dict], student_info: Dict) -> List[Dict]:
-        """
-        Expand minimal events (v2 format) to full events for processing.
-        Reconstructs missing fields from student_info and defaults.
-        """
-        expanded_events = []
-
-        for event in events:
-            expanded = event.copy()
-
-            # Add student info if needed
-            if 'student_id' not in expanded:
-                # Try to infer from conversation_id? Not possible, so we'll need to handle this case
-                log("warning", f"Event missing student_id: {event.get('type')}")
-            else:
-                student_id = expanded['student_id']
-                if student_id in student_info:
-                    # Add student_name if missing (though we might not need it for processing)
-                    if 'student_name' not in expanded:
-                        expanded['student_name'] = student_info[student_id]['name']
-
-            # For conversation events, ensure they have required fields
-            if expanded.get('plugin_id') == 'core.conversation' or 'conversation_id' in expanded:
-                if 'type' not in expanded:
-                    # Try to infer type from content? Not safe
-                    pass
-
-            expanded_events.append(expanded)
-
-        return expanded_events
-
-    def set_plugin_active(self, trainer_id: str, plugin_id: str,
-                         active: bool) -> bool:
+    def set_plugin_active(self, trainer_id: str, plugin_id: str, active: bool) -> bool:
         """Activate or deactivate a plugin for this trainer."""
         from .models import PluginActivation
 
@@ -173,14 +152,63 @@ class TrainerManager:
             log("error", f"Failed to set plugin activation: {e}", exc_info=True)
             return False
 
+    def _expand_minimal_events(self, events: List[Dict], student_info: Dict) -> List[Dict]:
+        """
+        Expand minimal events (v2 format) to full events for processing.
+        Reconstructs missing fields from student_info and defaults.
+        """
+        expanded_events = []
 
-# Singleton instance
-_trainer_manager = None
+        for event in events:
+            expanded = event.copy()
+
+            if 'student_id' not in expanded:
+                log("warning", f"Event missing student_id: {event.get('type')}")
+            else:
+                student_id = expanded['student_id']
+                if student_id in student_info:
+                    if 'student_name' not in expanded:
+                        expanded['student_name'] = student_info[student_id]['name']
+
+            expanded_events.append(expanded)
+
+        return expanded_events
 
 
-def get_trainer_manager():
-    """Get the global TrainerManager instance."""
+# ─────────────────────────────────────────────────────────────────────────────
+# Singleton — managed by factory
+# ─────────────────────────────────────────────────────────────────────────────
+
+_trainer_manager: Optional[TrainerManager] = None
+
+
+def get_trainer_manager() -> TrainerManager:
+    """
+    Get the global TrainerManager instance.
+
+    Prefer using manager_factory.get_trainer_manager() from application code.
+    This function is kept for backward compatibility and falls back to
+    st_shared.cached when no instance has been set.
+    """
     global _trainer_manager
     if _trainer_manager is None:
-        _trainer_manager = TrainerManager()
+        # Legacy fallback — bridges to Streamlit-cached singletons
+        from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
+        _trainer_manager = TrainerManager(
+            db_manager=get_db_manager(),
+            user_manager=get_user_manager(),
+            conversation_manager=get_conversation_manager(),
+        )
     return _trainer_manager
+
+
+def set_trainer_manager(instance: TrainerManager) -> None:
+    """Set the global instance (used by factory / tests)."""
+    global _trainer_manager
+    _trainer_manager = instance
+
+
+def reset_trainer_manager() -> None:
+    """Reset the singleton (for tests)."""
+    global _trainer_manager
+    _trainer_manager = None
