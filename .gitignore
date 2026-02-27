@@ -2,7 +2,6 @@ venv
 .log
 __pycache__
 old
-local_config.json
 mysql_config.json
 .env
 .pytest_cache
@@ -11,4 +10,4 @@ tests/debug
 tests/logs
 tests/test.db
 tests/data
-*_prod.*
+local_*
