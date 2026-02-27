@@ -102,6 +102,7 @@ def inject_ui_admin_tab():
     return ("Trainer", render_trainer_admin)
 
 
+
 def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
                                    plugin_manager, trainer_manager) -> None:
     """
@@ -285,7 +286,7 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
             widget()
 
 def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
-    """Render the configuration tab with training program and student context."""
+    """Render the configuration tab with trainer-specific training program."""
 
     st.subheader("System Prompt")
 
@@ -295,31 +296,34 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
     st.divider()
     st.subheader("Training Program")
 
-    # Get current training program
-    current_program = get_prompt('trainer.teacher.training_program')
+    # Get current training program for this trainer
+    current_program = trainer_manager.get_training_program(trainer_id)
 
     # Editable text area for training program
     new_program = st.text_area(
         "Training Program Content",
         value=current_program,
         height=200,
-        help="This program defines the training approach and will be available to all plugins"
+        help="This program defines your training approach and will be available to all plugins"
     )
 
     # Save button
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("Save Training Program", type="primary", use_container_width=True):
-            set_training_program(trainer_id, new_program)
-            st.success("Training program saved successfully!")
-            st.rerun()
+            if trainer_manager.set_training_program(trainer_id, new_program):
+                st.success("Training program saved successfully!")
+                st.rerun()
+            else:
+                st.error("Failed to save training program. Please try again.")
 
     with col2:
         if st.button("Reset to Default", use_container_width=True):
-            default_program = get_prompt('teacher.training_program')
-            set_training_program(trainer_id, default_program)
-            st.success("Reset to default training program!")
-            st.rerun()
+            if trainer_manager.reset_training_program_to_default(trainer_id):
+                st.success("Reset to default training program!")
+                st.rerun()
+            else:
+                st.error("Failed to reset training program.")
 
     st.divider()
     st.subheader("Student Context Preview")

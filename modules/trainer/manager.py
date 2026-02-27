@@ -76,7 +76,7 @@ class TrainerManager:
         Get all context information for a student from all active plugins.
 
         Aggregates context from all active plugins for the trainer who owns
-        this student, and includes the training program at the top.
+        this student, and includes the trainer-specific training program at the top.
 
         Returns:
             Dictionary with plugin names as keys and their context dicts as values,
@@ -92,9 +92,12 @@ class TrainerManager:
             log("error", f"Student {student_id} has no trainer assigned")
             return {}
 
+        # Get trainer-specific training program
+        training_program = self.get_training_program(trainer_id)
+
         contexts = {
             'Training Program': {
-                'Training Program': get_prompt('trainer.teacher.training_program')
+                'Training Program': training_program
             }
         }
 
@@ -175,6 +178,113 @@ class TrainerManager:
             expanded_events.append(expanded)
 
         return expanded_events
+
+    def get_trainer_config(self, trainer_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get trainer configuration from database.
+
+        Args:
+            trainer_id: The trainer's user ID
+
+        Returns:
+            Dictionary with trainer config or None if not found
+        """
+        from .models import TrainerConfig
+
+        with self.db.get_session() as session:
+            config = session.query(TrainerConfig).filter_by(
+                trainer_id=trainer_id
+            ).first()
+
+            if config:
+                return {
+                    'id': config.id,
+                    'trainer_id': config.trainer_id,
+                    'training_program': config.training_program,
+                    'config': config.config,
+                    'updated_at': config.updated_at
+                }
+            return None
+
+
+    def get_training_program(self, trainer_id: str) -> str:
+        """
+        Get the training program for a specific trainer.
+        Falls back to default from prompts if not set in database.
+
+        Args:
+            trainer_id: The trainer's user ID
+
+        Returns:
+            Training program content as string
+        """
+        from .models import TrainerConfig
+        from shared.common import get_prompt
+
+        with self.db.get_session() as session:
+            config = session.query(TrainerConfig).filter_by(
+                trainer_id=trainer_id
+            ).first()
+
+            if config and config.training_program:
+                return config.training_program
+
+            # Fall back to default from prompts
+            return get_prompt('trainer.teacher.training_program')
+
+
+    def set_training_program(self, trainer_id: str, program_content: str) -> bool:
+        """
+        Set the training program for a specific trainer.
+
+        Args:
+            trainer_id: The trainer's user ID
+            program_content: The training program content
+
+        Returns:
+            True if successful, False otherwise
+        """
+        from .models import TrainerConfig
+
+        try:
+            with self.db.get_session() as session:
+                config = session.query(TrainerConfig).filter_by(
+                    trainer_id=trainer_id
+                ).first()
+
+                if config:
+                    config.training_program = program_content
+                    config.updated_at = datetime.utcnow()
+                else:
+                    config = TrainerConfig(
+                        trainer_id=trainer_id,
+                        training_program=program_content
+                    )
+                    session.add(config)
+
+                session.commit()
+                log("info", f"Training program updated for trainer {trainer_id}")
+                return True
+
+        except Exception as e:
+            log("error", f"Failed to set training program for trainer {trainer_id}: {e}", exc_info=True)
+            return False
+
+
+    def reset_training_program_to_default(self, trainer_id: str) -> bool:
+        """
+        Reset a trainer's training program to the default from prompts.
+
+        Args:
+            trainer_id: The trainer's user ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        from shared.common import get_prompt
+
+        default_program = get_prompt('trainer.teacher.training_program')
+        return self.set_training_program(trainer_id, default_program)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
