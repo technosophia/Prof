@@ -32,7 +32,8 @@
       "validate_config",
       "initialize_current_llm",
       "_get_embedding_model",
-      "auto_login_first_user"
+      "auto_login_first_user",
+      "_render_plugins_tab"
     ]
   },
   "app": {
