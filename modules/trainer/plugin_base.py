@@ -405,7 +405,12 @@ class PluginManager:
                 attr != TrainerPlugin):
                 plugin_instance = attr(manifest)
                 # Pass services to initialize — None is safe for legacy plugins
-                if plugin_instance.initialize(self._services):
+                try:
+                    result = plugin_instance.initialize(self._services)
+                except TypeError:
+                    # Legacy plugin — initialize() takes no arguments
+                    result = plugin_instance.initialize()
+                if result:
                     self.plugins[manifest.id] = plugin_instance
                     self.plugin_paths[manifest.id] = plugin_dir
                     log("info", f"Loaded plugin: {manifest.id} v{manifest.version}")
