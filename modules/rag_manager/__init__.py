@@ -134,7 +134,7 @@ def _activate_rag_engine(name: str) -> None:
         # Use the registry from services
         registry = _get_llm_callback_registry()
         registry.register(callback)
-        log("info", f"Registered RAG callback for engine: {name}")
+        log("debug", f"Registered RAG callback for engine: {name}")
 
     except Exception as exc:
         log("warning", f"Failed to activate RAG engine '{name}': {exc}")
