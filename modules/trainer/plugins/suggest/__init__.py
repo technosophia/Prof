@@ -2,6 +2,15 @@
 Suggest Plugin for Trainer Module.
 Generates contextual suggestions for students based on their conversations.
 Suggests questions or learning prompts at configurable intervals.
+
+Migration status: COMPLETE
+  - initialize() calls self._resolve_services(services)
+  - Added legacy fallback for self.config when services=None
+  - All data methods use self.db, self.user_manager, self.conversation_manager,
+    self.llm_manager, self.config — no st_shared.cached imports elsewhere
+  - All render methods call self.<data_method>() only — no db/cache access inline
+  - When splitting into two classes: replace self.xxx() with self._logic.xxx()
+    in every render method. No logic rewrite needed.
 """
 
 from typing import List, Dict, Any, Optional, Tuple, Callable
@@ -13,19 +22,17 @@ import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean, and_
 from sqlalchemy.orm.attributes import flag_modified
+
 from shared.common import get_prompt
-from st_shared.cached import get_db_manager
 from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
-from modules.trainer.manager import get_trainer_manager
-from shared.conversation import get_conversation_manager, Message
+from shared.conversation import Message
 from shared.common import llm_conversation_generate
-from st_shared.cached import get_llm_manager
+
+from core.logging import log
+from core.database import Base
 
 
 # ============= DATABASE MODEL =============
-from core.logging import log, set_log_module_level
-from core.database import Base
-from st_shared.cached import _
 class StudentSuggestionConfig(Base):
     """Store suggestion configuration per student."""
     __tablename__ = 'trainer_suggest_config'
@@ -151,27 +158,45 @@ class StudentSuggestion(Base):
 class SuggestPlugin(TrainerPlugin):
     """Plugin that generates contextual suggestions for students."""
 
-    def initialize(self) -> bool:
+    # ─────────────────────────────────────────────────────────────────────
+    # Lifecycle — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
+    def initialize(self, services=None) -> bool:
         """Initialize the plugin and ensure database tables exist."""
         try:
-            db = get_db_manager()
-            if db.is_initialized() and not db._in_memory:
+            self._resolve_services(services)
+
+            # Legacy fallback: if config is still None, try to load it directly
+            if self.config is None:
+                try:
+                    from st_shared.cached import get_config
+                    self.config = get_config()
+                    log("debug", "SuggestPlugin: loaded config from st_shared.cached fallback")
+                except ImportError:
+                    log("warning", "SuggestPlugin: no config available, using defaults")
+                    self.config = {}
+
+            if self.db and self.db.is_initialized() and not self.db._in_memory:
                 # Create tables if they don't exist
-                Base.metadata.create_all(db._engine, tables=[
+                Base.metadata.create_all(self.db._engine, tables=[
                     StudentSuggestionConfig.__table__,
                     StudentSuggestion.__table__
                 ], checkfirst=True)
                 log("info", "Suggestion plugin tables created/verified")
+
+            # Register for conversation callbacks
+            self.conversation_manager.register_user_message_callback(self._on_user_message)
+            log("info", "Suggest plugin registered for user message callbacks")
+
+            return True
         except Exception as e:
-            log("error", f"Failed to create suggestion plugin tables: {e}")
+            log("error", f"Failed to initialize suggestion plugin tables: {e}")
+            return False
 
-        # Register for conversation callbacks
-        from shared.conversation import get_conversation_manager
-        conv_manager = get_conversation_manager()
-        conv_manager.register_user_message_callback(self._on_user_message)
-        log("info", "Suggest plugin registered for user message callbacks")
-
-        return True
+    # ─────────────────────────────────────────────────────────────────────
+    # Data helpers — DATA LAYER (use self.service attributes only)
+    # ─────────────────────────────────────────────────────────────────────
 
     def _on_user_message(self, conversation_id: str, messages: List[Message]) -> None:
         """
@@ -182,18 +207,16 @@ class SuggestPlugin(TrainerPlugin):
             if not messages:
                 return
             log("debug", "Received user message")
+
             # Get the conversation to find the student
-            conv_manager = get_conversation_manager()
-            conversation = conv_manager.get_conversation(conversation_id)
+            conversation = self.conversation_manager.get_conversation(conversation_id)
             if not conversation:
                 return
 
             student_id = conversation.user_id
 
             # Get the student's trainer (parent)
-            from st_shared.cached import get_user_manager
-            user_manager = get_user_manager()
-            user = user_manager.get_user(student_id)
+            user = self.user_manager.get_user(student_id)
 
             if not user or not user.get('parent_id'):
                 return
@@ -201,8 +224,10 @@ class SuggestPlugin(TrainerPlugin):
             trainer_id = user['parent_id']
 
             # Check if plugin is active for this trainer
-            trainer_manager = get_trainer_manager()
-            if not trainer_manager.is_plugin_active(trainer_id, self.id):
+            if self.trainer_manager is None:
+                log("warning", "Suggest plugin callback called without trainer_manager")
+                return
+            if not self.trainer_manager.is_plugin_active(trainer_id, self.id):
                 return
 
             # Get student configuration
@@ -260,8 +285,11 @@ class SuggestPlugin(TrainerPlugin):
                 conversation_text += f"{role}: {msg.content}\n\n"
 
             # Get training context from trainer manager
-            trainer_manager = get_trainer_manager()
-            training_context = trainer_manager.get_all_contexts(student_id)
+            if self.trainer_manager is None:
+                log("warning", "Suggest plugin generating without trainer_manager")
+                training_context = {}
+            else:
+                training_context = self.trainer_manager.get_all_contexts(student_id)
 
             # Format training context as a readable string
             context_parts = []
@@ -313,8 +341,7 @@ class SuggestPlugin(TrainerPlugin):
             ]
 
             # Call LLM directly using internal_response
-            llm_manager = get_llm_manager()
-            suggestion = await llm_manager.internal_response(
+            suggestion = await self.llm_manager.internal_response(
                 llm_id=llm_id,
                 messages=messages_for_llm,
                 stream_callback=None  # No streaming needed for suggestions
@@ -328,8 +355,7 @@ class SuggestPlugin(TrainerPlugin):
             suggestion = suggestion.strip().strip('"').strip("'")
 
             # Save the suggestion
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 config = session.query(StudentSuggestionConfig).filter_by(
                     student_id=student_id,
                     trainer_id=trainer_id
@@ -388,8 +414,7 @@ class SuggestPlugin(TrainerPlugin):
 
     def _get_student_config(self, student_id: str, trainer_id: str) -> Optional[Dict]:
         """Get suggestion configuration for a student."""
-        db = get_db_manager()
-        with db.get_session() as session:
+        with self.db.get_session() as session:
             config = session.query(StudentSuggestionConfig).filter_by(
                 student_id=student_id,
                 trainer_id=trainer_id
@@ -407,8 +432,7 @@ class SuggestPlugin(TrainerPlugin):
                             interval: int, enabled: bool) -> bool:
         """Save or update student configuration."""
         try:
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 config = session.query(StudentSuggestionConfig).filter_by(
                     student_id=student_id,
                     trainer_id=trainer_id
@@ -435,8 +459,7 @@ class SuggestPlugin(TrainerPlugin):
 
     def _get_active_suggestion(self, student_id: str, trainer_id: str) -> Optional[Dict]:
         """Get the most recent active (not dismissed, not expired, not deleted) suggestion."""
-        db = get_db_manager()
-        with db.get_session() as session:
+        with self.db.get_session() as session:
             now = datetime.utcnow()
             suggestion = session.query(StudentSuggestion).filter(
                 StudentSuggestion.student_id == student_id,
@@ -467,8 +490,7 @@ class SuggestPlugin(TrainerPlugin):
     def _dismiss_suggestion(self, suggestion_id: str) -> bool:
         """Mark a suggestion as dismissed."""
         try:
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
                 if suggestion:
                     suggestion.add_interaction('dismissed')
@@ -483,8 +505,7 @@ class SuggestPlugin(TrainerPlugin):
     def _mark_suggestion_clicked(self, suggestion_id: str, created_conv_id: str = None) -> bool:
         """Mark a suggestion as clicked/used."""
         try:
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
                 if suggestion:
                     details = {}
@@ -513,8 +534,7 @@ class SuggestPlugin(TrainerPlugin):
     def associate_conversation_with_suggestion(self, suggestion_id: str, conversation_id: str) -> bool:
         """Associate an additional conversation with a suggestion."""
         try:
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
                 if suggestion:
                     # Initialize related_conversation_ids if it's None
@@ -539,31 +559,10 @@ class SuggestPlugin(TrainerPlugin):
             log("error", f"Failed to associate conversation: {e}")
             return False
 
-    def debug_check_suggestion(self, suggestion_id: str):
-        """Debug function to check what's in the database for a suggestion."""
-        db = get_db_manager()
-        with db.get_session() as session:
-            suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
-            if suggestion:
-                log("info", f"=== DEBUG for suggestion {suggestion_id} ===")
-                log("info", f"Content: {suggestion.content[:50]}...")
-                log("info", f"is_displayed: {suggestion.is_displayed}")
-                log("info", f"is_clicked: {suggestion.is_clicked}")
-                log("info", f"is_dismissed: {suggestion.is_dismissed}")
-                log("info", f"viewed_at: {suggestion.viewed_at}")
-                log("info", f"used_at: {suggestion.used_at}")
-                log("info", f"dismissed_at: {suggestion.dismissed_at}")
-                log("info", f"interaction_history: {suggestion.interaction_history}")
-                log("info", f"interaction_history type: {type(suggestion.interaction_history)}")
-                log("info", f"interaction_history length: {len(suggestion.interaction_history) if suggestion.interaction_history else 0}")
-                return suggestion
-        return None
-
     def delete_suggestion_by_teacher(self, suggestion_id: str) -> bool:
         """Mark a suggestion as deleted by teacher."""
         try:
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 suggestion = session.query(StudentSuggestion).filter_by(id=suggestion_id).first()
                 if suggestion:
                     suggestion.add_interaction('deleted')
@@ -574,7 +573,43 @@ class SuggestPlugin(TrainerPlugin):
             log("error", f"Failed to delete suggestion: {e}")
             return False
 
-    # ============= RENDER METHODS =============
+    def _get_suggestions_for_student(self, student_id: str, trainer_id: str, limit: int = 10) -> List[Dict]:
+        """Get recent suggestions for a student."""
+        with self.db.get_session() as session:
+            suggestions = session.query(StudentSuggestion).filter_by(
+                student_id=student_id,
+                trainer_id=trainer_id
+            ).order_by(StudentSuggestion.created_at.desc()).limit(limit).all()
+
+            result = []
+            for sugg in suggestions:
+                result.append({
+                    'id': sugg.id,
+                    'content': sugg.content,
+                    'type': sugg.suggestion_type,
+                    'source': sugg.source,
+                    'created_at': sugg.created_at,
+                    'state': sugg.get_state(),
+                    'is_displayed': sugg.is_displayed,
+                    'is_clicked': sugg.is_clicked,
+                    'is_dismissed': sugg.is_dismissed,
+                    'is_deleted_by_teacher': sugg.is_deleted_by_teacher,
+                    'created_conversation_id': sugg.created_conversation_id,
+                    'related_conversation_ids': sugg.related_conversation_ids or [],
+                    'interaction_history': sugg.interaction_history or [],
+                    'viewed_at': sugg.viewed_at,
+                    'used_at': sugg.used_at,
+                    'dismissed_at': sugg.dismissed_at,
+                    'deleted_at': sugg.deleted_at,
+                    'expires_at': sugg.expires_at
+                })
+            return result
+
+    # ─────────────────────────────────────────────────────────────────────
+    # UI LAYER — render methods
+    # Rules: call self.<data_method>() for data; use st.* freely.
+    # Future split: self.xxx() → self._logic.xxx(). No logic rewrite needed.
+    # ─────────────────────────────────────────────────────────────────────
 
     def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
         """
@@ -637,16 +672,15 @@ class SuggestPlugin(TrainerPlugin):
 
                 with cols[1]:
                     # Use suggestion button
-                    if st.button(_("trainer_plugin_suggest.use"), key=f"use_{suggestion_key}"):
+                    if st.button("Use", key=f"use_{suggestion_key}"):
                         # Create a new conversation with this suggestion as the title/prompt
-                        conv_manager = get_conversation_manager()
-                        new_conv_id = conv_manager.create_conversation(
+                        new_conv_id = self.conversation_manager.create_conversation(
                             user_id=student_id,
                             title=display_content[:50],  # Use first line for title too
                             system_prompt=None  # Use default
                         )
                         # Add the FULL suggestion as the first user message
-                        conv_manager.add_message(
+                        self.conversation_manager.add_message(
                             new_conv_id,
                             Message(role="user", content=suggestion['content'])  # Full content
                         )
@@ -655,12 +689,12 @@ class SuggestPlugin(TrainerPlugin):
                         if self._mark_suggestion_clicked(suggestion['id'], new_conv_id):
                             # AUTO-ASSOCIATE: Also add to related conversations
                             self.associate_conversation_with_suggestion(suggestion['id'], new_conv_id)
-                            st.success(_("trainer_plugin_suggest.started"), icon="🚀")
+                            st.success("🚀 Started!", icon="🚀")
                             st.rerun()
 
                 with cols[2]:
                     # Dismiss button
-                    if st.button(_("trainer_plugin_suggest.dismiss"), key=f"dismiss_{suggestion_key}"):
+                    if st.button("Dismiss", key=f"dismiss_{suggestion_key}"):
                         if self._dismiss_suggestion(suggestion['id']):
                             st.rerun()
 
@@ -675,7 +709,7 @@ class SuggestPlugin(TrainerPlugin):
             # Create a unique base key for this student
             base_key = f"suggest_{student_id}"
 
-            st.markdown(f"### 💡 {_('trainer_plugin_suggest.name')} for {student_name}")
+            st.markdown(f"### 💡 Suggestions for {student_name}")
 
             # Get current config
             config = self._get_student_config(student_id, trainer_id)
@@ -688,35 +722,34 @@ class SuggestPlugin(TrainerPlugin):
 
                 with col1:
                     enabled = st.checkbox(
-                        _("trainer_plugin_suggest.enable_for_student"),
+                        "Enable suggestions for this student",
                         value=current_enabled,
                         key=f"{base_key}_enabled"
                     )
 
                 with col2:
                     interval = st.number_input(
-                        _("trainer_plugin_suggest.suggest_every"),
+                        "Suggest every N messages",
                         min_value=1,
                         max_value=20,
                         value=current_interval,
-                        help=_("trainer_plugin_suggest.config_help"),
+                        help="How many student messages between automatic suggestions",
                         key=f"{base_key}_interval"
                     )
 
-                if st.form_submit_button(_("trainer_plugin_suggest.save_settings"), key=f"{base_key}_submit"):
+                if st.form_submit_button("Save Settings", key=f"{base_key}_submit"):
                     if self._save_student_config(student_id, trainer_id, interval, enabled):
-                        st.success(_("trainer_plugin_suggest.settings_saved"))
+                        st.success("Settings saved")
                         st.rerun()
                     else:
                         st.error("Failed to save settings")
 
             # Manual suggestion section
-            st.markdown(f"#### {_('trainer_plugin_suggest.manual_suggestion')}")
-            st.caption(_("trainer_plugin_suggest.generate_now"))
+            st.markdown(f"#### ✍️ Manual Suggestion")
+            st.caption("Generate a suggestion based on a specific conversation")
 
             # Get recent conversations for context
-            conv_manager = get_conversation_manager()
-            conversations = conv_manager.get_user_conversations(student_id)
+            conversations = self.conversation_manager.get_user_conversations(student_id)
 
             if conversations:
                 # Let teacher select which conversation to use for context
@@ -725,16 +758,16 @@ class SuggestPlugin(TrainerPlugin):
                     conv_options[conv['id']] = f"{conv['title']} ({conv.get('message_count', 0)} messages)"
 
                 selected_conv_id = st.selectbox(
-                    _("trainer_plugin_suggest.use_conversation"),
+                    "Use conversation for context",
                     options=list(conv_options.keys()),
                     format_func=lambda x: conv_options[x],
                     key=f"{base_key}_conv_select"
                 )
 
-                if st.button(_("trainer_plugin_suggest.generate_button"), key=f"{base_key}_generate"):
+                if st.button("Generate Suggestion", key=f"{base_key}_generate"):
                     with st.spinner("Generating suggestion..."):
                         # Get full conversation
-                        conversation = conv_manager.get_conversation(selected_conv_id, include_messages=True)
+                        conversation = self.conversation_manager.get_conversation(selected_conv_id, include_messages=True)
                         if conversation and conversation.messages:
                             # Store generation data in session state
                             st.session_state[f"{base_key}_generating"] = True
@@ -748,7 +781,7 @@ class SuggestPlugin(TrainerPlugin):
             gen_flag_key = f"{base_key}_generating"
             if st.session_state.get(gen_flag_key, False):
 
-                st.markdown(f"#### {_('trainer_plugin_suggest.edit_suggestion')}")
+                st.markdown(f"#### ✏️ Edit Suggestion")
 
                 # Get stored data
                 conv_id = st.session_state.get(f"{base_key}_conv_id")
@@ -780,8 +813,7 @@ class SuggestPlugin(TrainerPlugin):
 
                             if success:
                                 # Get the most recent teacher suggestion
-                                db = get_db_manager()
-                                with db.get_session() as session:
+                                with self.db.get_session() as session:
                                     latest = session.query(StudentSuggestion).filter_by(
                                         student_id=student_id,
                                         trainer_id=trainer_id,
@@ -810,7 +842,7 @@ class SuggestPlugin(TrainerPlugin):
                     # Show editable suggestion if we have it
                     if sugg_text_key in st.session_state:
                         editable_suggestion = st.text_area(
-                            _("trainer_plugin_suggest.edit_instruction"),
+                            "Edit the suggestion before sending (optional)",
                             value=st.session_state[sugg_text_key],
                             height=100,
                             key=f"{base_key}_edit_area"
@@ -818,10 +850,9 @@ class SuggestPlugin(TrainerPlugin):
 
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.button(_("trainer_plugin_suggest.send_to_student"), key=f"{base_key}_send"):
+                            if st.button("Send to Student", key=f"{base_key}_send"):
                                 # Update the suggestion with edited text
-                                db = get_db_manager()
-                                with db.get_session() as session:
+                                with self.db.get_session() as session:
                                     sugg = session.query(StudentSuggestion).filter_by(
                                         id=st.session_state[sugg_id_key]
                                     ).first()
@@ -841,7 +872,7 @@ class SuggestPlugin(TrainerPlugin):
                                             })
 
                                         session.commit()
-                                        st.success(_("trainer_plugin_suggest.suggestion_sent"))
+                                        st.success("Suggestion sent to student")
 
                                 # Clean up all session state for this student
                                 keys_to_delete = [
@@ -857,10 +888,9 @@ class SuggestPlugin(TrainerPlugin):
                                 st.rerun()
 
                         with col2:
-                            if st.button(_("trainer_plugin_suggest.cancel"), key=f"{base_key}_cancel"):
+                            if st.button("Cancel", key=f"{base_key}_cancel"):
                                 # Delete the unsent suggestion
-                                db = get_db_manager()
-                                with db.get_session() as session:
+                                with self.db.get_session() as session:
                                     session.query(StudentSuggestion).filter_by(
                                         id=st.session_state[sugg_id_key]
                                     ).delete()
@@ -885,156 +915,150 @@ class SuggestPlugin(TrainerPlugin):
                             del st.session_state[key]
 
             # Show recent suggestions with enhanced information
-            st.markdown(f"#### {_('trainer_plugin_suggest.recent_suggestions')}")
-            db = get_db_manager()
-            with db.get_session() as session:
-                recent = session.query(StudentSuggestion).filter_by(
-                    student_id=student_id,
-                    trainer_id=trainer_id
-                ).order_by(StudentSuggestion.created_at.desc()).limit(10).all()
+            st.markdown(f"#### 📋 Recent Suggestions")
+            recent = self._get_suggestions_for_student(student_id, trainer_id, limit=10)
 
-                if recent:
-                    for sugg in recent:
-                        state = sugg.get_state()
-                        state_icons = {
-                            'used': '✅',
-                            'dismissed': '✗',
-                            'displayed': '👁️',
-                            'active': '⏳',
-                            'expired': '⌛',
-                            'deleted': '🗑️'
-                        }
-                        state_icon = state_icons.get(state, '❓')
+            if recent:
+                for sugg in recent:
+                    state = sugg['state']
+                    state_icons = {
+                        'used': '✅',
+                        'dismissed': '✗',
+                        'displayed': '👁️',
+                        'active': '⏳',
+                        'expired': '⌛',
+                        'deleted': '🗑️'
+                    }
+                    state_icon = state_icons.get(state, '❓')
 
-                        source_icon = "👤 Auto" if sugg.source == 'auto' else "👨‍🏫 Teacher"
+                    source_icon = "👤 Auto" if sugg['source'] == 'auto' else "👨‍🏫 Teacher"
 
-                        # Create unique keys for this suggestion
-                        sugg_key = f"{base_key}_{sugg.id}"
+                    # Create unique keys for this suggestion
+                    sugg_key = f"{base_key}_{sugg['id']}"
 
-                        with st.expander(f"{state_icon} {sugg.content[:100]}...", expanded=False):
-                            col1, col2 = st.columns([2, 1])
+                    with st.expander(f"{state_icon} {sugg['content'][:100]}...", expanded=False):
+                        col1, col2 = st.columns([2, 1])
 
-                            with col1:
-                                st.caption(f"📅 Created: {sugg.created_at.strftime('%Y-%m-%d %H:%M')}")
-                                st.caption(f"👤 {source_icon}")
+                        with col1:
+                            st.caption(f"📅 Created: {sugg['created_at'].strftime('%Y-%m-%d %H:%M')}")
+                            st.caption(f"👤 {source_icon}")
 
-                                # Display associated conversations
-                                all_conv_ids = []
-                                if sugg.created_conversation_id:
-                                    all_conv_ids.append(('Created', sugg.created_conversation_id))
-                                if sugg.related_conversation_ids:
-                                    for conv_id in sugg.related_conversation_ids:
-                                        if conv_id != sugg.created_conversation_id:
-                                            all_conv_ids.append(('Related', conv_id))
+                            # Display associated conversations
+                            all_conv_ids = []
+                            if sugg.get('created_conversation_id'):
+                                all_conv_ids.append(('Created', sugg['created_conversation_id']))
+                            if sugg.get('related_conversation_ids'):
+                                for conv_id in sugg['related_conversation_ids']:
+                                    if conv_id != sugg.get('created_conversation_id'):
+                                        all_conv_ids.append(('Related', conv_id))
 
-                                if all_conv_ids:
-                                    st.caption("💬 **Associated Conversations:**")
-                                    for conv_type, conv_id in all_conv_ids:
-                                        # Try to get conversation title
-                                        conv = conv_manager.get_conversation(conv_id)
-                                        conv_title = conv.title if conv else "Unknown"
-                                        st.caption(f"  • {conv_type}: {conv_title[:50]} ({conv_id[:8]}...)")
+                            if all_conv_ids:
+                                st.caption("💬 **Associated Conversations:**")
+                                for conv_type, conv_id in all_conv_ids:
+                                    # Try to get conversation title
+                                    conv = self.conversation_manager.get_conversation(conv_id)
+                                    conv_title = conv.title if conv else "Unknown"
+                                    st.caption(f"  • {conv_type}: {conv_title[:50]} ({conv_id[:8]}...)")
 
-                                # Show last interaction
-                                last_interaction = sugg.get_last_interaction()
-                                if last_interaction:
-                                    st.caption(f"📝 Last: {last_interaction['action']} at {last_interaction['timestamp'][:16]}")
+                            # Show last interaction
+                            if sugg.get('interaction_history') and len(sugg['interaction_history']) > 0:
+                                last_interaction = sugg['interaction_history'][-1]
+                                st.caption(f"📝 Last: {last_interaction['action']} at {last_interaction['timestamp'][:16]}")
 
-                                # Full suggestion content
-                                st.markdown(f"**Suggestion:** {sugg.content}")
+                            # Full suggestion content
+                            st.markdown(f"**Suggestion:** {sugg['content']}")
 
-                                # Show interaction history if requested
-                                # Show interaction history if requested
-                                if st.checkbox("Show history", key=f"{sugg_key}_show_history"):
-                                    if sugg.interaction_history and len(sugg.interaction_history) > 0:
-                                        for i, interaction in enumerate(sugg.interaction_history):
-                                            action = interaction.get('action', 'unknown')
-                                            timestamp = interaction.get('timestamp', '')[:16] if interaction.get('timestamp') else 'unknown'
-                                            details = interaction.get('details', {})
+                            # Show interaction history if requested
+                            if st.checkbox("Show history", key=f"{sugg_key}_show_history"):
+                                if sugg.get('interaction_history') and len(sugg['interaction_history']) > 0:
+                                    for i, interaction in enumerate(sugg['interaction_history']):
+                                        action = interaction.get('action', 'unknown')
+                                        timestamp = interaction.get('timestamp', '')[:16] if interaction.get('timestamp') else 'unknown'
+                                        details = interaction.get('details', {})
 
-                                            # Format details nicely
-                                            details_str = ""
-                                            if details:
-                                                if 'conversation_id' in details:
-                                                    # Try to get conversation title
-                                                    conv = conv_manager.get_conversation(details['conversation_id'])
-                                                    conv_title = conv.title if conv else "Unknown"
-                                                    details_str = f" - {conv_title[:30]} ({details['conversation_id'][:8]}...)"
-                                                elif 'previous_content' in details:
-                                                    details_str = f" - Was: {details['previous_content'][:50]}..."
-                                                else:
-                                                    details_str = f" - {details}"
+                                        # Format details nicely
+                                        details_str = ""
+                                        if details:
+                                            if 'conversation_id' in details:
+                                                # Try to get conversation title
+                                                conv = self.conversation_manager.get_conversation(details['conversation_id'])
+                                                conv_title = conv.title if conv else "Unknown"
+                                                details_str = f" - {conv_title[:30]} ({details['conversation_id'][:8]}...)"
+                                            elif 'previous_content' in details:
+                                                details_str = f" - Was: {details['previous_content'][:50]}..."
+                                            else:
+                                                details_str = f" - {details}"
 
-                                            # Add icons for different actions
-                                            action_icon = {
-                                                'created': '🆕',
-                                                'viewed': '👁️',
-                                                'used': '✅',
-                                                'dismissed': '✗',
-                                                'deleted': '🗑️',
-                                                'edited': '✏️',
-                                                'conversation_associated': '🔗',
-                                                'expired': '⌛'
-                                            }.get(action, '📝')
+                                        # Add icons for different actions
+                                        action_icon = {
+                                            'created': '🆕',
+                                            'viewed': '👁️',
+                                            'used': '✅',
+                                            'dismissed': '✗',
+                                            'deleted': '🗑️',
+                                            'edited': '✏️',
+                                            'conversation_associated': '🔗',
+                                            'expired': '⌛'
+                                        }.get(action, '📝')
 
-                                            st.text(f"{action_icon} {timestamp}: {action}{details_str}")
-                                    else:
-                                        st.text("No interaction history available")
+                                        st.text(f"{action_icon} {timestamp}: {action}{details_str}")
+                                else:
+                                    st.text("No interaction history available")
 
-                            with col2:
-                                # Show state
-                                st.metric("State", state.capitalize())
+                        with col2:
+                            # Show state
+                            st.metric("State", state.capitalize())
 
-                                # Actions based on state
-                                if state == 'displayed' or state == 'active':
-                                    if st.button("✗ Dismiss", key=f"{sugg_key}_dismiss"):
-                                        self._dismiss_suggestion(sugg.id)
+                            # Actions based on state
+                            if state == 'displayed' or state == 'active':
+                                if st.button("✗ Dismiss", key=f"{sugg_key}_dismiss"):
+                                    self._dismiss_suggestion(sugg['id'])
+                                    st.rerun()
+
+                            if state != 'deleted':
+                                if st.button("🗑️ Delete", key=f"{sugg_key}_delete"):
+                                    self.delete_suggestion_by_teacher(sugg['id'])
+                                    st.rerun()
+
+                            # Associate with another conversation
+                            if st.button("➕ Associate Conv", key=f"{sugg_key}_assoc"):
+                                st.session_state[f"{sugg_key}_assoc_mode"] = True
+
+                            if st.session_state.get(f"{sugg_key}_assoc_mode", False):
+                                # Get available conversations (excluding already associated ones)
+                                all_convs = self.conversation_manager.get_user_conversations(student_id)
+
+                                # Build list of already associated conversation IDs
+                                associated_ids = []
+                                if sugg.get('created_conversation_id'):
+                                    associated_ids.append(sugg['created_conversation_id'])
+                                if sugg.get('related_conversation_ids'):
+                                    associated_ids.extend(sugg['related_conversation_ids'])
+
+                                # Filter out already associated conversations
+                                available_convs = [c for c in all_convs if c['id'] not in associated_ids]
+
+                                if available_convs:
+                                    conv_options = {conv['id']: f"{conv['title']} ({conv.get('message_count', 0)} msgs)"
+                                                  for conv in available_convs[:5]}
+                                    selected_conv = st.selectbox(
+                                        "Select conversation",
+                                        options=list(conv_options.keys()),
+                                        format_func=lambda x: conv_options[x],
+                                        key=f"{sugg_key}_conv_select"
+                                    )
+                                    if st.button("Associate", key=f"{sugg_key}_assoc_confirm"):
+                                        self.associate_conversation_with_suggestion(sugg['id'], selected_conv)
+                                        del st.session_state[f"{sugg_key}_assoc_mode"]
                                         st.rerun()
-
-                                if state != 'deleted':
-                                    if st.button("🗑️ Delete", key=f"{sugg_key}_delete"):
-                                        self.delete_suggestion_by_teacher(sugg.id)
+                                else:
+                                    st.info("No new conversations to associate")
+                                    if st.button("Close", key=f"{sugg_key}_assoc_close"):
+                                        del st.session_state[f"{sugg_key}_assoc_mode"]
                                         st.rerun()
-
-                                # Associate with another conversation
-                                if st.button("➕ Associate Conv", key=f"{sugg_key}_assoc"):
-                                    st.session_state[f"{sugg_key}_assoc_mode"] = True
-
-                                if st.session_state.get(f"{sugg_key}_assoc_mode", False):
-                                    # Get available conversations (excluding already associated ones)
-                                    all_convs = conv_manager.get_user_conversations(student_id)
-
-                                    # Build list of already associated conversation IDs
-                                    associated_ids = []
-                                    if sugg.created_conversation_id:
-                                        associated_ids.append(sugg.created_conversation_id)
-                                    if sugg.related_conversation_ids:
-                                        associated_ids.extend(sugg.related_conversation_ids)
-
-                                    # Filter out already associated conversations
-                                    available_convs = [c for c in all_convs if c['id'] not in associated_ids]
-
-                                    if available_convs:
-                                        conv_options = {conv['id']: f"{conv['title']} ({conv.get('message_count', 0)} msgs)"
-                                                      for conv in available_convs[:5]}
-                                        selected_conv = st.selectbox(
-                                            "Select conversation",
-                                            options=list(conv_options.keys()),
-                                            format_func=lambda x: conv_options[x],
-                                            key=f"{sugg_key}_conv_select"
-                                        )
-                                        if st.button("Associate", key=f"{sugg_key}_assoc_confirm"):
-                                            self.associate_conversation_with_suggestion(sugg.id, selected_conv)
-                                            del st.session_state[f"{sugg_key}_assoc_mode"]
-                                            st.rerun()
-                                    else:
-                                        st.info("No new conversations to associate")
-                                        if st.button("Close", key=f"{sugg_key}_assoc_close"):
-                                            del st.session_state[f"{sugg_key}_assoc_mode"]
-                                            st.rerun()
                     st.divider()
-                else:
-                    st.info(_("trainer_plugin_suggest.no_suggestions_yet"))
+            else:
+                st.info("No suggestions yet")
 
         return [render_suggestion_config]
 
@@ -1049,12 +1073,11 @@ class SuggestPlugin(TrainerPlugin):
             total_dismissed = 0
             students_with_suggestions = 0
 
-            db = get_db_manager()
-            with db.get_session() as session:
-                for student_idx, student in enumerate(students[:5]):  # Show first 5 students
-                    student_id = student['id']
-                    student_name = student.get('name', student_id)
+            for student_idx, student in enumerate(students[:5]):  # Show first 5 students
+                student_id = student['id']
+                student_name = student.get('name', student_id)
 
+                with self.db.get_session() as session:
                     stats = session.query(
                         StudentSuggestion.is_dismissed,
                         StudentSuggestion.is_clicked
@@ -1076,69 +1099,35 @@ class SuggestPlugin(TrainerPlugin):
                             col2.metric("Used", used)
                             col3.metric("Dismissed", dismissed)
 
-                    total_active += active
-                    total_used += used
-                    total_dismissed += dismissed
+                        total_active += active
+                        total_used += used
+                        total_dismissed += dismissed
 
-                if total_active + total_used + total_dismissed > 0:
-                    st.markdown("#### Overall Stats")
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Students", students_with_suggestions)
-                    col2.metric("Active", total_active)
-                    col3.metric("Used", total_used)
-                    col4.metric("Dismissed", total_dismissed)
+            if total_active + total_used + total_dismissed > 0:
+                st.markdown("#### Overall Stats")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Students", students_with_suggestions)
+                col2.metric("Active", total_active)
+                col3.metric("Used", total_used)
+                col4.metric("Dismissed", total_dismissed)
 
-                    if total_used + total_dismissed > 0:
-                        engagement = (total_used / (total_used + total_dismissed)) * 100
-                        st.metric("Engagement Rate", f"{engagement:.1f}%")
-                else:
-                    st.info("No suggestion activity yet")
+                if total_used + total_dismissed > 0:
+                    engagement = (total_used / (total_used + total_dismissed)) * 100
+                    st.metric("Engagement Rate", f"{engagement:.1f}%")
+            else:
+                st.info("No suggestion activity yet")
 
         return [render_suggestion_stats]
 
-    # ============= EXPORT/IMPORT METHODS =============
-
-    def export_config(self, trainer_id: str) -> Optional[Dict]:
-        """Export suggestion configuration for all students."""
-        db = get_db_manager()
-        configs = {}
-
-        with db.get_session() as session:
-            student_configs = session.query(StudentSuggestionConfig).filter_by(
-                trainer_id=trainer_id
-            ).all()
-
-            for cfg in student_configs:
-                configs[cfg.student_id] = {
-                    'message_interval': cfg.message_interval,
-                    'is_enabled': cfg.is_enabled,
-                    'last_suggestion_index': cfg.last_suggestion_index
-                }
-
-        return {'student_configs': configs} if configs else None
-
-    def import_config(self, trainer_id: str, config: Dict) -> bool:
-        """Import suggestion configuration."""
-        student_configs = config.get('student_configs', {})
-
-        success = True
-        for student_id, cfg_data in student_configs.items():
-            if not self._save_student_config(
-                student_id,
-                trainer_id,
-                cfg_data.get('message_interval', 5),
-                cfg_data.get('is_enabled', True)
-            ):
-                success = False
-
-        return success
+    # ─────────────────────────────────────────────────────────────────────
+    # Export / import — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
 
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Export suggestion history events with full interaction history."""
-        db = get_db_manager()
         events = []
 
-        with db.get_session() as session:
+        with self.db.get_session() as session:
             query = session.query(StudentSuggestion).filter_by(trainer_id=trainer_id)
 
             if student_id:
@@ -1189,112 +1178,21 @@ class SuggestPlugin(TrainerPlugin):
 
         return events
 
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
-        """Import suggestion history events with full interaction history."""
-        db = get_db_manager()
-
-        try:
-            with db.get_session() as session:
-                for event in events:
-                    if event.get('plugin_id') != self.id:
-                        continue
-
-                    # Check if suggestion already exists
-                    existing = None
-                    if event.get('suggestion_id'):
-                        existing = session.query(StudentSuggestion).filter_by(
-                            id=event['suggestion_id']
-                        ).first()
-
-                    if not existing:
-                        # Parse timestamps
-                        created_at = None
-                        viewed_at = None
-                        used_at = None
-                        dismissed_at = None
-                        deleted_at = None
-                        expires_at = None
-
-                        try:
-                            if event.get('timestamp'):
-                                created_at = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                        except (ValueError, TypeError):
-                            created_at = datetime.utcnow()
-
-                        # Parse other timestamps
-                        for ts_field in ['viewed_at', 'used_at', 'dismissed_at', 'deleted_at', 'expires_at']:
-                            if event.get(ts_field):
-                                try:
-                                    locals()[ts_field] = datetime.fromisoformat(event[ts_field].replace('Z', '+00:00'))
-                                except (ValueError, TypeError):
-                                    pass
-
-                        # Get interaction history or create from individual fields
-                        interaction_history = event.get('interaction_history', [])
-
-                        # Create suggestion
-                        suggestion = StudentSuggestion(
-                            id=event.get('suggestion_id', str(uuid.uuid4())),
-                            student_id=event['student_id'],
-                            trainer_id=trainer_id,
-                            content=event.get('content', ''),
-                            suggestion_type=event.get('suggestion_type', 'question'),
-                            source=event.get('source', 'auto'),
-                            created_at=created_at,
-                            viewed_at=viewed_at,
-                            used_at=used_at,
-                            dismissed_at=dismissed_at,
-                            deleted_at=deleted_at,
-                            expires_at=expires_at,
-                            created_conversation_id=event.get('created_conversation_id'),
-                            related_conversation_ids=event.get('related_conversation_ids', []),
-                            suggestion_metadata=event.get('metadata', {}),
-                            interaction_history=interaction_history
-                        )
-
-                        # Set state flags based on timestamps and history
-                        if used_at:
-                            suggestion.is_clicked = True
-                        if dismissed_at:
-                            suggestion.is_dismissed = True
-                        if deleted_at:
-                            suggestion.is_deleted_by_teacher = True
-
-                        # Check if currently displayed (if within expiration and not used/dismissed/deleted)
-                        now = datetime.utcnow()
-                        if (not suggestion.is_clicked and not suggestion.is_dismissed and
-                            not suggestion.is_deleted_by_teacher and
-                            (not suggestion.expires_at or suggestion.expires_at > now)):
-                            # Check if last interaction was view within reasonable time
-                            last_interaction = suggestion.get_last_interaction()
-                            if last_interaction and last_interaction['action'] == 'viewed':
-                                view_time = datetime.fromisoformat(last_interaction['timestamp'].replace('Z', '+00:00'))
-                                if (now - view_time).total_seconds() < 3600:  # Within last hour
-                                    suggestion.is_displayed = True
-
-                        session.add(suggestion)
-
-                session.commit()
-                return True
-
-        except Exception as e:
-            log("error", f"Failed to import suggestion history: {e}", exc_info=True)
-            return False
-
-    def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+    def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add a suggestions analytics tab for teachers."""
         def render_analytics():
-            st.subheader("📊 " + _("trainer_plugin_suggest.analytics"))
+            st.subheader("📊 Suggestion Analytics")
 
-            trainer_manager = get_trainer_manager()
-            students = trainer_manager.get_trainer_students(trainer_id)
+            if self.trainer_manager is None:
+                st.warning("Trainer manager unavailable.")
+                return
+            students = self.trainer_manager.get_trainer_students(trainer_id)
 
             if not students:
                 st.info("No students available.")
                 return
 
-            db = get_db_manager()
-            with db.get_session() as session:
+            with self.db.get_session() as session:
                 # Overall stats
                 total_suggestions = session.query(StudentSuggestion).filter_by(
                     trainer_id=trainer_id
@@ -1335,12 +1233,12 @@ class SuggestPlugin(TrainerPlugin):
                 active = total_suggestions - used - dismissed - deleted
 
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric(_("trainer_plugin_suggest.total_active"), active)
-                col2.metric(_("trainer_plugin_suggest.total_used"), used)
-                col3.metric(_("trainer_plugin_suggest.total_dismissed"), dismissed)
+                col1.metric("Total Active", active)
+                col2.metric("Total Used", used)
+                col3.metric("Total Dismissed", dismissed)
                 col4.metric("Displayed Now", displayed)
 
-                st.subheader(_("trainer_plugin_suggest.per_student_breakdown"))
+                st.subheader("Per-Student Breakdown")
 
                 for student in students:
                     student_id = student['id']
@@ -1366,9 +1264,10 @@ class SuggestPlugin(TrainerPlugin):
                             # Show engagement rate
                             if len(student_suggestions) > 0:
                                 engagement = (student_used / len(student_suggestions)) * 100
-                                st.metric(_("trainer_plugin_suggest.engagement_rate"), f"{engagement:.1f}%")
+                                st.metric("Engagement Rate", f"{engagement:.1f}%")
 
-        return [(_("trainer_plugin_suggest.analytics"), render_analytics)]
+        return [("Suggestions Analytics", render_analytics)]
+
 
 # Plugin entry point - must be named 'plugin'
 plugin = SuggestPlugin

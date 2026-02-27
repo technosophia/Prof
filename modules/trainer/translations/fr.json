@@ -4,7 +4,6 @@
     "admin": {
       "dashboard": "Tableau de bord",
       "configuration": "Configuration",
-      "import_export": "Import/Export",
       "plugins": "Extensions"
     },
     "dashboard": {
@@ -21,15 +20,6 @@
       "system_prompt_help": "Ce prompt définit comment l'IA se comporte en tant qu'enseignant",
       "save_config": "Enregistrer la configuration",
       "config_saved": "Configuration enregistrée avec succès"
-    },
-    "import_export": {
-      "export": "Exporter la configuration",
-      "import": "Importer la configuration",
-      "export_yaml": "Exporter en YAML",
-      "import_yaml": "Importer YAML",
-      "select_file": "Sélectionner un fichier YAML",
-      "import_success": "Configuration importée avec succès",
-      "import_error": "Erreur lors de l'importation"
     },
     "plugins": {
       "title": "Extensions",

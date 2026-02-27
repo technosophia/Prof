@@ -4,7 +4,6 @@
     "admin": {
       "dashboard": "Dashboard",
       "configuration": "Configuration",
-      "import_export": "Import/Export",
       "plugins": "Plugins"
     },
     "dashboard": {
@@ -21,15 +20,6 @@
       "system_prompt_help": "This prompt defines how the AI behaves as a teacher",
       "save_config": "Save Configuration",
       "config_saved": "Configuration saved successfully"
-    },
-    "import_export": {
-      "export": "Export Configuration",
-      "import": "Import Configuration",
-      "export_yaml": "Export as YAML",
-      "import_yaml": "Import YAML",
-      "select_file": "Select YAML file",
-      "import_success": "Configuration imported successfully",
-      "import_error": "Error importing configuration"
     },
     "plugins": {
       "title": "Plugins",

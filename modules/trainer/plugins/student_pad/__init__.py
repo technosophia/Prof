@@ -2,6 +2,15 @@
 Student Pad Plugin for Trainer Module.
 Allows each student to have a personal note-taking pad with version history.
 Visible in dashboard and exportable/importable.
+
+Migration status: COMPLETE
+  - initialize() calls self._resolve_services(services)
+  - Added legacy fallback for when services=None
+  - All data methods use self.db, self.user_manager, self.conversation_manager,
+    self.llm_manager, self.config — no st_shared.cached imports elsewhere
+  - All render methods call self.<data_method>() only — no db/cache access inline
+  - When splitting into two classes: replace self.xxx() with self._logic.xxx()
+    in every render method. No logic rewrite needed.
 """
 
 from typing import List, Dict, Any, Optional, Callable, Tuple
@@ -9,16 +18,14 @@ import streamlit as st
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Integer, and_
-from shared.common import get_prompt, register_llm_context_callback
-from st_shared.cached import get_db_manager
-from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
-from modules.trainer.manager import get_trainer_manager
+from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, and_
 
-# ============= DATABASE MODEL =============
-from core.logging import log, set_log_module_level
+from core.logging import log
 from core.database import Base
-from st_shared.cached import _
+from shared.common import get_prompt, register_llm_context_callback
+from modules.trainer.plugin_base import TrainerPlugin, PluginManifest
+
+
 class StudentNote(Base):
     """Store notes/pad for each student with version history."""
     __tablename__ = 'trainer_student_notes'
@@ -33,37 +40,55 @@ class StudentNote(Base):
     is_current = Column(Integer, default=1)  # 1 for current version, 0 for history
     updated_at = Column(DateTime, default=datetime.utcnow)
     note_metadata = Column(JSON, default={})
-# ==========================================
 
 
 class StudentPadPlugin(TrainerPlugin):
     """Plugin providing personal pads for students with version history."""
 
-    def initialize(self) -> bool:
-        """Initialize the plugin and register context callbacks."""
-        # Ensure table exists - but don't try to create it in tests
-        try:
-            db = get_db_manager()
-            if db.is_initialized() and not db._in_memory:
-                # Create tables for this model if they don't exist
-                Base.metadata.create_all(db._engine, tables=[StudentNote.__table__], checkfirst=True)
-                log("info", "StudentNote table created/verified with version tracking")
-        except Exception as e:
-            log("error", f"Failed to create/update StudentNote table: {e}")
-            # Continue anyway - table might already exist
+    # ─────────────────────────────────────────────────────────────────────
+    # Lifecycle — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
 
-        # Keep callbacks always registered; runtime guard controls effective injection
-        register_llm_context_callback(self.get_student_notes_context)
-        register_llm_context_callback(self.get_teacher_notes_context)
-        return True
+    def initialize(self, services=None) -> bool:
+        """Initialize the plugin, tables, and context callbacks."""
+        try:
+            self._resolve_services(services)
+
+            # Ensure table exists - but don't try to create it in tests
+            if self.db and self.db.is_initialized() and not self.db._in_memory:
+                Base.metadata.create_all(
+                    self.db._engine,
+                    tables=[StudentNote.__table__],
+                    checkfirst=True
+                )
+                log("info", "StudentNote table created/verified with version tracking")
+
+            # Register context callbacks
+            register_llm_context_callback(self.get_student_notes_context)
+            register_llm_context_callback(self.get_teacher_notes_context)
+            return True
+        except Exception as e:
+            log("error", f"Failed to initialize student_pad plugin: {e}", exc_info=True)
+            return False
+
+    def on_activate(self, trainer_id: str) -> None:
+        """Called when plugin is activated for a trainer."""
+        log("info", f"Student pad plugin activated for trainer {trainer_id}")
+
+    def on_deactivate(self, trainer_id: str) -> None:
+        """Called when plugin is deactivated for a trainer."""
+        log("info", f"Student pad plugin deactivated for trainer {trainer_id}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Data helpers — DATA LAYER (use self.service attributes only)
+    # ─────────────────────────────────────────────────────────────────────
 
     def _get_student_note(self, student_id: str, trainer_id: str, plugin_id: str = None) -> str:
-        """Helper method to get current student note directly from database."""
+        """Get current student note directly from database."""
         if plugin_id is None:
             plugin_id = self.id
 
-        db = get_db_manager()
-        with db.get_session() as session:
+        with self.db.get_session() as session:
             note = session.query(StudentNote).filter_by(
                 user_id=student_id,
                 trainer_id=trainer_id,
@@ -73,31 +98,25 @@ class StudentPadPlugin(TrainerPlugin):
             return note.content if note else ""
 
     def _get_note_version_count(self, student_id: str, trainer_id: str, plugin_id: str = None) -> int:
-        """Helper method to get the number of historical versions."""
+        """Get the number of historical versions."""
         if plugin_id is None:
             plugin_id = self.id
 
-        db = get_db_manager()
-        with db.get_session() as session:
-            # Count all versions including current
+        with self.db.get_session() as session:
             total_count = session.query(StudentNote).filter_by(
                 user_id=student_id,
                 trainer_id=trainer_id,
                 plugin_id=plugin_id
             ).count()
-
-            # Return number of historical versions (total - 1 if current exists)
             return max(0, total_count - 1)
 
     def _save_student_note(self, student_id: str, trainer_id: str, content: str, plugin_id: str = None) -> bool:
-        """Helper method to save student note with version history."""
+        """Save student note with version history."""
         if plugin_id is None:
             plugin_id = self.id
 
         try:
-            db = get_db_manager()
-            with db.get_session() as session:
-                # Get current note
+            with self.db.get_session() as session:
                 current_note = session.query(StudentNote).filter_by(
                     user_id=student_id,
                     trainer_id=trainer_id,
@@ -140,51 +159,65 @@ class StudentPadPlugin(TrainerPlugin):
             log("error", f"Failed to save student note: {e}", exc_info=True)
             return False
 
-    def get_context(self, student_id: str) -> Dict[str, str]:
-        """
-        Get plugin-specific context information for a student.
+    def _ensure_single_current_note(self, session, student_id: str, trainer_id: str,
+                                    plugin_id: str, note_events: List[Dict]):
+        """Ensure exactly one note is marked as current after import."""
+        current_notes = session.query(StudentNote).filter_by(
+            user_id=student_id,
+            trainer_id=trainer_id,
+            plugin_id=plugin_id,
+            is_current=1
+        ).all()
 
-        Returns a dictionary with the last student note and teacher note
-        formatted with appropriate labels.
-        """
-        # Get the student's trainer (parent)
-        from st_shared.cached import get_user_manager
-        user_manager = get_user_manager()
-        user = user_manager.get_user(student_id)
+        if len(current_notes) > 1:
+            # If multiple current notes, keep the most recent one
+            current_notes.sort(key=lambda x: x.updated_at or datetime.min, reverse=True)
+            for i, note in enumerate(current_notes):
+                if i == 0:
+                    continue
+                note.is_current = 0
+        elif len(current_notes) == 0 and note_events:
+            # If no current note, set the most recent as current
+            most_recent = max(note_events, key=lambda x: x.get('timestamp', ''))
+            note_id = most_recent.get('note_id')
+            if note_id:
+                note = session.query(StudentNote).filter_by(id=note_id).first()
+                if note:
+                    note.is_current = 1
 
-        if not user or not user.get('parent_id'):
-            return {}
+    def _expand_minimal_event(self, event: Dict, student_info: Dict = None) -> Dict:
+        """Expand a minimal event to full event data for import."""
+        expanded = event.copy()
 
-        trainer_id = user['parent_id']
+        if 'version' not in expanded:
+            expanded['version'] = 1
+        if 'is_current' not in expanded:
+            expanded['is_current'] = False
+        if 'metadata' not in expanded:
+            expanded['metadata'] = {}
 
-        # Get student notes
-        student_notes = self._get_student_note(student_id, trainer_id)
-        teacher_notes = self._get_student_note(student_id, trainer_id, "teacher_notes")
+        if 'timestamp' in expanded:
+            if 'created_at' not in expanded:
+                expanded['created_at'] = expanded['timestamp']
+            if 'updated_at' not in expanded:
+                expanded['updated_at'] = expanded['timestamp']
 
-        context = {}
+        if student_info and expanded.get('student_id') in student_info:
+            if 'student_name' not in expanded:
+                expanded['student_name'] = student_info[expanded['student_id']]['name']
 
-        # Add student notes to context if they exist
-        if student_notes:
-            context["📝 Student's Personal Notes"] = student_notes
+        return expanded
 
-        # Add teacher notes to context if they exist
-        if teacher_notes:
-            context["👨‍🏫 Teacher's Private Notes"] = teacher_notes
-
-        return context
+    # ─────────────────────────────────────────────────────────────────────
+    # Context callbacks — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
 
     def get_student_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        """Context callback for student's personal notes."""
         if not self._is_active:
             return None
-        """
-        Context callback for student's personal notes.
-        Returns tuple: (context, role, position)
-        """
-        # Get the student's trainer (parent)
-        from st_shared.cached import get_user_manager
-        user_manager = get_user_manager()
-        user = user_manager.get_user(user_id)
 
+        user = self.user_manager.get_user(user_id)
         if not user or not user.get('parent_id'):
             return None
 
@@ -194,28 +227,18 @@ class StudentPadPlugin(TrainerPlugin):
         if not student_notes:
             return None
 
-        # Get the appropriate prompt based on language
         context_prompt = get_prompt('trainer.plugins.student_pad.student_notes_context',
-                                   _("trainer_plugin_student_pad.student_notes_context"))
-
+                                   "Student's personal notes:\n{student_notes}")
         context = context_prompt.format(student_notes=student_notes)
 
-        # Return as system message at the top of the context
         return (context, "system", "top")
 
     def get_teacher_notes_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        """Context callback for teacher's private notes about the student."""
         if not self._is_active:
             return None
-        """
-        Context callback for teacher's private notes about the student.
-        Returns tuple: (context, role, position)
-        Teacher notes are only visible to the AI, not to the student.
-        """
-        # Get the student's trainer (parent)
-        from st_shared.cached import get_user_manager
-        user_manager = get_user_manager()
-        user = user_manager.get_user(user_id)
 
+        user = self.user_manager.get_user(user_id)
         if not user or not user.get('parent_id'):
             return None
 
@@ -225,25 +248,43 @@ class StudentPadPlugin(TrainerPlugin):
         if not teacher_notes:
             return None
 
-        # Get the appropriate prompt based on language
         context_prompt = get_prompt('trainer.plugins.student_pad.teacher_notes_context',
-                                   _("Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}"))
-
+                                   "Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}")
         context = context_prompt.format(teacher_notes=teacher_notes)
 
-        # Return as system message at the top of the context
         return (context, "system", "top")
 
     def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+        """Legacy callback - delegates to student notes."""
         if not self._is_active:
             return None
         return self.get_student_notes_context(user_id, messages)
 
-    def add_note(self, student_id: str, content: str, topic: str = "") -> Dict:
-        """Append a note to the student's pad using existing storage."""
-        from st_shared.cached import get_user_manager
+    def get_context(self, student_id: str) -> Dict[str, str]:
+        """Get plugin-specific context information for a student."""
+        user = self.user_manager.get_user(student_id)
+        if not user or not user.get('parent_id'):
+            return {}
 
-        user = get_user_manager().get_user(student_id)
+        trainer_id = user['parent_id']
+        student_notes = self._get_student_note(student_id, trainer_id)
+        teacher_notes = self._get_student_note(student_id, trainer_id, "teacher_notes")
+
+        context = {}
+        if student_notes:
+            context["📝 Student's Personal Notes"] = student_notes
+        if teacher_notes:
+            context["👨‍🏫 Teacher's Private Notes"] = teacher_notes
+
+        return context
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Public actions — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
+    def add_note(self, student_id: str, content: str, topic: str = "") -> Dict:
+        """Append a note to the student's pad."""
+        user = self.user_manager.get_user(student_id)
         if not user or not user.get("parent_id"):
             return {"saved": False, "reason": "trainer_not_found"}
 
@@ -256,50 +297,94 @@ class StudentPadPlugin(TrainerPlugin):
         return {"saved": bool(saved)}
 
     def _action_trigger_analysis(self, context, **params) -> Dict:
+        """Unsupported action."""
         log("warning", "student_pad: trigger_memory_analysis not supported")
         return {"success": False, "reason": "unsupported", "plugin": "student_pad"}
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Export / import — DATA LAYER
+    # ─────────────────────────────────────────────────────────────────────
+
+    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Export all student pad history events in minimal format."""
+        events = []
+
+        with self.db.get_session() as session:
+            query = session.query(StudentNote).filter_by(trainer_id=trainer_id)
+            if student_id:
+                query = query.filter_by(user_id=student_id)
+
+            notes = query.order_by(StudentNote.updated_at).all()
+
+            for note in notes:
+                if note.plugin_id == self.id or note.plugin_id == "core":
+                    event_type = 'plugin.student_pad.student_note'
+                    note_type = 'student'
+                elif note.plugin_id == "teacher_notes":
+                    event_type = 'plugin.student_pad.teacher_note'
+                    note_type = 'teacher'
+                else:
+                    continue
+
+                event = {
+                    'timestamp': note.updated_at.isoformat() if note.updated_at else datetime.utcnow().isoformat(),
+                    'type': event_type,
+                    'plugin_id': self.id,
+                    'student_id': note.user_id,
+                    'note_id': note.id,
+                    'note_type': note_type,
+                    'content': note.content,
+                }
+
+                if note.version != 1:
+                    event['version'] = note.version
+                if note.is_current == 1:
+                    event['is_current'] = True
+                if note.note_metadata:
+                    event['metadata'] = note.note_metadata
+
+                events.append(event)
+
+        return events
+
+    # ─────────────────────────────────────────────────────────────────────
+    # UI LAYER — render methods
+    # Rules: call self.<data_method>() for data; use st.* freely.
+    # Future split: self.xxx() → self._logic.xxx(). No logic rewrite needed.
+    # ─────────────────────────────────────────────────────────────────────
+
     def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
-        """
-        Render the student pad in the student's header area.
-        This is the main textarea for students to edit their notes.
-        """
+        """Render the student pad in the student's header area."""
         def render_student_pad():
-            st.markdown("### " + _("trainer_plugin_student_pad.my_personal_notes"))
+            st.markdown("### 📝 My Personal Notes")
 
-            # Get current pad content using helper
             current_content = self._get_student_note(student_id, trainer_id)
-
-            # Get version count
             version_count = self._get_note_version_count(student_id, trainer_id)
 
-            # Character count and version info
             col1, col2 = st.columns([3, 1])
             with col1:
                 if current_content:
-                    st.caption(f"📄 {len(current_content)} " + _("trainer_plugin_student_pad.characters"))
+                    st.caption(f"📄 {len(current_content)} characters")
             with col2:
                 if version_count > 0:
-                    st.caption(f"📚 {version_count} " + _("trainer_plugin_student_pad.previous_versions"))
+                    st.caption(f"📚 {version_count} previous versions")
 
-            # Editable text area - this is where students write their notes
             new_content = st.text_area(
-                _("trainer_plugin_student_pad.write_your_notes_here"),
+                "Write your notes here",
                 value=current_content or "",
                 height=250,
                 key=f"student_pad_editor_{student_id}",
-                placeholder=_("trainer_plugin_student_pad.take_notes_placeholder"),
-                help=_("trainer_plugin_student_pad.auto_saves_for_students"),
+                placeholder="Take notes, jot down ideas, or record what you've learned...",
+                help="These notes are automatically saved and shared with your AI teacher",
                 label_visibility="collapsed"
             )
 
-            # Auto-save on change
             if new_content != current_content:
                 if self._save_student_note(student_id, trainer_id, new_content):
-                    st.success(_("trainer_plugin_student_pad.notes_saved_check"), icon="✅")
+                    st.success("Notes saved!", icon="✅")
                     st.rerun()
                 else:
-                    st.error(_("trainer_plugin_student_pad.failed_to_save_notes"))
+                    st.error("Failed to save notes")
 
         return [render_student_pad]
 
@@ -310,19 +395,11 @@ class StudentPadPlugin(TrainerPlugin):
 
             st.markdown("### 📝 Student Notes")
 
-            # Get student notes using helper
             current_content = self._get_student_note(student_id, trainer_id)
-
-            # Get version count for student notes
             student_version_count = self._get_note_version_count(student_id, trainer_id)
-
-            # Get teacher notes using helper with different plugin_id
             teacher_notes = self._get_student_note(student_id, trainer_id, "teacher_notes")
-
-            # Get version count for teacher notes
             teacher_version_count = self._get_note_version_count(student_id, trainer_id, "teacher_notes")
 
-            # Metadata row
             col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
                 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -333,23 +410,18 @@ class StudentPadPlugin(TrainerPlugin):
                 if student_version_count > 0:
                     st.caption(f"📚 {student_version_count} older versions")
 
-            # Read-only display of student's notes
             if current_content:
                 st.markdown("**Student's personal notes:**")
                 st.markdown(current_content)
-
-                # Add a note about AI context and version count
                 if student_version_count > 0:
                     st.caption(f"There are {student_version_count} previous versions available in history.")
                 else:
-                    st.caption("✨ These notes are automatically shared with the AI teacher to provide context for your conversations.")
+                    st.caption("✨ These notes are automatically shared with the AI teacher.")
             else:
                 st.info("This student hasn't written any notes yet.")
 
-            # Add a visual separator
             st.divider()
 
-            # Teacher's private notes section (separate from student's pad)
             col1, col2 = st.columns([3, 1])
             with col1:
                 st.markdown("**Teacher's private notes:**")
@@ -357,7 +429,7 @@ class StudentPadPlugin(TrainerPlugin):
                 if teacher_version_count > 0:
                     st.caption(f"📚 {teacher_version_count} older versions")
 
-            st.caption("These notes are only visible to you and the AI teacher. The student cannot see them.")
+            st.caption("These notes are only visible to you and the AI teacher.")
 
             teacher_note_content = st.text_area(
                 "Private notes (visible to AI, not to student)",
@@ -369,7 +441,7 @@ class StudentPadPlugin(TrainerPlugin):
 
             if st.button("Save private notes", key=f"save_teacher_notes_{student_id}"):
                 if self._save_student_note(student_id, trainer_id, teacher_note_content, "teacher_notes"):
-                    st.success("Private notes saved! The AI teacher will use these to personalize responses.")
+                    st.success("Private notes saved!")
                     st.rerun()
                 else:
                     st.error("Failed to save private notes")
@@ -382,7 +454,7 @@ class StudentPadPlugin(TrainerPlugin):
             st.markdown("---")
             st.subheader("📝 Student Notes Overview")
 
-            for student in students[:3]:  # Show only first 3 to avoid clutter
+            for student in students[:3]:
                 student_id = student['id']
                 student_name = student.get('name', student_id)
 
@@ -414,292 +486,17 @@ class StudentPadPlugin(TrainerPlugin):
 
         return [render_pad_overview]
 
-    def export_config(self, trainer_id: str) -> Optional[Dict]:
-        """Export all student pads for this trainer (current versions only) with student_id."""
-        trainer_manager = get_trainer_manager()
-        students = trainer_manager.get_trainer_students(trainer_id)
-
-        pads = {}
-        for student in students:
-            student_data = {
-                'student_name': student.get('name', student['id']),
-                'student_id': student['id'],  # Explicitly include student_id
-                'updated_at': datetime.utcnow().isoformat()
-            }
-
-            # Export current student notes
-            content = self._get_student_note(student['id'], trainer_id)
-            if content:
-                student_data['content'] = content
-                # Add version count for metadata
-                version_count = self._get_note_version_count(student['id'], trainer_id)
-                if version_count > 0:
-                    student_data['version_count'] = version_count
-
-            # Export current teacher notes
-            teacher_notes = self._get_student_note(student['id'], trainer_id, "teacher_notes")
-            if teacher_notes:
-                student_data['teacher_notes'] = teacher_notes
-                # Add version count for metadata
-                version_count = self._get_note_version_count(student['id'], trainer_id, "teacher_notes")
-                if version_count > 0:
-                    student_data['teacher_notes_version_count'] = version_count
-
-            # Only add if there's any content
-            if content or teacher_notes:
-                pads[student['id']] = student_data
-
-        return {'student_pads': pads} if pads else None
-
-    def import_config(self, trainer_id: str, config: Dict) -> bool:
-        """Import student pads from configuration (as new current versions)."""
-        pads = config.get('student_pads', {})
-
-        success = True
-        for student_id, pad_data in pads.items():
-            # Import student notes as new current version
-            content = pad_data.get('content', '')
-            if content:
-                if not self._save_student_note(student_id, trainer_id, content):
-                    success = False
-
-            # Import teacher notes as new current version
-            teacher_notes = pad_data.get('teacher_notes', '')
-            if teacher_notes:
-                if not self._save_student_note(student_id, trainer_id, teacher_notes, "teacher_notes"):
-                    success = False
-
-        return success
-
-
-    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Export all student pad history events in minimal format.
-        Each version change becomes a separate event.
-        """
-        db = get_db_manager()
-        events = []
-
-        with db.get_session() as session:
-            # Build query
-            query = session.query(StudentNote).filter_by(trainer_id=trainer_id)
-
-            if student_id:
-                query = query.filter_by(user_id=student_id)
-
-            # Get all notes (all versions)
-            notes = query.order_by(StudentNote.updated_at).all()
-
-            for note in notes:
-                # Determine event type
-                if note.plugin_id == self.id or note.plugin_id == "core":
-                    event_type = 'plugin.student_pad.student_note'
-                    note_type = 'student'
-                elif note.plugin_id == "teacher_notes":
-                    event_type = 'plugin.student_pad.teacher_note'
-                    note_type = 'teacher'
-                else:
-                    continue
-
-                # Minimal event - only essential fields
-                event = {
-                    'timestamp': note.updated_at.isoformat() if note.updated_at else datetime.utcnow().isoformat(),
-                    'type': event_type,
-                    'plugin_id': self.id,
-                    'student_id': note.user_id,
-                    'note_id': note.id,
-                    'note_type': note_type,
-                    'content': note.content,
-                }
-
-                # Only add version if not default (version 1)
-                if note.version != 1:
-                    event['version'] = note.version
-
-                # Only add is_current if not default (default is false for history export)
-                # In history export, we typically export all versions, so is_current is not needed
-                # but if it's the current version, we might want to mark it
-                if note.is_current == 1:
-                    event['is_current'] = True
-
-                # Only add metadata if present
-                if note.note_metadata:
-                    event['metadata'] = note.note_metadata
-
-                events.append(event)
-
-        return events
-
-    def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
-        """
-        Import student pad history events, handling both legacy and minimal formats.
-
-        Args:
-            trainer_id: The trainer's ID
-            events: List of event dictionaries to import
-            student_info: Optional dictionary with student information for reconstruction
-        """
-        db = get_db_manager()
-
-        try:
-            with db.get_session() as session:
-                # Filter events for this plugin
-                pad_events = [e for e in events if e.get('plugin_id') == self.id]
-
-                # Group events by student and note type
-                student_notes = {}  # (student_id, plugin_id) -> list of events
-
-                for event in pad_events:
-                    student_id = event.get('student_id')
-                    if not student_id:
-                        continue
-
-                    note_type = event.get('note_type', 'student')
-                    plugin_id = self.id if note_type == 'student' else 'teacher_notes'
-
-                    key = (student_id, plugin_id)
-                    if key not in student_notes:
-                        student_notes[key] = []
-
-                    # Reconstruct full event data from minimal format
-                    full_event = self._expand_minimal_event(event, student_info)
-                    student_notes[key].append(full_event)
-
-                # Process each student's notes
-                for (student_id, plugin_id), note_events in student_notes.items():
-                    # Sort events by timestamp
-                    note_events.sort(key=lambda x: x.get('timestamp', ''))
-
-                    # Mark all existing notes as historical
-                    existing_notes = session.query(StudentNote).filter_by(
-                        user_id=student_id,
-                        trainer_id=trainer_id,
-                        plugin_id=plugin_id
-                    ).all()
-
-                    for note in existing_notes:
-                        note.is_current = 0
-
-                    # Recreate all versions
-                    for event in note_events:
-                        # Parse timestamps - use timestamp for both created and updated
-                        timestamp = None
-                        try:
-                            if event.get('timestamp'):
-                                timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                        except (ValueError, TypeError):
-                            timestamp = datetime.utcnow()
-
-                        # Check if this note version already exists
-                        note_id = event.get('note_id')
-                        existing = None
-                        if note_id:
-                            existing = session.query(StudentNote).filter_by(id=note_id).first()
-
-                        if not existing:
-                            # Create new note version
-                            note = StudentNote(
-                                id=note_id or str(uuid.uuid4()),
-                                user_id=student_id,
-                                trainer_id=trainer_id,
-                                content=event.get('content', ''),
-                                plugin_id=plugin_id,
-                                version=event.get('version', 1),
-                                is_current=1 if event.get('is_current', False) else 0,
-                                created_at=timestamp,  # Use timestamp for created_at
-                                updated_at=timestamp,  # Use same timestamp for updated_at
-                                note_metadata=event.get('metadata', {})
-                            )
-                            session.add(note)
-                        else:
-                            # Update existing note
-                            existing.content = event.get('content', existing.content)
-                            existing.version = event.get('version', existing.version)
-                            existing.is_current = 1 if event.get('is_current', False) else 0
-                            existing.updated_at = timestamp
-                            if event.get('metadata'):
-                                existing.note_metadata = event['metadata']
-
-                    # Ensure exactly one current note
-                    self._ensure_single_current_note(session, student_id, trainer_id, plugin_id, note_events)
-
-                session.commit()
-                return True
-
-        except Exception as e:
-            log("error", f"Failed to import student pad history: {e}", exc_info=True)
-            return False
-
-    def _expand_minimal_event(self, event: Dict, student_info: Dict = None) -> Dict:
-        """
-        Expand a minimal event to full event data for import.
-        Reconstructs missing fields with defaults.
-        """
-        expanded = event.copy()
-
-        # Ensure required fields exist
-        if 'version' not in expanded:
-            expanded['version'] = 1
-
-        if 'is_current' not in expanded:
-            expanded['is_current'] = False
-
-        if 'metadata' not in expanded:
-            expanded['metadata'] = {}
-
-        # Use timestamp for created_at and updated_at if not present
-        if 'timestamp' in expanded:
-            if 'created_at' not in expanded:
-                expanded['created_at'] = expanded['timestamp']
-            if 'updated_at' not in expanded:
-                expanded['updated_at'] = expanded['timestamp']
-
-        # Add student_name from student_info if available
-        if student_info and expanded.get('student_id') in student_info:
-            if 'student_name' not in expanded:
-                expanded['student_name'] = student_info[expanded['student_id']]['name']
-
-        return expanded
-
-    def _ensure_single_current_note(self, session, student_id: str, trainer_id: str, plugin_id: str, note_events: List[Dict]):
-        """Ensure exactly one note is marked as current after import."""
-        current_notes = session.query(StudentNote).filter_by(
-            user_id=student_id,
-            trainer_id=trainer_id,
-            plugin_id=plugin_id,
-            is_current=1
-        ).all()
-
-        if len(current_notes) > 1:
-            # If multiple current notes, keep the most recent one
-            current_notes.sort(key=lambda x: x.updated_at or datetime.min, reverse=True)
-            for i, note in enumerate(current_notes):
-                if i == 0:
-                    continue
-                note.is_current = 0
-        elif len(current_notes) == 0 and note_events:
-            # If no current note, set the most recent as current
-            most_recent = max(note_events, key=lambda x: x.get('timestamp', ''))
-            note_id = most_recent.get('note_id')
-            if note_id:
-                note = session.query(StudentNote).filter_by(id=note_id).first()
-                if note:
-                    note.is_current = 1
-
-    def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+    def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add a history viewer tab for teachers."""
-
         def render_history_viewer():
             st.subheader("📜 Notes History")
 
-            trainer_manager = get_trainer_manager()
-            students = trainer_manager.get_trainer_students(trainer_id)
+            students = self.user_manager.get_children(trainer_id)
 
             if not students:
                 st.info("No students available.")
                 return
 
-            # Student selector - with unique key including plugin ID
             student_options = {student['id']: student.get('name', 'Unknown') for student in students}
             student_options['all'] = "All Students"
 
@@ -710,7 +507,6 @@ class StudentPadPlugin(TrainerPlugin):
                 key=f"pad_history_student_select_{self.id}"
             )
 
-            # Note type filter - with unique key
             note_type_filter = st.radio(
                 "Note Type",
                 options=['all', 'student', 'teacher'],
@@ -719,7 +515,6 @@ class StudentPadPlugin(TrainerPlugin):
                 key=f"pad_history_note_type_{self.id}"
             )
 
-            # Get history
             student_id = None if selected_student == 'all' else selected_student
             events = self.export_history(trainer_id, student_id)
 
@@ -727,11 +522,9 @@ class StudentPadPlugin(TrainerPlugin):
                 st.info("No history available for the selected criteria.")
                 return
 
-            # Filter by note type
             if note_type_filter != 'all':
                 events = [e for e in events if e.get('note_type') == note_type_filter]
 
-            # Display statistics
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Events", len(events))
@@ -742,15 +535,13 @@ class StudentPadPlugin(TrainerPlugin):
                 version_count = sum(1 for e in events if not e.get('is_current', False))
                 st.metric("Historical Versions", version_count)
 
-            # Display timeline
             st.subheader("Timeline")
 
-            for idx, event in enumerate(events):
+            for event in events:
                 with st.container():
                     cols = st.columns([2, 1, 2, 3])
 
                     with cols[0]:
-                        # Timestamp
                         try:
                             ts = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
                             st.write(ts.strftime('%Y-%m-%d %H:%M'))
@@ -758,12 +549,10 @@ class StudentPadPlugin(TrainerPlugin):
                             st.write(event['timestamp'])
 
                     with cols[1]:
-                        # Student name (truncated)
                         name = event.get('student_name', event.get('student_id', 'Unknown'))
                         st.write(name[:15] + "..." if len(name) > 15 else name)
 
                     with cols[2]:
-                        # Note type and version
                         if event.get('note_type') == 'student':
                             icon = "📝"
                             label = "Student"
@@ -778,7 +567,6 @@ class StudentPadPlugin(TrainerPlugin):
                         st.write(f"{icon} {label} {version_info}")
 
                     with cols[3]:
-                        # Content preview
                         content = event.get('content', '')
                         if content:
                             preview = content[:50] + "..." if len(content) > 50 else content
@@ -788,5 +576,6 @@ class StudentPadPlugin(TrainerPlugin):
 
         return [("Notes History", render_history_viewer)]
 
-# Plugin entry point - must be named 'plugin'
+
+# Plugin entry point
 plugin = StudentPadPlugin

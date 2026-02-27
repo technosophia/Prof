@@ -12,7 +12,8 @@ Plugins can interact with the application like a regular module, they can use co
 
 Their are defined by a plugin.json file.
 
-See API_PLUGIN_BASE.md for details of plugin implementation
+See _docs/API_PLUGIN_BASE.md for details of plugin implementation
+See _docs/PLUGIN_MIGRATE.md for how to migrate plugin to decouple from streamlit
 
 ## Driver integration
 
