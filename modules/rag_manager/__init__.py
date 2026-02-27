@@ -237,6 +237,13 @@ def on_module_activated(services: Optional[Any] = None) -> None:
                 get_rag_manager(config=cfg, user_manager=um)
 
     initialize()
+    try:
+        mgr = _get_manager()
+        if mgr.is_rag_enabled() and mgr.default_engine:
+            _activate_rag_engine(mgr.default_engine)
+            log("info", f"RAG engine '{mgr.default_engine}' activated on module startup")
+    except Exception as exc:
+        log("warning", f"Failed to activate default RAG engine on startup: {exc}")
 
 
 def on_module_deactivated() -> None:

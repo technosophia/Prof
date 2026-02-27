@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 # Load environment variables FIRST
 from core.logging import log, set_log_module_level
 from core.database import init_database
+from shared.module_handler import ServiceLocator, module_handler
 from st_shared.cached import _, get_available_languages, get_active_modules
 load_dotenv()
 
@@ -27,7 +28,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 from st_shared.cached import get_config
 from core.logging import configure_logging_from_dict
 
-from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
+from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager, get_driver
 from shared.common import init_user_manager
 from st_shared.cached import get_prompt_manager, get_llm_manager
 from shared.export_import import auto_import_conversations_from_config
@@ -38,7 +39,6 @@ from shared.common import llm_conversation_generate, set_current_llm, get_availa
 # Import UI registry system
 from shared.ui_registry import UIRegistry
 # Import module handler
-from shared.module_handler import ModuleHandler
 from st_shared.users_ui import auto_login_first_user
 
 # Configure logging from config (one line)
@@ -46,30 +46,20 @@ configure_logging_from_dict(get_config().get("logging", {}))
 
 get_available_languages()
 
-# Initialize Module Handler - store in session state
-if 'module_handler' not in st.session_state:
-    log("debug", "Initializing module handler in session state")
-    st.session_state.module_handler = ModuleHandler()
-
-    # Set up services BEFORE initialization
-    from shared.module_handler import ServiceLocator
-
-    services = ServiceLocator()
-    services.register("config", get_config())
-    services.register("user_manager", get_user_manager())
-    services.register("db_manager", get_db_manager())
-    services.register("conversation_manager", get_conversation_manager())
-    services.register("prompt_manager", get_prompt_manager())
-    services.register("llm_manager", get_llm_manager())
-    # Add any other services that modules might need
-
-    st.session_state.module_handler.set_services(services)
-    st.session_state.module_handler.initialize()
+services = ServiceLocator()
+services.register("config", get_config())
+services.register("user_manager", get_user_manager())
+services.register("db_manager", get_db_manager())
+services.register("conversation_manager", get_conversation_manager())
+services.register("prompt_manager", get_prompt_manager())
+services.register("llm_manager", get_llm_manager())
+services.register("driver", get_driver())
+# Add other services as needed
+module_handler.set_services(services)
+module_handler.initialize()
     # IMPORTANT: Activate all modules to trigger on_module_activated() hooks
-    st.session_state.module_handler.activate_all()
+module_handler.activate_all()
 
-# Use the session state module handler
-module_handler = st.session_state.module_handler
 
 # Load active module UIs immediately
 active_modules = get_active_modules()

@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Dict, List, Callable
 
-from .plugin_base_core import TrainerPluginCore
+from modules.trainer.plugin_base_core import TrainerPluginCore
 
 
 class TrainerPluginUI(ABC):

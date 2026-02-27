@@ -11,19 +11,14 @@ import streamlit as st
 import os
 import sys
 
+from shared.module_handler import module_handler
 from st_shared.cached import get_config
 from st_shared.cached import get_user_manager
-
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _, _discover_ui_modules, get_active_modules
 def force_reload_modules():
     """Force reload all active modules by clearing cache and re-importing."""
-    if 'module_handler' not in st.session_state:
-        st.error("Module handler not initialized")
-        return [], []
-
-    module_handler = st.session_state.module_handler
     active_modules = get_active_modules()
 
     # Track reloaded modules
@@ -86,13 +81,6 @@ def force_reload_modules():
 def show_system_admin_content():
     """Display the System Admin content (for the System tab)."""
     st.header("📦 Module Management")
-
-    # Get module handler from session state
-    if 'module_handler' not in st.session_state:
-        st.error("Module handler not initialized")
-        return
-
-    module_handler = st.session_state.module_handler
 
     # Get active modules
     try:
