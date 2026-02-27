@@ -166,6 +166,7 @@ def disable_rag_injection(context: dict) -> dict:
     _select_rag_llm(page, model_names, debug_enabled)
     _toggle_rag(page, enable=False, debug_enabled=debug_enabled)
     wait_for_app_stable(page)
+    time.sleep(0.5)
     context["rag_enabled"] = False
     return context
 
