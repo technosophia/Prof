@@ -35,7 +35,7 @@ Architecture — two-layer design (enforced by convention, future: two classes):
 
   UI LAYER  (above the line)
     Methods: render_student_widgets(), render_dashboard_widgets(),
-             render_student_header_widgets(), get_admin_tabs()
+             render_student_header_widgets(), render_get_admin_tabs()
     Rules:
       - MUST only call self.<data_method>() for all data access
       - MAY import and use streamlit freely
@@ -211,10 +211,10 @@ Import plugin-specific history events.
         Returns:
             True if import successful, False otherwise
 
-#### `get_admin_tabs`
+#### `render_get_admin_tabs`
 
 ```python
-def get_admin_tabs(self, trainer_id: str) -> List[tuple]:
+def render_get_admin_tabs(self, trainer_id: str) -> List[tuple]:
 ```
 
 Return list of admin UI tabs for this plugin.
@@ -262,4 +262,3 @@ Return list of render functions for student header area.
 
         Returns:
             List of callable render functions
-

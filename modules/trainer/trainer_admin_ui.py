@@ -75,7 +75,7 @@ def inject_ui_admin_tab():
         active_plugins = plugin_manager.get_active_plugins(trainer_id)
         plugin_tabs = []
         for plugin in active_plugins:
-            plugin_tabs.extend(plugin.get_admin_tabs(trainer_id))
+            plugin_tabs.extend(plugin.render_get_admin_tabs(trainer_id))
 
         all_tab_names = tab_names + [name for name, _ in plugin_tabs]
         tabs = st.tabs(all_tab_names)

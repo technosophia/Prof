@@ -23,7 +23,7 @@ Every plugin has two conceptual layers in one class:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  UI LAYER  (render_* and get_admin_tabs)                │
+│  UI LAYER  (render_* and render_get_admin_tabs)                │
 │  • May use st.* freely                                  │
 │  • Must call self.<data_method>() for all data access   │
 │  • Must NOT touch self.db, self.user_manager, etc.      │
@@ -111,7 +111,7 @@ still need it, or remove it entirely if no render method uses it.
 ### Step 4 — Check render methods
 
 In each render method (`render_student_widgets`, `render_dashboard_widgets`,
-`render_student_header_widgets`, `get_admin_tabs`):
+`render_student_header_widgets`, `render_get_admin_tabs`):
 
 - Verify every piece of data access goes through `self.<data_method>()`.
 - If you find inline DB/cache calls, extract a new private data method and call that.

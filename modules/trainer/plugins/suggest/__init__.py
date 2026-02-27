@@ -1300,7 +1300,7 @@ class SuggestPlugin(TrainerPlugin):
             log("error", f"Failed to import suggestion history: {e}", exc_info=True)
             return False
 
-    def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+    def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add a suggestions analytics tab for teachers."""
         def render_analytics():
             st.subheader("📊 Suggestion Analytics")

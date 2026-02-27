@@ -948,7 +948,7 @@ class PedagogicalMemoryPlugin(TrainerPlugin):
 
         return [render_dashboard]
 
-    def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+    def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         def render_history_viewer():
             st.subheader("📜 Memory History")
 

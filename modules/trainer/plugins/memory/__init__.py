@@ -670,7 +670,7 @@ class MemoryPlugin(TrainerPlugin):
 
         return [render_memory_overview]
 
-    def get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
+    def render_get_admin_tabs(self, trainer_id: str) -> List[Tuple[str, Callable]]:
         """Add memory history viewer tab."""
         def render_history_viewer():
             st.subheader("📜 Memory History")

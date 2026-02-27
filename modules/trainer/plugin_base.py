@@ -29,7 +29,7 @@ Architecture — two-layer design (enforced by convention, future: two classes):
 
   UI LAYER  (above the line)
     Methods: render_student_widgets(), render_dashboard_widgets(),
-             render_student_header_widgets(), get_admin_tabs()
+             render_student_header_widgets(), render_get_admin_tabs()
     Rules:
       - MUST only call self.<data_method>() for all data access
       - MAY import and use streamlit freely
@@ -291,7 +291,7 @@ class TrainerPlugin(ABC):
     # When splitting into two classes, self.xxx() becomes self._logic.xxx().
     # ─────────────────────────────────────────────────────────────────────
 
-    def get_admin_tabs(self, trainer_id: str) -> List[tuple]:
+    def render_get_admin_tabs(self, trainer_id: str) -> List[tuple]:
         """
         [api] Return list of admin UI tabs for this plugin.
 
