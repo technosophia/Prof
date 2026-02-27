@@ -24,6 +24,7 @@ _services = None
 _INITIALIZED = False
 _RAG_OPTIONS_REGISTERED = False
 _ENGINE_CONTEXT_CALLBACKS: Dict[str, Callable[[str, List[Dict]], tuple]] = {}
+_ACTIVE_ENGINE_NAME: Optional[str] = None  # Track which engine is currently active
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +109,12 @@ def _make_engine_context_callback(name: str) -> Callable:
             return "", "system", "bottom"
 
         mgr = _get_manager()
+        # Only use context if this is the active engine AND RAG is enabled
         if not mgr.is_rag_enabled() or not mgr.is_engine_enabled(name):
+            return "", "system", "bottom"
+
+        # Double-check that this is still the active engine
+        if _ACTIVE_ENGINE_NAME != name:
             return "", "system", "bottom"
 
         context = mgr.get_rag_context(user_id=user_id, query=query, engine_type=name)
@@ -119,26 +125,41 @@ def _make_engine_context_callback(name: str) -> Callable:
 
 
 def _activate_rag_engine(name: str) -> None:
-    """Activate a RAG engine and register its callback."""
+    """Activate a RAG engine and register its callback.
+
+    This ensures only ONE engine is active at any time.
+    """
+    global _ACTIVE_ENGINE_NAME
+
     try:
         if not _engine_exists(name):
             log("warning", f"Cannot activate unavailable RAG engine: {name}")
             return
 
-        _get_manager().default_engine = name
+        mgr = _get_manager()
+        mgr.default_engine = name
 
-        # First, deactivate any existing callback for this engine
+        # DEACTIVATE any currently active engine first (ensures only one is active)
+        if _ACTIVE_ENGINE_NAME is not None and _ACTIVE_ENGINE_NAME != name:
+            log("debug", f"Deactivating previous engine '{_ACTIVE_ENGINE_NAME}' before activating '{name}'")
+            _deactivate_rag_engine(_ACTIVE_ENGINE_NAME)
+
+        # If this engine already has a callback, reuse it
         if name in _ENGINE_CONTEXT_CALLBACKS:
-            _deactivate_rag_engine(name)
+            callback = _ENGINE_CONTEXT_CALLBACKS[name]
+        else:
+            # Create and store new callback
+            callback = _make_engine_context_callback(name)
+            _ENGINE_CONTEXT_CALLBACKS[name] = callback
 
-        # Create and register new callback
-        callback = _make_engine_context_callback(name)
-        _ENGINE_CONTEXT_CALLBACKS[name] = callback
-
-        # Use the registry from services
+        # Register the callback (will replace any existing one)
         registry = _get_llm_callback_registry()
         registry.register(callback)
-        log("debug", f"Registered RAG callback for engine: {name}")
+
+        # Update active engine tracker
+        _ACTIVE_ENGINE_NAME = name
+
+        log("info", f"Activated RAG engine: {name} (only active engine)")
 
     except Exception as exc:
         log("warning", f"Failed to activate RAG engine '{name}': {exc}")
@@ -146,9 +167,11 @@ def _activate_rag_engine(name: str) -> None:
 
 def _deactivate_rag_engine(name: str) -> None:
     """Deactivate a RAG engine and unregister its callback."""
+    global _ACTIVE_ENGINE_NAME
+
     callback = _ENGINE_CONTEXT_CALLBACKS.get(name)
     if callback is not None:
-        # Use the registry from services
+        # Unregister from the registry
         registry = _get_llm_callback_registry()
         try:
             registry.unregister(callback)
@@ -156,12 +179,19 @@ def _deactivate_rag_engine(name: str) -> None:
         except Exception as exc:
             log("warning", f"Failed to unregister RAG callback for {name}: {exc}")
 
-        # Then remove from our internal dictionary
+        # Remove from our internal dictionary
         del _ENGINE_CONTEXT_CALLBACKS[name]
+
+        # Clear active engine if this was the active one
+        if _ACTIVE_ENGINE_NAME == name:
+            _ACTIVE_ENGINE_NAME = None
+            log("debug", f"Active engine cleared (was: {name})")
 
 
 def _clear_registered_context_callbacks() -> None:
     """Clear all registered context callbacks."""
+    global _ACTIVE_ENGINE_NAME
+
     registry = _get_llm_callback_registry()
 
     for name, callback in list(_ENGINE_CONTEXT_CALLBACKS.items()):
@@ -172,6 +202,7 @@ def _clear_registered_context_callbacks() -> None:
             log("debug", f"Failed to unregister RAG callback for {name}: {exc}")
 
     _ENGINE_CONTEXT_CALLBACKS.clear()
+    _ACTIVE_ENGINE_NAME = None
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +255,7 @@ def on_module_activated(services: Optional[Any] = None) -> None:
 
     Registers:
     - Driver options (rag_engine group)
-    - LLM context callbacks for the default engine
+    - LLM context callbacks for the default engine (ONLY ONE)
     """
     # Store services for later use
     if services is not None:
@@ -241,11 +272,17 @@ def on_module_activated(services: Optional[Any] = None) -> None:
                 get_rag_manager(config=cfg, user_manager=um)
 
     initialize()
+
+    # Clear any existing callbacks first to ensure clean state
+    _clear_registered_context_callbacks()
+
     try:
         mgr = _get_manager()
         if mgr.is_rag_enabled() and mgr.default_engine:
+            # This will automatically deactivate any other engine and
+            # ensure only this one is active
             _activate_rag_engine(mgr.default_engine)
-            log("info", f"RAG engine '{mgr.default_engine}' activated on module startup")
+            log("info", f"RAG engine '{mgr.default_engine}' activated on module startup (single engine mode)")
     except Exception as exc:
         log("warning", f"Failed to activate default RAG engine on startup: {exc}")
 
@@ -264,6 +301,21 @@ def on_module_config_changed() -> None:
     _get_manager().refresh_config()
     _clear_registered_context_callbacks()
 
+    # Re-activate the (possibly changed) default engine
+    try:
+        mgr = _get_manager()
+        if mgr.is_rag_enabled() and mgr.default_engine:
+            _activate_rag_engine(mgr.default_engine)
+            log("info", f"RAG engine '{mgr.default_engine}' re-activated after config change")
+    except Exception as exc:
+        log("warning", f"Failed to activate default RAG engine after config change: {exc}")
+
+
+# Add helper to check active engine
+def get_active_engine() -> Optional[str]:
+    """Return the name of the currently active RAG engine."""
+    return _ACTIVE_ENGINE_NAME
+
 
 __all__ = [
     "RAGManager",
@@ -277,4 +329,5 @@ __all__ = [
     "_deactivate_rag_engine",
     "_ENGINE_CONTEXT_CALLBACKS",
     "_make_engine_context_callback",
+    "get_active_engine",
 ]

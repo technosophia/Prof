@@ -350,27 +350,44 @@ class TestRealRAG:
         rag_manager = rag_test_setup["rag_manager"]
         user_id = "admin"
 
-        callback = _make_engine_context_callback(rag_manager.default_engine)
+        # IMPORTANT: Activate the engine first!
+        from modules.rag_manager import _activate_rag_engine, _deactivate_rag_engine
 
-        test_queries = [
-            ("Where does Kevin live?", ["1 place du Louvre", "Paris", "address"]),
-            ("What is Kevin's phone number?", ["+33", "phone", "number"]),
-            ("Where does Kevin work?", ["TechCorp", "software engineer", "works"]),
-        ]
+        # Store original active engine to restore later
+        original_default = rag_manager.default_engine
 
-        for query, expected_terms in test_queries:
-            logger.info(f"\nTesting query: '{query}'")
-            messages = [{"role": "user", "content": query}]
+        try:
+            # Activate the default engine
+            _activate_rag_engine(rag_manager.default_engine)
+            logger.info(f"Activated engine: {rag_manager.default_engine}")
 
-            context, role, position = callback(user_id, messages)
+            # Now create and use the callback
+            callback = _make_engine_context_callback(rag_manager.default_engine)
 
-            assert context, f"No context returned for query: {query}"
-            logger.info(f"  Context preview: {context[:200]}")
+            test_queries = [
+                ("Where does Kevin live?", ["1 place du Louvre", "Paris", "address"]),
+                ("What is Kevin's phone number?", ["+33", "phone", "number"]),
+                ("Where does Kevin work?", ["TechCorp", "software engineer", "works"]),
+            ]
 
-            # Check that at least one expected term is in the context
-            found_terms = [term for term in expected_terms if term.lower() in context.lower()]
-            assert found_terms, f"None of {expected_terms} found in context for query '{query}': {context[:200]}"
-            logger.info(f"  ✓ Found terms: {found_terms}")
+            for query, expected_terms in test_queries:
+                logger.info(f"\nTesting query: '{query}'")
+                messages = [{"role": "user", "content": query}]
+
+                context, role, position = callback(user_id, messages)
+
+                assert context, f"No context returned for query: {query}"
+                logger.info(f"  Context preview: {context[:200]}...")
+
+                # Check that at least one expected term is in the context
+                found_terms = [term for term in expected_terms if term.lower() in context.lower()]
+                assert found_terms, f"None of {expected_terms} found in context for query '{query}': {context[:200]}"
+                logger.info(f"  ✓ Found terms: {found_terms}")
+
+        finally:
+            # Clean up - deactivate the engine
+            _deactivate_rag_engine(rag_manager.default_engine)
+            logger.info(f"Deactivated engine: {rag_manager.default_engine}")
 
     def test_rag_multiple_users_permissions(self, rag_test_setup):
         """Test that different users see appropriate documents based on permissions."""
