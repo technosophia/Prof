@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import yaml
 
 from shared.common import get_current_llm_id, get_driver, get_user_manager, set_current_llm
-from shared.driver import DriverActionError, DriverContextError, DriverOptionError
+from shared.driver import DriverActionError, DriverContextError, DriverOptionError, DriverAssertionError
 
 from modules.benchmarker import initialize as initialize_benchmarker
 from modules.benchmarker.benchmarker import BenchmarkRun
