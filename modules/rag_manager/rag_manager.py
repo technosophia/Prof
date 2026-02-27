@@ -25,7 +25,6 @@ import pkgutil
 import sys
 
 from modules.rag_manager.rag_engine import RAGEngine
-from modules.rag_manager.rag_simple import SimpleRAGEngine
 from core.logging import log
 
 
@@ -173,8 +172,6 @@ class RAGManager:
     # ------------------------------------------------------------------
 
     def discover_engines(self):
-        self.register_engine(SimpleRAGEngine())
-
         engines_dir = Path(__file__).parent / "rag_engines"
         if engines_dir.exists():
             if str(engines_dir.parent) not in sys.path:

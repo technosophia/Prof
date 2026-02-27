@@ -15,10 +15,10 @@ import shutil
 from unittest.mock import Mock, patch
 
 from modules.rag_manager.rag_manager import RAGManager
-from modules.rag_manager.rag_simple import SimpleRAGEngine
+from modules.rag_manager.rag_engines.rag_simple import SimpleRAGEngine
 
 rag_manager_module = importlib.import_module("modules.rag_manager.rag_manager")
-rag_simple_module = importlib.import_module("modules.rag_manager.rag_simple")
+rag_simple_module = importlib.import_module("modules.rag_manager.rag_engines.rag_simple")
 
 # ---------------------------------------------------------------------------
 # Shared test doubles

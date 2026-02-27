@@ -14,9 +14,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import modules.rag_manager.rag_simple as rag_simple_module
+import modules.rag_manager.rag_engines.rag_simple as rag_simple_module
 from modules.rag_manager.rag_manager import RAGManager
-from modules.rag_manager.rag_simple import SimpleRAGEngine
+from modules.rag_manager.rag_engines.rag_simple import SimpleRAGEngine
 
 
 # ---------------------------------------------------------------------------
