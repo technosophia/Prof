@@ -34,12 +34,12 @@ def inject_ui_main_header():
     plugin_manager = get_plugin_manager()
     trainer_manager = get_trainer_manager()
 
-    # Get the specific suggest plugin
-    suggest_plugin = plugin_manager.get_plugin("suggest")
+    # Get the UI plugin instance for "suggest" (not the core plugin)
+    suggest_ui_plugin = plugin_manager.get_ui_plugin("suggest")
 
     # Check if plugin is active for this trainer
-    if suggest_plugin and trainer_manager.is_plugin_active(parent_id, "suggest"):
+    if suggest_ui_plugin and trainer_manager.is_plugin_active(parent_id, "suggest"):
         # Render the suggestion banner directly (no expander, should be visible)
-        widgets = suggest_plugin.render_student_header_widgets(user['id'], parent_id)
+        widgets = suggest_ui_plugin.render_student_header_widgets(user['id'], parent_id)
         for widget in widgets:
             widget()
