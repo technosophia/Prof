@@ -424,6 +424,16 @@ def register_action(
     get_driver().register_action(name, handler_fn, description, required_context)
 
 
+
+
+@require_services
+def register_assertion(
+    name: str,
+    handler_fn: Callable[..., Dict],
+    description: str = "",
+) -> None:
+    get_driver().register_assertion(name, handler_fn, description)
+
 @require_services
 def record_plugin_event(plugin_id: str, event: str, data: Optional[Dict] = None) -> None:
     get_driver().record_plugin_event(plugin_id, event, data or {})

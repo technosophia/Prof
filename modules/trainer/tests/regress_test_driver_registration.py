@@ -5,6 +5,7 @@ TODO : makge regression in modules/benchmarker/tests/test_runner_integration_rea
 import yaml
 
 import modules.trainer as trainer_module
+import modules.trainer.driver_layer as trainer_driver_layer
 from shared.common import get_driver
 
 
@@ -71,6 +72,7 @@ def _setup(monkeypatch):
     manager = FakeManager(plugins)
 
     monkeypatch.setattr(trainer_module, "get_plugin_manager", lambda: manager)
+    monkeypatch.setattr(trainer_driver_layer, "get_plugin_manager", lambda: manager)
     monkeypatch.setattr(trainer_module, "get_db_manager", lambda: object())
 
     trainer_module.initialize()
@@ -197,7 +199,7 @@ def test_trainer_id_none_in_context_logs_warning(monkeypatch):
         if level == "warning":
             warnings.append(message)
 
-    monkeypatch.setattr(trainer_module, "log", fake_log)
+    monkeypatch.setattr(trainer_driver_layer, "log", fake_log)
     driver.switch_option("memory_backend", "memory")
     assert plugins["memory"]._is_active is False
     assert any("trainer_id not set" in msg for msg in warnings)
@@ -226,3 +228,10 @@ def test_trainer_ui_initialize_calls_trainer_initialize(monkeypatch):
 
     assert trainer_ui.inject_ui_initialize() is True
     assert called["count"] == 1
+
+
+def test_trainer_assertions_registered(monkeypatch):
+    driver, _ = _setup(monkeypatch)
+    names = [a["name"] for a in driver.list_assertions()]
+    assert "action_succeeded" in names
+    assert "injected_context_contains" in names
