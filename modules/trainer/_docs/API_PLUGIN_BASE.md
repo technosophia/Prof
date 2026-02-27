@@ -5,253 +5,47 @@
 
 # API — plugin_base
 
-Trainer Plugin Base Module
+Trainer plugin compatibility layer and plugin manager.
 
-This module provides the foundation for creating Trainer plugins.
-Plugins extend the functionality of the Trainer module by adding custom
-features, UI components, and data processing capabilities.
 
-Goal: Enable developers to create modular, disposable features that can be
-quickly implemented and tested with users.
+This module provides the PluginManager for discovering and loading Trainer plugins,
+and maintains backward compatibility for legacy single-class plugins.
 
-Principles:
-- Keep plugins focused on a single responsibility
-- Minimize coupling between plugins
-- Use provided hooks instead of modifying core code
-- Follow bio-coding: make plugins easy to create and discard
-
-Architecture — two-layer design (enforced by convention, future: two classes):
+Architecture — Two-class plugin system:
 ─────────────────────────────────────────────────────────────────────────────
-  DATA LAYER  (below the line)
-    Methods: get_context(), on_activate(),
-             on_deactivate(), and any private
-             helpers they call.
-    Rules:
-      - MUST use self.<service> attributes set in initialize(services)
-      - MUST NOT import from st_shared.cached
-      - MUST NOT import streamlit
-      - MUST be callable headless (no Streamlit process)
+  CORE CLASS (data layer) — plugins/<id>/core.py
+    - Inherits from TrainerPluginCore
+    - Contains all data methods and business logic
+    - No streamlit imports, callable headless
 
-  UI LAYER  (above the line)
-    Methods: render_student_widgets(), render_dashboard_widgets(),
-             render_student_header_widgets(), render_get_admin_tabs()
-    Rules:
-      - MUST only call self.<data_method>() for all data access
-      - MAY import and use streamlit freely
-      - MUST NOT call st_shared.cached or database code directly
+  UI CLASS (presentation layer) — plugins/<id>/ui.py
+    - Inherits from TrainerPluginUI
+    - Contains all render methods
+    - Holds reference to core instance as self._core
+    - All data access via self._core.<method>()
 
-  Future split: when two-class separation is needed, data methods move to
-  PluginLogic and render methods move to PluginUI. The only change in render
-  methods will be: self.xxx() → self._logic.xxx(). No logic rewrite needed.
-─────────────────────────────────────────────────────────────────────────────
+  ENTRY POINTS — plugins/<id>/__init__.py
+    - Exports plugin_core and plugin_ui classes
 
-How to create a new plugin:
-1. Create a directory in /modules/trainer/plugins/ with your plugin ID
-2. Add plugin.json manifest (see example below)
-3. Create __init__.py with your plugin class inheriting from TrainerPlugin
-4. Implement required abstract methods
-5. Call super().__init__(manifest) and set service attributes in initialize()
-6. Override hooks as needed, respecting the data/UI layer rules above
+PluginManager handles both:
+  - New style: separate core + ui classes via entry points
+  - Legacy: single class inheriting TrainerPlugin (backward compatible)
 
-Plugin manifest example (plugin.json):
-{
-    "id": "my_plugin",
-    "name": "My Plugin",
-    "version": "1.0.0",
-    "description": "Does something useful",
-    "author": "Your Name",
-    "enabled_by_default": true,
-    "category": "analytics"
-}
+Key invariant: deleting all ui.py files must leave a fully functional
+headless system. The PluginManager only loads UI classes when Streamlit
+is available.
 
-See PLUGIN_MIGRATE.md for step-by-step migration of existing plugins.
+Usage:
+    from modules.trainer.plugin_base import get_plugin_manager
 
----
+    # Get manager (singleton)
+    plugin_mgr = get_plugin_manager(trainer_manager)
 
-### Class `TrainerPlugin`
+    # Get core plugin instance
+    core = plugin_mgr.get_plugin("memory")
 
-```python
-class TrainerPlugin(ABC):
-```
+    # Get UI plugin instance (only if Streamlit available)
+    ui = plugin_mgr.get_ui_plugin("memory")
 
-Base class for all Trainer plugins.
-
-    All plugins must inherit from this class and implement the abstract methods.
-    Override the optional methods to add functionality at specific hooks.
-
-    Lifecycle:
-    1. Plugin is discovered — initialize(services) called once at startup.
-       services is a ServiceLocator or None (legacy / Streamlit-cached fallback).
-    2. For each trainer, on_activate() called when plugin is enabled.
-    3. Plugin hooks are called when relevant UI is rendered.
-    4. When trainer disables plugin, on_deactivate() called for cleanup.
-
-    Service attributes (set in initialize, used by data methods):
-        self.db              — db_manager
-        self.user_manager    — user_manager
-        self.conversation_manager — conversation_manager
-        self.llm_manager     — llm_manager (if needed)
-        self.config          — config (if needed)
-
-    Plugins that have not yet been migrated may still use st_shared.cached
-    inside initialize() as a fallback when services is None. See PLUGIN_MIGRATE.md.
-
-#### `initialize`
-
-```python
-def initialize(self, services=None) -> bool:
-```
-
-Initialize the plugin. Called once at module startup.
-
-        Pattern for migrated plugins:
-            def initialize(self, services=None) -> bool:
-                self._resolve_services(services)
-                # one-time setup: create DB tables, register callbacks, etc.
-                return True
-
-        Args:
-            services: ServiceLocator passed by PluginManager, or None (legacy).
-
-        Returns:
-            bool: True if initialization successful, False otherwise.
-
-#### `on_activate`
-
-```python
-def on_activate(self, trainer_id: str) -> None:
-```
-
-Called when the plugin is activated for a specific trainer.
-
-        DATA LAYER — no st.* calls allowed here.
-
-        Args:
-            trainer_id: The trainer's ID
-
-#### `on_deactivate`
-
-```python
-def on_deactivate(self, trainer_id: str) -> None:
-```
-
-Called when the plugin is deactivated for a specific trainer.
-
-        DATA LAYER — no st.* calls allowed here.
-
-        Args:
-            trainer_id: The trainer's ID
-
-#### `get_context`
-
-```python
-def get_context(self, student_id: str) -> Dict[str, str]:
-```
-
-Get plugin-specific context information for a student.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Returns:
-            Dictionary of context strings (key: label, value: context data)
-
-#### `export_config`
-
-```python
-def export_config(self, trainer_id: str) -> Optional[Dict]:
-```
-
-Export plugin configuration for YAML export.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Returns:
-            Dictionary of configuration data or None
-
-#### `import_config`
-
-```python
-def import_config(self, trainer_id: str, config: Dict) -> bool:
-```
-
-Import plugin configuration from YAML.
-
-        DATA LAYER — use self.<service> attributes only.
-
-
-Export plugin-specific history events in minimal format.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Each event must contain at minimum:
-        - timestamp: ISO format datetime
-        - type: event type (e.g., 'plugin.score_update')
-        - plugin_id: this plugin's ID
-
-        Returns:
-            List of minimal event dictionaries
-
-#### `import_history`
-
-```python
-def import_history(self, trainer_id: str, events: List[Dict[str, Any]], student_info: Dict = None) -> bool:
-```
-
-Import plugin-specific history events.
-
-        DATA LAYER — use self.<service> attributes only.
-
-        Returns:
-            True if import successful, False otherwise
-
-#### `render_get_admin_tabs`
-
-```python
-def render_get_admin_tabs(self, trainer_id: str) -> List[tuple]:
-```
-
-Return list of admin UI tabs for this plugin.
-
-        UI LAYER — may use st.*; must call self.<data_method>() for data.
-
-        Returns:
-            List of (tab_name, render_function) tuples
-
-#### `render_dashboard_widgets`
-
-```python
-def render_dashboard_widgets(self, trainer_id: str, students: List[Dict]) -> List[Callable]:
-```
-
-Return list of render functions for dashboard widgets.
-
-        UI LAYER — may use st.*; must call self.<data_method>() for data.
-
-        Returns:
-            List of callable render functions
-
-#### `render_student_widgets`
-
-```python
-def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
-```
-
-Return list of render functions for student-specific widgets.
-
-        UI LAYER — may use st.*; must call self.<data_method>() for data.
-
-        Returns:
-            List of callable render functions
-
-#### `render_student_header_widgets`
-
-```python
-def render_student_header_widgets(self, student_id: str, trainer_id: str) -> List[Callable]:
-```
-
-Return list of render functions for student header area.
-
-        UI LAYER — may use st.*; must call self.<data_method>() for data.
-
-        Returns:
-            List of callable render functions
+    # Get all active UI plugins for a trainer
+    active_ui = plugin_mgr.get_active_ui_plugins(trainer_id)
