@@ -30,6 +30,15 @@ def _list_sessions(sessions_dir: str) -> List[str]:
     return sorted([os.path.join(sessions_dir, f) for f in os.listdir(sessions_dir) if f.endswith(".yaml")], reverse=True)
 
 
+
+
+def _flatten_options(options: Dict) -> Dict:
+    flattened = {}
+    for key, value in (options or {}).items():
+        flattened[f"option_{key}"] = value
+    return flattened
+
+
 def _render_results(run_result: RunResult, events: List[Dict]) -> None:
     if run_result.errors:
         st.error("Run errors:\n" + "\n".join(f"- {err}" for err in run_result.errors))
@@ -154,41 +163,51 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
 
 def _render_compare_tab() -> None:
     with get_db_manager().get_session() as db:
-        scenarios = [row[0] for row in db.query(BenchmarkRun.scenario_name).distinct().all()]
+        db_runs = db.query(BenchmarkRun).order_by(BenchmarkRun.run_at.desc()).all()
+        scenarios = sorted({run.scenario_name for run in db_runs})
 
     if not scenarios:
         st.info(_p("compare_no_runs", "No runs found for this scenario."))
         return
 
-    scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), sorted(scenarios))
+    st.caption("Runs grouped by available option groups")
+    all_groups = sorted({key for run in db_runs for key in (run.options or {}).keys()})
+    for group_name in all_groups:
+        with st.expander(f"Group: {group_name}", expanded=False):
+            grouped_rows = []
+            for run in db_runs:
+                grouped_rows.append(
+                    {
+                        "run_at": str(run.run_at),
+                        "scenario": run.scenario_name,
+                        "session_file": run.session_file,
+                        "value": (run.options or {}).get(group_name, "<unset>"),
+                        **_flatten_options(run.options or {}),
+                    }
+                )
+            st.dataframe(grouped_rows, width="stretch")
+
+    scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), scenarios)
     st.caption(
         "Select a scenario, then choose which option to compare across runs. "
         "Each run with a different option value becomes one column in the comparison."
     )
     group_choices = sorted(get_driver().list_options().keys()) or ["memory_backend"]
     group_by = st.selectbox(_p("compare_group_by", "Group by option"), group_choices)
+    invert = st.checkbox("Invert rows/columns in display", key=f"compare_invert_{scenario_name}_{group_by}")
+
     if st.button(_p("compare_run_button", "Generate comparison")):
         report = Comparer().compare(scenario_name, group_by=group_by)
         if not report.groups:
             st.info(_p("compare_no_runs", "No runs found for this scenario."))
             return
 
-        if len(report.groups) < 2:
-            st.info(
-                _p(
-                    "compare_min_runs_hint",
-                    "To compare, run this scenario at least twice with different '{group_by}' options.",
-                ).format(group_by=group_by)
-                + " "
-                + f"Currently only {len(report.groups)} option value(s) found: "
-                + f"{[g.option_value for g in report.groups]}"
-            )
-
         has_scores = any(any((stats.get("runs_scored", 0) > 0) for stats in g.scoring.values()) for g in report.groups)
         if not has_scores:
             st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
 
         table = []
+        scorer_names = sorted({scorer_name for group in report.groups for scorer_name in group.scoring.keys()})
         for g in report.groups:
             row = {
                 "option": g.option_value,
@@ -202,7 +221,19 @@ def _render_compare_tab() -> None:
                 row[f"{scorer_name}.scores"] = scorer_stats.get("scores", {})
                 row[f"{scorer_name}.overall"] = scorer_stats.get("overall")
             table.append(row)
-        st.dataframe(table, width="stretch")
+
+        if invert:
+            inverted = []
+            for scorer_name in scorer_names:
+                inv_row = {"scorer": scorer_name}
+                for g in report.groups:
+                    inv_row[f"{g.option_value}.runs_scored"] = g.scoring.get(scorer_name, {}).get("runs_scored", 0)
+                    inv_row[f"{g.option_value}.scores"] = g.scoring.get(scorer_name, {}).get("scores", {})
+                    inv_row[f"{g.option_value}.overall"] = g.scoring.get(scorer_name, {}).get("overall")
+                inverted.append(inv_row)
+            st.dataframe(inverted, width="stretch")
+        else:
+            st.dataframe(table, width="stretch")
 
         yaml_report = Comparer().to_yaml(report)
         st.download_button(_p("compare_download", "Download report YAML"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
@@ -310,7 +341,7 @@ def render() -> None:
                 {
                     "run_at": str(r.run_at),
                     "scenario_name": r.scenario_name,
-                    "options": str(r.options),
+                    **_flatten_options(r.options or {}),
                     "success": bool(r.success),
                     "assertions": f"{r.assertions_passed}/{r.assertions_total}",
                     "duration_seconds": r.duration_seconds,
@@ -329,8 +360,9 @@ def render() -> None:
                 key="benchmarker_history_selected_session",
             )
             if selected_session and os.path.exists(selected_session):
-                with open(selected_session, "r", encoding="utf-8") as handle:
-                    st.code(handle.read(), language="yaml")
+                with st.expander("Session YAML", expanded=False):
+                    with open(selected_session, "r", encoding="utf-8") as handle:
+                        st.code(handle.read(), language="yaml")
             elif selected_session:
                 st.warning(f"Session file not found: {selected_session}")
 

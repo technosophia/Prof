@@ -42,6 +42,9 @@ class ScorerPlugin(BaseScorerPlugin):
             return
 
         container.info(f"Computing embeddings with model: {model_name}")
+        submit_key = f"embedding_submit_{session_path}"
+        if not container.button("Compute similarity", key=submit_key):
+            return
 
         from sentence_transformers import SentenceTransformer, util
 

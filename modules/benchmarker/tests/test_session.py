@@ -99,6 +99,8 @@ def test_session_excludes_scoring_fields_and_includes_configuration(tmp_path):
     assert "judge_prompt" not in data
     assert "scores" not in data
     assert data["meta"]["configuration"]["llm"] == "mock-llm"
+    assert "student_id" in data["meta"]
+    assert "trainer_id" in data["meta"]
 
 
 def test_expected_response_is_optional_and_not_null(tmp_path):

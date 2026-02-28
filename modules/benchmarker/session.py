@@ -36,6 +36,8 @@ class SessionSerializer:
         llm_id: str | None = None,
         run_duration: float = 0.0,
         scenario_steps: List[Dict] = None,
+        student_id: str | None = None,
+        trainer_id: str | None = None,
     ) -> str:
         """Write session yaml file and return path."""
         os.makedirs(output_dir, exist_ok=True)
@@ -81,6 +83,8 @@ class SessionSerializer:
                 "options": options_snapshot or {},
                 "llm": llm_id,
                 "success": run_result.success,
+                "student_id": student_id,
+                "trainer_id": trainer_id,
             },
             "summary": {
                 "total_steps": len(run_result.steps),

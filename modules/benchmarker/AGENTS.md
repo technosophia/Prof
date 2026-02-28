@@ -37,6 +37,7 @@ Current scorers:
 - `scorer_manual.py` — rubric-based sliders, human fills scores in UI
 - `scorer_llm_external.py` — renders judge prompt, user pastes LLM response
 - `scorer_embedding.py` — automatic cosine similarity vs expected_response
+- `scorer_llm_internal.py` — scores selected rubrics using the currently active internal LLM
 
 ### Judge tab
 Selects session + scorer. Calls scorer.compute_score(session, config, container).

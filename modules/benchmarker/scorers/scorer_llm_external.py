@@ -12,10 +12,7 @@ class ScorerPlugin(BaseScorerPlugin):
     name = "External LLM Judge"
 
     def compute_score(self, session: Dict, config: Dict, container) -> None:
-        import streamlit as st
         from modules.benchmarker.scorers.prompt_renderer import RubricLoader, JudgePromptRenderer
-
-        del st
 
         session_path = config["session_path"]
         loader = RubricLoader()
@@ -30,8 +27,8 @@ class ScorerPlugin(BaseScorerPlugin):
         rubric = loader.load(rubric_name)
 
         prompt = JudgePromptRenderer().render(session, rubric)
-        container.subheader("Judge prompt — copy this to your LLM")
-        container.code(prompt, language="text")
+        with container.expander("Judge prompt — copy this to your LLM", expanded=False):
+            container.code(prompt, language="text")
 
         paste_key = f"llm_ext_paste_{session_path}"
         pasted = container.text_area(
