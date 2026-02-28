@@ -8,6 +8,9 @@ import yaml
 
 from shared.common import get_driver, get_prompt
 
+from modules.benchmarker.analyser import Analyser
+from modules.benchmarker.matrix_runner import MatrixRunner
+
 from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.comparer import Comparer
 from modules.benchmarker.runner import RunResult, ScenarioRunner
@@ -288,15 +291,230 @@ def _render_compare_tab() -> None:
         st.download_button(_p("compare_download", "Download report YAML"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
 
 
+def _config_label(llm_id: str, memory_backend: str, rag_engine: str) -> str:
+    return f"{llm_id or '-'} / {memory_backend or '-'} / {rag_engine or '-'}"
+
+
+def _render_matrix_tab(runner: ScenarioRunner) -> None:
+    scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
+    if not os.path.isdir(scenarios_dir):
+        st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
+        return
+
+    scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
+    scenario_paths = st.multiselect(
+        _p("matrix_scenarios_label", "Scenarios"),
+        [os.path.join(scenarios_dir, f) for f in scenario_files],
+        format_func=lambda path: os.path.basename(path),
+    )
+
+    options_map = get_driver().list_options()
+    llm_options = [opt.get("name") for opt in options_map.get("llm", []) if opt.get("name")]
+    memory_options = [opt.get("name") for opt in options_map.get("memory_backend", []) if opt.get("name")]
+    rag_options = [opt.get("name") for opt in options_map.get("rag_engine", []) if opt.get("name")]
+
+    llm_selected = st.multiselect(_p("matrix_llm_label", "LLMs"), ["None"] + llm_options, default=["None"])
+    memory_selected = st.multiselect(_p("matrix_memory_label", "Memory backends"), ["None"] + memory_options, default=["None"])
+    rag_selected = st.multiselect(_p("matrix_rag_label", "RAG engines"), ["None"] + rag_options, default=["None"])
+
+    llm_ids = ["" if item == "None" else item for item in llm_selected] or [""]
+    memory_backends = ["" if item == "None" else item for item in memory_selected] or [""]
+    rag_engines = ["" if item == "None" else item for item in rag_selected] or [""]
+
+    student_override = st.text_input(_p("matrix_student_label", "Student ID"), value="")
+    trainer_override = st.text_input(_p("matrix_trainer_label", "Teacher ID"), value="")
+
+    n_scenarios = len(scenario_paths)
+    n_combos = len(llm_ids or [""]) * len(memory_backends or [""]) * len(rag_engines or [""])
+    total = n_scenarios * n_combos
+    st.caption(_p("matrix_preview", "Matrix: {n_scenarios} scenarios × {n_combos} option combinations = {total} runs").format(
+        n_scenarios=n_scenarios, n_combos=n_combos, total=total
+    ))
+
+    if st.button(_p("matrix_validate_button", "Validate matrix")):
+        warnings = MatrixRunner().validate_matrix(scenario_paths, llm_ids, memory_backends, rag_engines)
+        blocking = [w for w in warnings if w.blocking]
+        non_blocking = [w for w in warnings if not w.blocking]
+        st.caption(_p("matrix_warning_counts", "Blocking: {blocking} | Non-blocking: {non_blocking}").format(
+            blocking=len(blocking), non_blocking=len(non_blocking)
+        ))
+        if warnings:
+            st.dataframe([
+                {
+                    "scenario": os.path.basename(w.scenario_path),
+                    "llm": w.cell.llm_id or "-",
+                    "memory_backend": w.cell.memory_backend or "-",
+                    "rag_engine": w.cell.rag_engine or "-",
+                    "message": w.message,
+                    "blocking": w.blocking,
+                }
+                for w in warnings
+            ], width="stretch")
+        else:
+            st.success(_p("matrix_no_warnings", "No pre-flight warnings."))
+
+        blocking_combo_count = len({f"{w.scenario_path}|{w.cell.llm_id}|{w.cell.memory_backend}|{w.cell.rag_engine}" for w in blocking})
+        st.info(_p("matrix_ready", "Ready to run: {n} combinations ({m} will be skipped)").format(
+            n=max(total - blocking_combo_count, 0), m=blocking_combo_count
+        ))
+
+    if not scenario_paths:
+        st.warning(_p("matrix_need_scenarios", "Select at least one scenario to run the matrix."))
+        return
+
+    if st.button(_p("matrix_run_button", "▶ Run Matrix")):
+        progress = st.empty()
+
+        def _progress(i: int, total_count: int, label: str) -> None:
+            progress.info(_p("matrix_running_progress", "Running matrix... {i}/{total} — {label}").format(i=i, total=total_count, label=label))
+
+        matrix_runner = MatrixRunner(progress_callback=_progress)
+        with st.spinner(_p("matrix_running_spinner", "Running matrix...")):
+            result = matrix_runner.run_matrix(
+                scenario_paths=scenario_paths,
+                llm_ids=llm_ids,
+                memory_backends=memory_backends,
+                rag_engines=rag_engines,
+                setup_overrides={"student_id": student_override, "trainer_id": trainer_override},
+            )
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("total", result.total)
+        m2.metric("completed", result.completed)
+        m3.metric("failed", result.failed)
+        m4.metric("skipped", result.skipped)
+
+        rows = []
+        for cell in result.cells:
+            rr = cell.run_result
+            rows.append({
+                "scenario": cell.scenario_name,
+                "llm": cell.cell.llm_id or "-",
+                "memory_backend": cell.cell.memory_backend or "-",
+                "rag_engine": cell.cell.rag_engine or "-",
+                "success": bool(rr.success) if rr else False,
+                "assertions_passed/total": f"{rr.assertions_passed}/{rr.assertions_total}" if rr else "0/0",
+                "session_file": cell.session_path,
+            })
+        st.dataframe(rows, width="stretch")
+
+
+def _render_analysis_tab() -> None:
+    with get_db_manager().get_session() as db:
+        scenarios = sorted({row.scenario_name for row in db.query(BenchmarkRun).all()})
+
+    selected_scenarios = st.multiselect(_p("analysis_scenario_filter", "Scenario filter"), scenarios)
+    matrix_only = st.checkbox(_p("analysis_matrix_only", "Matrix runs only"), value=False)
+
+    if not st.button(_p("analysis_run_button", "Run analysis")):
+        return
+
+    analyser = Analyser()
+    dataset = analyser.load_data(scenario_filter=selected_scenarios or None, matrix_only=matrix_only)
+    report = analyser.analyse(dataset)
+
+    if report.n_runs == 0:
+        st.info(_p("analysis_empty", "No runs found for these filters."))
+        return
+
+    with st.expander(_p("analysis_section_overview", "Overview"), expanded=True):
+        m1, m2, m3 = st.columns(3)
+        m1.metric("n_runs", report.n_runs)
+        m2.metric("n_scenarios", report.n_scenarios)
+        m3.metric("n_configurations", len(report.configurations))
+        counts = {}
+        for row in report.raw_rows:
+            label = _config_label(row.llm_id, row.memory_backend, row.rag_engine)
+            counts[label] = counts.get(label, 0) + 1
+        st.dataframe([{"configuration": k, "runs": v} for k, v in sorted(counts.items())], width="stretch")
+
+    with st.expander(_p("analysis_section_metrics", "Per-metric breakdown"), expanded=False):
+        if not report.dimensions:
+            st.info(_p("analysis_no_metrics", "No metrics available."))
+        else:
+            scorer_groups = {}
+            for dim in report.dimensions:
+                scorer_groups.setdefault(dim.scorer_id or "built_in", []).append(dim)
+            for scorer_id, dims in scorer_groups.items():
+                with st.expander(f"{scorer_id}", expanded=False):
+                    for dim in dims:
+                        table = []
+                        for config, stats in dim.config_stats.items():
+                            table.append({"config": config, **stats.__dict__})
+                        st.caption(f"{dim.metric_name} — best: {dim.best_config}")
+                        st.dataframe(table, width="stretch")
+
+    with st.expander(_p("analysis_section_pairwise", "Pairwise comparison"), expanded=False):
+        pairs = report.config_comparison.pairwise
+        if not pairs:
+            st.info(_p("analysis_no_pairwise", "Not enough configurations for pairwise comparison."))
+        else:
+            configs = report.configurations
+            matrix_rows = []
+            pair_map = {}
+            for pair in pairs:
+                pair_map[(pair.config_a, pair.config_b)] = pair
+                pair_map[(pair.config_b, pair.config_a)] = pair
+            for row_cfg in configs:
+                row = {"config": row_cfg}
+                for col_cfg in configs:
+                    if row_cfg == col_cfg:
+                        row[col_cfg] = "-"
+                        continue
+                    pair = pair_map.get((row_cfg, col_cfg))
+                    if not pair:
+                        row[col_cfg] = ""
+                    elif pair.config_a == row_cfg:
+                        row[col_cfg] = f"{pair.metrics_a_wins} / {pair.metrics_b_wins} / {pair.metrics_tied}"
+                    else:
+                        row[col_cfg] = f"{pair.metrics_b_wins} / {pair.metrics_a_wins} / {pair.metrics_tied}"
+                matrix_rows.append(row)
+            st.dataframe(matrix_rows, width="stretch")
+
+            wins = {cfg: 0 for cfg in configs}
+            for pair in pairs:
+                wins[pair.config_a] += pair.metrics_a_wins
+                wins[pair.config_b] += pair.metrics_b_wins
+                if pair.a_always_better:
+                    st.success(_p("analysis_always_better", "✅ {a} is strictly always better than {b} across all metrics and all runs").format(a=pair.config_a, b=pair.config_b))
+                if pair.b_always_better:
+                    st.success(_p("analysis_always_better", "✅ {a} is strictly always better than {b} across all metrics and all runs").format(a=pair.config_b, b=pair.config_a))
+            for idx, item in enumerate(sorted(wins.items(), key=lambda x: x[1], reverse=True), start=1):
+                st.write(f"{idx}. {item[0]} — {item[1]} metric wins across all comparisons")
+
+    with st.expander(_p("analysis_section_dominance", "Dominance summary"), expanded=False):
+        dom_rows = [
+            {
+                "config": item.config,
+                "dominated_by": item.dominated_by or "",
+                "dominates": ", ".join(item.dominates),
+                "rank_by_wins": item.rank_by_wins,
+            }
+            for item in report.config_comparison.dominance
+        ]
+        if not dom_rows:
+            st.info(_p("analysis_no_dominance", "No dominance data available."))
+        else:
+            st.dataframe(dom_rows, width="stretch")
+
+    st.download_button(
+        _p("analysis_download", "Download analysis YAML"),
+        data=analyser.to_yaml(report),
+        file_name="benchmarker_analysis.yaml",
+    )
+
+
 def render() -> None:
-    """Render benchmarker UI with Run, History, Judge, Compare and Diagnose tabs."""
+    """Render benchmarker UI with benchmark execution, scoring and analysis tabs."""
     runner = ScenarioRunner()
 
-    run_tab, history_tab, judge_tab, compare_tab, diagnose_tab = st.tabs([
+    run_tab, history_tab, judge_tab, compare_tab, matrix_tab, analysis_tab, diagnose_tab = st.tabs([
         _p("run_tab_title", "Run Scenario"),
         _p("history_tab_title", "History"),
         _p("judge_tab_title", "Judge"),
         _p("compare_tab_title", "Compare"),
+        _p("matrix_tab_title", "Matrix Run"),
+        _p("analysis_tab_title", "Analysis"),
         _p("diagnose_tab_title", "Diagnose"),
     ])
 
@@ -430,6 +648,12 @@ def render() -> None:
 
     with compare_tab:
         _render_compare_tab()
+
+    with matrix_tab:
+        _render_matrix_tab(runner)
+
+    with analysis_tab:
+        _render_analysis_tab()
 
     with diagnose_tab:
         driver = get_driver()
