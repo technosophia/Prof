@@ -130,6 +130,7 @@ def can_access_admin(current_user):
 def main():
     # Log main function entry
     log("debug", "Entering main function")
+    #st.set_page_config(layout="wide")
 
     # NEW: Check if app needs initialization
     if not st.session_state.app_initialized:
