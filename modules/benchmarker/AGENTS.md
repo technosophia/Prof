@@ -39,7 +39,9 @@ Live in `scorers/`. Each implements `ScorerPlugin` from `scorers/base.py`.
 See `SCORER_PLUGIN.md` for how to create a new scorer.
 
 Current scorers (registered at startup):
-- (none yet — added in next pass)
+- `manual.py` — human-provided scores, typed via UI or imported from session YAML `scores:` block
+- `llm_external.py` — generates judge prompt for any external LLM; accepts pasted YAML response
+- `embedding_similarity.py` — cosine similarity vs `expected_response` per step; requires `sentence-transformers`
 
 Shared utilities in `scorers/`:
 - `prompt_renderer.py` — RubricLoader, JudgePromptRenderer (used by rubric-based scorers)
