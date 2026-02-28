@@ -7,38 +7,46 @@ import os
 import pkgutil
 from typing import Dict, List, Optional
 
+import streamlit as st
+
 from core.logging import log
 from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.scorers.base import ScoringResult
 from st_shared.cached import get_db_manager
 
 
+@st.cache_resource
+def _build_registry() -> Dict[str, object]:
+    """Discover and instantiate all scorer plugins. Cached for the lifetime of the server process."""
+    import modules.benchmarker.scorers as scorers_pkg
+
+    registry: Dict[str, object] = {}
+    scorers_dir = os.path.dirname(scorers_pkg.__file__)
+
+    for _finder, module_name, _ in pkgutil.iter_modules([scorers_dir]):
+        if not module_name.startswith("scorer_"):
+            continue
+        full_name = f"modules.benchmarker.scorers.{module_name}"
+        try:
+            module = importlib.import_module(full_name)
+            cls = getattr(module, "ScorerPlugin", None)
+            if cls is None:
+                log("warning", f"Scorer module {module_name} has no ScorerPlugin class — skipped")
+                continue
+            instance = cls()
+            registry[instance.id] = instance
+            log("info", f"Scorer registered: {instance.id} ({instance.name})")
+        except Exception as exc:
+            log("warning", f"Failed to load scorer module {module_name}: {exc}", exc_info=True)
+
+    return registry
+
+
 class ScoringPipeline:
     """Discovers scorer plugins and provides result-loading helpers."""
 
     def __init__(self):
-        self._registry: Dict[str, object] = {}
-        self._autodiscover()
-
-    def _autodiscover(self) -> None:
-        import modules.benchmarker.scorers as scorers_pkg
-
-        scorers_dir = os.path.dirname(scorers_pkg.__file__)
-        for _finder, module_name, _ in pkgutil.iter_modules([scorers_dir]):
-            if not module_name.startswith("scorer_"):
-                continue
-            full_name = f"modules.benchmarker.scorers.{module_name}"
-            try:
-                module = importlib.import_module(full_name)
-                cls = getattr(module, "ScorerPlugin", None)
-                if cls is None:
-                    log("warning", f"Scorer module {module_name} has no ScorerPlugin class — skipped")
-                    continue
-                instance = cls()
-                self._registry[instance.id] = instance
-                log("info", f"Scorer registered: {instance.id} ({instance.name})")
-            except Exception as exc:
-                log("warning", f"Failed to load scorer module {module_name}: {exc}", exc_info=True)
+        self._registry = _build_registry()
 
     def get_scorer(self, scorer_id: str):
         """Return scorer instance by id, or None."""
@@ -86,12 +94,7 @@ class ScoringPipeline:
         )
 
 
-_SCORING_PIPELINE: Optional[ScoringPipeline] = None
-
-
+@st.cache_resource
 def get_scoring_pipeline() -> ScoringPipeline:
-    """Return singleton scoring pipeline instance."""
-    global _SCORING_PIPELINE
-    if _SCORING_PIPELINE is None:
-        _SCORING_PIPELINE = ScoringPipeline()
-    return _SCORING_PIPELINE
+    """Return singleton scoring pipeline instance. Cached for the lifetime of the server process."""
+    return ScoringPipeline()
