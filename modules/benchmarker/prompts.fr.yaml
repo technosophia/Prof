@@ -1,38 +1,3 @@
-run_tab_title: "Exécuter un scénario"
-history_tab_title: "Historique"
-no_scenarios_found: "Aucun fichier de scénario trouvé dans le répertoire des scénarios."
-scenario_preview: "Étapes: {step_count} | Options: {options_summary}"
-running_spinner: "Relecture du scénario..."
-all_passed: "{passed}/{total} assertions validées"
-some_failed: "{passed}/{total} assertions validées — {failed} en échec"
-step_log_header: "[{actor}] {action}"
-no_history: "Aucune exécution de benchmark enregistrée pour le moment."
-clear_history_confirm: "Cela supprimera toutes les exécutions de benchmark et les fichiers de session. Continuer ?"
-judge_tab_title: "Juge"
-judge_select_session: "Sélectionner la session à évaluer"
-judge_select_rubric: "Sélectionner la grille"
-judge_run_llm: "Évaluer avec le LLM"
-judge_export_prompt: "Exporter le prompt de jugement"
-judge_import_scores: "Importer les scores depuis le YAML de session"
-judge_scoring_spinner: "Appel du LLM juge..."
-judge_scored_success: "Session évaluée. Global: {overall}/5"
-judge_scored_partial: "Évalué avec avertissements: {warnings}"
-judge_scored_failed: "Échec de l'évaluation — vérifier les logs"
-judge_prompt_export_help: >
-  Copiez le prompt ci-dessous et collez-le dans n'importe quel chatbot LLM.
-  Remplissez le bloc scores.dimensions dans le YAML de session,
-  puis utilisez 'Importer les scores' pour les charger.
-
-compare_tab_title: "Comparer"
-compare_select_scenario: "Sélectionner le scénario"
-compare_group_by: "Grouper par option"
-compare_select_rubric: "Sélectionner la grille (optionnel)"
-compare_run_button: "Générer la comparaison"
-compare_no_runs: "Aucune exécution trouvée pour ce scénario."
-compare_no_scores: "Aucun score disponible pour l’instant — lancez d'abord l’évaluation."
-compare_winner: "Gagnant: {winner} (Δ {delta:+.2f})"
-compare_download: "Télécharger le rapport YAML"
-
 judge_prompt_template: |
   Vous évaluez un système de tutorat IA. Votre tâche est de noter la qualité
   du comportement du système pendant une session de tutorat, en utilisant la grille ci-dessous.
@@ -63,15 +28,3 @@ judge_response_format: |
   {dimension_lines}
     overall: <mean of above>
     notes: "<one paragraph evaluation summary>"
-
-diagnose_tab_title: "Diagnostiquer"
-diagnose_options_header: "Options enregistrées"
-diagnose_actions_header: "Actions enregistrées"
-diagnose_validator_header: "Validateur de scénario"
-diagnose_context_header: "Contexte courant du driver"
-diagnose_no_options: "Aucune option enregistrée. Vérifiez que les modules qui enregistrent des options driver sont activés."
-diagnose_no_actions: "Aucune action enregistrée. Vérifiez que le benchmarker est correctement initialisé."
-diagnose_scenario_valid: "Le scénario est valide — toutes les options et actions sont enregistrées."
-diagnose_context_not_set: "non défini"
-diagnose_actor_caption: "Mappage des acteurs : 'student' → student_id | 'teacher' → trainer_id | 'system' → actions de configuration"
-compare_min_runs_hint: "Pour comparer, exécutez ce scénario au moins deux fois avec des options '{group_by}' différentes."

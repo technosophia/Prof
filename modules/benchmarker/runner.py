@@ -81,6 +81,7 @@ class ScenarioRunner:
         option_overrides: Optional[Dict[str, str]] = None,
         setup_overrides: Optional[Dict[str, str]] = None,
         llm_override: Optional[str] = None,
+        summary_overrides: Optional[Dict] = None,
     ) -> RunResult:
         """Execute scenario file and return structured run result."""
         run_errors: List[str] = []
@@ -88,6 +89,7 @@ class ScenarioRunner:
         assertions_out: List[AssertionResult] = []
         option_overrides = option_overrides or {}
         setup_overrides = setup_overrides or {}
+        summary_overrides = summary_overrides or {}
 
         scenario = self._load_scenario(scenario_path)
         scenario_name = scenario.get("meta", {}).get("name", os.path.basename(scenario_path))
@@ -168,6 +170,7 @@ class ScenarioRunner:
             log("error", msg, exc_info=True)
 
         summary = self.driver.get_session_summary()
+        summary.update(summary_overrides)
         assertions_passed = len([a for a in assertions_out if a.passed])
         success = not run_errors and not [e for e in steps_out if not e.success] and assertions_passed == len(assertions_out)
 
