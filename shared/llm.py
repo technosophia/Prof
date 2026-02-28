@@ -559,7 +559,7 @@ class LLMManager:
                 log("debug", f"FORCE_LLM environment variable overrides LLM choice: {original_llm_id} -> {llm_id}")
             else:
                 log("warning", f"FORCE_LLM environment variable set to '{force_llm}' but this LLM is not configured. Using original: {llm_id}")
-        log("info", f"Generating response with LLM: {llm_id}")
+        log("debug", f"Generating response with LLM: {llm_id}")
         log("debug", f"Messages: {len(messages)} messages, response_format={response_format!r}")
 
         llm_config = self.config.get("llms", {}).get(llm_id, {})

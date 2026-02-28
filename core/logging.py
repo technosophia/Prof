@@ -31,6 +31,7 @@ class Logger:
         self._handlers = []
         self._include_traceback = False
         self._filtered_functions: Set[str] = set()  # Set of function names to filter out
+        self._use_filtering = True
 
         # Add default console handler
         self.add_handler(self._console_handler)
@@ -101,6 +102,16 @@ class Logger:
         """
         self._filtered_functions.update(function_names)
 
+    def set_use_filtering(self, use_filtering: bool):
+        """
+        Enable or disable function name filtering.
+        When disabled, all DEBUG and INFO logs will be shown regardless of function name.
+
+        Args:
+            use_filtering: True to enable filtering, False to disable
+        """
+        self._use_filtering = use_filtering
+
     def is_function_filtered(self, function_name: str, level: LogLevel) -> bool:
         """
         Check if a function should be filtered based on its name and log level.
@@ -117,7 +128,11 @@ class Logger:
         if level >= LogLevel.WARNING:
             return False
 
-        # Only filter DEBUG and INFO levels
+        # If filtering is disabled, don't filter anything
+        if not self._use_filtering:
+            return False
+
+        # Only filter DEBUG and INFO levels when filtering is enabled
         return function_name in self._filtered_functions
 
     def get_effective_level(self, module: str) -> LogLevel:
@@ -372,3 +387,7 @@ def configure_logging_from_dict(config_dict: dict):
 
     if "filtered_functions" in config_dict and isinstance(config_dict["filtered_functions"], list):
         logger.log_filter_out_caller(config_dict["filtered_functions"])
+
+    # New: handle use_filtering configuration
+    if "use_filtering" in config_dict:
+        logger.set_use_filtering(config_dict["use_filtering"])

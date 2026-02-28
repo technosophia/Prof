@@ -3,6 +3,7 @@
     "level": "INFO",
     "format": "[{level}({function})] {timestamp} - {message}",
     "include_traceback": true,
+    "use_filtering" : true,
     "filtered_functions": [
       "_initialize",
       "_load_config",
@@ -33,7 +34,9 @@
       "initialize_current_llm",
       "_get_embedding_model",
       "auto_login_first_user",
-      "_render_plugins_tab"
+      "_render_plugins_tab",
+      "_activate_rag_engine",
+      ""
     ]
   },
   "app": {
