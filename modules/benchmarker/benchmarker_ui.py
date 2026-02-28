@@ -163,26 +163,35 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
 
 def _render_compare_tab() -> None:
     with get_db_manager().get_session() as db:
-        db_runs = db.query(BenchmarkRun).order_by(BenchmarkRun.run_at.desc()).all()
-        scenarios = sorted({run.scenario_name for run in db_runs})
+        db_rows = db.query(BenchmarkRun).order_by(BenchmarkRun.run_at.desc()).all()
+        db_runs = [
+            {
+                "run_at": row.run_at,
+                "scenario_name": row.scenario_name,
+                "session_file": row.session_file,
+                "options": dict(row.options or {}),
+            }
+            for row in db_rows
+        ]
+        scenarios = sorted({run["scenario_name"] for run in db_runs})
 
     if not scenarios:
         st.info(_p("compare_no_runs", "No runs found for this scenario."))
         return
 
     st.caption("Runs grouped by available option groups")
-    all_groups = sorted({key for run in db_runs for key in (run.options or {}).keys()})
+    all_groups = sorted({key for run in db_runs for key in run["options"].keys()})
     for group_name in all_groups:
         with st.expander(f"Group: {group_name}", expanded=False):
             grouped_rows = []
             for run in db_runs:
                 grouped_rows.append(
                     {
-                        "run_at": str(run.run_at),
-                        "scenario": run.scenario_name,
-                        "session_file": run.session_file,
-                        "value": (run.options or {}).get(group_name, "<unset>"),
-                        **_flatten_options(run.options or {}),
+                        "run_at": str(run["run_at"]),
+                        "scenario": run["scenario_name"],
+                        "session_file": run["session_file"],
+                        "value": run["options"].get(group_name, "<unset>"),
+                        **_flatten_options(run["options"]),
                     }
                 )
             st.dataframe(grouped_rows, width="stretch")
