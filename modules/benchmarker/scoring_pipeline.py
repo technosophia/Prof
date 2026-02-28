@@ -7,17 +7,14 @@ import os
 import pkgutil
 from typing import Dict, List, Optional
 
-import streamlit as st
-
 from core.logging import log
 from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.scorers.base import ScoringResult
 from st_shared.cached import get_db_manager
 
 
-@st.cache_resource
-def _build_registry() -> Dict[str, object]:
-    """Discover and instantiate all scorer plugins. Cached for the lifetime of the server process."""
+def _do_build_registry() -> Dict[str, object]:
+    """Discover and instantiate all scorer plugins. Pure function, no cache dependency."""
     import modules.benchmarker.scorers as scorers_pkg
 
     registry: Dict[str, object] = {}
@@ -45,8 +42,14 @@ def _build_registry() -> Dict[str, object]:
 class ScoringPipeline:
     """Discovers scorer plugins and provides result-loading helpers."""
 
-    def __init__(self):
-        self._registry = _build_registry()
+    def __init__(self, cache_fn=None):
+        """
+        Args:
+            cache_fn: Optional caching decorator (e.g. st.cache_resource).
+                      If None, no caching is applied (useful for tests / headless).
+        """
+        build = cache_fn(_do_build_registry) if cache_fn else _do_build_registry
+        self._registry = build()
 
     def get_scorer(self, scorer_id: str):
         """Return scorer instance by id, or None."""
@@ -94,7 +97,17 @@ class ScoringPipeline:
         )
 
 
-@st.cache_resource
+_SCORING_PIPELINE: Optional[ScoringPipeline] = None
+
+
 def get_scoring_pipeline() -> ScoringPipeline:
-    """Return singleton scoring pipeline instance. Cached for the lifetime of the server process."""
-    return ScoringPipeline()
+    """Return singleton scoring pipeline, using the cache service from ServiceLocator if available."""
+    global _SCORING_PIPELINE
+    if _SCORING_PIPELINE is None:
+        try:
+            from shared.common import _get_service
+            cache_fn = _get_service("cache")
+        except Exception:
+            cache_fn = None
+        _SCORING_PIPELINE = ScoringPipeline(cache_fn=cache_fn)
+    return _SCORING_PIPELINE

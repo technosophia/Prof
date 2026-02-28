@@ -4,14 +4,16 @@ RAG Manager Module — Functional Core
 NO STREAMLIT DEPENDENCY. This module must remain importable without Streamlit.
 
 Dependencies are injected at construction time:
-    RAGManager(config, user_manager)
+    RAGManager(config, user_manager, cache_fn=None)
 
 where:
-    config      — plain dict or dict-like object (NOT st_shared.cached)
+    config       — plain dict or dict-like object (NOT st_shared.cached)
     user_manager — plain user manager instance
+    cache_fn     — optional caching decorator (e.g. st.cache_resource).
+                   If None, no caching is applied (headless / tests).
 
-The module-level singleton `rag_manager` is built by rag_factory.py which
-bridges the Streamlit-cached world to this pure layer.
+The module-level singleton is built by rag_factory.py which bridges the
+Streamlit-cached world to this pure layer.
 """
 
 import os
@@ -19,7 +21,7 @@ import json
 from pathlib import Path
 import shutil
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, Callable
 import importlib
 import pkgutil
 import sys
@@ -34,16 +36,19 @@ class RAGManager:
     All dependencies are injected. No calls to st_shared.cached here.
     """
 
-    def __init__(self, config: Any, user_manager: Any):
+    def __init__(self, config: Any, user_manager: Any, cache_fn: Optional[Callable] = None):
         """
         Args:
             config:       A dict-like config object. Must support
                           config.get("modules.rag_manager", {}).
             user_manager: User manager instance with get_user(), get_children(),
                           and register_before_delete_callback() methods.
+            cache_fn:     Optional caching decorator (e.g. st.cache_resource).
+                          If None, engine discovery runs uncached.
         """
         self._config = config
         self._user_manager = user_manager
+        self._cache_fn = cache_fn
 
         rag_config = self._get_rag_config()
 
@@ -171,33 +176,43 @@ class RAGManager:
     # Engine discovery
     # ------------------------------------------------------------------
 
-    def discover_engines(self):
-        engines_dir = Path(__file__).parent / "rag_engines"
-        if engines_dir.exists():
+    def discover_engines(self) -> None:
+        """Discover and register all engine plugins, optionally via injected cache."""
+
+        def _do_discover() -> Dict[str, RAGEngine]:
+            engines: Dict[str, RAGEngine] = {}
+            engines_dir = Path(__file__).parent / "rag_engines"
+            if not engines_dir.exists():
+                return engines
+
             if str(engines_dir.parent) not in sys.path:
                 sys.path.insert(0, str(engines_dir.parent))
 
             for _, module_name, is_pkg in pkgutil.iter_modules([str(engines_dir)]):
-                if not is_pkg and module_name.startswith('rag_'):
-                    try:
-                        full_module_name = f"modules.rag_manager.rag_engines.{module_name}"
-                        module = importlib.import_module(full_module_name)
+                if is_pkg or not module_name.startswith('rag_'):
+                    continue
+                try:
+                    full_module_name = f"modules.rag_manager.rag_engines.{module_name}"
+                    module = importlib.import_module(full_module_name)
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if (isinstance(attr, type)
+                                and issubclass(attr, RAGEngine)
+                                and attr is not RAGEngine):
+                            try:
+                                engine = attr()
+                                engines[engine.engine_type] = engine
+                                log("debug", f"Registered RAG engine: {engine.engine_type}")
+                            except Exception as e:
+                                log("error", f"Failed to instantiate engine {attr_name}: {e}")
+                except Exception as e:
+                    log("error", f"Failed to load RAG engine module {module_name}: {e}")
 
-                        for attr_name in dir(module):
-                            attr = getattr(module, attr_name)
-                            if (isinstance(attr, type) and
-                                    issubclass(attr, RAGEngine) and
-                                    attr != RAGEngine):
-                                try:
-                                    engine = attr()
-                                    self.register_engine(engine)
-                                    log("debug", f"Registered RAG engine: {engine.engine_type}")
-                                except Exception as e:
-                                    log("error", f"Failed to instantiate engine {attr_name}: {e}")
-                    except Exception as e:
-                        log("error", f"Failed to load RAG engine module {module_name}: {e}")
+            log("info", f"Registered {len(engines)} RAG engines: {list(engines.keys())}")
+            return engines
 
-        log("info", f"Registered {len(self.engines)} RAG engines: {list(self.engines.keys())}")
+        discover = self._cache_fn(_do_discover) if self._cache_fn else _do_discover
+        self.engines = discover()
 
     def register_engine(self, engine: RAGEngine):
         self.engines[engine.engine_type] = engine
@@ -261,7 +276,6 @@ class RAGManager:
         if user_id == owner_id:
             return True
 
-        # Import UserRole lazily to avoid hard dependency on specific enum location
         try:
             from shared.common import UserRole
         except ImportError:

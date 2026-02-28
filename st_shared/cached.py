@@ -1,26 +1,61 @@
-# /shared/cached.py
+# /st_shared/cached.py
 
 """
 [api]
-All API are described in their API_xxx.md file but they are EXPOSED in a single module : common.py
+Streamlit-cached singletons and the cache service.
 
-Here is the list of exportable public functions from `shared/common.py`:
+This is the ONLY file in the codebase that imports streamlit directly for
+caching purposes. Everything else receives the cache primitive via the
+ServiceLocator ("cache" key) so that:
+  - modules stay Streamlit-free and headless-compatible
+  - swapping the cache backend (st.cache_resource → lru_cache, no-op, etc.)
+    requires changing exactly ONE line: `_CACHE = ...`
 
-- `get_config()` - Primary way to access configuration (cached)
-- `get_section(prefix: str = "")` - Get module-specific configuration sections
-- `save_config(prefix: str = "", data: dict | None = None)` - Save a module section back to its config file
-- `get_db_manager()` - Get the database manager instance (cached)
-- `get_user_manager()` - Get the user manager instance (cached)
-- `get_conversation_manager()` - Get the conversation manager instance (cached)
-- `get_llm_manager()` - Get or create the global LLMManager instance (cached)
-- `get_prompt_manager()` - Get the prompt manager instance with multilingual support (cached)
-- `get_user_settings_manager()` - Get or create the user settings manager (cached)
-- `get_available_languages() -> list[str]` - Get sorted list of available language codes
-- `_(key: str, lang: str | None = None) -> str` - Central translation function using cached resources
+### Cache primitive
+- `_CACHE` - The active cache decorator. Currently `st.cache_resource`.
+             Registered in the ServiceLocator as "cache" by register_all_services().
+             Inject via services.get("cache") — never import this directly.
 
-### Internal cached functions (not exported)
-- `_load_translations()` - Load all translations once and cache them globally
-- `_init_prompt_manager()` - Initialize and load all prompts with multilingual support
+### Public API
+
+#### Configuration
+- `get_config() -> Config` - Primary way to access configuration (cached)
+- `get_section(prefix: str = "") -> dict` - Get a module-specific config section
+- `save_config(prefix: str = "", data: dict | None = None) -> bool` - Save a section back to its config file
+
+#### Cache
+- `get_cache()` - The active cache decorator (registered as "cache" in the ServiceLocator)
+
+#### Managers (cached singletons)
+- `get_db_manager()` - Database manager instance
+- `get_user_manager()` - User manager instance
+- `get_conversation_manager()` - Conversation manager instance
+- `get_llm_manager()` - LLMManager instance
+- `get_prompt_manager()` - Prompt manager instance (multilingual)
+- `get_user_settings_manager()` - User settings manager instance
+- `get_driver()` - App driver instance
+
+#### Language / i18n
+- `get_language_service()` - LanguageService instance (cached)
+- `get_current_language() -> str` - Current language from Streamlit session state
+- `get_available_languages() -> list[str]` - Sorted list of available language codes
+- `_(key: str, lang: str | None = None) -> str` - Translate a key using cached translations
+
+#### Module system
+- `get_active_modules() -> list[str]` - Cached list of active module names
+
+#### Startup
+- `register_all_services(module_handler_instance=None) -> ServiceLocator`
+    Builds and populates the ServiceLocator with all cached singletons,
+    including the "cache" service. Call once at app startup (prof.py)
+    and once in conftest.py before any module is activated.
+
+### Internal (not for external use)
+- `_CACHE` - The cache decorator (st.cache_resource by default)
+- `_load_translations()` - Load all translation files once
+- `_get_language_service()` - Cached factory for LanguageService
+- `_init_prompt_manager()` - Initialize and load all prompts
+- `_discover_ui_modules(active_modules_tuple)` - Cached UI module discovery
 """
 
 import os
@@ -38,13 +73,47 @@ from shared.settings import UserSettingsManager
 from shared.users import get_user_manager as _get_user_manager
 from shared.module_handler import module_handler as global_module_handler
 
-@st.cache_resource
+# ---------------------------------------------------------------------------
+# Cache service
+# ---------------------------------------------------------------------------
+# This is the single place in the codebase that decides WHAT the cache is.
+# Everything else receives it via the ServiceLocator — no direct st import needed.
+#
+# To swap the cache backend for the entire application, change this one line:
+#   e.g. import functools; _CACHE = functools.cache
+#        or: _CACHE = lambda f: f   (no-op, for tests / headless)
+_CACHE = st.cache_resource
+
+
+# ---------------------------------------------------------------------------
+# Cache service accessor
+# ---------------------------------------------------------------------------
+
+def get_cache():
+    """Return the active cache decorator.
+
+    Use this to retrieve the cache primitive when you don't have access to a
+    ServiceLocator but are already in an st_shared context. Prefer injecting
+    via services.get("cache") in modules that must stay Streamlit-free.
+
+    Example:
+        cache = get_cache()
+        cached_fn = cache(my_expensive_fn)
+    """
+    return _CACHE
+
+
+# ---------------------------------------------------------------------------
+# Cached helpers
+# ---------------------------------------------------------------------------
+
+@_CACHE
 def _load_translations() -> dict[str, dict[str, str]]:
     """Load all translations once and cache them globally."""
     return load_all_translations()
 
 
-@st.cache_resource
+@_CACHE
 def get_config() -> Config:
     """Primary way to access configuration from anywhere."""
     return _load_config()
@@ -61,9 +130,8 @@ def save_config(prefix: str = "", data: dict | None = None) -> bool:
         raise ValueError("save_config requires the data dict to save")
     return get_config().save_section(prefix, data)
 
-# /st_shared/cached.py (add this to the existing file)
 
-@st.cache_resource
+@_CACHE
 def _get_language_service():
     """Create a language service that knows about Streamlit's session state."""
     return LanguageService()
@@ -79,22 +147,23 @@ def get_current_language() -> str:
     service = get_language_service()
     return service.get_current_language()
 
-@st.cache_resource
+
+@_CACHE
 def get_db_manager():
     return _get_db_manager()
 
 
-@st.cache_resource
+@_CACHE
 def get_user_manager():
     return _get_user_manager()
 
 
-@st.cache_resource
+@_CACHE
 def get_conversation_manager():
     return _get_conversation_manager()
 
 
-@st.cache_resource
+@_CACHE
 def get_llm_manager():
     """Get or create the global LLMManager instance."""
     return LLMManager(get_config())
@@ -105,20 +174,14 @@ def _init_prompt_manager():
     shared_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(shared_dir)
 
-    # IMPORTANT: Get fresh instance and force reload
     import importlib
     from shared import prompt_manager
 
-    # Reload the module to ensure fresh state
     importlib.reload(prompt_manager)
 
-    # Get fresh prompt manager
     prompt_manager_instance = prompt_manager.get_prompt_manager()
-
-    # Load prompts
     prompt_manager.load_all_prompts(root_dir)
 
-    # Double-check multilingual status
     if prompt_manager_instance._multilingual_prompts:
         prompt_manager_instance._is_multilingual = True
         prompt_manager_instance._available_languages = set(prompt_manager_instance._multilingual_prompts.keys())
@@ -126,13 +189,13 @@ def _init_prompt_manager():
     return prompt_manager_instance
 
 
-@st.cache_resource
+@_CACHE
 def get_prompt_manager():
     """Get the prompt manager instance."""
     return _init_prompt_manager()
 
 
-@st.cache_resource
+@_CACHE
 def get_user_settings_manager():
     """Get or create the user settings manager."""
     return UserSettingsManager()
@@ -152,14 +215,14 @@ def _(key: str, lang: str | None = None) -> str:
     return get_translation(key, lang, _load_translations())
 
 
-@st.cache_resource
+@_CACHE
 def get_active_modules() -> list[str]:
     """Cached proxy for shared.module_handler.get_active_modules."""
     from shared.module_handler import get_active_modules as _get_active_modules
     return _get_active_modules()
 
 
-@st.cache_resource
+@_CACHE
 def _discover_ui_modules(active_modules_tuple: tuple[str, ...]):
     """Cached proxy for shared.ui_registry._discover_ui_modules."""
     from shared.ui_registry import _discover_ui_modules as _registry_discover
@@ -167,7 +230,7 @@ def _discover_ui_modules(active_modules_tuple: tuple[str, ...]):
     return _registry_discover(active_modules_tuple, shared_ui_dir)
 
 
-@st.cache_resource
+@_CACHE
 def get_driver():
     """Cached proxy for shared.driver.get_driver."""
     from shared.driver import get_driver as _get_driver
@@ -188,12 +251,10 @@ def register_all_services(module_handler_instance=None):
     Returns:
         The ServiceLocator instance that was registered.
     """
-
-    # Use provided module handler or global one
     handler = module_handler_instance or global_module_handler
 
-    # Create and populate ServiceLocator
     services = ServiceLocator()
+    services.register("cache", get_cache())
     services.register("config", get_config())
     services.register("user_manager", get_user_manager())
     services.register("db_manager", get_db_manager())
@@ -203,9 +264,7 @@ def register_all_services(module_handler_instance=None):
     services.register("user_settings_manager", get_user_settings_manager())
     services.register("driver", get_driver())
     services.register("language_service", get_language_service())
-    # Add other services as needed
 
-    # Register with module handler
     handler.set_services(services)
 
     return services
