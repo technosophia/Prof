@@ -340,17 +340,42 @@ def get_prompt_manager():
 
 
 @require_services
+def _get_current_language() -> str:
+    """Get current language from language service."""
+    language_service = _get_service("language_service")
+    if language_service:
+        return language_service.get_current_language()
+    return "en"  # Default fallback
+
+
+@require_services
 def get_prompt(key: str, default: Any = None, language: Optional[str] = None) -> Any:
+    """
+    Get a prompt by key, automatically using current language if not specified.
+
+    Args:
+        key: The prompt key
+        default: Default value if prompt not found
+        language: Optional specific language (uses current language if None)
+    """
+    if language is None:
+        language = _get_current_language()
     return get_prompt_manager().get_prompt(key, default, language)
 
 
 @require_services
 def set_prompt(key: str, value: Any, language: Optional[str] = None) -> bool:
+    """Set a prompt value, optionally for a specific language."""
+    if language is None:
+        language = _get_current_language()
     return get_prompt_manager().set_prompt(key, value, language)
 
 
 @require_services
 def save_prompt(key: str, new_value: Any, language: Optional[str] = None) -> bool:
+    """Save a modified prompt, optionally for a specific language."""
+    if language is None:
+        language = _get_current_language()
     return get_prompt_manager().save_prompt(key, new_value, language)
 
 
@@ -361,18 +386,27 @@ def reload_prompts():
 
 @require_services
 def get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]:
+    """Get all prompts, optionally for a specific language."""
+    if language is None:
+        language = _get_current_language()
     manager = get_prompt_manager()
     return manager.get_all_prompts(language)
 
 
 @require_services
 def get_module_prompts(module_prefix: str = "", language: Optional[str] = None) -> Dict[str, Any]:
+    """Get prompts for a specific module, optionally for a specific language."""
+    if language is None:
+        language = _get_current_language()
     manager = get_prompt_manager()
     return manager.get_module_prompts(module_prefix, language)
 
 
 @require_services
 def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
+    """List all module prefixes with prompts, optionally for a specific language."""
+    if language is None:
+        language = _get_current_language()
     manager = get_prompt_manager()
     return manager.list_modules(language)
 
@@ -381,6 +415,7 @@ def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
 def get_available_prompt_languages() -> List[str]:
     manager = get_prompt_manager()
     return manager.get_available_languages()
+
 
 
 # ---------------------------------------------------------------------------
@@ -437,67 +472,3 @@ def register_assertion(
 @require_services
 def record_plugin_event(plugin_id: str, event: str, data: Optional[Dict] = None) -> None:
     get_driver().record_plugin_event(plugin_id, event, data or {})
-
-
-# ---------------------------------------------------------------------------
-# Streamlit-specific bridge (only imported when needed)
-# ---------------------------------------------------------------------------
-
-def _get_streamlit_cached_service(service_name: str):
-    """
-    Fallback function to get services from st_shared.cached when running in Streamlit.
-    This should only be used by the application startup code, not by common.py directly.
-    """
-    from st_shared.cached import (
-        get_user_manager as _cached_user_manager,
-        get_conversation_manager as _cached_conversation_manager,
-        get_llm_manager as _cached_llm_manager,
-        get_prompt_manager as _cached_prompt_manager,
-        get_user_settings_manager as _cached_user_settings_manager,
-    )
-
-    _CACHED_GETTERS = {
-        "user_manager": _cached_user_manager,
-        "conversation_manager": _cached_conversation_manager,
-        "llm_manager": _cached_llm_manager,
-        "prompt_manager": _cached_prompt_manager,
-        "user_settings_manager": _cached_user_settings_manager,
-    }
-
-    getter = _CACHED_GETTERS.get(service_name)
-    if getter:
-        return getter()
-    return None
-
-
-def initialize_services_from_streamlit():
-    """
-    Initialize the module handler's service locator with services from st_shared.cached.
-    This should be called ONCE at application startup in a Streamlit context.
-    """
-    from .module_handler import ServiceLocator
-    from st_shared.cached import get_config
-
-    services = ServiceLocator()
-
-    # Register config
-    services.register("config", get_config())
-
-    # Register managers from st_shared.cached
-    services.register("user_manager", _get_streamlit_cached_service("user_manager"))
-    services.register("conversation_manager", _get_streamlit_cached_service("conversation_manager"))
-    services.register("llm_manager", _get_streamlit_cached_service("llm_manager"))
-    services.register("prompt_manager", _get_streamlit_cached_service("prompt_manager"))
-    services.register("user_settings_manager", _get_streamlit_cached_service("user_settings_manager"))
-
-    # Create and register driver
-    from .driver import get_driver as _get_driver
-    services.register("driver", _get_driver())
-
-    # Set services on the global module handler
-    _global_module_handler.set_services(services)
-
-    # Register cleanup callback
-    _register_cleanup_callback()
-
-    return services

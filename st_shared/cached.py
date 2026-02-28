@@ -29,6 +29,7 @@ import streamlit as st
 from core.service import ServiceLocator
 from core.config import Config, _load_config
 from core.translate import get_translation
+from core.translate import LanguageService
 from core.database import get_db_manager as _get_db_manager
 from core.translate import load_all_translations
 from shared.conversation import get_conversation_manager as _get_conversation_manager
@@ -60,6 +61,23 @@ def save_config(prefix: str = "", data: dict | None = None) -> bool:
         raise ValueError("save_config requires the data dict to save")
     return get_config().save_section(prefix, data)
 
+# /st_shared/cached.py (add this to the existing file)
+
+@st.cache_resource
+def _get_language_service():
+    """Create a language service that knows about Streamlit's session state."""
+    return LanguageService()
+
+
+def get_language_service():
+    """Get the language service instance (cached)."""
+    return _get_language_service()
+
+
+def get_current_language() -> str:
+    """Get the current language from Streamlit session state."""
+    service = get_language_service()
+    return service.get_current_language()
 
 @st.cache_resource
 def get_db_manager():
@@ -184,6 +202,7 @@ def register_all_services(module_handler_instance=None):
     services.register("llm_manager", get_llm_manager())
     services.register("user_settings_manager", get_user_settings_manager())
     services.register("driver", get_driver())
+    services.register("language_service", get_language_service())
     # Add other services as needed
 
     # Register with module handler

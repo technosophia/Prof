@@ -32,6 +32,7 @@ from st_shared.cached import get_db_manager, get_user_manager, get_conversation_
 from shared.common import init_user_manager
 from st_shared.cached import get_prompt_manager, get_llm_manager
 from shared.export_import import auto_import_conversations_from_config
+from st_shared.cached import get_language_service
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
@@ -55,6 +56,17 @@ module_handler.initialize()
     # IMPORTANT: Activate all modules to trigger on_module_activated() hooks
 module_handler.activate_all()
 
+# Get the language service and set up the resolver
+language_service = get_language_service()
+
+def streamlit_language_resolver():
+    """Get current language from Streamlit session state."""
+    import streamlit as st
+    if "current_language" not in st.session_state:
+        st.session_state.current_language = "en"
+    return st.session_state.current_language
+
+language_service.set_language_resolver(streamlit_language_resolver)
 
 # Load active module UIs immediately
 active_modules = get_active_modules()

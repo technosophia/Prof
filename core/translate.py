@@ -158,3 +158,60 @@ def get_translation(key: str, lang: str, translations: Dict[str, Dict[str, str]]
     # Missing key
     log("warning", f"Missing translation key: '{key}' (language: {lang})")
     return f"[{key}]"
+
+
+"""
+Language Service - Provides language information without UI dependencies.
+
+This service bridges the gap between UI-agnostic code (common.py) and
+UI-specific code (Streamlit) by providing a clean interface for language
+access. The actual implementation that knows about Streamlit session state
+is provided by the cached.py module.
+"""
+
+from typing import Optional, Callable
+
+
+class LanguageService:
+    """
+    Service for accessing current language information.
+
+    This service is designed to be UI-agnostic. The actual language resolution
+    is delegated to a resolver function that can be set by UI-specific code
+    (like Streamlit) without creating a direct dependency.
+    """
+
+    def __init__(self):
+        self._language_resolver: Optional[Callable[[], str]] = None
+        self._default_language = "en"
+
+    def set_language_resolver(self, resolver: Callable[[], str]) -> None:
+        """
+        Set a function that returns the current language.
+
+        This allows UI-specific code (like Streamlit) to provide language
+        information without creating a direct dependency.
+
+        Args:
+            resolver: A callable that returns the current language code as a string
+        """
+        self._language_resolver = resolver
+
+    def get_current_language(self) -> str:
+        """
+        Get the current language.
+
+        If a resolver is set, it's used to get the language.
+        Otherwise, returns the default language.
+        """
+        if self._language_resolver is not None:
+            try:
+                return self._language_resolver()
+            except Exception:
+                # Fall back to default if resolver fails
+                pass
+        return self._default_language
+
+    def set_default_language(self, language: str) -> None:
+        """Set the default language to use when no resolver is available."""
+        self._default_language = language
