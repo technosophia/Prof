@@ -32,9 +32,10 @@ class ScorerPlugin(BaseScorerPlugin):
             )
             return
 
+        batch_mode = bool(config.get("batch_mode"))
         container.info("Computing embeddings with the global LLM embedding service")
         submit_key = f"embedding_submit_{session_path}"
-        if not container.button("Compute similarity", key=submit_key):
+        if not batch_mode and not container.button("Compute similarity", key=submit_key):
             return
 
         def _cosine_similarity(vec_a, vec_b) -> float:

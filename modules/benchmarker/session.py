@@ -15,7 +15,7 @@ class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
 
     def _serialise_injected_contexts(self, injected: List[Dict]) -> List[Dict]:
-        """Serialise injected contexts for YAML output — preview only."""
+        """Serialise injected contexts for YAML output with preview + full text."""
         result: List[Dict] = []
         for ctx in injected:
             result.append(
@@ -23,6 +23,7 @@ class SessionSerializer:
                     "source": ctx.get("source", "unknown"),
                     "role": ctx.get("role", "system"),
                     "content_preview": ctx.get("content", "")[:150],
+                    "content": ctx.get("content", ""),
                 }
             )
         return result

@@ -70,6 +70,56 @@ class ScorerPlugin(BaseScorerPlugin):
             else:
                 container.success(f"{rubric_name}: scored. Overall: {result.overall:.2f}")
 
+
+    def compute_score_all_rubrics(self, session: Dict, config: Dict, container) -> None:
+        """Score all available rubrics without rubric selection UI."""
+        from modules.benchmarker.scorers.prompt_renderer import RubricLoader, JudgePromptRenderer
+
+        session_path = config["session_path"]
+        loader = RubricLoader()
+        available_rubrics = loader.list_available()
+        if not available_rubrics:
+            container.warning("No rubrics found.")
+            return
+
+        renderer = JudgePromptRenderer()
+        llm_id = get_current_llm_id()
+        manager = get_llm_manager()
+
+        completed = 0
+        with_errors = 0
+        for rubric_name in available_rubrics:
+            rubric = loader.load(rubric_name)
+            prompt = renderer.render(session, rubric)
+            response_text, response_error = self._call_llm(manager, llm_id, prompt)
+            scores, parse_errors = self._parse_response(response_text, rubric)
+            if response_error:
+                parse_errors.append(response_error)
+
+            result = ScoringResult(
+                scorer_id=self.id,
+                session_path=session_path,
+                scores=scores,
+                scorer_config={"rubric": rubric_name, "llm_id": llm_id},
+                source="llm_internal",
+                notes=None,
+                scored_at=self._now(),
+                parse_errors=parse_errors,
+                complete=not parse_errors,
+            )
+            self._write_score(result)
+            completed += 1
+
+            if parse_errors:
+                with_errors += 1
+                container.warning(f"{rubric_name}: saved with errors: {parse_errors}")
+            else:
+                container.success(f"{rubric_name}: scored. Overall: {result.overall:.2f}")
+
+        container.info(
+            f"Internal LLM Judge completed: {completed} rubric(s), {with_errors} with parsing/call errors."
+        )
+
     def _call_llm(self, manager, llm_id: str, prompt: str):
         messages = [{"role": "user", "content": prompt}]
         try:

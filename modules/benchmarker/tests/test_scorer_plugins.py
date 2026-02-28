@@ -39,8 +39,8 @@ class FakeContainer:
     def success(self, message):
         self.messages.append(("success", message))
 
-    def dataframe(self, rows):
-        self.messages.append(("dataframe", rows))
+    def dataframe(self, rows, **kwargs):
+        self.messages.append(("dataframe", rows, kwargs))
 
     def selectbox(self, label, options, key=None):
         del label, key
@@ -60,7 +60,7 @@ def setup_function(_):
 def test_pipeline_autodiscovers_scorer_modules():
     pipeline = ScoringPipeline()
     ids = sorted(item["id"] for item in pipeline.list_scorers())
-    assert ids == ["embedding_similarity", "llm_external", "llm_internal", "manual"]
+    assert ids == ["context_relevance", "embedding_similarity", "llm_external", "llm_internal", "manual"]
 
 
 def test_llm_external_parser_handles_fenced_yaml():
