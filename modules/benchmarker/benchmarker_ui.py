@@ -240,7 +240,8 @@ def _render_compare_tab() -> None:
             for metric in metrics:
                 inv_row = {"metric": metric}
                 for row in table:
-                    inv_row[row["option"]] = row.get(metric)
+                    val = row.get(metric)
+                    inv_row[row["option"]] = str(val) if val is not None else ""
                 inverted_rows.append(inv_row)
             st.dataframe(inverted_rows, width="stretch")
         else:
