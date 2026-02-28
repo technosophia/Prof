@@ -11,7 +11,7 @@ from shared.common import get_driver, get_prompt
 from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.comparer import Comparer
 from modules.benchmarker.runner import RunResult, ScenarioRunner
-from modules.benchmarker.scorers.prompt_renderer import JudgePromptRenderer, RubricLoader
+from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
 
 
 from st_shared.cached import get_db_manager
@@ -80,46 +80,76 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
         st.info(_p("no_history", "No benchmark runs recorded yet."))
         return
 
-    selected_session = st.selectbox(_p("judge_select_session", "Select session to score"), session_files)
-    loader = RubricLoader()
-    rubric_names = loader.list_available()
-    rubric_name = st.selectbox(_p("judge_select_rubric", "Select rubric"), rubric_names) if rubric_names else None
+    pipeline = get_scoring_pipeline()
+
+    labels = []
+    for path in session_files:
+        label = os.path.basename(path)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    meta = (yaml.safe_load(handle) or {}).get("meta", {})
+                run_at = meta.get("run_at")
+                if run_at:
+                    label = f"{os.path.basename(path)}  |  {run_at}"
+            except Exception:
+                pass
+        labels.append(label)
+
+    selected_label = st.selectbox(_p("judge_select_session", "Select session to score"), labels)
+    selected_index = labels.index(selected_label)
+    selected_session = session_files[selected_index]
 
     session_data = {}
     if selected_session and os.path.exists(selected_session):
         with open(selected_session, "r", encoding="utf-8") as handle:
             session_data = yaml.safe_load(handle) or {}
-        meta = session_data.get("meta", {})
-        summary = session_data.get("summary", {})
-        st.caption(
-            f"scenario={meta.get('scenario')} | run_at={meta.get('run_at')} | "
-            f"options={meta.get('options', {})} | "
-            f"assertions={summary.get('assertions_passed', 0)}/{summary.get('assertions_total', 0)}"
+
+    configuration = (session_data.get("meta", {}) or {}).get("configuration", {})
+    with st.expander("Session configuration", expanded=False):
+        st.code(yaml.safe_dump(configuration, sort_keys=False), language="yaml")
+
+    scorers = pipeline.list_scorers()
+    available = [item for item in scorers if item.get("available")]
+    unavailable = [item for item in scorers if not item.get("available")]
+
+    if unavailable:
+        st.caption("Unavailable scorers: " + ", ".join(f"{item['name']} (unavailable)" for item in unavailable))
+
+    if not available:
+        st.warning("No available scorers found.")
+        return
+
+    scorer_labels = [item["name"] for item in available]
+    selected_scorer_label = st.selectbox("Scorer", scorer_labels)
+    selected_scorer = available[scorer_labels.index(selected_scorer_label)]
+
+    scorer = pipeline.get_scorer(selected_scorer["id"])
+    judge_container = st.container()
+    if scorer is not None:
+        scorer.compute_score(
+            session=session_data,
+            config={"session_path": selected_session},
+            container=judge_container,
         )
 
-    st.info("No scorer plugins are currently registered. Use ScoringPipeline to run scorers.")
-
-    st.info(_p("judge_prompt_export_help", ""))
-    if st.button(_p("judge_export_prompt", "Export judge prompt"), disabled=not rubric_name):
-        rubric = loader.load(rubric_name)
-        prompt = JudgePromptRenderer().render(session_data, rubric)
-        st.code(prompt, language="yaml")
-        st.download_button("Download prompt", data=prompt, file_name=f"judge_prompt__{rubric_name}.txt")
-
-    with get_db_manager().get_session() as db:
-        db_rows = db.query(ScoringRun).filter(ScoringRun.session_file == selected_session).order_by(ScoringRun.scored_at.desc()).all()
-        rows = [
-            {
-                "scored_at": str(r.scored_at),
-                "scorer_id": r.scorer_id,
-                "overall_score": r.overall_score,
-                "source": r.source,
-                "complete": len(r.parse_errors or []) == 0,
-            }
-            for r in db_rows
-        ]
-    if rows:
-        st.dataframe(rows, width="stretch")
+    results = pipeline.load_results(selected_session)
+    if results:
+        st.subheader("Past scores")
+        st.dataframe(
+            [
+                {
+                    "scorer_id": result.scorer_id,
+                    "source": result.source,
+                    "scored_at": result.scored_at,
+                    "scores": result.scores,
+                    "overall_score": result.overall,
+                    "complete": result.complete,
+                }
+                for result in results
+            ],
+            width="stretch",
+        )
 
 
 def _render_compare_tab() -> None:
@@ -154,7 +184,7 @@ def _render_compare_tab() -> None:
                 + f"{[g.option_value for g in report.groups]}"
             )
 
-        has_scores = any(any(stats.runs_scored > 0 for stats in g.scoring.values()) for g in report.groups)
+        has_scores = any(any((stats.get("runs_scored", 0) > 0) for stats in g.scoring.values()) for g in report.groups)
         if not has_scores:
             st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
 
@@ -168,8 +198,9 @@ def _render_compare_tab() -> None:
                 "avg_duration_seconds": round(g.avg_duration_seconds, 3),
             }
             for scorer_name, scorer_stats in g.scoring.items():
-                row[f"{scorer_name}.runs_scored"] = scorer_stats.runs_scored
-                row[f"{scorer_name}.overall"] = scorer_stats.overall
+                row[f"{scorer_name}.runs_scored"] = scorer_stats.get("runs_scored", 0)
+                row[f"{scorer_name}.scores"] = scorer_stats.get("scores", {})
+                row[f"{scorer_name}.overall"] = scorer_stats.get("overall")
             table.append(row)
         st.dataframe(table, width="stretch")
 

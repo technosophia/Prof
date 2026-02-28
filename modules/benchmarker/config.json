@@ -4,6 +4,6 @@
     "scenarios_dir": "modules/benchmarker/scenarios",
     "cleanup_after_run": false,
     "llm_response_truncate_chars": 500,
-    "embedding_similarity_default_model": "all-MiniLM-L6-v2"
+    "embedding_model": "all-MiniLM-L6-v2"
   }
 }

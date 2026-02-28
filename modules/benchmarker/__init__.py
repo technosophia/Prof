@@ -12,11 +12,6 @@ from shared.common import (
 )
 
 from modules.benchmarker.benchmarker import ensure_tables_exist
-from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
-from modules.benchmarker.scorers.embedding_similarity import EmbeddingSimilarityScorer
-from modules.benchmarker.scorers.llm_external import LLMExternalScorer
-from modules.benchmarker.scorers.manual import ManualScorer
-
 from modules.benchmarker.core_actions import (
     action_create_conversation,
     action_switch_option,
@@ -27,12 +22,11 @@ from modules.benchmarker.core_actions import (
 _INITIALIZED = False
 _ACTIONS_REGISTERED = False
 _LLM_OPTIONS_REGISTERED = False
-_SCORERS_REGISTERED = False
 
 
 def initialize() -> bool:
     """Initialize benchmarker module: tables, directories, and actions."""
-    global _INITIALIZED, _ACTIONS_REGISTERED, _LLM_OPTIONS_REGISTERED, _SCORERS_REGISTERED
+    global _INITIALIZED, _ACTIONS_REGISTERED, _LLM_OPTIONS_REGISTERED
     try:
         config = get_section("benchmarker")
         sessions_dir = config.get("sessions_dir", "data/benchmarker/sessions")
@@ -109,13 +103,6 @@ def initialize() -> bool:
                     description=f"{llm_name} — {llm.get('description', '')}",
                 )
             _LLM_OPTIONS_REGISTERED = True
-
-        if not _SCORERS_REGISTERED:
-            pipeline = get_scoring_pipeline()
-            pipeline.register(ManualScorer())
-            pipeline.register(LLMExternalScorer())
-            pipeline.register(EmbeddingSimilarityScorer())
-            _SCORERS_REGISTERED = True
 
         _INITIALIZED = True
         log("debug", "Benchmarker module initialized")

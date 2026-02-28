@@ -1,19 +1,54 @@
-"""Tests for scorer plugins and scorer registration."""
+"""Tests for scorer auto-discovery and plugin workflows."""
 
 from __future__ import annotations
 
-import importlib
-
-import yaml
-
 from core.database import init_database
-import modules.benchmarker as benchmarker_init
-from modules.benchmarker.benchmarker import ScoringRun, ensure_tables_exist
-from modules.benchmarker.scorers.embedding_similarity import EmbeddingSimilarityScorer
-from modules.benchmarker.scorers.llm_external import LLMExternalScorer
-from modules.benchmarker.scorers.manual import ManualScorer
-from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
+from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun, ensure_tables_exist
+from modules.benchmarker.scoring_pipeline import ScoringPipeline, get_scoring_pipeline
+from modules.benchmarker.scorers.scorer_llm_external import ScorerPlugin as LLMExternalScorer
+from modules.benchmarker.scorers.scorer_manual import ScorerPlugin as ManualScorer
 from st_shared.cached import get_db_manager
+
+
+class FakeContainer:
+    """Minimal container test double for scorer UI methods."""
+
+    def __init__(self):
+        self.messages = []
+
+    def warning(self, message):
+        self.messages.append(("warning", message))
+
+    def subheader(self, message):
+        self.messages.append(("subheader", message))
+
+    def code(self, message, language=None):
+        self.messages.append(("code", message, language))
+
+    def text_area(self, label, height=None, key=None):
+        del label, height, key
+        return ""
+
+    def button(self, label, key=None):
+        del label, key
+        return False
+
+    def info(self, message):
+        self.messages.append(("info", message))
+
+    def success(self, message):
+        self.messages.append(("success", message))
+
+    def dataframe(self, rows):
+        self.messages.append(("dataframe", rows))
+
+    def selectbox(self, label, options, key=None):
+        del label, key
+        return options[0]
+
+    def slider(self, label, min_value, max_value, value, key=None, help=None):
+        del label, min_value, max_value, key, help
+        return value
 
 
 def setup_function(_):
@@ -22,129 +57,82 @@ def setup_function(_):
     get_db_manager().empty_all_tables()
 
 
-def _rubric_scores_config(session_path: str):
-    return {
-        "session_path": session_path,
-        "rubric": "memory_quality",
-        "scores": {
-            "relevance": 4,
-            "precision": 3,
-            "coverage": 5,
-            "noise": 4,
-        },
+def test_pipeline_autodiscovers_scorer_modules():
+    pipeline = ScoringPipeline()
+    ids = sorted(item["id"] for item in pipeline.list_scorers())
+    assert ids == ["embedding_similarity", "llm_external", "manual"]
+
+
+def test_llm_external_parser_handles_fenced_yaml():
+    scorer = LLMExternalScorer()
+    rubric = {
+        "dimensions": [
+            {"id": "relevance"},
+            {"id": "accuracy"},
+        ]
     }
-
-
-def test_manual_scorer_score_validates_against_rubric():
-    result = ManualScorer().score({}, _rubric_scores_config("/tmp/session.yaml"))
-    assert result.complete
-    assert result.scores["relevance"] == 4.0
-    assert result.scorer_config == {"rubric": "memory_quality"}
-
-
-def test_manual_scorer_import_from_session_yaml_persists(tmp_path):
-    path = tmp_path / "session.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "scores": {
-                    "rubric": "memory_quality",
-                    "dimensions": {
-                        "relevance": 4,
-                        "precision": 4,
-                        "coverage": 4,
-                        "noise": 4,
-                    },
-                    "notes": "manual import",
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    scores, errors = scorer._parse_response(
+        """```yaml
+scores:
+  dimensions:
+    relevance: 4
+    accuracy: 3
+```""",
+        rubric,
     )
+    assert errors == []
+    assert scores == {"relevance": 4.0, "accuracy": 3.0}
 
-    result = ManualScorer().import_from_session_yaml(str(path), rubric_name=None)
-    assert result.complete
+
+def test_manual_scorer_compute_score_writes_result(monkeypatch):
+    session_path = "/tmp/manual-session.yaml"
+    with get_db_manager().get_session() as db:
+        db.add(
+            BenchmarkRun(
+                scenario_name="s",
+                options={"memory_backend": "memory"},
+                assertions_passed=1,
+                assertions_total=1,
+                duration_seconds=1.0,
+                summary={},
+                success=1,
+                errors=[],
+                session_file=session_path,
+            )
+        )
+
+    scorer = ManualScorer()
+    fake = FakeContainer()
+    monkeypatch.setattr(fake, "button", lambda label, key=None: True)
+    monkeypatch.setattr(fake, "text_area", lambda label, key=None: "notes")
+
+    scorer.compute_score(session={}, config={"session_path": session_path}, container=fake)
 
     with get_db_manager().get_session() as db:
         rows = db.query(ScoringRun).all()
         assert len(rows) == 1
         assert rows[0].scorer_id == "manual"
+        assert rows[0].scores
 
 
-def test_llm_external_scorer_strips_fences_and_parses_yaml():
-    scorer = LLMExternalScorer()
-    response = """```yaml
-scores:
-  dimensions:
-    relevance: 4
-    precision: 3
-    coverage: 2
-    noise: 5
-```"""
-    result = scorer.score({}, {"session_path": "/tmp/s.yaml", "rubric": "memory_quality", "response_text": response})
-    assert result.complete
-    assert result.scores["precision"] == 3.0
-
-
-def test_llm_external_scorer_returns_incomplete_on_parse_error():
-    scorer = LLMExternalScorer()
-    result = scorer.score({}, {"session_path": "/tmp/s.yaml", "rubric": "memory_quality", "response_text": ":::"})
-    assert not result.complete
-    assert result.parse_errors
-
-
-def test_embedding_similarity_no_expected_response_returns_incomplete():
-    scorer = EmbeddingSimilarityScorer()
-    session = {
-        "steps": [
-            {
-                "id": "s1",
-                "action": "user_send_message",
-                "result": {"llm_response": "hello"},
-            }
-        ]
-    }
-    result = scorer.score(session, {"session_path": "/tmp/s.yaml", "model": "any-model"})
-    assert not result.complete
-    assert "expected_response" in result.parse_errors[0]
-
-
-def test_embedding_similarity_uses_step_ids_as_score_keys(monkeypatch):
-    scorer = EmbeddingSimilarityScorer()
-
-    class FakeModel:
-        def encode(self, text, convert_to_tensor=True):
-            del convert_to_tensor
-            return text
-
-    monkeypatch.setattr(scorer, "_get_model", lambda _model_name: FakeModel())
-    monkeypatch.setattr(scorer, "_similarity", lambda a, b: 1.0 if a and b else 0.0)
-
-    session = {
-        "steps": [
-            {
-                "id": "s1",
-                "action": "user_send_message",
-                "expected_response": "expected",
-                "result": {"llm_response": "answer"},
-            }
-        ]
-    }
-    result = scorer.score(session, {"session_path": "/tmp/s.yaml", "model": "any-model"})
-    assert result.complete
-    assert list(result.scores.keys()) == ["s1"]
-
-
-def test_benchmarker_initialize_registers_three_scorers(monkeypatch):
-    importlib.reload(benchmarker_init)
+def test_embedding_scorer_missing_expected_response_does_not_write():
     pipeline = get_scoring_pipeline()
-    pipeline._registry = {}
+    scorer = pipeline.get_scorer("embedding_similarity")
+    fake = FakeContainer()
+    scorer.compute_score(
+        session={
+            "steps": [
+                {
+                    "id": "s1",
+                    "action": "user_send_message",
+                    "result": {"llm_response": "hello"},
+                }
+            ]
+        },
+        config={"session_path": "/tmp/no-write.yaml"},
+        container=fake,
+    )
 
-    monkeypatch.setattr(benchmarker_init, "_ACTIONS_REGISTERED", True)
-    monkeypatch.setattr(benchmarker_init, "_LLM_OPTIONS_REGISTERED", True)
-    monkeypatch.setattr(benchmarker_init, "_SCORERS_REGISTERED", False)
-
-    assert benchmarker_init.initialize()
-    scorer_ids = sorted(item["id"] for item in pipeline.list_scorers())
-    assert scorer_ids == ["embedding_similarity", "llm_external", "manual"]
+    with get_db_manager().get_session() as db:
+        assert db.query(ScoringRun).count() == 0
+    assert any(item[0] == "warning" for item in fake.messages)
