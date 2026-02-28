@@ -113,50 +113,74 @@ class Analyser:
             query = db.query(BenchmarkRun)
             if scenario_filter:
                 query = query.filter(BenchmarkRun.scenario_name.in_(scenario_filter))
-            run_rows = query.order_by(BenchmarkRun.run_at.desc()).all()
+            run_rows_db = query.order_by(BenchmarkRun.run_at.desc()).all()
+
+            run_rows = [
+                {
+                    "id": str(row.id),
+                    "scenario_name": str(row.scenario_name),
+                    "session_file": str(row.session_file),
+                    "options": dict(row.options or {}),
+                    "success": bool(row.success),
+                    "assertions_passed": int(row.assertions_passed or 0),
+                    "assertions_total": int(row.assertions_total or 0),
+                    "duration_seconds": float(row.duration_seconds or 0.0),
+                    "summary": dict(row.summary or {}),
+                }
+                for row in run_rows_db
+            ]
 
             if matrix_only:
-                run_rows = [row for row in run_rows if bool((row.summary or {}).get("matrix_run"))]
+                run_rows = [row for row in run_rows if bool((row.get("summary") or {}).get("matrix_run"))]
 
-            run_ids = [row.id for row in run_rows]
-            scoring_rows = db.query(ScoringRun).filter(ScoringRun.run_id.in_(run_ids)).all() if run_ids else []
+            run_ids = [row["id"] for row in run_rows]
+            scoring_rows_db = db.query(ScoringRun).filter(ScoringRun.run_id.in_(run_ids)).all() if run_ids else []
+            scoring_rows = [
+                {
+                    "run_id": str(score.run_id) if score.run_id else "",
+                    "scorer_id": str(score.scorer_id),
+                    "scores": dict(score.scores or {}),
+                    "overall_score": (float(score.overall_score) if score.overall_score is not None else None),
+                }
+                for score in scoring_rows_db
+            ]
 
-        scores_by_run: Dict[str, List[ScoringRun]] = {}
+        scores_by_run: Dict[str, List[Dict]] = {}
         for score in scoring_rows:
-            if score.run_id:
-                scores_by_run.setdefault(score.run_id, []).append(score)
+            if score["run_id"]:
+                scores_by_run.setdefault(score["run_id"], []).append(score)
 
         rows: List[AnalysisRow] = []
         for run in run_rows:
-            options = dict(run.options or {})
+            options = dict(run.get("options") or {})
             scorer_scores: Dict[str, Dict[str, List[float]]] = {}
             scorer_overalls: Dict[str, List[float]] = {}
 
-            for srow in scores_by_run.get(run.id, []):
-                sid = str(srow.scorer_id)
+            for srow in scores_by_run.get(run["id"], []):
+                sid = str(srow["scorer_id"])
                 scorer_scores.setdefault(sid, {})
-                for metric_key, metric_value in (srow.scores or {}).items():
+                for metric_key, metric_value in (srow.get("scores") or {}).items():
                     if metric_value is None:
                         continue
                     scorer_scores[sid].setdefault(str(metric_key), []).append(float(metric_value))
-                if srow.overall_score is not None:
-                    scorer_overalls.setdefault(sid, []).append(float(srow.overall_score))
+                if srow.get("overall_score") is not None:
+                    scorer_overalls.setdefault(sid, []).append(float(srow["overall_score"]))
 
             rows.append(
                 AnalysisRow(
-                    run_id=str(run.id),
-                    scenario_name=str(run.scenario_name),
-                    session_file=str(run.session_file),
+                    run_id=str(run["id"]),
+                    scenario_name=str(run["scenario_name"]),
+                    session_file=str(run["session_file"]),
                     llm_id=str(options.get("llm", "") or ""),
                     memory_backend=str(options.get("memory_backend", "") or ""),
                     rag_engine=str(options.get("rag_engine", "") or ""),
-                    success=bool(run.success),
-                    assertions_passed=int(run.assertions_passed or 0),
-                    assertions_total=int(run.assertions_total or 0),
-                    assertions_pass_rate=self._safe_rate(run.assertions_passed, run.assertions_total),
-                    duration_seconds=float(run.duration_seconds or 0.0),
-                    total_tokens=int((run.summary or {}).get("total_tokens", 0) or 0),
-                    is_matrix_run=bool((run.summary or {}).get("matrix_run")),
+                    success=bool(run["success"]),
+                    assertions_passed=int(run["assertions_passed"] or 0),
+                    assertions_total=int(run["assertions_total"] or 0),
+                    assertions_pass_rate=self._safe_rate(run["assertions_passed"], run["assertions_total"]),
+                    duration_seconds=float(run["duration_seconds"] or 0.0),
+                    total_tokens=int((run.get("summary") or {}).get("total_tokens", 0) or 0),
+                    is_matrix_run=bool((run.get("summary") or {}).get("matrix_run")),
                     scores={
                         sid: {m: mean(vals) for m, vals in metrics.items() if vals}
                         for sid, metrics in scorer_scores.items()

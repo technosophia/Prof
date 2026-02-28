@@ -161,6 +161,7 @@ class MatrixRunner:
         memory_backends: List[str],
         rag_engines: List[str],
         setup_overrides: Dict[str, str],
+        auto_score: bool = False,
     ) -> MatrixRunResult:
         cells = self._cells(llm_ids, memory_backends, rag_engines)
         all_pairs = [(scenario_path, cell) for scenario_path in scenario_paths for cell in cells]
@@ -212,7 +213,7 @@ class MatrixRunner:
                     summary_overrides={"matrix_run": True},
                 )
                 self._mark_matrix_summary(run_result.session_path)
-                scoring_errors = self._score_all(run_result.session_path)
+                scoring_errors = self._score_all(run_result.session_path) if auto_score else []
 
                 if run_result.success:
                     completed += 1

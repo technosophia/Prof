@@ -6,7 +6,7 @@ from typing import Dict, List
 import streamlit as st
 import yaml
 
-from shared.common import get_driver, get_prompt
+from shared.common import get_driver
 
 from modules.benchmarker.analyser import Analyser
 from modules.benchmarker.matrix_runner import MatrixRunner
@@ -17,9 +17,10 @@ from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
 
 
-from st_shared.cached import get_db_manager
-def _p(key: str, default: str) -> str:
-    return get_prompt(f"benchmarker.{key}", default)
+from st_shared.cached import _, get_db_manager
+
+def _t(key: str) -> str:
+    return _(f"benchmarker.{key}")
 
 
 def _load_scenario(path: str) -> Dict:
@@ -70,7 +71,7 @@ def _render_results(run_result: RunResult, events: List[Dict]) -> None:
     ]
     st.dataframe(rows, width="stretch")
 
-    with st.expander("Step log", expanded=False):
+    with st.expander(_t("step_log"), expanded=False):
         for step in run_result.steps:
             status = "✅" if step.success else "❌"
             with st.expander(f"[{step.actor}] {step.action} — {status} ({step.duration_seconds:.2f}s)", expanded=False):
@@ -78,18 +79,18 @@ def _render_results(run_result: RunResult, events: List[Dict]) -> None:
                 if step.error:
                     st.error(step.error)
 
-    with st.expander("Raw events", expanded=False):
+    with st.expander(_t("raw_events"), expanded=False):
         st.code(yaml.safe_dump(events, sort_keys=False), language="yaml")
         if run_result.session_path and os.path.exists(run_result.session_path):
             with open(run_result.session_path, "r", encoding="utf-8") as handle:
-                st.download_button("Download session YAML", data=handle.read(), file_name=os.path.basename(run_result.session_path))
+                st.download_button(_t("download_session_yaml"), data=handle.read(), file_name=os.path.basename(run_result.session_path))
 
 
 def _render_judge_tab(runner: ScenarioRunner) -> None:
     sessions_dir = runner.config.get("sessions_dir", "data/benchmarker/sessions")
     session_files = _list_sessions(sessions_dir)
     if not session_files:
-        st.info(_p("no_history", "No benchmark runs recorded yet."))
+        st.info(_t("no_history"))
         return
 
     pipeline = get_scoring_pipeline()
@@ -108,7 +109,7 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
                 pass
         labels.append(label)
 
-    selected_label = st.selectbox(_p("judge_select_session", "Select session to score"), labels)
+    selected_label = st.selectbox(_t("judge_select_session"), labels)
     selected_index = labels.index(selected_label)
     selected_session = session_files[selected_index]
 
@@ -118,7 +119,7 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
             session_data = yaml.safe_load(handle) or {}
 
     configuration = (session_data.get("meta", {}) or {}).get("configuration", {})
-    with st.expander("Session configuration", expanded=False):
+    with st.expander(_t("session_configuration"), expanded=False):
         st.code(yaml.safe_dump(configuration, sort_keys=False), language="yaml")
 
     scorers = pipeline.list_scorers()
@@ -129,14 +130,14 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
         st.caption("Unavailable scorers: " + ", ".join(f"{item['name']} (unavailable)" for item in unavailable))
 
     if not available:
-        st.warning("No available scorers found.")
+        st.warning(_t("no_available_scorers"))
         return
 
     automatable = [item for item in available if item.get("id") not in {"manual", "llm_external"}]
-    if st.button("Score All", key=f"score_all_{selected_session}"):
+    if st.button(_t("score_all"), key=f"score_all_{selected_session}"):
         score_all_container = st.container()
         if not automatable:
-            score_all_container.warning("No automatable scorers available.")
+            score_all_container.warning(_t("no_automatable_scorers"))
         else:
             completed = 0
             failed = 0
@@ -170,7 +171,7 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
             )
 
     scorer_labels = [item["name"] for item in available]
-    selected_scorer_label = st.selectbox("Scorer", scorer_labels)
+    selected_scorer_label = st.selectbox(_t("scorer"), scorer_labels)
     selected_scorer = available[scorer_labels.index(selected_scorer_label)]
 
     scorer = pipeline.get_scorer(selected_scorer["id"])
@@ -184,7 +185,7 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
 
     results = pipeline.load_results(selected_session)
     if results:
-        st.subheader("Past scores")
+        st.subheader(_t("past_scores"))
         st.dataframe(
             [
                 {
@@ -216,17 +217,26 @@ def _render_compare_tab() -> None:
         scenarios = sorted({run["scenario_name"] for run in db_runs})
 
     if not scenarios:
-        st.info(_p("compare_no_runs", "No runs found for this scenario."))
+        st.info(_t("compare_no_runs"))
         return
 
-    scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), scenarios)
+    scenario_name = st.selectbox(_t("compare_select_scenario"), scenarios)
+
+    if st.button(_t("compare_clean_scores_button"), key=f"bench_compare_clean_scores_{scenario_name}"):
+        with get_db_manager().get_session() as session:
+            run_ids = [rid for (rid,) in session.query(BenchmarkRun.id).filter(BenchmarkRun.scenario_name == scenario_name).all()]
+            if run_ids:
+                deleted = session.query(ScoringRun).filter(ScoringRun.run_id.in_(run_ids)).delete(synchronize_session=False)
+            else:
+                deleted = 0
+        st.success(_t("compare_scores_cleared").format(count=deleted, scenario=scenario_name))
 
     scenario_runs = [run for run in db_runs if run["scenario_name"] == scenario_name]
     available_group_choices = sorted(set(sorted(get_driver().list_options().keys())) | {key for run in scenario_runs for key in run["options"].keys()})
     if not available_group_choices:
         available_group_choices = ["memory_backend"]
 
-    st.caption("Runs grouped by available option groups")
+    st.caption(_t("compare_runs_grouped_caption"))
     for group_name in available_group_choices:
         with st.expander(f"Group: {group_name}", expanded=False):
             preview_report = Comparer().compare(scenario_name, group_by=group_name)
@@ -242,22 +252,19 @@ def _render_compare_tab() -> None:
             ]
             st.dataframe(preview_rows, width="stretch")
 
-    st.caption(
-        "Select a scenario, then choose which option to compare across runs. "
-        "Each run with a different option value becomes one column in the comparison."
-    )
-    group_by = st.selectbox(_p("compare_group_by", "Group by option"), available_group_choices)
+    st.caption(_t("compare_help_caption"))
+    group_by = st.selectbox(_t("compare_group_by"), available_group_choices)
     invert = st.checkbox("Invert rows/columns in display", key=f"compare_invert_{scenario_name}_{group_by}")
 
-    if st.button(_p("compare_run_button", "Generate comparison")):
+    if st.button(_t("compare_run_button")):
         report = Comparer().compare(scenario_name, group_by=group_by)
         if not report.groups:
-            st.info(_p("compare_no_runs", "No runs found for this scenario."))
+            st.info(_t("compare_no_runs"))
             return
 
         has_scores = any(any((stats.get("runs_scored", 0) > 0) for stats in g.scoring.values()) for g in report.groups)
         if not has_scores:
-            st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
+            st.warning(_t("compare_no_scores"))
 
         table = []
         for g in report.groups:
@@ -288,7 +295,7 @@ def _render_compare_tab() -> None:
             st.dataframe(table, width="stretch")
 
         yaml_report = Comparer().to_yaml(report)
-        st.download_button(_p("compare_download", "Download report YAML"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
+        st.download_button(_t("compare_download"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
 
 
 def _config_label(llm_id: str, memory_backend: str, rag_engine: str) -> str:
@@ -298,12 +305,12 @@ def _config_label(llm_id: str, memory_backend: str, rag_engine: str) -> str:
 def _render_matrix_tab(runner: ScenarioRunner) -> None:
     scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
     if not os.path.isdir(scenarios_dir):
-        st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
+        st.warning(_t("no_scenarios_found"))
         return
 
     scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
     scenario_paths = st.multiselect(
-        _p("matrix_scenarios_label", "Scenarios"),
+        _t("matrix_scenarios_label"),
         [os.path.join(scenarios_dir, f) for f in scenario_files],
         format_func=lambda path: os.path.basename(path),
     )
@@ -313,29 +320,29 @@ def _render_matrix_tab(runner: ScenarioRunner) -> None:
     memory_options = [opt.get("name") for opt in options_map.get("memory_backend", []) if opt.get("name")]
     rag_options = [opt.get("name") for opt in options_map.get("rag_engine", []) if opt.get("name")]
 
-    llm_selected = st.multiselect(_p("matrix_llm_label", "LLMs"), ["None"] + llm_options, default=["None"])
-    memory_selected = st.multiselect(_p("matrix_memory_label", "Memory backends"), ["None"] + memory_options, default=["None"])
-    rag_selected = st.multiselect(_p("matrix_rag_label", "RAG engines"), ["None"] + rag_options, default=["None"])
+    llm_selected = st.multiselect(_t("matrix_llm_label"), ["None"] + llm_options, default=["None"])
+    memory_selected = st.multiselect(_t("matrix_memory_label"), ["None"] + memory_options, default=["None"])
+    rag_selected = st.multiselect(_t("matrix_rag_label"), ["None"] + rag_options, default=["None"])
 
     llm_ids = ["" if item == "None" else item for item in llm_selected] or [""]
     memory_backends = ["" if item == "None" else item for item in memory_selected] or [""]
     rag_engines = ["" if item == "None" else item for item in rag_selected] or [""]
 
-    student_override = st.text_input(_p("matrix_student_label", "Student ID"), value="")
-    trainer_override = st.text_input(_p("matrix_trainer_label", "Teacher ID"), value="")
+    student_override = st.text_input(_t("matrix_student_label"), value="")
+    trainer_override = st.text_input(_t("matrix_trainer_label"), value="")
 
     n_scenarios = len(scenario_paths)
     n_combos = len(llm_ids or [""]) * len(memory_backends or [""]) * len(rag_engines or [""])
     total = n_scenarios * n_combos
-    st.caption(_p("matrix_preview", "Matrix: {n_scenarios} scenarios × {n_combos} option combinations = {total} runs").format(
+    st.caption(_t("matrix_preview").format(
         n_scenarios=n_scenarios, n_combos=n_combos, total=total
     ))
 
-    if st.button(_p("matrix_validate_button", "Validate matrix")):
+    if st.button(_t("matrix_validate_button")):
         warnings = MatrixRunner().validate_matrix(scenario_paths, llm_ids, memory_backends, rag_engines)
         blocking = [w for w in warnings if w.blocking]
         non_blocking = [w for w in warnings if not w.blocking]
-        st.caption(_p("matrix_warning_counts", "Blocking: {blocking} | Non-blocking: {non_blocking}").format(
+        st.caption(_t("matrix_warning_counts").format(
             blocking=len(blocking), non_blocking=len(non_blocking)
         ))
         if warnings:
@@ -351,50 +358,55 @@ def _render_matrix_tab(runner: ScenarioRunner) -> None:
                 for w in warnings
             ], width="stretch")
         else:
-            st.success(_p("matrix_no_warnings", "No pre-flight warnings."))
+            st.success(_t("matrix_no_warnings"))
 
         blocking_combo_count = len({f"{w.scenario_path}|{w.cell.llm_id}|{w.cell.memory_backend}|{w.cell.rag_engine}" for w in blocking})
-        st.info(_p("matrix_ready", "Ready to run: {n} combinations ({m} will be skipped)").format(
+        st.info(_t("matrix_ready").format(
             n=max(total - blocking_combo_count, 0), m=blocking_combo_count
         ))
 
     if not scenario_paths:
-        st.warning(_p("matrix_need_scenarios", "Select at least one scenario to run the matrix."))
+        st.warning(_t("matrix_need_scenarios"))
         return
 
-    if st.button(_p("matrix_run_button", "▶ Run Matrix")):
+    run_col, run_score_col = st.columns(2)
+    run_clicked = run_col.button(_t("matrix_run_button"), width="stretch")
+    run_and_score_clicked = run_score_col.button(_t("matrix_run_and_score_button"), width="stretch")
+
+    if run_clicked or run_and_score_clicked:
         progress = st.empty()
 
         def _progress(i: int, total_count: int, label: str) -> None:
-            progress.info(_p("matrix_running_progress", "Running matrix... {i}/{total} — {label}").format(i=i, total=total_count, label=label))
+            progress.info(_t("matrix_running_progress").format(i=i, total=total_count, label=label))
 
         matrix_runner = MatrixRunner(progress_callback=_progress)
-        with st.spinner(_p("matrix_running_spinner", "Running matrix...")):
+        with st.spinner(_t("matrix_running_spinner")):
             result = matrix_runner.run_matrix(
                 scenario_paths=scenario_paths,
                 llm_ids=llm_ids,
                 memory_backends=memory_backends,
                 rag_engines=rag_engines,
                 setup_overrides={"student_id": student_override, "trainer_id": trainer_override},
+                auto_score=run_and_score_clicked,
             )
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("total", result.total)
-        m2.metric("completed", result.completed)
-        m3.metric("failed", result.failed)
-        m4.metric("skipped", result.skipped)
+        m1.metric(_t("matrix_metric_total"), result.total)
+        m2.metric(_t("matrix_metric_completed"), result.completed)
+        m3.metric(_t("matrix_metric_failed"), result.failed)
+        m4.metric(_t("matrix_metric_skipped"), result.skipped)
 
         rows = []
         for cell in result.cells:
             rr = cell.run_result
             rows.append({
-                "scenario": cell.scenario_name,
-                "llm": cell.cell.llm_id or "-",
-                "memory_backend": cell.cell.memory_backend or "-",
-                "rag_engine": cell.cell.rag_engine or "-",
-                "success": bool(rr.success) if rr else False,
-                "assertions_passed/total": f"{rr.assertions_passed}/{rr.assertions_total}" if rr else "0/0",
-                "session_file": cell.session_path,
+                _t("matrix_col_scenario"): cell.scenario_name,
+                _t("matrix_col_llm"): cell.cell.llm_id or "-",
+                _t("matrix_col_memory"): cell.cell.memory_backend or "-",
+                _t("matrix_col_rag"): cell.cell.rag_engine or "-",
+                _t("matrix_col_success"): bool(rr.success) if rr else False,
+                _t("matrix_col_assertions"): f"{rr.assertions_passed}/{rr.assertions_total}" if rr else "0/0",
+                _t("matrix_col_session"): cell.session_path,
             })
         st.dataframe(rows, width="stretch")
 
@@ -403,10 +415,10 @@ def _render_analysis_tab() -> None:
     with get_db_manager().get_session() as db:
         scenarios = sorted({row.scenario_name for row in db.query(BenchmarkRun).all()})
 
-    selected_scenarios = st.multiselect(_p("analysis_scenario_filter", "Scenario filter"), scenarios)
-    matrix_only = st.checkbox(_p("analysis_matrix_only", "Matrix runs only"), value=False)
+    selected_scenarios = st.multiselect(_t("analysis_scenario_filter"), scenarios)
+    matrix_only = st.checkbox(_t("analysis_matrix_only"), value=False)
 
-    if not st.button(_p("analysis_run_button", "Run analysis")):
+    if not st.button(_t("analysis_run_button")):
         return
 
     analyser = Analyser()
@@ -414,10 +426,10 @@ def _render_analysis_tab() -> None:
     report = analyser.analyse(dataset)
 
     if report.n_runs == 0:
-        st.info(_p("analysis_empty", "No runs found for these filters."))
+        st.info(_t("analysis_empty"))
         return
 
-    with st.expander(_p("analysis_section_overview", "Overview"), expanded=True):
+    with st.expander(_t("analysis_section_overview"), expanded=True):
         m1, m2, m3 = st.columns(3)
         m1.metric("n_runs", report.n_runs)
         m2.metric("n_scenarios", report.n_scenarios)
@@ -428,9 +440,9 @@ def _render_analysis_tab() -> None:
             counts[label] = counts.get(label, 0) + 1
         st.dataframe([{"configuration": k, "runs": v} for k, v in sorted(counts.items())], width="stretch")
 
-    with st.expander(_p("analysis_section_metrics", "Per-metric breakdown"), expanded=False):
+    with st.expander(_t("analysis_section_metrics"), expanded=False):
         if not report.dimensions:
-            st.info(_p("analysis_no_metrics", "No metrics available."))
+            st.info(_t("analysis_no_metrics"))
         else:
             scorer_groups = {}
             for dim in report.dimensions:
@@ -444,10 +456,10 @@ def _render_analysis_tab() -> None:
                         st.caption(f"{dim.metric_name} — best: {dim.best_config}")
                         st.dataframe(table, width="stretch")
 
-    with st.expander(_p("analysis_section_pairwise", "Pairwise comparison"), expanded=False):
+    with st.expander(_t("analysis_section_pairwise"), expanded=False):
         pairs = report.config_comparison.pairwise
         if not pairs:
-            st.info(_p("analysis_no_pairwise", "Not enough configurations for pairwise comparison."))
+            st.info(_t("analysis_no_pairwise"))
         else:
             configs = report.configurations
             matrix_rows = []
@@ -476,13 +488,13 @@ def _render_analysis_tab() -> None:
                 wins[pair.config_a] += pair.metrics_a_wins
                 wins[pair.config_b] += pair.metrics_b_wins
                 if pair.a_always_better:
-                    st.success(_p("analysis_always_better", "✅ {a} is strictly always better than {b} across all metrics and all runs").format(a=pair.config_a, b=pair.config_b))
+                    st.success(_t("analysis_always_better").format(a=pair.config_a, b=pair.config_b))
                 if pair.b_always_better:
-                    st.success(_p("analysis_always_better", "✅ {a} is strictly always better than {b} across all metrics and all runs").format(a=pair.config_b, b=pair.config_a))
+                    st.success(_t("analysis_always_better").format(a=pair.config_b, b=pair.config_a))
             for idx, item in enumerate(sorted(wins.items(), key=lambda x: x[1], reverse=True), start=1):
                 st.write(f"{idx}. {item[0]} — {item[1]} metric wins across all comparisons")
 
-    with st.expander(_p("analysis_section_dominance", "Dominance summary"), expanded=False):
+    with st.expander(_t("analysis_section_dominance"), expanded=False):
         dom_rows = [
             {
                 "config": item.config,
@@ -493,12 +505,12 @@ def _render_analysis_tab() -> None:
             for item in report.config_comparison.dominance
         ]
         if not dom_rows:
-            st.info(_p("analysis_no_dominance", "No dominance data available."))
+            st.info(_t("analysis_no_dominance"))
         else:
             st.dataframe(dom_rows, width="stretch")
 
     st.download_button(
-        _p("analysis_download", "Download analysis YAML"),
+        _t("analysis_download"),
         data=analyser.to_yaml(report),
         file_name="benchmarker_analysis.yaml",
     )
@@ -509,76 +521,73 @@ def render() -> None:
     runner = ScenarioRunner()
 
     run_tab, history_tab, judge_tab, compare_tab, matrix_tab, analysis_tab, diagnose_tab = st.tabs([
-        _p("run_tab_title", "Run Scenario"),
-        _p("history_tab_title", "History"),
-        _p("judge_tab_title", "Judge"),
-        _p("compare_tab_title", "Compare"),
-        _p("matrix_tab_title", "Matrix Run"),
-        _p("analysis_tab_title", "Analysis"),
-        _p("diagnose_tab_title", "Diagnose"),
+        _t("run_tab_title"),
+        _t("history_tab_title"),
+        _t("judge_tab_title"),
+        _t("compare_tab_title"),
+        _t("matrix_tab_title"),
+        _t("analysis_tab_title"),
+        _t("diagnose_tab_title"),
     ])
 
     with run_tab:
         scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
         if not os.path.isdir(scenarios_dir):
-            st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
+            st.warning(_t("no_scenarios_found"))
             return
 
         scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
         if not scenario_files:
-            st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
+            st.warning(_t("no_scenarios_found"))
             return
 
-        selected = st.selectbox("Scenario", scenario_files)
+        selected = st.selectbox(_t("scenario"), scenario_files)
         scenario_path = os.path.join(scenarios_dir, selected)
         scenario = _load_scenario(scenario_path)
 
         meta = scenario.get("meta", {})
         st.caption(meta.get("description", ""))
         st.caption(
-            _p("scenario_preview", "Steps: {step_count} | Options: {options_summary}").format(
+            _t("scenario_preview").format(
                 step_count=len(scenario.get("steps", [])),
                 options_summary=str(scenario.get("options", {})),
             )
         )
         st.caption(
-            _p(
-                "diagnose_actor_caption",
-                "Actor mapping: 'student' → student_id | 'teacher' → trainer_id | 'system' → setup actions",
-            )
+            _t("diagnose_actor_caption")
         )
 
-        with st.expander("Scenario steps", expanded=True):
+        with st.expander(_t("scenario_steps"), expanded=True):
             for step in scenario.get("steps", []):
                 st.write(f"- {step.get('id', '?')}: [{step.get('actor', '?')}] {step.get('action', '?')}")
 
         setup = scenario.get("setup", {})
         scenario_options = scenario.get("options", {})
 
-        with st.expander("Overrides", expanded=True):
-            student_override = st.text_input("Student ID", value=setup.get("student_id", ""))
-            trainer_override = st.text_input("Teacher ID", value=setup.get("trainer_id", ""))
-            llm_override = st.text_input("LLM ID", value=scenario.get("llm", "")).strip()
+        with st.expander(_t("overrides"), expanded=True):
+            student_override = st.text_input(_t("student_id"), value=setup.get("student_id", ""))
+            trainer_override = st.text_input(_t("teacher_id"), value=setup.get("trainer_id", ""))
+            llm_override = st.text_input(_t("llm_id"), value=scenario.get("llm", "")).strip()
 
             options_map = get_driver().list_options()
             memory_choices = [opt["name"] for opt in options_map.get("memory_backend", [])]
             memory_default = scenario_options.get("memory_backend", "")
             if memory_choices:
                 index = memory_choices.index(memory_default) if memory_default in memory_choices else 0
-                memory_backend_override = st.selectbox("Memory backend", memory_choices, index=index)
+                memory_backend_override = st.selectbox(_t("memory_backend"), memory_choices, index=index)
             else:
-                memory_backend_override = st.text_input("Memory backend", value=memory_default)
+                memory_backend_override = st.text_input(_t("memory_backend"), value=memory_default)
 
             rag_choices = [opt["name"] for opt in options_map.get("rag_engine", [])]
             rag_default = scenario_options.get("rag_engine", "")
             if rag_choices:
                 index = rag_choices.index(rag_default) if rag_default in rag_choices else 0
-                rag_engine_override = st.selectbox("RAG engine", rag_choices, index=index)
+                rag_engine_override = st.selectbox(_t("rag_engine"), rag_choices, index=index)
             else:
-                rag_engine_override = st.text_input("RAG engine", value=rag_default)
+                rag_engine_override = st.text_input(_t("rag_engine"), value=rag_default)
 
-        if st.button("▶ Run Scenario"):
-            with st.spinner(_p("running_spinner", "Replaying scenario...")):
+        if st.button(_t("run_scenario_button")):
+            with st.spinner(_t("running_spinner")):
                 option_overrides = {}
                 if memory_backend_override:
                     option_overrides["memory_backend"] = memory_backend_override
@@ -618,22 +627,22 @@ def render() -> None:
             ]
 
         if not rows:
-            st.info(_p("no_history", "No benchmark runs recorded yet."))
+            st.info(_t("no_history"))
         else:
             st.dataframe(rows, width="stretch")
             selected_session = st.selectbox(
-                "Select session file",
+                _t("history_select_session"),
                 [r["session_file"] for r in rows],
                 key="benchmarker_history_selected_session",
             )
             if selected_session and os.path.exists(selected_session):
-                with st.expander("Session YAML", expanded=False):
+                with st.expander(_t("session_yaml"), expanded=False):
                     with open(selected_session, "r", encoding="utf-8") as handle:
                         st.code(handle.read(), language="yaml")
             elif selected_session:
                 st.warning(f"Session file not found: {selected_session}")
 
-        if st.button("Clear history"):
+        if st.button(_t("clear_history")):
             with get_db_manager().get_session() as session:
                 for record in session.query(BenchmarkRun).all():
                     if record.session_file and os.path.exists(record.session_file):
@@ -641,7 +650,7 @@ def render() -> None:
                     session.delete(record)
                 for score in session.query(ScoringRun).all():
                     session.delete(score)
-            st.success("History cleared")
+            st.success(_t("history_cleared"))
 
     with judge_tab:
         _render_judge_tab(runner)
@@ -658,14 +667,11 @@ def render() -> None:
     with diagnose_tab:
         driver = get_driver()
 
-        st.subheader(f"🔌 {_p('diagnose_options_header', 'Registered Options')}")
+        st.subheader(f"🔌 {_t('diagnose_options_header')}")
         options_map = driver.list_options()
         if not options_map:
             st.warning(
-                _p(
-                    "diagnose_no_options",
-                    "No options registered. Check that modules with driver registration are enabled.",
-                )
+                _t("diagnose_no_options")
             )
         else:
             for group, options in options_map.items():
@@ -678,10 +684,10 @@ def render() -> None:
                         f"{marker} `{option.get('name', '')}` — {option.get('description', '')}"
                     )
 
-        st.subheader(f"⚡ {_p('diagnose_actions_header', 'Registered Actions')}")
+        st.subheader(f"⚡ {_t('diagnose_actions_header')}")
         actions = driver.list_actions()
         if not actions:
-            st.warning(_p("diagnose_no_actions", "No actions registered. Check that the benchmarker initialized correctly."))
+            st.warning(_t("diagnose_no_actions"))
         else:
             st.dataframe(
                 [
@@ -695,7 +701,7 @@ def render() -> None:
                 width="stretch",
             )
 
-        st.subheader(f"✅ {_p('diagnose_validator_header', 'Scenario Validator')}")
+        st.subheader(f"✅ {_t('diagnose_validator_header')}")
         scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
         if os.path.isdir(scenarios_dir):
             scenario_files = sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
@@ -703,14 +709,14 @@ def render() -> None:
             scenario_files = []
 
         if not scenario_files:
-            st.warning(_p("no_scenarios_found", "No scenario files found in the scenarios directory."))
+            st.warning(_t("no_scenarios_found"))
         else:
-            selected = st.selectbox("Scenario", scenario_files, key="benchmarker_diagnose_scenario")
+            selected = st.selectbox(_t("scenario"), scenario_files, key="benchmarker_diagnose_scenario")
             scenario_path = os.path.join(scenarios_dir, selected)
             scenario = _load_scenario(scenario_path)
             validation_errors = ScenarioRunner().validate_scenario(scenario)
             if not validation_errors:
-                st.success(_p("diagnose_scenario_valid", "Scenario is valid — all options and actions are registered."))
+                st.success(_t("diagnose_scenario_valid"))
             else:
                 for err in validation_errors:
                     st.error(err)
@@ -734,9 +740,9 @@ def render() -> None:
             st.caption(f"Options required: {options_required}")
             st.caption(f"Actions required: {actions_required}")
 
-        st.subheader(f"🔍 {_p('diagnose_context_header', 'Current Driver Context')}")
+        st.subheader(f"🔍 {_t('diagnose_context_header')}")
         context = driver.get_context()
-        not_set = _p("diagnose_context_not_set", "not set")
+        not_set = _t("diagnose_context_not_set")
         st.dataframe(
             [
                 {"field": "student_id", "value": context.student_id or not_set},
