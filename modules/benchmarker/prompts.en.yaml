@@ -1,38 +1,3 @@
-run_tab_title: "Run Scenario"
-history_tab_title: "History"
-no_scenarios_found: "No scenario files found in the scenarios directory."
-scenario_preview: "Steps: {step_count} | Options: {options_summary}"
-running_spinner: "Replaying scenario..."
-all_passed: "{passed}/{total} assertions passed"
-some_failed: "{passed}/{total} assertions passed — {failed} failed"
-step_log_header: "[{actor}] {action}"
-no_history: "No benchmark runs recorded yet."
-clear_history_confirm: "This will delete all benchmark runs and session files. Continue?"
-judge_tab_title: "Judge"
-judge_select_session: "Select session to score"
-judge_select_rubric: "Select rubric"
-judge_run_llm: "Score with LLM"
-judge_export_prompt: "Export judge prompt"
-judge_import_scores: "Import scores from session YAML"
-judge_scoring_spinner: "Calling LLM judge..."
-judge_scored_success: "Session scored. Overall: {overall}/5"
-judge_scored_partial: "Scored with warnings: {warnings}"
-judge_scored_failed: "Scoring failed — check logs"
-judge_prompt_export_help: >
-  Copy the prompt below and paste it into any LLM chatbot.
-  Fill in the scores.dimensions block in the session YAML,
-  then use 'Import scores' to load them.
-
-compare_tab_title: "Compare"
-compare_select_scenario: "Select scenario"
-compare_group_by: "Group by option"
-compare_select_rubric: "Select rubric (optional)"
-compare_run_button: "Generate comparison"
-compare_no_runs: "No runs found for this scenario."
-compare_no_scores: "No scores available yet — run scoring first."
-compare_winner: "Winner: {winner} (Δ {delta:+.2f})"
-compare_download: "Download report YAML"
-
 judge_prompt_template: |
   You are evaluating an AI tutoring system. Your task is to score the quality
   of the system's behaviour during a tutoring session, using the rubric below.
@@ -63,15 +28,3 @@ judge_response_format: |
   {dimension_lines}
     overall: <mean of above>
     notes: "<one paragraph evaluation summary>"
-
-diagnose_tab_title: "Diagnose"
-diagnose_options_header: "Registered Options"
-diagnose_actions_header: "Registered Actions"
-diagnose_validator_header: "Scenario Validator"
-diagnose_context_header: "Current Driver Context"
-diagnose_no_options: "No options registered. Check that modules with driver registration are enabled."
-diagnose_no_actions: "No actions registered. Check that the benchmarker initialized correctly."
-diagnose_scenario_valid: "Scenario is valid — all options and actions are registered."
-diagnose_context_not_set: "not set"
-diagnose_actor_caption: "Actor mapping: 'student' → student_id | 'teacher' → trainer_id | 'system' → setup actions"
-compare_min_runs_hint: "To compare, run this scenario at least twice with different '{group_by}' options."
