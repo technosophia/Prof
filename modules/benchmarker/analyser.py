@@ -245,7 +245,7 @@ class Analyser:
             "n_runs": report.n_runs,
             "n_scenarios": report.n_scenarios,
             "configurations": report.configurations,
-            "dimensions": [self._dimension_to_dict(item) for item in report.dimensions],
+            "dimensions": [asdict(item) for item in report.dimensions],
             "config_comparison": {
                 "pairwise": [asdict(item) for item in report.config_comparison.pairwise],
                 "dominance": [asdict(item) for item in report.config_comparison.dominance],
