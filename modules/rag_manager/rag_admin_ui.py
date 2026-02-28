@@ -165,9 +165,7 @@ def _show_cache_tab():
         with col1:
             # Pre-load specific model
             popular_models = [
-                "sentence-transformers/all-MiniLM-L6-v2",
-                "sentence-transformers/all-mpnet-base-v2",
-                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+                "sentence-transformers/all-mpnet-base-v2"
             ]
 
             model_to_preload = st.selectbox(

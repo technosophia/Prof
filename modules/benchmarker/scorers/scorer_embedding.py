@@ -2,7 +2,6 @@
 
 from typing import Dict
 
-from core.logging import log
 from modules.benchmarker.scorers.base import ScorerPlugin as BaseScorerPlugin, ScoringResult
 
 
@@ -12,19 +11,11 @@ class ScorerPlugin(BaseScorerPlugin):
     id = "embedding_similarity"
     name = "Embedding Similarity"
 
-    def is_available(self) -> bool:
-        try:
-            import sentence_transformers  # noqa
-
-            return True
-        except ImportError:
-            log("warning", "embedding_similarity scorer: sentence-transformers not installed")
-            return False
-
     def compute_score(self, session: Dict, config: Dict, container) -> None:
-        from st_shared.cached import get_section
+        import numpy as np
 
-        model_name = get_section("benchmarker").get("embedding_model", "all-MiniLM-L6-v2")
+        from shared.common import get_embedding
+
         session_path = config["session_path"]
 
         qualifying = [
@@ -41,14 +32,16 @@ class ScorerPlugin(BaseScorerPlugin):
             )
             return
 
-        container.info(f"Computing embeddings with model: {model_name}")
+        container.info("Computing embeddings with the global LLM embedding service")
         submit_key = f"embedding_submit_{session_path}"
         if not container.button("Compute similarity", key=submit_key):
             return
 
-        from sentence_transformers import SentenceTransformer, util
-
-        model = SentenceTransformer(model_name)
+        def _cosine_similarity(vec_a, vec_b) -> float:
+            denominator = float(np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
+            if denominator == 0:
+                return 0.0
+            return float(np.dot(vec_a, vec_b) / denominator)
 
         scores = {}
         rows = []
@@ -56,9 +49,9 @@ class ScorerPlugin(BaseScorerPlugin):
             step_id = step["id"]
             answer = step["result"]["llm_response"]
             expected = step["expected_response"]
-            emb_answer = model.encode(answer, convert_to_tensor=True)
-            emb_expected = model.encode(expected, convert_to_tensor=True)
-            similarity = float(util.cos_sim(emb_answer, emb_expected)[0][0])
+            emb_answer = get_embedding(answer)
+            emb_expected = get_embedding(expected)
+            similarity = _cosine_similarity(np.array(emb_answer), np.array(emb_expected))
             scores[step_id] = round(similarity, 4)
             rows.append({"step": step_id, "similarity": similarity})
 
@@ -66,7 +59,7 @@ class ScorerPlugin(BaseScorerPlugin):
             scorer_id=self.id,
             session_path=session_path,
             scores=scores,
-            scorer_config={"model": model_name, "steps_scored": len(scores)},
+            scorer_config={"model": "global_llm_embedding", "steps_scored": len(scores)},
             source="embedding",
             notes=None,
             scored_at=self._now(),
