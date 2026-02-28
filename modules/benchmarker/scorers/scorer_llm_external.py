@@ -27,8 +27,8 @@ class ScorerPlugin(BaseScorerPlugin):
         rubric = loader.load(rubric_name)
 
         prompt = JudgePromptRenderer().render(session, rubric)
-        with container.expander("Judge prompt — copy this to your LLM", expanded=False):
-            container.code(prompt, language="text")
+        prompt_expander = container.expander("Judge prompt — copy this to your LLM", expanded=False)
+        prompt_expander.code(prompt, language="text")
 
         paste_key = f"llm_ext_paste_{session_path}"
         pasted = container.text_area(

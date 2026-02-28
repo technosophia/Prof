@@ -34,10 +34,10 @@ class ScorerPlugin(BaseScorerPlugin):
             return
 
         renderer = JudgePromptRenderer()
-        with container.expander("Judge prompt — copy this to your LLM", expanded=False):
-            preview_rubric = loader.load(selected[0])
-            prompt = renderer.render(session, preview_rubric)
-            container.code(prompt, language="text")
+        preview_rubric = loader.load(selected[0])
+        prompt = renderer.render(session, preview_rubric)
+        prompt_expander = container.expander("Judge prompt — copy this to your LLM", expanded=False)
+        prompt_expander.code(prompt, language="text")
 
         if not container.button("Score selected rubrics", key=f"llm_internal_submit_{session_path}"):
             return

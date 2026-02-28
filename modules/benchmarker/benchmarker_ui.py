@@ -179,30 +179,34 @@ def _render_compare_tab() -> None:
         st.info(_p("compare_no_runs", "No runs found for this scenario."))
         return
 
-    st.caption("Runs grouped by available option groups")
-    all_groups = sorted({key for run in db_runs for key in run["options"].keys()})
-    for group_name in all_groups:
-        with st.expander(f"Group: {group_name}", expanded=False):
-            grouped_rows = []
-            for run in db_runs:
-                grouped_rows.append(
-                    {
-                        "run_at": str(run["run_at"]),
-                        "scenario": run["scenario_name"],
-                        "session_file": run["session_file"],
-                        "value": run["options"].get(group_name, "<unset>"),
-                        **_flatten_options(run["options"]),
-                    }
-                )
-            st.dataframe(grouped_rows, width="stretch")
-
     scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), scenarios)
+
+    scenario_runs = [run for run in db_runs if run["scenario_name"] == scenario_name]
+    available_group_choices = sorted(set(sorted(get_driver().list_options().keys())) | {key for run in scenario_runs for key in run["options"].keys()})
+    if not available_group_choices:
+        available_group_choices = ["memory_backend"]
+
+    st.caption("Runs grouped by available option groups")
+    for group_name in available_group_choices:
+        with st.expander(f"Group: {group_name}", expanded=False):
+            preview_report = Comparer().compare(scenario_name, group_by=group_name)
+            preview_rows = [
+                {
+                    "group_value": group.option_value,
+                    "runs": group.run_count,
+                    "assertions_pass_rate": round(group.assertions_pass_rate, 3),
+                    "avg_tokens": round(group.avg_tokens, 1),
+                    "avg_duration_seconds": round(group.avg_duration_seconds, 3),
+                }
+                for group in preview_report.groups
+            ]
+            st.dataframe(preview_rows, width="stretch")
+
     st.caption(
         "Select a scenario, then choose which option to compare across runs. "
         "Each run with a different option value becomes one column in the comparison."
     )
-    group_choices = sorted(get_driver().list_options().keys()) or ["memory_backend"]
-    group_by = st.selectbox(_p("compare_group_by", "Group by option"), group_choices)
+    group_by = st.selectbox(_p("compare_group_by", "Group by option"), available_group_choices)
     invert = st.checkbox("Invert rows/columns in display", key=f"compare_invert_{scenario_name}_{group_by}")
 
     if st.button(_p("compare_run_button", "Generate comparison")):
@@ -216,7 +220,6 @@ def _render_compare_tab() -> None:
             st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
 
         table = []
-        scorer_names = sorted({scorer_name for group in report.groups for scorer_name in group.scoring.keys()})
         for g in report.groups:
             row = {
                 "option": g.option_value,
@@ -231,16 +234,15 @@ def _render_compare_tab() -> None:
                 row[f"{scorer_name}.overall"] = scorer_stats.get("overall")
             table.append(row)
 
-        if invert:
-            inverted = []
-            for scorer_name in scorer_names:
-                inv_row = {"scorer": scorer_name}
-                for g in report.groups:
-                    inv_row[f"{g.option_value}.runs_scored"] = g.scoring.get(scorer_name, {}).get("runs_scored", 0)
-                    inv_row[f"{g.option_value}.scores"] = g.scoring.get(scorer_name, {}).get("scores", {})
-                    inv_row[f"{g.option_value}.overall"] = g.scoring.get(scorer_name, {}).get("overall")
-                inverted.append(inv_row)
-            st.dataframe(inverted, width="stretch")
+        if invert and table:
+            metrics = list(table[0].keys())
+            inverted_rows = []
+            for metric in metrics:
+                inv_row = {"metric": metric}
+                for row in table:
+                    inv_row[row["option"]] = row.get(metric)
+                inverted_rows.append(inv_row)
+            st.dataframe(inverted_rows, width="stretch")
         else:
             st.dataframe(table, width="stretch")
 
