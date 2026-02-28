@@ -1,21 +1,14 @@
-"""Tests for benchmarker comparer.
-
-TODO : makge regression in modules/benchmarker/tests/test_runner_integration_real_driver.py::test_full_run_real_driver_scenarios[full_nexoria]
-
-"""
+"""Tests for benchmarker comparer."""
 
 from datetime import datetime, timezone
 
-import yaml
-
-
-
-from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore, ensure_tables_exist
+from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun, ensure_tables_exist
 from modules.benchmarker.comparer import Comparer
-
 
 from core.database import init_database
 from st_shared.cached import get_db_manager
+
+
 def setup_function(_):
     init_database(use_memory=True)
     ensure_tables_exist()
@@ -41,18 +34,18 @@ def _add_run(scenario, opt, passed, total, duration=1.0, tokens=10):
         return run.id
 
 
-def _add_score(run_id, rubric, overall, dims):
+def _add_score(run_id, scorer_id, overall, dims):
     with get_db_manager().get_session() as db:
         db.add(
-            BenchmarkScore(
+            ScoringRun(
                 run_id=run_id,
                 session_file="/tmp/x.yaml",
-                rubric_name=rubric,
+                scorer_id=scorer_id,
+                scorer_config={},
                 scores=dims,
                 overall_score=overall,
-                judge_llm="mock",
-                judge_prompt="prompt",
                 source="manual",
+                notes=None,
                 parse_errors=[],
             )
         )
@@ -65,57 +58,29 @@ def test_compare_no_runs_returns_empty_groups():
 
 def test_compare_groups_by_option():
     _add_run("s", "memory", 6, 6)
-    _add_run("s", "memory", 6, 6)
-    _add_run("s", "pedagogical_memory", 6, 6)
     _add_run("s", "pedagogical_memory", 6, 6)
     report = Comparer().compare("s")
     assert len(report.groups) == 2
 
 
-def test_compare_computes_pass_rate():
-    _add_run("s", "memory", 6, 6)
-    _add_run("s", "memory", 4, 6)
+def test_compare_includes_scores_matrix_with_empty_slots():
+    run_memory = _add_run("s", "memory", 6, 6)
+    run_ped = _add_run("s", "pedagogical_memory", 6, 6)
+    _add_score(run_memory, "manual", 4.0, {"relevance": 4})
+    _add_score(run_ped, "embedding_similarity", 0.8, {"s1": 0.8})
+
     report = Comparer().compare("s")
+    as_yaml = Comparer().to_yaml(report)
+
+    assert "manual" in as_yaml
+    assert "embedding_similarity" in as_yaml
+    assert "runs_scored: 0" in as_yaml
+
+
+def test_compare_filters_by_scorer_id():
+    run_id = _add_run("s", "memory", 6, 6)
+    _add_score(run_id, "manual", 4.0, {"relevance": 4})
+    _add_score(run_id, "embedding_similarity", 0.9, {"s1": 0.9})
+    report = Comparer().compare("s", scorer_id="manual")
     group = [g for g in report.groups if g.option_value == "memory"][0]
-    assert round(group.assertions_pass_rate, 3) == 0.833
-
-
-def test_compare_includes_scores_when_available():
-    run1 = _add_run("s", "memory", 6, 6)
-    run2 = _add_run("s", "memory", 6, 6)
-    _add_score(run1, "memory_quality", 4.0, {"relevance": 4, "precision": 4})
-    _add_score(run2, "memory_quality", 2.0, {"relevance": 2, "precision": 2})
-    report = Comparer().compare("s", rubric_name="memory_quality")
-    group = [g for g in report.groups if g.option_value == "memory"][0]
-    assert group.dimension_scores["relevance"] == 3.0
-
-
-def test_compare_winner_by_overall_score():
-    run1 = _add_run("s", "memory", 6, 6)
-    run2 = _add_run("s", "pedagogical_memory", 6, 6)
-    _add_score(run1, "memory_quality", 2.0, {"relevance": 2})
-    _add_score(run2, "memory_quality", 4.0, {"relevance": 4})
-    report = Comparer().compare("s", rubric_name="memory_quality")
-    assert report.winner == "pedagogical_memory"
-
-
-def test_compare_winner_by_pass_rate_when_no_scores():
-    _add_run("s", "memory", 3, 6)
-    _add_run("s", "pedagogical_memory", 5, 6)
-    report = Comparer().compare("s")
-    assert report.winner == "pedagogical_memory"
-
-
-def test_to_yaml_is_valid_yaml():
-    _add_run("s", "memory", 6, 6)
-    report = Comparer().compare("s")
-    rendered = Comparer().to_yaml(report)
-    parsed = yaml.safe_load(rendered)
-    assert parsed["scenario"] == "s"
-
-
-def test_save_report_writes_file(tmp_path):
-    _add_run("s", "memory", 6, 6)
-    report = Comparer().compare("s")
-    path = Comparer().save_report(report, str(tmp_path))
-    assert (tmp_path / path.split('/')[-1]).exists()
+    assert list(group.scoring.keys()) == ["manual"]

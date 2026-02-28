@@ -5,12 +5,11 @@ import uuid
 
 from sqlalchemy import Column, DateTime, Float, Integer, JSON, String, Text
 
-
-
-
-from core.logging import log, set_log_module_level
+from core.logging import log
 from core.database import Base
 from st_shared.cached import get_db_manager
+
+
 class BenchmarkRun(Base):
     """Database record for one benchmark scenario run."""
 
@@ -30,22 +29,22 @@ class BenchmarkRun(Base):
     summary = Column(JSON, default={})
 
 
-class BenchmarkScore(Base):
-    """Database record for one benchmark scoring attempt."""
+class ScoringRun(Base):
+    """Database record for one scorer execution on a benchmark session."""
 
-    __tablename__ = "benchmark_scores"
+    __tablename__ = "scoring_runs"
     __table_args__ = {"extend_existing": True}
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String(36), nullable=True)
     session_file = Column(String(512), nullable=False)
-    rubric_name = Column(String(255), nullable=False)
+    scorer_id = Column(String(64), nullable=False)
+    scorer_config = Column(JSON, default={})
     scores = Column(JSON, default={})
     overall_score = Column(Float, nullable=True)
-    judge_llm = Column(String(255), nullable=True)
     scored_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    judge_prompt = Column(Text, nullable=False)
-    source = Column(String(64), default="llm_auto", nullable=False)
+    source = Column(String(64), nullable=False)
+    notes = Column(Text, nullable=True)
     parse_errors = Column(JSON, default=[])
 
 
@@ -54,6 +53,6 @@ def ensure_tables_exist() -> None:
     db = get_db_manager()
     if db.is_initialized() and db._engine is not None:
         BenchmarkRun.__table__.create(bind=db._engine, checkfirst=True)
-        BenchmarkScore.__table__.create(bind=db._engine, checkfirst=True)
+        ScoringRun.__table__.create(bind=db._engine, checkfirst=True)
         log("debug", "Benchmarker table ensured: benchmark_runs")
-        log("debug", "Benchmarker table ensured: benchmark_scores")
+        log("debug", "Benchmarker table ensured: scoring_runs")

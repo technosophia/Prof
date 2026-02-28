@@ -25,18 +25,34 @@ import app modules directly.
 - Option group name is `"llm"`.
 - No mid-session LLM switching: set once in scenario `options:` at scenario start.
 
-## Scorer
-- Implemented in `scorer.py`.
-- Rubrics are YAML files under `rubrics/`.
-- Judge prompt is rendered automatically and stored in session YAML and DB.
-- Score sources: `llm_auto`, `llm_paste`, `manual`.
-- Parsing is graceful on failure and never raises.
+## Scoring architecture
 
-## Comparer
-- Implemented in `comparer.py`.
-- Groups by option group value (e.g., `memory_backend`, `llm`).
-- Requires `BenchmarkRun` records; scores are optional.
-- Report YAML is written to `data/benchmarker/sessions/`.
+Sessions are immutable transcripts. Scoring is separate and plugin-driven.
+
+### Scorer plugins
+Auto-discovered from `scorers/scorer_*.py`. Each file has a class named `ScorerPlugin`.
+See `SCORER_PLUGIN.md` to add a new scorer.
+
+Current scorers:
+- `scorer_manual.py` — rubric-based sliders, human fills scores in UI
+- `scorer_llm_external.py` — renders judge prompt, user pastes LLM response
+- `scorer_embedding.py` — automatic cosine similarity vs expected_response
+- `scorer_llm_internal.py` — scores selected rubrics using the currently active internal LLM
+
+### Judge tab
+Selects session + scorer. Calls scorer.compute_score(session, config, container).
+The scorer owns everything from that point: rubric selection, UI, DB write.
+
+### ScoringPipeline
+`scoring_pipeline.py` — singleton via get_scoring_pipeline().
+Responsibilities: auto-discover scorers, list them, load ScoringRun results from DB.
+Does NOT call compute_score() — the UI does that directly.
+
+### Compare matrix
+Rows = configurations (option group values).
+Columns = scorer ids.
+Each cell = { scores dict, overall, runs_scored }.
+Empty cells shown explicitly with runs_scored: 0.
 
 ## Add a new scenario
 1. Copy `scenarios/example_basic.yaml`

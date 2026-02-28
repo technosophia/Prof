@@ -8,10 +8,10 @@ import yaml
 
 from shared.common import get_driver, get_prompt
 
-from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
+from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.comparer import Comparer
 from modules.benchmarker.runner import RunResult, ScenarioRunner
-from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
+from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
 
 
 from st_shared.cached import get_db_manager
@@ -28,6 +28,15 @@ def _list_sessions(sessions_dir: str) -> List[str]:
     if not os.path.isdir(sessions_dir):
         return []
     return sorted([os.path.join(sessions_dir, f) for f in os.listdir(sessions_dir) if f.endswith(".yaml")], reverse=True)
+
+
+
+
+def _flatten_options(options: Dict) -> Dict:
+    flattened = {}
+    for key, value in (options or {}).items():
+        flattened[f"option_{key}"] = value
+    return flattened
 
 
 def _render_results(run_result: RunResult, events: List[Dict]) -> None:
@@ -80,121 +89,133 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
         st.info(_p("no_history", "No benchmark runs recorded yet."))
         return
 
-    selected_session = st.selectbox(_p("judge_select_session", "Select session to score"), session_files)
-    loader = RubricLoader()
-    rubric_names = loader.list_available()
-    rubric_name = st.selectbox(_p("judge_select_rubric", "Select rubric"), rubric_names) if rubric_names else None
+    pipeline = get_scoring_pipeline()
+
+    labels = []
+    for path in session_files:
+        label = os.path.basename(path)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    meta = (yaml.safe_load(handle) or {}).get("meta", {})
+                run_at = meta.get("run_at")
+                if run_at:
+                    label = f"{os.path.basename(path)}  |  {run_at}"
+            except Exception:
+                pass
+        labels.append(label)
+
+    selected_label = st.selectbox(_p("judge_select_session", "Select session to score"), labels)
+    selected_index = labels.index(selected_label)
+    selected_session = session_files[selected_index]
 
     session_data = {}
     if selected_session and os.path.exists(selected_session):
         with open(selected_session, "r", encoding="utf-8") as handle:
             session_data = yaml.safe_load(handle) or {}
-        meta = session_data.get("meta", {})
-        summary = session_data.get("summary", {})
-        st.caption(
-            f"scenario={meta.get('scenario')} | run_at={meta.get('run_at')} | "
-            f"options={meta.get('options', {})} | "
-            f"assertions={summary.get('assertions_passed', 0)}/{summary.get('assertions_total', 0)}"
+
+    configuration = (session_data.get("meta", {}) or {}).get("configuration", {})
+    with st.expander("Session configuration", expanded=False):
+        st.code(yaml.safe_dump(configuration, sort_keys=False), language="yaml")
+
+    scorers = pipeline.list_scorers()
+    available = [item for item in scorers if item.get("available")]
+    unavailable = [item for item in scorers if not item.get("available")]
+
+    if unavailable:
+        st.caption("Unavailable scorers: " + ", ".join(f"{item['name']} (unavailable)" for item in unavailable))
+
+    if not available:
+        st.warning("No available scorers found.")
+        return
+
+    scorer_labels = [item["name"] for item in available]
+    selected_scorer_label = st.selectbox("Scorer", scorer_labels)
+    selected_scorer = available[scorer_labels.index(selected_scorer_label)]
+
+    scorer = pipeline.get_scorer(selected_scorer["id"])
+    judge_container = st.container()
+    if scorer is not None:
+        scorer.compute_score(
+            session=session_data,
+            config={"session_path": selected_session},
+            container=judge_container,
         )
 
-    scorer = Scorer()
-
-    if st.button(_p("judge_run_llm", "Score with LLM"), disabled=not rubric_name):
-        with st.spinner(_p("judge_scoring_spinner", "Calling LLM judge...")):
-            try:
-                result = scorer.score_session(selected_session, rubric_name, use_llm=True)
-                if result.complete:
-                    st.success(_p("judge_scored_success", "Session scored. Overall: {overall}/5").format(overall=f"{(result.overall or 0):.2f}"))
-                elif result.parse_errors:
-                    st.warning(_p("judge_scored_partial", "Scored with warnings: {warnings}").format(warnings="; ".join(result.parse_errors)))
-                st.dataframe([
-                    {"dimension": k, "score": v} for k, v in result.scores.items()
-                ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
-            except Exception as exc:
-                st.error(_p("judge_scored_failed", "Scoring failed — check logs"))
-                st.exception(exc)
-
-    st.info(_p("judge_prompt_export_help", ""))
-    if st.button(_p("judge_export_prompt", "Export judge prompt"), disabled=not rubric_name):
-        rubric = loader.load(rubric_name)
-        prompt = JudgePromptRenderer().render(session_data, rubric)
-        st.code(prompt, language="yaml")
-        st.download_button("Download prompt", data=prompt, file_name=f"judge_prompt__{rubric_name}.txt")
-
-    st.info("Edit the scores: block in the session YAML, then click Import.")
-    if st.button(_p("judge_import_scores", "Import scores from session YAML")):
-        result = scorer.import_scores_from_yaml(selected_session, rubric_name=rubric_name)
-        if result.parse_errors:
-            st.warning("; ".join(result.parse_errors))
-        st.dataframe([
-            {"dimension": k, "score": v} for k, v in result.scores.items()
-        ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
-
-    pasted_response = st.text_area("Paste judge YAML response", key="judge_pasted_response", height=220)
-    if st.button("Import pasted judge response", disabled=not rubric_name or not pasted_response.strip()):
-        pasted = scorer.import_scores_from_text(selected_session, rubric_name, pasted_response)
-        if pasted.parse_errors:
-            st.warning("; ".join(pasted.parse_errors))
-        else:
-            st.success("Pasted scores imported")
-        st.dataframe([
-            {"dimension": k, "score": v} for k, v in pasted.scores.items()
-        ] + [{"dimension": "overall", "score": pasted.overall}], width="stretch")
-
-    with get_db_manager().get_session() as db:
-        db_rows = db.query(BenchmarkScore).filter(BenchmarkScore.session_file == selected_session).order_by(BenchmarkScore.scored_at.desc()).all()
-        rows = [
-            {
-                "scored_at": str(r.scored_at),
-                "rubric": r.rubric_name,
-                "judge_llm": r.judge_llm,
-                "overall_score": r.overall_score,
-                "source": r.source,
-                "complete": all(v is not None for v in (r.scores or {}).values()) if r.scores else False,
-            }
-            for r in db_rows
-        ]
-    if rows:
-        st.dataframe(rows, width="stretch")
+    results = pipeline.load_results(selected_session)
+    if results:
+        st.subheader("Past scores")
+        st.dataframe(
+            [
+                {
+                    "scorer_id": result.scorer_id,
+                    "source": result.source,
+                    "scored_at": result.scored_at,
+                    "scores": result.scores,
+                    "overall_score": result.overall,
+                    "complete": result.complete,
+                }
+                for result in results
+            ],
+            width="stretch",
+        )
 
 
 def _render_compare_tab() -> None:
     with get_db_manager().get_session() as db:
-        scenarios = [row[0] for row in db.query(BenchmarkRun.scenario_name).distinct().all()]
+        db_rows = db.query(BenchmarkRun).order_by(BenchmarkRun.run_at.desc()).all()
+        db_runs = [
+            {
+                "run_at": row.run_at,
+                "scenario_name": row.scenario_name,
+                "session_file": row.session_file,
+                "options": dict(row.options or {}),
+            }
+            for row in db_rows
+        ]
+        scenarios = sorted({run["scenario_name"] for run in db_runs})
 
     if not scenarios:
         st.info(_p("compare_no_runs", "No runs found for this scenario."))
         return
 
-    scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), sorted(scenarios))
+    scenario_name = st.selectbox(_p("compare_select_scenario", "Select scenario"), scenarios)
+
+    scenario_runs = [run for run in db_runs if run["scenario_name"] == scenario_name]
+    available_group_choices = sorted(set(sorted(get_driver().list_options().keys())) | {key for run in scenario_runs for key in run["options"].keys()})
+    if not available_group_choices:
+        available_group_choices = ["memory_backend"]
+
+    st.caption("Runs grouped by available option groups")
+    for group_name in available_group_choices:
+        with st.expander(f"Group: {group_name}", expanded=False):
+            preview_report = Comparer().compare(scenario_name, group_by=group_name)
+            preview_rows = [
+                {
+                    "group_value": group.option_value,
+                    "runs": group.run_count,
+                    "assertions_pass_rate": round(group.assertions_pass_rate, 3),
+                    "avg_tokens": round(group.avg_tokens, 1),
+                    "avg_duration_seconds": round(group.avg_duration_seconds, 3),
+                }
+                for group in preview_report.groups
+            ]
+            st.dataframe(preview_rows, width="stretch")
+
     st.caption(
         "Select a scenario, then choose which option to compare across runs. "
         "Each run with a different option value becomes one column in the comparison."
     )
-    group_choices = sorted(get_driver().list_options().keys()) or ["memory_backend"]
-    group_by = st.selectbox(_p("compare_group_by", "Group by option"), group_choices)
-    rubric_options = ["None"] + RubricLoader().list_available()
-    rubric_choice = st.selectbox(_p("compare_select_rubric", "Select rubric (optional)"), rubric_options)
-    rubric_name = None if rubric_choice == "None" else rubric_choice
+    group_by = st.selectbox(_p("compare_group_by", "Group by option"), available_group_choices)
+    invert = st.checkbox("Invert rows/columns in display", key=f"compare_invert_{scenario_name}_{group_by}")
 
     if st.button(_p("compare_run_button", "Generate comparison")):
-        report = Comparer().compare(scenario_name, group_by=group_by, rubric_name=rubric_name)
+        report = Comparer().compare(scenario_name, group_by=group_by)
         if not report.groups:
             st.info(_p("compare_no_runs", "No runs found for this scenario."))
             return
 
-        if len(report.groups) < 2:
-            st.info(
-                _p(
-                    "compare_min_runs_hint",
-                    "To compare, run this scenario at least twice with different '{group_by}' options.",
-                ).format(group_by=group_by)
-                + " "
-                + f"Currently only {len(report.groups)} option value(s) found: "
-                + f"{[g.option_value for g in report.groups]}"
-            )
-
-        has_scores = any(g.score_count > 0 for g in report.groups)
+        has_scores = any(any((stats.get("runs_scored", 0) > 0) for stats in g.scoring.values()) for g in report.groups)
         if not has_scores:
             st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
 
@@ -206,16 +227,24 @@ def _render_compare_tab() -> None:
                 "assertions_pass_rate": round(g.assertions_pass_rate, 3),
                 "avg_tokens": round(g.avg_tokens, 1),
                 "avg_duration_seconds": round(g.avg_duration_seconds, 3),
-                "score_count": g.score_count,
-                "overall_score": g.overall_score,
             }
-            for k, v in g.dimension_scores.items():
-                row[k] = v
+            for scorer_name, scorer_stats in g.scoring.items():
+                row[f"{scorer_name}.runs_scored"] = scorer_stats.get("runs_scored", 0)
+                row[f"{scorer_name}.scores"] = scorer_stats.get("scores", {})
+                row[f"{scorer_name}.overall"] = scorer_stats.get("overall")
             table.append(row)
-        st.dataframe(table, width="stretch")
 
-        if report.winner:
-            st.success(_p("compare_winner", "Winner: {winner} (Δ {delta:+.2f})").format(winner=report.winner, delta=report.delta or 0.0))
+        if invert and table:
+            metrics = list(table[0].keys())
+            inverted_rows = []
+            for metric in metrics:
+                inv_row = {"metric": metric}
+                for row in table:
+                    inv_row[row["option"]] = row.get(metric)
+                inverted_rows.append(inv_row)
+            st.dataframe(inverted_rows, width="stretch")
+        else:
+            st.dataframe(table, width="stretch")
 
         yaml_report = Comparer().to_yaml(report)
         st.download_button(_p("compare_download", "Download report YAML"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
@@ -323,7 +352,7 @@ def render() -> None:
                 {
                     "run_at": str(r.run_at),
                     "scenario_name": r.scenario_name,
-                    "options": str(r.options),
+                    **_flatten_options(r.options or {}),
                     "success": bool(r.success),
                     "assertions": f"{r.assertions_passed}/{r.assertions_total}",
                     "duration_seconds": r.duration_seconds,
@@ -342,8 +371,9 @@ def render() -> None:
                 key="benchmarker_history_selected_session",
             )
             if selected_session and os.path.exists(selected_session):
-                with open(selected_session, "r", encoding="utf-8") as handle:
-                    st.code(handle.read(), language="yaml")
+                with st.expander("Session YAML", expanded=False):
+                    with open(selected_session, "r", encoding="utf-8") as handle:
+                        st.code(handle.read(), language="yaml")
             elif selected_session:
                 st.warning(f"Session file not found: {selected_session}")
 
@@ -353,7 +383,7 @@ def render() -> None:
                     if record.session_file and os.path.exists(record.session_file):
                         os.remove(record.session_file)
                     session.delete(record)
-                for score in session.query(BenchmarkScore).all():
+                for score in session.query(ScoringRun).all():
                     session.delete(score)
             st.success("History cleared")
 

@@ -192,7 +192,9 @@ class ScenarioRunner:
             options_snapshot=summary.get("active_options", {}),
             llm_id=llm_id,
             run_duration=time.time() - started_at,
-            rubric_name=scenario.get("rubric"),
+            scenario_steps=scenario.get("steps", []),
+            student_id=setup.get("student_id"),
+            trainer_id=setup.get("trainer_id"),
         )
         run_result.session_path = session_path
 
