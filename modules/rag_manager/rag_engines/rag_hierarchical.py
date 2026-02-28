@@ -37,7 +37,6 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         self.index_path = Path(config.get("index_path", "./data/hierarchical_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)
 
-        self.embedding_model_name = config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
         self.similarity_threshold = config.get("similarity_threshold", 0.5)
 
         log("debug", f"Hierarchical RAG config: index_path={self.index_path}")

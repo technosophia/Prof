@@ -38,12 +38,11 @@ class ClassicRAGEngine(RAGEngine):
         self.index_path = Path(config.get("index_path", "data/classic_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)
 
-        self.embedding_model_name = config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
         self.chunk_size = config.get("chunk_size", 500)
         self.chunk_overlap = config.get("chunk_overlap", 50)
         self.similarity_threshold = config.get("similarity_threshold", 0.5)
 
-        log("debug", f"Classic RAG config: index_path={self.index_path}, model={self.embedding_model_name}")
+        log("debug", f"Classic RAG config: index_path={self.index_path}")
 
         try:
             self.dimension = len(get_embedding(""))

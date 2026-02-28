@@ -14,7 +14,6 @@
         "enabled": true,
         "description": "FAISS vector store with embeddings",
         "index_path": "data/classic_indexes",
-        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "chunk_size": 500,
         "chunk_overlap": 50,
         "similarity_threshold": 0.3
@@ -23,7 +22,6 @@
         "enabled": true,
         "description": "FAISS vector store with hierarchical markdown parsing",
         "index_path": "data/hierarchical_indexes",
-        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "similarity_threshold": 0.5
       }
     }

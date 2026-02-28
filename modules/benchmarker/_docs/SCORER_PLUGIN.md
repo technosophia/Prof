@@ -98,7 +98,7 @@ If your scorer requires it, set `complete=False` with a parse error when absent.
 ```python
 scorer_config = {
     "rubric": "pedagogy",          # rubric name if used
-    "model": "all-MiniLM-L6-v2",   # model if used
+    "model": "global_llm_embedding",   # model if used
     "threshold": 0.75,             # any thresholds
     "library_version": "...",       # for reproducibility
 }
