@@ -8,10 +8,10 @@ import yaml
 
 from shared.common import get_driver, get_prompt
 
-from modules.benchmarker.benchmarker import BenchmarkRun, BenchmarkScore
+from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.comparer import Comparer
 from modules.benchmarker.runner import RunResult, ScenarioRunner
-from modules.benchmarker.scorer import JudgePromptRenderer, RubricLoader, Scorer
+from modules.benchmarker.scorers.prompt_renderer import JudgePromptRenderer, RubricLoader
 
 
 from st_shared.cached import get_db_manager
@@ -97,22 +97,7 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
             f"assertions={summary.get('assertions_passed', 0)}/{summary.get('assertions_total', 0)}"
         )
 
-    scorer = Scorer()
-
-    if st.button(_p("judge_run_llm", "Score with LLM"), disabled=not rubric_name):
-        with st.spinner(_p("judge_scoring_spinner", "Calling LLM judge...")):
-            try:
-                result = scorer.score_session(selected_session, rubric_name, use_llm=True)
-                if result.complete:
-                    st.success(_p("judge_scored_success", "Session scored. Overall: {overall}/5").format(overall=f"{(result.overall or 0):.2f}"))
-                elif result.parse_errors:
-                    st.warning(_p("judge_scored_partial", "Scored with warnings: {warnings}").format(warnings="; ".join(result.parse_errors)))
-                st.dataframe([
-                    {"dimension": k, "score": v} for k, v in result.scores.items()
-                ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
-            except Exception as exc:
-                st.error(_p("judge_scored_failed", "Scoring failed — check logs"))
-                st.exception(exc)
+    st.info("No scorer plugins are currently registered. Use ScoringPipeline to run scorers.")
 
     st.info(_p("judge_prompt_export_help", ""))
     if st.button(_p("judge_export_prompt", "Export judge prompt"), disabled=not rubric_name):
@@ -121,36 +106,15 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
         st.code(prompt, language="yaml")
         st.download_button("Download prompt", data=prompt, file_name=f"judge_prompt__{rubric_name}.txt")
 
-    st.info("Edit the scores: block in the session YAML, then click Import.")
-    if st.button(_p("judge_import_scores", "Import scores from session YAML")):
-        result = scorer.import_scores_from_yaml(selected_session, rubric_name=rubric_name)
-        if result.parse_errors:
-            st.warning("; ".join(result.parse_errors))
-        st.dataframe([
-            {"dimension": k, "score": v} for k, v in result.scores.items()
-        ] + [{"dimension": "overall", "score": result.overall}], width="stretch")
-
-    pasted_response = st.text_area("Paste judge YAML response", key="judge_pasted_response", height=220)
-    if st.button("Import pasted judge response", disabled=not rubric_name or not pasted_response.strip()):
-        pasted = scorer.import_scores_from_text(selected_session, rubric_name, pasted_response)
-        if pasted.parse_errors:
-            st.warning("; ".join(pasted.parse_errors))
-        else:
-            st.success("Pasted scores imported")
-        st.dataframe([
-            {"dimension": k, "score": v} for k, v in pasted.scores.items()
-        ] + [{"dimension": "overall", "score": pasted.overall}], width="stretch")
-
     with get_db_manager().get_session() as db:
-        db_rows = db.query(BenchmarkScore).filter(BenchmarkScore.session_file == selected_session).order_by(BenchmarkScore.scored_at.desc()).all()
+        db_rows = db.query(ScoringRun).filter(ScoringRun.session_file == selected_session).order_by(ScoringRun.scored_at.desc()).all()
         rows = [
             {
                 "scored_at": str(r.scored_at),
-                "rubric": r.rubric_name,
-                "judge_llm": r.judge_llm,
+                "scorer_id": r.scorer_id,
                 "overall_score": r.overall_score,
                 "source": r.source,
-                "complete": all(v is not None for v in (r.scores or {}).values()) if r.scores else False,
+                "complete": len(r.parse_errors or []) == 0,
             }
             for r in db_rows
         ]
@@ -173,12 +137,8 @@ def _render_compare_tab() -> None:
     )
     group_choices = sorted(get_driver().list_options().keys()) or ["memory_backend"]
     group_by = st.selectbox(_p("compare_group_by", "Group by option"), group_choices)
-    rubric_options = ["None"] + RubricLoader().list_available()
-    rubric_choice = st.selectbox(_p("compare_select_rubric", "Select rubric (optional)"), rubric_options)
-    rubric_name = None if rubric_choice == "None" else rubric_choice
-
     if st.button(_p("compare_run_button", "Generate comparison")):
-        report = Comparer().compare(scenario_name, group_by=group_by, rubric_name=rubric_name)
+        report = Comparer().compare(scenario_name, group_by=group_by)
         if not report.groups:
             st.info(_p("compare_no_runs", "No runs found for this scenario."))
             return
@@ -194,7 +154,7 @@ def _render_compare_tab() -> None:
                 + f"{[g.option_value for g in report.groups]}"
             )
 
-        has_scores = any(g.score_count > 0 for g in report.groups)
+        has_scores = any(any(stats.runs_scored > 0 for stats in g.scoring.values()) for g in report.groups)
         if not has_scores:
             st.warning(_p("compare_no_scores", "No scores available yet — run scoring first."))
 
@@ -206,16 +166,12 @@ def _render_compare_tab() -> None:
                 "assertions_pass_rate": round(g.assertions_pass_rate, 3),
                 "avg_tokens": round(g.avg_tokens, 1),
                 "avg_duration_seconds": round(g.avg_duration_seconds, 3),
-                "score_count": g.score_count,
-                "overall_score": g.overall_score,
             }
-            for k, v in g.dimension_scores.items():
-                row[k] = v
+            for scorer_name, scorer_stats in g.scoring.items():
+                row[f"{scorer_name}.runs_scored"] = scorer_stats.runs_scored
+                row[f"{scorer_name}.overall"] = scorer_stats.overall
             table.append(row)
         st.dataframe(table, width="stretch")
-
-        if report.winner:
-            st.success(_p("compare_winner", "Winner: {winner} (Δ {delta:+.2f})").format(winner=report.winner, delta=report.delta or 0.0))
 
         yaml_report = Comparer().to_yaml(report)
         st.download_button(_p("compare_download", "Download report YAML"), data=yaml_report, file_name=f"compare__{scenario_name}__{group_by}.yaml")
@@ -353,7 +309,7 @@ def render() -> None:
                     if record.session_file and os.path.exists(record.session_file):
                         os.remove(record.session_file)
                     session.delete(record)
-                for score in session.query(BenchmarkScore).all():
+                for score in session.query(ScoringRun).all():
                     session.delete(score)
             st.success("History cleared")
 

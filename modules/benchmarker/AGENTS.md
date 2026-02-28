@@ -25,18 +25,45 @@ import app modules directly.
 - Option group name is `"llm"`.
 - No mid-session LLM switching: set once in scenario `options:` at scenario start.
 
-## Scorer
-- Implemented in `scorer.py`.
-- Rubrics are YAML files under `rubrics/`.
-- Judge prompt is rendered automatically and stored in session YAML and DB.
-- Score sources: `llm_auto`, `llm_paste`, `manual`.
-- Parsing is graceful on failure and never raises.
+## Scoring architecture
 
-## Comparer
-- Implemented in `comparer.py`.
-- Groups by option group value (e.g., `memory_backend`, `llm`).
-- Requires `BenchmarkRun` records; scores are optional.
-- Report YAML is written to `data/benchmarker/sessions/`.
+Sessions are immutable run transcripts. Scoring is a separate, repeatable operation.
+
+### Session files
+Produced once by the runner. Contain: meta (with `configuration` block), steps
+(with optional `expected_response` per step), assertions, events, summary.
+Never contain scores or judge prompts.
+
+### Scorer plugins
+Live in `scorers/`. Each implements `ScorerPlugin` from `scorers/base.py`.
+See `SCORER_PLUGIN.md` for how to create a new scorer.
+
+Current scorers (registered at startup):
+- (none yet — added in next pass)
+
+Shared utilities in `scorers/`:
+- `prompt_renderer.py` — RubricLoader, JudgePromptRenderer (used by rubric-based scorers)
+
+### ScoringPipeline
+`scoring_pipeline.py` — singleton accessed via `get_scoring_pipeline()`.
+Runs scorers, persists ScoringRun to DB, loads results.
+Scorers registered at app startup via `get_scoring_pipeline().register(scorer)`.
+
+### DB tables
+- `benchmark_runs` — one record per scenario run (written by runner)
+- `scoring_runs` — one record per scorer × session (written by pipeline)
+
+### Comparer
+Groups `benchmark_runs` by option value.
+Reads `scoring_runs` to build a scores matrix: configurations × scorer types.
+No automated winner — the matrix is the report.
+
+## Add a new scorer
+See `SCORER_PLUGIN.md`.
+
+## Rubrics
+YAML files in `rubrics/`. Format unchanged.
+Loaded by `RubricLoader` in `scorers/prompt_renderer.py`.
 
 ## Add a new scenario
 1. Copy `scenarios/example_basic.yaml`

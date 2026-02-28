@@ -82,3 +82,37 @@ def test_injected_contexts_serialized_as_preview_only(tmp_path):
     assert data["steps"][0]["injected_contexts"][0]["source"] == "rag_mock"
     assert len(data["steps"][0]["injected_contexts"][0]["content_preview"]) == 150
     assert "injected_contexts" not in data["steps"][0]["result"]
+
+
+def test_session_excludes_scoring_fields_and_includes_configuration(tmp_path):
+    serializer = SessionSerializer()
+    path = serializer.write(
+        _run_result(tmp_path),
+        events=[],
+        output_dir=str(tmp_path),
+        options_snapshot={"llm": "mock-llm", "memory_backend": "memory"},
+    )
+
+    with open(path, "r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+
+    assert "judge_prompt" not in data
+    assert "scores" not in data
+    assert data["meta"]["configuration"]["llm"] == "mock-llm"
+
+
+def test_expected_response_is_optional_and_not_null(tmp_path):
+    serializer = SessionSerializer()
+    scenario_steps = [{"id": "s1", "expected_response": "Expected answer"}]
+    path = serializer.write(_run_result(tmp_path), events=[], output_dir=str(tmp_path), scenario_steps=scenario_steps)
+
+    with open(path, "r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+
+    assert data["steps"][0]["expected_response"] == "Expected answer"
+
+    path_without = serializer.write(_run_result(tmp_path), events=[], output_dir=str(tmp_path), scenario_steps=[{"id": "s1"}])
+    with open(path_without, "r", encoding="utf-8") as handle:
+        data_without = yaml.safe_load(handle)
+
+    assert "expected_response" not in data_without["steps"][0]
