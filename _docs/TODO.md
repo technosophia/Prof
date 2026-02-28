@@ -13,3 +13,6 @@ Problem with concurrency in the tests and sqlite database access
 
 # Frontend
 decorelate core logic with streamlit => FastAPI + React + shadcn/ui
+
+# Evaluation system
+how to evaluate the accuracy of a response by the LLM ? The best would be to compare with a real output (mine for example)
