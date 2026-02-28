@@ -129,6 +129,43 @@ def _render_judge_tab(runner: ScenarioRunner) -> None:
         st.warning("No available scorers found.")
         return
 
+    automatable = [item for item in available if item.get("id") not in {"manual", "llm_external"}]
+    if st.button("Score All", key=f"score_all_{selected_session}"):
+        score_all_container = st.container()
+        if not automatable:
+            score_all_container.warning("No automatable scorers available.")
+        else:
+            completed = 0
+            failed = 0
+            for scorer_item in automatable:
+                scorer = pipeline.get_scorer(scorer_item["id"])
+                if scorer is None:
+                    failed += 1
+                    continue
+
+                score_all_container.info(f"Running scorer: {scorer_item['name']} ({scorer_item['id']})")
+                try:
+                    if scorer_item["id"] == "llm_internal" and hasattr(scorer, "compute_score_all_rubrics"):
+                        scorer.compute_score_all_rubrics(
+                            session=session_data,
+                            config={"session_path": selected_session, "batch_mode": True},
+                            container=score_all_container,
+                        )
+                    else:
+                        scorer.compute_score(
+                            session=session_data,
+                            config={"session_path": selected_session, "batch_mode": True},
+                            container=score_all_container,
+                        )
+                    completed += 1
+                except Exception as exc:
+                    failed += 1
+                    score_all_container.warning(f"Scorer {scorer_item['id']} failed: {exc}")
+
+            score_all_container.info(
+                f"Score All complete: {completed} scorer(s) completed, {failed} failed."
+            )
+
     scorer_labels = [item["name"] for item in available]
     selected_scorer_label = st.selectbox("Scorer", scorer_labels)
     selected_scorer = available[scorer_labels.index(selected_scorer_label)]
