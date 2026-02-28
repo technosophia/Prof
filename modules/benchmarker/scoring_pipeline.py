@@ -82,7 +82,7 @@ class ScoringPipeline:
             notes=row.notes,
             scored_at=row.scored_at.isoformat().replace("+00:00", "Z") if row.scored_at else "",
             parse_errors=row.parse_errors or [],
-            complete=bool((row.parse_errors or []) == []),
+            complete=not (row.parse_errors or []),
         )
 
 
