@@ -156,7 +156,8 @@ def _render_session_step(
     step_id = step_data.get("id", f"step_{step_idx + 1}")
     duration = step_data.get("duration_seconds", 0.0)
     result = step_data.get("result", {})
-    injected_contexts = result.get("injected_contexts", [])
+    # injected_contexts is serialized at step level by session.py, NOT inside result
+    injected_contexts = step_data.get("injected_contexts", [])
 
     # Assertion results for this step
     step_assertion_results = [(a, assertions_results.get(a.get("id"), {})) for a in assertions_for_step]
@@ -174,19 +175,11 @@ def _render_session_step(
         if step_data.get("error"):
             st.error(f"❌ {step_data['error']}")
 
-        # Assertion results inline
-        for assertion, a_result in step_assertion_results:
-            if a_result:
-                if a_result.get("passed"):
-                    st.success(f"✅ `{assertion.get('id')}` {a_result.get('message', '')}")
-                else:
-                    st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
-
         # ── LLM response + context together for user_send_message ────────────
         if action == "user_send_message":
             llm_response = result.get("llm_response", "")
 
-            # Response expander — always shown, even if empty
+            # 1. Response expander — always shown
             resp_title = _expander_title("💬 LLM response", llm_response)
             with st.expander(resp_title, expanded=False):
                 if llm_response:
@@ -194,42 +187,60 @@ def _render_session_step(
                 else:
                     st.caption("(no response)")
 
-                # Context shown INSIDE the response expander, right below
-                if injected_contexts:
-                    st.markdown("---")
-                    st.markdown("**🔍 Injected context**")
-                    # Group by source
-                    by_source: Dict[str, List[Dict]] = {}
-                    for ctx in injected_contexts:
-                        by_source.setdefault(ctx.get("source", "unknown"), []).append(ctx)
+            # 2. Assertion results
+            for assertion, a_result in step_assertion_results:
+                if a_result:
+                    if a_result.get("passed"):
+                        st.success(f"✅ `{assertion.get('id')}` {a_result.get('message', '')}")
+                    else:
+                        st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
+
+            # 3. Context expander
+            if injected_contexts:
+                by_source: Dict[str, List[Dict]] = {}
+                for ctx in injected_contexts:
+                    by_source.setdefault(ctx.get("source", "unknown"), []).append(ctx)
+                source_summary = " · ".join(
+                    f"`{src}` ({sum(len(c.get('content') or c.get('content_preview') or '') for c in items)}c)"
+                    for src, items in by_source.items()
+                )
+                with st.expander(f"🔍 Context — {source_summary}", expanded=False):
                     for src, items in by_source.items():
-                        total_chars = sum(len(c.get("content") or c.get("content_preview") or "") for c in items)
-                        with st.expander(f"📌 `{src}` — {total_chars} chars", expanded=True):
-                            for idx, ctx in enumerate(items):
-                                role = ctx.get("role", "system")
-                                content = ctx.get("content") or ctx.get("content_preview") or ""
-                                st.caption(f"role: {role}")
-                                st.text(content)
-                                if idx < len(items) - 1:
-                                    st.markdown("---")
-                else:
-                    st.caption("*(no context injected)*")
+                        st.markdown(f"**`{src}`**")
+                        for idx, ctx in enumerate(items):
+                            role = ctx.get("role", "system")
+                            # content_preview is 150 chars; content is full (may be empty if truncated at source)
+                            content = ctx.get("content") or ctx.get("content_preview") or ""
+                            st.caption(f"role: {role}")
+                            st.text(content)
+                            if idx < len(items) - 1:
+                                st.markdown("---")
+                        st.divider()
+            else:
+                st.caption("*(no context injected)*")
+
+            # 4. Raw result
+            raw_result = {k: v for k, v in result.items()}
+            if raw_result:
+                with st.expander("🗂 Raw result", expanded=False):
+                    st.code(yaml.dump(raw_result, allow_unicode=True, sort_keys=False), language="yaml")
 
         elif action not in ("create_conversation", "switch_option"):
-            # For other actions, show compact result in expander
+            # For other actions: compact result + assertions
             clean_result = {k: v for k, v in result.items()
                            if k not in ("injected_contexts", "conversation_id")}
             if clean_result:
-                result_str = str(clean_result)
+                result_str = yaml.dump(clean_result, allow_unicode=True, sort_keys=False)
                 result_title = _expander_title("📦 Result", result_str)
                 with st.expander(result_title, expanded=False):
-                    st.code(yaml.dump(clean_result, allow_unicode=True, sort_keys=False), language="yaml")
+                    st.code(result_str, language="yaml")
 
-        # Raw result expander (always available, separate from above)
-        raw_result = {k: v for k, v in result.items() if k != "injected_contexts"}
-        if raw_result:
-            with st.expander("🗂 Raw result", expanded=False):
-                st.code(yaml.dump(raw_result, allow_unicode=True, sort_keys=False), language="yaml")
+            for assertion, a_result in step_assertion_results:
+                if a_result:
+                    if a_result.get("passed"):
+                        st.success(f"✅ `{assertion.get('id')}` {a_result.get('message', '')}")
+                    else:
+                        st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
 
 
 def _render_expected_step(
@@ -254,8 +265,9 @@ def _render_expected_step(
         # Show expected response if present (below user message)
         expected = ref_step.get("expected_response", "")
         if expected and expected.strip():
-            st.markdown(f"**Expected:**")
-            st.markdown(expected)
+            exp_title = _expander_title("📝 Expected", expected)
+            with st.expander(exp_title, expanded=False):
+                st.markdown(expected)
 
         # For other actions: show params compactly
         elif action not in ("user_send_message",):
@@ -285,7 +297,7 @@ def render_diff_tab() -> None:
         return
 
     # ── Scenario + session selectors ────────────────────────────────────────
-    sel_col1, sel_col2, sel_col3 = st.columns([1, 2, 2])
+    sel_col1, sel_col2, sel_col3 = st.columns([2, 3, 3])
 
     with sel_col1:
         selected_scenario_file = st.selectbox(
@@ -355,7 +367,7 @@ def render_diff_tab() -> None:
 
     # ── Column headers ───────────────────────────────────────────────────────
     st.divider()
-    hdr_scenario, hdr_a, hdr_b = st.columns([1, 2, 2])
+    hdr_scenario, hdr_a, hdr_b = st.columns([2, 3, 3])
 
     with hdr_scenario:
         st.markdown("### 📋 Scenario")
@@ -376,7 +388,7 @@ def render_diff_tab() -> None:
         step_id = ref_step.get("id", f"step_{i + 1}")
         step_assertions = assertions_by_step.get(step_id, [])
 
-        cols = st.columns([1, 2, 2])
+        cols = st.columns([2, 3, 3])
 
         with cols[0]:
             _render_expected_step(ref_step, step_assertions)
