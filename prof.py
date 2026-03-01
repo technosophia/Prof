@@ -107,9 +107,9 @@ ui_registry.set_module_handler(module_handler, get_config().get("ui.shared_dir",
 
 # Page configuration
 st.set_page_config(
-    page_title="Multilingual App",
+    page_title="IAthena",
     page_icon="🌍",
-    layout="centered"
+    layout="wide"
 )
 
 # Initialize critical session state variables BEFORE main()
@@ -142,7 +142,6 @@ def can_access_admin(current_user):
 def main():
     # Log main function entry
     log("debug", "Entering main function")
-    #st.set_page_config(layout="wide")
 
     # NEW: Check if app needs initialization
     if not st.session_state.app_initialized:
@@ -310,6 +309,7 @@ def main():
         '<div data-testid="app-fully-loaded"></div>',
         unsafe_allow_html=True
     )
+    log("info", "Loading page done...")
 
 if __name__ == "__main__":
     main()
