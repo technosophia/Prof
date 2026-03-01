@@ -36,7 +36,8 @@
       "auto_login_first_user",
       "_render_plugins_tab",
       "_activate_rag_engine",
-      "_do_discover"
+      "_do_discover",
+      "_do_build_registry"
     ]
   },
   "app": {
