@@ -61,7 +61,7 @@ class ScorerPlugin(BaseScorerPlugin):
             user_message = str((step.get("params") or {}).get("content", ""))
             for entry in (step.get("injected_contexts") or []):
                 source = str(entry.get("source", "unknown"))
-                context_content = str(entry.get("content") or entry.get("content_preview", ""))
+                context_content = str(entry.get("content", ""))
                 prompt = self._build_prompt(user_message=user_message, source=source, context_content=context_content)
                 response_text, response_error = self._call_llm(manager, llm_id, prompt)
                 if response_error:

@@ -201,7 +201,7 @@ def _render_session_step(
                 for ctx in injected_contexts:
                     by_source.setdefault(ctx.get("source", "unknown"), []).append(ctx)
                 source_summary = " · ".join(
-                    f"`{src}` ({sum(len(c.get('content') or c.get('content_preview') or '') for c in items)}c)"
+                    f"`{src}` ({sum(len(c.get('content') or '') for c in items)}c)"
                     for src, items in by_source.items()
                 )
                 with st.expander(f"🔍 Context — {source_summary}", expanded=False):
@@ -209,8 +209,8 @@ def _render_session_step(
                         st.markdown(f"**`{src}`**")
                         for idx, ctx in enumerate(items):
                             role = ctx.get("role", "system")
-                            # content_preview is 150 chars; content is full (may be empty if truncated at source)
-                            content = ctx.get("content") or ctx.get("content_preview") or ""
+                            # content is stored in-session; preview is computed at render time when needed
+                            content = ctx.get("content") or ""
                             st.caption(f"role: {role}")
                             st.text(content)
                             if idx < len(items) - 1:
