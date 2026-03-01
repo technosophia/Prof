@@ -15,7 +15,7 @@ from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.comparer import Comparer
 from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
-
+from modules.benchmarker.diff_ui import render_diff_tab
 
 from st_shared.cached import _, get_db_manager
 
@@ -520,14 +520,15 @@ def render() -> None:
     """Render benchmarker UI with benchmark execution, scoring and analysis tabs."""
     runner = ScenarioRunner()
 
-    run_tab, history_tab, judge_tab, compare_tab, matrix_tab, analysis_tab, diagnose_tab = st.tabs([
+    run_tab, history_tab, judge_tab, matrix_tab, compare_tab,  analysis_tab, diagnose_tab, diff_tab = st.tabs([
         _t("run_tab_title"),
         _t("history_tab_title"),
         _t("judge_tab_title"),
-        _t("compare_tab_title"),
         _t("matrix_tab_title"),
+        _t("compare_tab_title"),
         _t("analysis_tab_title"),
         _t("diagnose_tab_title"),
+        "Diff",
     ])
 
     with run_tab:
@@ -655,11 +656,11 @@ def render() -> None:
     with judge_tab:
         _render_judge_tab(runner)
 
-    with compare_tab:
-        _render_compare_tab()
-
     with matrix_tab:
         _render_matrix_tab(runner)
+
+    with compare_tab:
+        _render_compare_tab()
 
     with analysis_tab:
         _render_analysis_tab()
@@ -755,6 +756,8 @@ def render() -> None:
         )
         st.caption("Context is set at scenario run time. Between runs it may be stale from the last run.")
 
+    with diff_tab:
+        render_diff_tab()
 
 # Just to remove warning
 def inject_ui_main_content():
