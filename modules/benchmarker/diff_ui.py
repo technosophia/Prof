@@ -2,7 +2,7 @@
 
 from datetime import datetime
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import streamlit as st
 import yaml
@@ -125,36 +125,15 @@ def _render_session_header(session_data: Dict, col, label: str) -> None:
         col.info(f"Steps: {steps_ok}/{steps_total}")
 
 
-def _render_context_expander(injected_contexts: List[Dict], container, key_prefix: str) -> None:
-    """Render injected contexts with full content, grouped by source."""
-    if not injected_contexts:
-        return
 
-    # Group by source
-    by_source: Dict[str, List[Dict]] = {}
-    for ctx in injected_contexts:
-        src = ctx.get("source", "unknown")
-        by_source.setdefault(src, []).append(ctx)
-
-    source_labels = []
-    for src, items in by_source.items():
-        total_chars = sum(len(c.get("content") or c.get("content_preview") or "") for c in items)
-        source_labels.append(f"`{src}` ({total_chars} chars)")
-
-    summary = " · ".join(source_labels)
-
-    with container.expander(f"🔍 Context — {summary}", expanded=False):
-        for src, items in by_source.items():
-            st.markdown(f"**Source: `{src}`**")
-            for idx, ctx in enumerate(items):
-                role = ctx.get("role", "system")
-                # Use full content if available, fall back to preview
-                content = ctx.get("content") or ctx.get("content_preview") or ""
-                st.markdown(f"*role: {role}*")
-                st.text(content)
-                if len(items) > 1 and idx < len(items) - 1:
-                    st.markdown("---")
-            st.divider()
+def _expander_title(prefix: str, text: str, max_preview: int = 80) -> str:
+    """Build expander title: prefix + start of text + char count."""
+    if not text:
+        return f"{prefix} (empty)"
+    preview = text[:max_preview].replace("\n", " ").strip()
+    if len(text) > max_preview:
+        preview += "…"
+    return f"{prefix} · {len(text)} chars — {preview}"
 
 
 def _render_session_step(
@@ -184,31 +163,12 @@ def _render_session_step(
     all_passed = all(r.get("passed", False) for _, r in step_assertion_results if r)
     any_failed = any(not r.get("passed", True) for _, r in step_assertion_results if r)
 
-    border_color = None
-    if step_assertion_results:
-        if all_passed:
-            border_color = "green"
-        elif any_failed:
-            border_color = "red"
-
     with st.container(border=True):
         # Header line
         assertion_badge = ""
         if step_assertion_results:
             assertion_badge = " 🟢" if all_passed else " 🔴"
         st.markdown(f"{badge} **`{step_id}`** · `{action}` · ⏱ {duration:.2f}s{assertion_badge}")
-
-        # For user_send_message: show LLM response (not conversation_id)
-        if action == "user_send_message":
-            llm_response = result.get("llm_response", "")
-            if llm_response:
-                st.markdown(llm_response)  # Full response, no truncation
-        elif action not in ("create_conversation", "switch_option"):
-            # For other actions, show a compact result summary
-            clean_result = {k: v for k, v in result.items()
-                           if k not in ("injected_contexts", "conversation_id", "llm_response")}
-            if clean_result:
-                st.caption(str(clean_result)[:200])
 
         # Error
         if step_data.get("error"):
@@ -222,14 +182,54 @@ def _render_session_step(
                 else:
                     st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
 
-        # Raw result expander
+        # ── LLM response + context together for user_send_message ────────────
+        if action == "user_send_message":
+            llm_response = result.get("llm_response", "")
+
+            # Response expander — always shown, even if empty
+            resp_title = _expander_title("💬 LLM response", llm_response)
+            with st.expander(resp_title, expanded=False):
+                if llm_response:
+                    st.markdown(llm_response)
+                else:
+                    st.caption("(no response)")
+
+                # Context shown INSIDE the response expander, right below
+                if injected_contexts:
+                    st.markdown("---")
+                    st.markdown("**🔍 Injected context**")
+                    # Group by source
+                    by_source: Dict[str, List[Dict]] = {}
+                    for ctx in injected_contexts:
+                        by_source.setdefault(ctx.get("source", "unknown"), []).append(ctx)
+                    for src, items in by_source.items():
+                        total_chars = sum(len(c.get("content") or c.get("content_preview") or "") for c in items)
+                        with st.expander(f"📌 `{src}` — {total_chars} chars", expanded=True):
+                            for idx, ctx in enumerate(items):
+                                role = ctx.get("role", "system")
+                                content = ctx.get("content") or ctx.get("content_preview") or ""
+                                st.caption(f"role: {role}")
+                                st.text(content)
+                                if idx < len(items) - 1:
+                                    st.markdown("---")
+                else:
+                    st.caption("*(no context injected)*")
+
+        elif action not in ("create_conversation", "switch_option"):
+            # For other actions, show compact result in expander
+            clean_result = {k: v for k, v in result.items()
+                           if k not in ("injected_contexts", "conversation_id")}
+            if clean_result:
+                result_str = str(clean_result)
+                result_title = _expander_title("📦 Result", result_str)
+                with st.expander(result_title, expanded=False):
+                    st.code(yaml.dump(clean_result, allow_unicode=True, sort_keys=False), language="yaml")
+
+        # Raw result expander (always available, separate from above)
         raw_result = {k: v for k, v in result.items() if k != "injected_contexts"}
         if raw_result:
-            with st.expander("📦 Raw result", expanded=False):
+            with st.expander("🗂 Raw result", expanded=False):
                 st.code(yaml.dump(raw_result, allow_unicode=True, sort_keys=False), language="yaml")
-
-        # Context expander (most important!)
-        _render_context_expander(injected_contexts, st, f"{session_key}_{step_id}")
 
 
 def _render_expected_step(
