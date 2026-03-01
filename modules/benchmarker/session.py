@@ -46,15 +46,12 @@ class SessionSerializer:
         filename = f"{run_result.scenario_name}__{now.strftime('%Y%m%dT%H%M%SZ')}.yaml"
         path = os.path.join(output_dir, filename)
 
-        truncate_chars = get_section("benchmarker").get("llm_response_truncate_chars", 500)
         steps_payload = []
         scenario_steps_by_id = {step.get("id"): step for step in (scenario_steps or []) if step.get("id")}
 
         for step in run_result.steps:
             result = dict(step.result)
             injected_contexts = result.pop("injected_contexts", [])
-            if isinstance(result.get("llm_response"), str) and len(result["llm_response"]) > truncate_chars:
-                result["llm_response"] = result["llm_response"][:truncate_chars]
 
             serialised_step = {
                 "id": step.step_id,
