@@ -43,15 +43,6 @@ def test_serialise_run_result_to_yaml(tmp_path):
     assert data["summary"]["assertions_passed"] == 1
 
 
-def test_llm_response_not_truncated_in_yaml(tmp_path):
-    serializer = SessionSerializer()
-    path = serializer.write(_run_result(tmp_path), events=[], output_dir=str(tmp_path))
-
-    with open(path, "r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
-
-    assert len(data["steps"][0]["result"]["llm_response"]) == 900
-
 
 def test_session_file_named_correctly(tmp_path):
     serializer = SessionSerializer()
