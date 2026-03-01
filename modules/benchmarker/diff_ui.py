@@ -12,157 +12,62 @@ from modules.benchmarker.runner import ScenarioRunner
 from st_shared.cached import get_db_manager
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 def _format_session_label(run: BenchmarkRun) -> str:
-    """Format session label for selectbox."""
+    """Format session label with date + config for selectbox."""
     try:
-        # Handle different possible formats of run_at
         run_at = run.run_at
-        if run_at:
-            if isinstance(run_at, str):
-                dt = datetime.fromisoformat(run_at.replace('Z', '+00:00'))
-            else:
-                dt = run_at
+        if isinstance(run_at, str):
+            dt = datetime.fromisoformat(run_at.replace("Z", "+00:00"))
         else:
-            dt = datetime.now()
+            dt = run_at or datetime.now()
     except (ValueError, TypeError, AttributeError):
         dt = datetime.now()
-    return f"{dt.strftime('%Y-%m-%d %H:%M')} — {str(run.id)[:8]}"
+
+    options = run.options or {}
+    config_parts = [f"{k}={v}" for k, v in sorted(options.items()) if v]
+    config_str = " · ".join(config_parts) if config_parts else "default"
+    return f"{dt.strftime('%Y-%m-%d %H:%M')} — {config_str} [{str(run.id)[:8]}]"
 
 
-def _load_session_steps(session_path: str) -> Tuple[List[Dict], Dict]:
-    """Load session steps and summary from YAML file."""
+def _load_session(session_path: str) -> Dict:
+    """Load full session data from YAML."""
     if not session_path or not os.path.exists(session_path):
-        return [], {}
-
+        return {}
     try:
-        with open(session_path, "r", encoding="utf-8") as handle:
-            session_data = yaml.safe_load(handle) or {}
-
-        steps = session_data.get("steps", [])
-        summary = {
-            "assertions_passed": session_data.get("summary", {}).get("assertions_passed", 0),
-            "assertions_total": session_data.get("summary", {}).get("assertions_total", 0),
-            "total_steps": session_data.get("summary", {}).get("total_steps", 0),
-            "steps_succeeded": session_data.get("summary", {}).get("steps_succeeded", 0),
-            "run_at": session_data.get("meta", {}).get("run_at", ""),
-        }
-        return steps, summary
+        with open(session_path, "r", encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {}
     except Exception as e:
         st.error(f"Failed to load session {session_path}: {e}")
-        return [], {}
+        return {}
 
 
-def _get_session_context(step: Dict) -> Optional[Dict]:
-    """Extract context from step result if available."""
-    result = step.get("result", {})
-
-    # Check for injected contexts
-    injected = result.get("injected_contexts", [])
-    if injected:
-        return {"injected_contexts": injected}
-
-    # Check for other context-like data
-    context_keys = ["context", "metadata", "rag_context", "memory_context"]
-    for key in context_keys:
-        if key in result:
-            return {key: result[key]}
-
-    return None
-
-
-def _render_step_badge(success: bool) -> str:
-    """Render a simple badge for step success/failure."""
-    return "✅" if success else "❌"
-
-
-def _render_assertions_summary(session_path: str, col) -> None:
-    """Render assertions summary in a column."""
-    if not session_path or not os.path.exists(session_path):
-        col.info("No session selected")
-        return
-
-    try:
-        with open(session_path, "r", encoding="utf-8") as handle:
-            session_data = yaml.safe_load(handle) or {}
-
-        assertions = session_data.get("assertions", [])
-        passed = sum(1 for a in assertions if a.get("passed", False))
-        total = len(assertions)
-
-        meta = session_data.get("meta", {})
-        run_at = meta.get("run_at", "")
-        scenario_name = meta.get("scenario", "Unknown")
-
-        if run_at:
-            try:
-                dt = datetime.fromisoformat(run_at.replace("Z", "+00:00"))
-                date_str = dt.strftime("%Y-%m-%d %H:%M")
-            except (ValueError, AttributeError):
-                date_str = run_at[:16] if len(run_at) > 16 else run_at
-        else:
-            date_str = "Unknown date"
-
-        # Create a compact summary
-        col.markdown(f"**{scenario_name}**")
-        col.caption(date_str)
-
-        if total > 0:
-            if passed == total:
-                col.success(f"✅ {passed}/{total} assertions")
-            elif passed > 0:
-                col.warning(f"⚠️ {passed}/{total} assertions")
-            else:
-                col.error(f"❌ {passed}/{total} assertions")
-        else:
-            col.info("No assertions")
-
-        # Show step success rate
-        steps = session_data.get("steps", [])
-        step_success = sum(1 for s in steps if s.get("success", False))
-        step_total = len(steps)
-        if step_total > 0:
-            col.caption(f"Steps: {step_success}/{step_total} ✓")
-
-    except Exception as e:
-        col.error(f"Error loading summary: {e}")
-
-
-def _get_scenario_files() -> List[str]:
-    """Get list of available scenario files."""
-    runner = ScenarioRunner()
+def _get_scenario_files(runner: ScenarioRunner) -> List[str]:
     scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
-
     if not os.path.isdir(scenarios_dir):
         return []
-
     return sorted([f for f in os.listdir(scenarios_dir) if f.endswith(".yaml")])
 
 
-def _get_scenario_name_from_file(scenario_file: str) -> str:
-    """Extract scenario name from file content (meta.name) or fallback to filename."""
-    runner = ScenarioRunner()
+def _get_scenario_name_from_file(runner: ScenarioRunner, scenario_file: str) -> str:
     scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
     scenario_path = os.path.join(scenarios_dir, scenario_file)
-
     try:
         scenario = runner._load_scenario(scenario_path)
-        # First try to get name from meta
-        meta_name = scenario.get("meta", {}).get("name")
-        if meta_name:
-            return meta_name
+        name = scenario.get("meta", {}).get("name")
+        if name:
+            return name
     except Exception:
         pass
-
-    # Fallback to filename without extension
     return os.path.splitext(scenario_file)[0]
 
 
-def _load_scenario_from_file(scenario_file: str) -> Dict:
-    """Load scenario from file by filename."""
-    runner = ScenarioRunner()
+def _load_scenario_from_file(runner: ScenarioRunner, scenario_file: str) -> Dict:
     scenarios_dir = runner.config.get("scenarios_dir", "modules/benchmarker/scenarios")
     scenario_path = os.path.join(scenarios_dir, scenario_file)
-
     try:
         return runner._load_scenario(scenario_path)
     except Exception as e:
@@ -170,107 +75,261 @@ def _load_scenario_from_file(scenario_file: str) -> Dict:
         return {}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Renderers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_session_header(session_data: Dict, col, label: str) -> None:
+    """Render session header with metadata and assertion summary."""
+    if not session_data:
+        col.info("No session selected")
+        return
+
+    meta = session_data.get("meta", {})
+    summary = session_data.get("summary", {})
+    options = meta.get("configuration") or meta.get("options") or {}
+
+    run_at = meta.get("run_at", "")
+    try:
+        dt = datetime.fromisoformat(run_at.replace("Z", "+00:00"))
+        date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        date_str = run_at[:19] if run_at else "Unknown"
+
+    passed = summary.get("assertions_passed", 0)
+    total = summary.get("assertions_total", 0)
+    steps_ok = summary.get("steps_succeeded", 0)
+    steps_total = summary.get("total_steps", 0)
+    duration = meta.get("duration_seconds", 0)
+    llm = meta.get("llm") or "?"
+
+    col.markdown(f"### {label}")
+    col.caption(f"🕐 {date_str}  ·  ⏱ {duration:.1f}s  ·  🤖 `{llm}`")
+
+    # Configuration badges
+    if options:
+        config_md = "  ".join(f"`{k}: {v}`" for k, v in sorted(options.items()) if v)
+        col.markdown(f"⚙️ {config_md}")
+    else:
+        col.caption("⚙️ default configuration")
+
+    # Assertion summary
+    if total > 0:
+        if passed == total:
+            col.success(f"✅ {passed}/{total} assertions  ·  steps {steps_ok}/{steps_total}")
+        elif passed > 0:
+            col.warning(f"⚠️ {passed}/{total} assertions  ·  steps {steps_ok}/{steps_total}")
+        else:
+            col.error(f"❌ {passed}/{total} assertions  ·  steps {steps_ok}/{steps_total}")
+    else:
+        col.info(f"Steps: {steps_ok}/{steps_total}")
+
+
+def _render_context_expander(injected_contexts: List[Dict], container, key_prefix: str) -> None:
+    """Render injected contexts with full content, grouped by source."""
+    if not injected_contexts:
+        return
+
+    # Group by source
+    by_source: Dict[str, List[Dict]] = {}
+    for ctx in injected_contexts:
+        src = ctx.get("source", "unknown")
+        by_source.setdefault(src, []).append(ctx)
+
+    source_labels = []
+    for src, items in by_source.items():
+        total_chars = sum(len(c.get("content") or c.get("content_preview") or "") for c in items)
+        source_labels.append(f"`{src}` ({total_chars} chars)")
+
+    summary = " · ".join(source_labels)
+
+    with container.expander(f"🔍 Context — {summary}", expanded=False):
+        for src, items in by_source.items():
+            st.markdown(f"**Source: `{src}`**")
+            for idx, ctx in enumerate(items):
+                role = ctx.get("role", "system")
+                # Use full content if available, fall back to preview
+                content = ctx.get("content") or ctx.get("content_preview") or ""
+                st.markdown(f"*role: {role}*")
+                st.text(content)
+                if len(items) > 1 and idx < len(items) - 1:
+                    st.markdown("---")
+            st.divider()
+
+
+def _render_session_step(
+    step_data: Dict,
+    ref_step: Optional[Dict],
+    assertions_for_step: List[Dict],
+    assertions_results: Dict[str, Dict],
+    session_key: str,
+    step_idx: int,
+) -> None:
+    """Render a single session step cell."""
+    if not step_data:
+        with st.container(border=True):
+            st.markdown("*— step not present —*")
+        return
+
+    success = step_data.get("success", False)
+    badge = "✅" if success else "❌"
+    action = step_data.get("action", "?")
+    step_id = step_data.get("id", f"step_{step_idx + 1}")
+    duration = step_data.get("duration_seconds", 0.0)
+    result = step_data.get("result", {})
+    injected_contexts = result.get("injected_contexts", [])
+
+    # Assertion results for this step
+    step_assertion_results = [(a, assertions_results.get(a.get("id"), {})) for a in assertions_for_step]
+    all_passed = all(r.get("passed", False) for _, r in step_assertion_results if r)
+    any_failed = any(not r.get("passed", True) for _, r in step_assertion_results if r)
+
+    border_color = None
+    if step_assertion_results:
+        if all_passed:
+            border_color = "green"
+        elif any_failed:
+            border_color = "red"
+
+    with st.container(border=True):
+        # Header line
+        assertion_badge = ""
+        if step_assertion_results:
+            assertion_badge = " 🟢" if all_passed else " 🔴"
+        st.markdown(f"{badge} **`{step_id}`** · `{action}` · ⏱ {duration:.2f}s{assertion_badge}")
+
+        # For user_send_message: show LLM response (not conversation_id)
+        if action == "user_send_message":
+            llm_response = result.get("llm_response", "")
+            if llm_response:
+                st.markdown(llm_response)  # Full response, no truncation
+        elif action not in ("create_conversation", "switch_option"):
+            # For other actions, show a compact result summary
+            clean_result = {k: v for k, v in result.items()
+                           if k not in ("injected_contexts", "conversation_id", "llm_response")}
+            if clean_result:
+                st.caption(str(clean_result)[:200])
+
+        # Error
+        if step_data.get("error"):
+            st.error(f"❌ {step_data['error']}")
+
+        # Assertion results inline
+        for assertion, a_result in step_assertion_results:
+            if a_result:
+                if a_result.get("passed"):
+                    st.success(f"✅ `{assertion.get('id')}` {a_result.get('message', '')}")
+                else:
+                    st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
+
+        # Raw result expander
+        raw_result = {k: v for k, v in result.items() if k != "injected_contexts"}
+        if raw_result:
+            with st.expander("📦 Raw result", expanded=False):
+                st.code(yaml.dump(raw_result, allow_unicode=True, sort_keys=False), language="yaml")
+
+        # Context expander (most important!)
+        _render_context_expander(injected_contexts, st, f"{session_key}_{step_id}")
+
+
+def _render_expected_step(
+    ref_step: Dict,
+    assertions_for_step: List[Dict],
+) -> None:
+    """Render the expected/scenario column for a step."""
+    with st.container(border=True):
+        step_id = ref_step.get("id", "?")
+        action = ref_step.get("action", "?")
+        actor = ref_step.get("actor", "?")
+        params = ref_step.get("params", {})
+
+        st.markdown(f"**`{step_id}`** · `{actor}` · `{action}`")
+
+        # For user_send_message: show the user message AND expected response
+        if action == "user_send_message":
+            content = params.get("content", "")
+            if content:
+                st.markdown(f"💬 *{content}*")
+
+        # Show expected response if present (below user message)
+        expected = ref_step.get("expected_response", "")
+        if expected and expected.strip():
+            st.markdown(f"**Expected:**")
+            st.markdown(expected)
+
+        # For other actions: show params compactly
+        elif action not in ("user_send_message",):
+            if params:
+                compact = {k: (str(v)[:80] + "…" if isinstance(v, str) and len(str(v)) > 80 else v)
+                           for k, v in params.items()}
+                st.caption(yaml.dump(compact, allow_unicode=True, default_flow_style=True).strip())
+
+        # Assertions linked to this step
+        if assertions_for_step:
+            with st.expander(f"📋 {len(assertions_for_step)} assertion(s)", expanded=False):
+                for a in assertions_for_step:
+                    st.code(yaml.dump(a, allow_unicode=True, sort_keys=False), language="yaml")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main render
+# ─────────────────────────────────────────────────────────────────────────────
+
 def render_diff_tab() -> None:
     """Render the diff tab for side-by-side session comparison."""
-
-    # Get available scenario files (like in the execute tab)
-    scenario_files = _get_scenario_files()
+    runner = ScenarioRunner()
+    scenario_files = _get_scenario_files(runner)
 
     if not scenario_files:
         st.warning("No scenario files found in scenarios directory.")
         return
 
-    # Selection row at top
+    # ── Scenario + session selectors ────────────────────────────────────────
     sel_col1, sel_col2, sel_col3 = st.columns([1, 2, 2])
 
     with sel_col1:
         selected_scenario_file = st.selectbox(
             "Scenario",
             scenario_files,
-            format_func=lambda x: os.path.splitext(x)[0],  # Show without .yaml
-            key="diff_scenario"
+            format_func=lambda x: os.path.splitext(x)[0],
+            key="diff_scenario",
         )
-        # Get the actual scenario name from meta (for DB query)
-        selected_scenario_name = _get_scenario_name_from_file(selected_scenario_file)
+        selected_scenario_name = _get_scenario_name_from_file(runner, selected_scenario_file)
 
-    # Get runs for the selected scenario (by scenario_name from DB, like in compare tab)
     with get_db_manager().get_session() as db:
-        # First get all runs to see what's available
-        all_runs = db.query(BenchmarkRun).all()
-        if not all_runs:
-            st.info("No benchmark runs found in database.")
-            return
-
-        # Then filter by scenario_name (like in compare tab)
-        runs = db.query(BenchmarkRun)\
-                 .filter(BenchmarkRun.scenario_name == selected_scenario_name)\
-                 .order_by(BenchmarkRun.run_at.desc())\
-                 .all()
-
-        # Debug info
+        runs = (
+            db.query(BenchmarkRun)
+            .filter(BenchmarkRun.scenario_name == selected_scenario_name)
+            .order_by(BenchmarkRun.run_at.desc())
+            .all()
+        )
         if not runs:
-            st.caption(f"No runs found for scenario name: '{selected_scenario_name}'")
-            # Show available scenarios in DB for debugging
             available = db.query(BenchmarkRun.scenario_name).distinct().all()
+            st.caption(f"No runs found for '{selected_scenario_name}'.")
             if available:
-                st.caption("Available scenarios in DB: " + ", ".join([a[0] for a in available]))
+                st.caption("Available: " + ", ".join(a[0] for a in available))
+            return
 
         session_options = {_format_session_label(r): r.session_file for r in runs}
         session_labels = list(session_options.keys())
 
     with sel_col2:
-        if session_labels:
-            selected_a_label = st.selectbox(
-                "Session A",
-                session_labels,
-                index=0 if session_labels else None,
-                key="diff_session_a"
-            )
-            session_a_path = session_options.get(selected_a_label, "")
-        else:
-            st.info(f"No sessions for '{selected_scenario_name}'")
-            session_a_path = ""
-            selected_a_label = None
+        selected_a_label = st.selectbox("Session A", session_labels, index=0, key="diff_session_a")
+        session_a_path = session_options.get(selected_a_label, "")
 
     with sel_col3:
         if len(session_labels) > 1:
-            # Default to second session if available
-            default_b = 1
-            selected_b_label = st.selectbox(
-                "Session B",
-                session_labels,
-                index=default_b,
-                key="diff_session_b"
-            )
+            selected_b_label = st.selectbox("Session B", session_labels, index=1, key="diff_session_b")
             session_b_path = session_options.get(selected_b_label, "")
-        elif session_labels:
-            # Only one session available
+        else:
             st.info("Only one session available")
             session_b_path = ""
-            selected_b_label = None
-        else:
-            session_b_path = ""
-            selected_b_label = None
 
-    st.divider()
-
-    st.set_page_config(layout="wide")
-
-    # Check if we have valid selections
-    if not session_labels:
-        st.info(f"No benchmark runs found for scenario: {selected_scenario_name}")
-        return
-
-    if not session_a_path:
-        st.warning("Please select Session A")
-        return
-
-    # Check if sessions are identical (only if both are selected)
     if session_b_path and session_a_path == session_b_path:
         st.warning("⚠️ Both selected sessions are identical.")
 
-    # Load reference scenario from file
-    scenario = _load_scenario_from_file(selected_scenario_file)
+    # ── Load data ────────────────────────────────────────────────────────────
+    scenario = _load_scenario_from_file(runner, selected_scenario_file)
     if not scenario:
         st.error(f"Unable to load scenario file: {selected_scenario_file}")
         return
@@ -278,209 +337,86 @@ def render_diff_tab() -> None:
     ref_steps = scenario.get("steps", [])
     ref_assertions = scenario.get("assertions", [])
 
-    # Load session data
-    steps_a, summary_a = _load_session_steps(session_a_path)
-    steps_b, summary_b = _load_session_steps(session_b_path) if session_b_path else ([], {})
+    session_a = _load_session(session_a_path)
+    session_b = _load_session(session_b_path) if session_b_path else {}
 
-    # Map steps by ID for easier lookup
-    steps_by_id_a = {s.get("id", f"step_{i}"): s for i, s in enumerate(steps_a)}
-    steps_by_id_b = {s.get("id", f"step_{i}"): s for i, s in enumerate(steps_b)}
+    steps_by_id_a = {s.get("id"): s for s in session_a.get("steps", [])}
+    steps_by_id_b = {s.get("id"): s for s in session_b.get("steps", [])}
+    assertions_by_id_a = {a.get("id"): a for a in session_a.get("assertions", [])}
+    assertions_by_id_b = {a.get("id"): a for a in session_b.get("assertions", [])}
 
-    # Create columns for the diff view
-    col_scenario, col_a, col_b = st.columns([1, 2, 2])
+    # Build map: step_id → list of assertions
+    assertions_by_step: Dict[str, List[Dict]] = {}
+    for a in ref_assertions:
+        sid = a.get("params", {}).get("step_id")
+        if sid:
+            assertions_by_step.setdefault(sid, []).append(a)
+    unlinked_assertions = [a for a in ref_assertions if not a.get("params", {}).get("step_id")]
 
-    # Column headers
-    with col_scenario:
-        st.markdown("### 📋 Expected")
-        st.caption(f"Scenario: {selected_scenario_name}")
-        if ref_assertions:
-            st.info(f"📋 {len(ref_assertions)} assertions defined")
+    # ── Column headers ───────────────────────────────────────────────────────
+    st.divider()
+    hdr_scenario, hdr_a, hdr_b = st.columns([1, 2, 2])
 
-    with col_a:
-        st.markdown("### 🔵 Session A")
-        _render_assertions_summary(session_a_path, col_a)
+    with hdr_scenario:
+        st.markdown("### 📋 Scenario")
+        st.caption(f"`{selected_scenario_name}`")
+        st.caption(f"{len(ref_steps)} steps · {len(ref_assertions)} assertions")
 
-    with col_b:
-        st.markdown("### 🟢 Session B")
-        if session_b_path:
-            _render_assertions_summary(session_b_path, col_b)
-        else:
-            col_b.info("No session selected")
+    _render_session_header(session_a, hdr_a, "🔵 Session A")
+    if session_b_path:
+        _render_session_header(session_b, hdr_b, "🟢 Session B")
+    else:
+        hdr_b.markdown("### — Session B")
+        hdr_b.info("No session selected")
 
-    # Render each step
-    max_steps = max(len(ref_steps), len(steps_a), len(steps_b) if steps_b else 0)
+    # ── Steps ────────────────────────────────────────────────────────────────
+    st.divider()
 
-    for i in range(max_steps):
-        # Create a new row for this step
-        step_cols = st.columns([1, 2, 2])
-        step_scenario, step_a, step_b = step_cols
+    for i, ref_step in enumerate(ref_steps):
+        step_id = ref_step.get("id", f"step_{i + 1}")
+        step_assertions = assertions_by_step.get(step_id, [])
 
-        # Scenario column (reference)
-        with step_scenario:
-            if i < len(ref_steps):
-                ref_step = ref_steps[i]
-                step_id = ref_step.get("id", f"step_{i+1}")
+        cols = st.columns([1, 2, 2])
 
-                with st.container(border=True):
-                    st.markdown(f"**`[{step_id}]`**")
-                    st.markdown(f"**action:** `{ref_step.get('action', '?')}`")
+        with cols[0]:
+            _render_expected_step(ref_step, step_assertions)
 
-                    # Show expected value if present
-                    if "expected_response" in ref_step:
-                        expected = ref_step["expected_response"]
-                        if len(expected) > 100:
-                            expected = expected[:100] + "..."
-                        st.markdown(f"**expected:** {expected}")
+        with cols[1]:
+            step_a = steps_by_id_a.get(step_id)
+            _render_session_step(
+                step_data=step_a,
+                ref_step=ref_step,
+                assertions_for_step=step_assertions,
+                assertions_results=assertions_by_id_a,
+                session_key="a",
+                step_idx=i,
+            )
 
-                    # Show assertions that apply to this step
-                    step_assertions = [a for a in ref_assertions
-                                      if a.get("params", {}).get("step_id") == step_id]
-                    if step_assertions:
-                        with st.expander(f"📋 Assertions ({len(step_assertions)})", expanded=False):
-                            for a in step_assertions:
-                                st.code(yaml.dump(a), language="yaml")
-            else:
-                # Grayed out placeholder for missing steps
-                st.container(border=True).markdown("—")
-
-        # Session A column
-        with step_a:
-            if i < len(ref_steps):
-                step_data = steps_by_id_a.get(ref_steps[i].get("id"))
-            else:
-                step_data = steps_by_id_a.get(f"step_{i}")
-
-            if step_data:
-                success = step_data.get("success", False)
-                badge = _render_step_badge(success)
-
-                with st.container(border=True):
-                    st.markdown(f"{badge} **`[{step_data.get('id', f'step_{i+1}')}]`**")
-                    st.markdown(f"**action:** `{step_data.get('action', '?')}`")
-
-                    # Show result
-                    result = step_data.get("result", {})
-                    if result:
-                        # Truncate long responses
-                        if "llm_response" in result and len(result["llm_response"]) > 200:
-                            result_display = result.copy()
-                            result_display["llm_response"] = result_display["llm_response"][:200] + "..."
-                        else:
-                            result_display = result
-
-                        with st.expander("📦 Result", expanded=False):
-                            st.json(result_display)
-
-                    # Show error if any
-                    if step_data.get("error"):
-                        st.error(f"❌ {step_data['error']}")
-
-                    # Show context
-                    context = _get_session_context(step_data)
-                    if context:
-                        with st.expander("🔍 Context", expanded=False):
-                            if "injected_contexts" in context:
-                                # Format injected contexts nicely
-                                for ctx in context["injected_contexts"]:
-                                    st.markdown(f"**Source:** `{ctx.get('source', 'unknown')}`")
-                                    preview = ctx.get("content_preview", ctx.get("content", ""))
-                                    if preview:
-                                        st.text(preview[:200])
-                                        if len(preview) > 200:
-                                            st.caption("(truncated)")
-                                    st.divider()
-                            else:
-                                st.json(context)
-            else:
-                # Grayed out placeholder for missing steps
-                st.container(border=True).markdown("—")
-
-        # Session B column
-        with step_b:
+        with cols[2]:
             if session_b_path:
-                if i < len(ref_steps):
-                    step_data = steps_by_id_b.get(ref_steps[i].get("id"))
-                else:
-                    step_data = steps_by_id_b.get(f"step_{i}")
-
-                if step_data:
-                    success = step_data.get("success", False)
-                    badge = _render_step_badge(success)
-
-                    with st.container(border=True):
-                        st.markdown(f"{badge} **`[{step_data.get('id', f'step_{i+1}')}]`**")
-                        st.markdown(f"**action:** `{step_data.get('action', '?')}`")
-
-                        # Show result
-                        result = step_data.get("result", {})
-                        if result:
-                            # Truncate long responses
-                            if "llm_response" in result and len(result["llm_response"]) > 200:
-                                result_display = result.copy()
-                                result_display["llm_response"] = result_display["llm_response"][:200] + "..."
-                            else:
-                                result_display = result
-
-                            with st.expander("📦 Result", expanded=False):
-                                st.json(result_display)
-
-                        # Show error if any
-                        if step_data.get("error"):
-                            st.error(f"❌ {step_data['error']}")
-
-                        # Show context
-                        context = _get_session_context(step_data)
-                        if context:
-                            with st.expander("🔍 Context", expanded=False):
-                                if "injected_contexts" in context:
-                                    # Format injected contexts nicely
-                                    for ctx in context["injected_contexts"]:
-                                        st.markdown(f"**Source:** `{ctx.get('source', 'unknown')}`")
-                                        preview = ctx.get("content_preview", ctx.get("content", ""))
-                                        if preview:
-                                            st.text(preview[:200])
-                                            if len(preview) > 200:
-                                                st.caption("(truncated)")
-                                        st.divider()
-                                else:
-                                    st.json(context)
-                else:
-                    # Grayed out placeholder for missing steps
-                    st.container(border=True).markdown("—")
+                step_b = steps_by_id_b.get(step_id)
+                _render_session_step(
+                    step_data=step_b,
+                    ref_step=ref_step,
+                    assertions_for_step=step_assertions,
+                    assertions_results=assertions_by_id_b,
+                    session_key="b",
+                    step_idx=i,
+                )
             else:
-                # No session B selected
-                st.container(border=True).markdown("—")
+                with st.container(border=True):
+                    st.markdown("—")
 
-    # Show assertions at the bottom if we have both sessions
-    if ref_assertions and session_b_path:
+    # ── Unlinked assertions summary ──────────────────────────────────────────
+    if unlinked_assertions and (session_a or session_b):
         st.divider()
-        st.markdown("### 📋 All Assertions")
-
-        # Load full assertion results from sessions
-        def load_assertions(session_path):
-            if not session_path or not os.path.exists(session_path):
-                return []
-            try:
-                with open(session_path, "r", encoding="utf-8") as handle:
-                    data = yaml.safe_load(handle) or {}
-                return data.get("assertions", [])
-            except:
-                return []
-
-        assertions_a = load_assertions(session_a_path)
-        assertions_b = load_assertions(session_b_path)
-        assertions_by_id_a = {a.get("id"): a for a in assertions_a}
-        assertions_by_id_b = {a.get("id"): a for a in assertions_b}
-
-        # Create assertions table
-        for assertion in ref_assertions:
+        st.markdown("### 📋 Global Assertions")
+        for assertion in unlinked_assertions:
             aid = assertion.get("id")
             cols = st.columns([1, 2, 2])
-
             with cols[0]:
-                st.markdown(f"**`{aid}`**")
-                st.caption(f"type: {assertion.get('type', '?')}")
-
+                st.markdown(f"**`{aid}`** · `{assertion.get('type', '?')}`")
+                st.caption(assertion.get("description", ""))
             with cols[1]:
                 a_result = assertions_by_id_a.get(aid, {})
                 if a_result:
@@ -490,13 +426,15 @@ def render_diff_tab() -> None:
                         st.error(f"❌ {a_result.get('message', 'Failed')}")
                 else:
                     st.info("—")
-
             with cols[2]:
-                b_result = assertions_by_id_b.get(aid, {})
-                if b_result:
-                    if b_result.get("passed"):
-                        st.success(f"✅ {b_result.get('message', 'Passed')}")
+                if session_b_path:
+                    b_result = assertions_by_id_b.get(aid, {})
+                    if b_result:
+                        if b_result.get("passed"):
+                            st.success(f"✅ {b_result.get('message', 'Passed')}")
+                        else:
+                            st.error(f"❌ {b_result.get('message', 'Failed')}")
                     else:
-                        st.error(f"❌ {b_result.get('message', 'Failed')}")
+                        st.info("—")
                 else:
                     st.info("—")
