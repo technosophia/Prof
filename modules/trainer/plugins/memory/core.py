@@ -367,6 +367,7 @@ class MemoryPluginCore(TrainerPluginCore):
             "success": success,
             "plugin": "memory",
             "version": memory.get("version") if memory else None,
+            "memory_content": memory.get("content", "") if memory else "",
         }
 
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:

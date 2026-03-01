@@ -147,6 +147,116 @@ def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, 
     return {"passed": True, "message": f"Injected contexts captured for step '{step_id}'"}
 
 
+
+
+def assertion_response_contains_semantic(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
+    """Check that a step llm_response semantically contains expected content."""
+    del events
+
+    from shared.common import get_embedding
+    import numpy as np
+
+    step_id = params.get("step_id")
+    contains = params.get("contains", "")
+    threshold = float(params.get("threshold", 0.70))
+    mode = str(params.get("mode", "embedding"))
+
+    step = _get_step(steps_by_id, step_id)
+    if not step:
+        return {"passed": False, "message": f"Step '{step_id}' not found"}
+
+    llm_response = (step.result or {}).get("llm_response", "")
+    if not llm_response:
+        return {"passed": False, "message": f"Step '{step_id}' has no llm_response"}
+    if not contains:
+        return {"passed": False, "message": "Assertion param 'contains' is required"}
+
+    if mode == "substring":
+        passed = contains.lower() in llm_response.lower()
+        return {
+            "passed": passed,
+            "message": f"Substring '{contains}' {'found' if passed else 'not found'} in response for step '{step_id}'",
+        }
+
+    try:
+        vec_response = np.asarray(get_embedding(llm_response), dtype=np.float32)
+        vec_contains = np.asarray(get_embedding(contains), dtype=np.float32)
+        norm_response = float(np.linalg.norm(vec_response))
+        norm_contains = float(np.linalg.norm(vec_contains))
+        if norm_response == 0 or norm_contains == 0:
+            return {"passed": False, "message": "Could not compute embeddings (zero vector)"}
+        similarity = float(np.dot(vec_response, vec_contains) / (norm_response * norm_contains))
+        passed = similarity >= threshold
+        return {
+            "passed": passed,
+            "message": (
+                f"Semantic similarity of response to '{contains}' = {similarity:.3f} "
+                f"({'≥' if passed else '<'} threshold {threshold}) for step '{step_id}'"
+            ),
+        }
+    except Exception as exc:
+        return {"passed": False, "message": f"Embedding check failed: {exc}"}
+
+
+def assertion_memory_contains_semantic(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
+    """Check that trigger_memory_analysis output semantically contains expected content."""
+    del events
+
+    from shared.common import get_embedding
+    import numpy as np
+
+    step_id = params.get("step_id")
+    contains = params.get("contains", "")
+    threshold = float(params.get("threshold", 0.70))
+    mode = str(params.get("mode", "embedding"))
+
+    step = _get_step(steps_by_id, step_id)
+    if not step:
+        return {"passed": False, "message": f"Step '{step_id}' not found"}
+    if step.action != "trigger_memory_analysis":
+        return {
+            "passed": False,
+            "message": f"Step '{step_id}' is not a trigger_memory_analysis step (got '{step.action}')",
+        }
+
+    memory_content = (step.result or {}).get("memory_content", "")
+    if not memory_content:
+        return {
+            "passed": False,
+            "message": (
+                f"Step '{step_id}' has no memory_content in result. "
+                "Ensure memory plugins include memory_content in trigger analysis output."
+            ),
+        }
+    if not contains:
+        return {"passed": False, "message": "Assertion param 'contains' is required"}
+
+    if mode == "substring":
+        passed = contains.lower() in memory_content.lower()
+        return {
+            "passed": passed,
+            "message": f"Substring '{contains}' {'found' if passed else 'not found'} in memory for step '{step_id}'",
+        }
+
+    try:
+        vec_memory = np.asarray(get_embedding(memory_content), dtype=np.float32)
+        vec_contains = np.asarray(get_embedding(contains), dtype=np.float32)
+        norm_memory = float(np.linalg.norm(vec_memory))
+        norm_contains = float(np.linalg.norm(vec_contains))
+        if norm_memory == 0 or norm_contains == 0:
+            return {"passed": False, "message": "Could not compute embeddings (zero vector)"}
+        similarity = float(np.dot(vec_memory, vec_contains) / (norm_memory * norm_contains))
+        passed = similarity >= threshold
+        return {
+            "passed": passed,
+            "message": (
+                f"Semantic similarity of memory to '{contains}' = {similarity:.3f} "
+                f"({'≥' if passed else '<'} threshold {threshold}) for step '{step_id}'"
+            ),
+        }
+    except Exception as exc:
+        return {"passed": False, "message": f"Embedding check failed: {exc}"}
+
 def register_trainer_driver_assertions(register_assertion) -> None:
     """Register trainer-provided assertion handlers into the shared driver."""
     register_assertion("action_succeeded", assertion_action_succeeded, "Step succeeded without error")
@@ -158,4 +268,14 @@ def register_trainer_driver_assertions(register_assertion) -> None:
         "injected_context_contains",
         assertion_injected_context_contains,
         "Validate injected contexts captured during a message step",
+    )
+    register_assertion(
+        "response_contains_semantic",
+        assertion_response_contains_semantic,
+        "Check LLM response semantically contains expected concept (embedding cosine similarity)",
+    )
+    register_assertion(
+        "memory_contains_semantic",
+        assertion_memory_contains_semantic,
+        "Check memory produced by trigger_memory_analysis semantically contains expected concept",
     )

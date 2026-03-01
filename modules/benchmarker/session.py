@@ -14,6 +14,17 @@ from st_shared.cached import get_section
 class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
 
+    def __init__(self):
+        self.config = get_section("benchmarker")
+
+    def _truncate_result_value(self, key: str, value, truncate_chars: int):
+        """Truncate large response fields while preserving memory artifacts."""
+        if key in {"memory_content", "facts"}:
+            return value
+        if key == "llm_response" and isinstance(value, str):
+            return value[:truncate_chars]
+        return value
+
     def _serialise_injected_contexts(self, injected: List[Dict]) -> List[Dict]:
         """Serialise injected contexts for YAML output with preview + full text."""
         result: List[Dict] = []
@@ -49,9 +60,15 @@ class SessionSerializer:
         steps_payload = []
         scenario_steps_by_id = {step.get("id"): step for step in (scenario_steps or []) if step.get("id")}
 
+        truncate_chars = int(self.config.get("llm_response_truncate_chars", 500))
+
         for step in run_result.steps:
-            result = dict(step.result)
-            injected_contexts = result.pop("injected_contexts", [])
+            raw_result = dict(step.result)
+            injected_contexts = raw_result.pop("injected_contexts", [])
+            result = {
+                key: self._truncate_result_value(key, value, truncate_chars)
+                for key, value in raw_result.items()
+            }
 
             serialised_step = {
                 "id": step.step_id,
@@ -69,6 +86,10 @@ class SessionSerializer:
             expected_response = scenario_step.get("expected_response")
             if isinstance(expected_response, str) and expected_response.strip():
                 serialised_step["expected_response"] = expected_response
+
+            expected_memory = scenario_step.get("expected_memory")
+            if isinstance(expected_memory, str) and expected_memory.strip():
+                serialised_step["expected_memory"] = expected_memory
 
             steps_payload.append(serialised_step)
 

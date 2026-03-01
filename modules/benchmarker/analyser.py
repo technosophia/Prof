@@ -141,8 +141,10 @@ class Analyser:
                     "scorer_id": str(score.scorer_id),
                     "scores": dict(score.scores or {}),
                     "overall_score": (float(score.overall_score) if score.overall_score is not None else None),
+                    "level": (score.scorer_config or {}).get("level"),
                 }
                 for score in scoring_rows_db
+                if (score.scorer_config or {}).get("level") in (None, "session")
             ]
 
         scores_by_run: Dict[str, List[Dict]] = {}

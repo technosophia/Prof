@@ -46,7 +46,10 @@ class Comparer:
             scores_query = db.query(ScoringRun).filter(ScoringRun.run_id.in_(run_ids))
             if scorer_id:
                 scores_query = scores_query.filter(ScoringRun.scorer_id == scorer_id)
-            scores = scores_query.all()
+            scores = [
+                row for row in scores_query.all()
+                if (row.scorer_config or {}).get("level") in (None, "session")
+            ]
 
             known_scorer_ids = [item["id"] for item in get_scoring_pipeline().list_scorers()]
             if scorer_id:
