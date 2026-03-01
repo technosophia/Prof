@@ -2,6 +2,7 @@ import sys
 import traceback
 import time
 import inspect
+import os
 from enum import IntEnum
 from typing import Optional, Callable, Any, Dict, List, Set
 from datetime import datetime
@@ -32,6 +33,18 @@ class Logger:
         self._include_traceback = False
         self._filtered_functions: Set[str] = set()  # Set of function names to filter out
         self._use_filtering = True
+
+        # Check FORCE_LOG environment variable
+        self._force_log = os.environ.get('FORCE_LOG', '').upper()
+        if self._force_log:
+            # If FORCE_LOG is set to any value, disable filtering
+            self._use_filtering = False
+            # If FORCE_LOG is set to a specific level, override the global level
+            if self._force_log in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+                try:
+                    self._level = LogLevel[self._force_log]
+                except KeyError:
+                    pass  # Keep existing level if invalid
 
         # Add default console handler
         self.add_handler(self._console_handler)
@@ -69,6 +82,10 @@ class Logger:
             module: Optional module name to set level for specific module.
                    If None, sets global level.
         """
+        # If FORCE_LOG is set to a level, ignore attempts to change the global level
+        if module is None and self._force_log in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+            return  # Global level is locked by FORCE_LOG environment variable
+
         try:
             level_enum = LogLevel[level.upper()]
         except KeyError:
@@ -110,7 +127,9 @@ class Logger:
         Args:
             use_filtering: True to enable filtering, False to disable
         """
-        self._use_filtering = use_filtering
+        # If FORCE_LOG is set, ignore attempts to change filtering
+        if not self._force_log:
+            self._use_filtering = use_filtering
 
     def is_function_filtered(self, function_name: str, level: LogLevel) -> bool:
         """
@@ -126,6 +145,10 @@ class Logger:
         """
         # Never filter out WARNING, ERROR, or CRITICAL levels
         if level >= LogLevel.WARNING:
+            return False
+
+        # If FORCE_LOG is set, disable all filtering
+        if self._force_log:
             return False
 
         # If filtering is disabled, don't filter anything

@@ -33,6 +33,7 @@ Simple, configurable logging with multiple severity levels and stack trace suppo
 - `set_log_module_level(level)`: Enable debug for current module (auto-detects module name)
 - `log_filter_out_caller(function_names)`: Suppress DEBUG/INFO logs from specified functions (cumulative)
 - `configure_logging_from_dict(config_dict)`: Apply logging configuration
+- env : FORCE_LOG=true or FORCE_LOG=DEBUG to force logging from outside (useful for github actions)
 
 **Example:**
 ```python
