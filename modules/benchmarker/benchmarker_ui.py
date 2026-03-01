@@ -559,8 +559,69 @@ def render() -> None:
         )
 
         with st.expander(_t("scenario_steps"), expanded=True):
-            for step in scenario.get("steps", []):
-                st.write(f"- {step.get('id', '?')}: [{step.get('actor', '?')}] {step.get('action', '?')}")
+            steps = scenario.get("steps", [])
+            assertions = scenario.get("assertions", [])
+
+            # Build map: step_id → list of assertions
+            assertions_by_step: dict = {}
+            for a in assertions:
+                sid = a.get("params", {}).get("step_id")
+                if sid:
+                    assertions_by_step.setdefault(sid, []).append(a)
+
+            # Actor colour hints
+            ACTOR_ICON = {"student": "🧑", "teacher": "👩‍🏫", "system": "⚙️"}
+
+            for step in steps:
+                step_id = step.get("id", "?")
+                actor = step.get("actor", "?")
+                action = step.get("action", "?")
+                params = step.get("params", {})
+                step_assertions = assertions_by_step.get(step_id, [])
+                icon = ACTOR_ICON.get(actor, "▸")
+
+                # ── Step header line ──────────────────────────────────────────
+                header = f"{icon} **`{step_id}`** &nbsp; `{actor}` → `{action}`"
+
+                # Content preview: pick the most meaningful param
+                preview = ""
+                if action == "user_send_message":
+                    preview = params.get("content", "")
+                elif action == "teacher_send_message":
+                    preview = params.get("content", "")
+                elif action == "set_training_program":
+                    preview = params.get("content", "")
+                elif action == "add_student_note":
+                    preview = params.get("content", "")
+                elif action == "create_conversation":
+                    preview = params.get("title", "")
+                elif action == "switch_option":
+                    preview = f"{params.get('group', '?')} → {params.get('name', '?')}"
+
+                if preview:
+                    # Truncate to ~90 chars for inline display
+                    short = preview.replace("\n", " ").strip()
+                    if len(short) > 90:
+                        short = short[:90] + "…"
+                    header += f"  \n&nbsp;&nbsp;&nbsp;&nbsp;💬 *{short}*"
+
+                # ── Assertion badges ──────────────────────────────────────────
+                if step_assertions:
+                    badges = []
+                    for a in step_assertions:
+                        atype = a.get("type", "?")
+                        aid = a.get("id", "?")
+                        badges.append(f"`{aid}` `{atype}`")
+                    header += "  \n&nbsp;&nbsp;&nbsp;&nbsp;📋 " + " · ".join(badges)
+
+                st.markdown(header)
+
+                # ── Expected response (if defined) ────────────────────────────
+                if step.get("expected_response"):
+                    exp = step["expected_response"].strip().replace("\n", " ")
+                    if len(exp) > 100:
+                        exp = exp[:100] + "…"
+                    st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;✏️ expected: {exp}")
 
         setup = scenario.get("setup", {})
         scenario_options = scenario.get("options", {})
