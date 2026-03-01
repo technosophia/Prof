@@ -520,15 +520,15 @@ def render() -> None:
     """Render benchmarker UI with benchmark execution, scoring and analysis tabs."""
     runner = ScenarioRunner()
 
-    run_tab, history_tab, judge_tab, matrix_tab, compare_tab,  analysis_tab, diagnose_tab, diff_tab = st.tabs([
+    run_tab, history_tab, judge_tab, matrix_tab, compare_tab,  analysis_tab, diff_tab, diagnose_tab  = st.tabs([
         _t("run_tab_title"),
         _t("history_tab_title"),
         _t("judge_tab_title"),
         _t("matrix_tab_title"),
         _t("compare_tab_title"),
         _t("analysis_tab_title"),
-        _t("diagnose_tab_title"),
         "Diff",
+        _t("diagnose_tab_title"),
     ])
 
     with run_tab:

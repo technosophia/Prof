@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import streamlit as st
 import yaml
 
-from modules.benchmarker.benchmarker import BenchmarkRun
+from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.runner import ScenarioRunner
 from st_shared.cached import get_db_manager
 
@@ -283,6 +283,152 @@ def _render_expected_step(
                     st.code(yaml.dump(a, allow_unicode=True, sort_keys=False), language="yaml")
 
 
+
+def _load_scoring_runs(session_path: str) -> List[Dict]:
+    """Load all scoring runs for a session file from DB as plain dicts (avoids DetachedInstanceError)."""
+    if not session_path:
+        return []
+    with get_db_manager().get_session() as db:
+        rows = db.query(ScoringRun).filter(ScoringRun.session_file == session_path).all()
+        return [
+            {
+                "scorer_id": r.scorer_id,
+                "scores": dict(r.scores or {}),
+                "overall_score": r.overall_score,
+                "scored_at": r.scored_at,
+                "scorer_config": dict(r.scorer_config or {}),
+                "source": r.source,
+                "notes": r.notes,
+            }
+            for r in rows
+        ]
+
+
+def _render_scoring_run(run: Dict, ref_steps: List[Dict]) -> None:
+    """Render one scoring run dict: overall + per-step or per-dimension breakdown."""
+    scores = run.get("scores") or {}
+    overall = run.get("overall_score")
+    scored_at = run.get("scored_at")
+    config = run.get("scorer_config") or {}
+    notes = run.get("notes") or ""
+
+    # Detect whether scores keys match step ids from the scenario
+    step_ids = {s.get("id") for s in ref_steps}
+    scores_are_steps = bool(scores) and all(k in step_ids for k in scores.keys())
+
+    # Header: overall score
+    if overall is not None:
+        bar = ""
+        if overall <= 1.0:
+            bar_len = int(round(overall * 10))
+            bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
+        st.markdown(f"**Overall: {overall:.2f}** {bar}")
+    else:
+        st.caption("Overall: \u2014")
+
+    col_meta1, col_meta2 = st.columns(2)
+    col_meta1.caption(f"source: `{run.get('source', '?')}` \u00b7 scored: {str(scored_at)[:16]}")
+    if config:
+        rubric = config.get("rubric") or config.get("model") or ""
+        col_meta2.caption(f"config: {rubric}" if rubric else f"config: {str(config)[:60]}")
+
+    if notes:
+        st.info(f"\U0001f4dd {notes}")
+
+    if not scores:
+        st.caption("*(no dimension scores stored)*")
+        return
+
+    if scores_are_steps:
+        st.markdown("**Per-step scores:**")
+        for step in ref_steps:
+            sid = step.get("id", "?")
+            val = scores.get(sid)
+            action = step.get("action", "?")
+            if val is not None:
+                fval = float(val)
+                bar_len = int(round(fval * 10)) if fval <= 1.0 else 0
+                bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len) if fval <= 1.0 else ""
+                color = "\U0001f7e2" if fval >= 0.7 else ("\U0001f7e1" if fval >= 0.4 else "\U0001f534")
+                st.markdown(f"{color} `{sid}` `{action}` \u2014 **{val:.3f}** {bar}")
+            else:
+                st.markdown(f"\u26aa `{sid}` `{action}` \u2014 \u2014")
+    else:
+        st.markdown("**Dimension scores:**")
+        for dim, val in scores.items():
+            if val is not None:
+                fval = float(val)
+                if fval > 1.0:
+                    normalized = (fval - 1) / 4
+                    bar_len = int(round(normalized * 10))
+                    bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
+                    color = "\U0001f7e2" if fval >= 4 else ("\U0001f7e1" if fval >= 2.5 else "\U0001f534")
+                    st.markdown(f"{color} `{dim}` \u2014 **{fval:.1f}/5**  {bar}")
+                else:
+                    bar_len = int(round(fval * 10))
+                    bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
+                    color = "\U0001f7e2" if fval >= 0.7 else ("\U0001f7e1" if fval >= 0.4 else "\U0001f534")
+                    st.markdown(f"{color} `{dim}` \u2014 **{fval:.3f}**  {bar}")
+                st.markdown(f"\u26aa `{dim}` \u2014 \u2014")
+
+
+def _render_evaluations_section(
+    session_a_path: str,
+    session_b_path: str,
+    ref_steps: List[Dict],
+) -> None:
+    """Render all scoring runs for both sessions in a side-by-side expander."""
+    runs_a = _load_scoring_runs(session_a_path)
+    runs_b = _load_scoring_runs(session_b_path) if session_b_path else []
+
+    if not runs_a and not runs_b:
+        return
+
+    st.divider()
+    all_scorer_ids = sorted({r["scorer_id"] for r in runs_a} | {r["scorer_id"] for r in runs_b})
+
+    title = f"\U0001f3c5 Evaluations \u2014 {len(all_scorer_ids)} scorer(s)"
+    if runs_a:
+        title += f"  \u00b7  A: {len(runs_a)} run(s)"
+    if runs_b:
+        title += f"  \u00b7  B: {len(runs_b)} run(s)"
+
+    with st.expander(title, expanded=True):
+        for scorer_id in all_scorer_ids:
+            st.markdown(f"### scorer: `{scorer_id}`")
+            cols = st.columns([1, 2, 2])
+            with cols[0]:
+                st.caption("scorer")
+
+            scorer_runs_a = sorted([r for r in runs_a if r["scorer_id"] == scorer_id],
+                                   key=lambda r: r["scored_at"] or "", reverse=True)
+            with cols[1]:
+                if scorer_runs_a:
+                    for i, run in enumerate(scorer_runs_a):
+                        if i > 0:
+                            st.markdown("---")
+                            st.caption(f"earlier run ({str(run['scored_at'])[:16]})")
+                        _render_scoring_run(run, ref_steps)
+                else:
+                    st.caption("*(not scored)*")
+
+            scorer_runs_b = sorted([r for r in runs_b if r["scorer_id"] == scorer_id],
+                                   key=lambda r: r["scored_at"] or "", reverse=True)
+            with cols[2]:
+                if session_b_path:
+                    if scorer_runs_b:
+                        for i, run in enumerate(scorer_runs_b):
+                            if i > 0:
+                                st.markdown("---")
+                                st.caption(f"earlier run ({str(run['scored_at'])[:16]})")
+                            _render_scoring_run(run, ref_steps)
+                    else:
+                        st.caption("*(not scored)*")
+                else:
+                    st.caption("\u2014")
+
+            st.divider()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main render
 # ─────────────────────────────────────────────────────────────────────────────
@@ -297,7 +443,7 @@ def render_diff_tab() -> None:
         return
 
     # ── Scenario + session selectors ────────────────────────────────────────
-    sel_col1, sel_col2, sel_col3 = st.columns([2, 3, 3])
+    sel_col1, sel_col2, sel_col3 = st.columns([1, 2, 2])
 
     with sel_col1:
         selected_scenario_file = st.selectbox(
@@ -367,7 +513,7 @@ def render_diff_tab() -> None:
 
     # ── Column headers ───────────────────────────────────────────────────────
     st.divider()
-    hdr_scenario, hdr_a, hdr_b = st.columns([2, 3, 3])
+    hdr_scenario, hdr_a, hdr_b = st.columns([1, 2, 2])
 
     with hdr_scenario:
         st.markdown("### 📋 Scenario")
@@ -388,7 +534,7 @@ def render_diff_tab() -> None:
         step_id = ref_step.get("id", f"step_{i + 1}")
         step_assertions = assertions_by_step.get(step_id, [])
 
-        cols = st.columns([2, 3, 3])
+        cols = st.columns([1, 2, 2])
 
         with cols[0]:
             _render_expected_step(ref_step, step_assertions)
@@ -450,3 +596,6 @@ def render_diff_tab() -> None:
                         st.info("—")
                 else:
                     st.info("—")
+
+    # ── Evaluations (scoring runs) ───────────────────────────────────────────
+    _render_evaluations_section(session_a_path, session_b_path, ref_steps)
