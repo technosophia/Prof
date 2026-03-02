@@ -279,9 +279,54 @@ def _render_session_step(
                         st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
 
 
+
+
+def _session_config_description(session_data: Dict) -> Dict:
+    """Return session configuration metadata used in exports."""
+    meta = session_data.get("meta", {}) if session_data else {}
+    return {
+        "run_at": meta.get("run_at"),
+        "llm": meta.get("llm"),
+        "configuration": meta.get("configuration") or meta.get("options") or {},
+    }
+
+
+def _build_step_export_yaml(
+    *,
+    scenario_step: Dict,
+    session_a_step: Optional[Dict],
+    session_b_step: Optional[Dict],
+    session_a_config: Dict,
+    session_b_config: Dict,
+    session_a_scores: List[Dict],
+    session_b_scores: List[Dict],
+) -> str:
+    """Build YAML export payload for one compared step."""
+    payload = {
+        "scenario_step": scenario_step,
+        "session_a_step": {
+            "session": session_a_config,
+            "step": session_a_step,
+            "evaluations": session_a_scores,
+        },
+        "session_b_step": {
+            "session": session_b_config,
+            "step": session_b_step,
+            "evaluations": session_b_scores,
+        },
+    }
+    return yaml.dump(payload, allow_unicode=True, sort_keys=False)
+
 def _render_expected_step(
     ref_step: Dict,
     assertions_for_step: List[Dict],
+    session_a_step: Optional[Dict],
+    session_b_step: Optional[Dict],
+    session_a_config: Dict,
+    session_b_config: Dict,
+    session_a_scores: List[Dict],
+    session_b_scores: List[Dict],
+    export_key: str,
 ) -> None:
     """Render the expected/scenario column for a step."""
     with st.container(border=True):
@@ -317,6 +362,19 @@ def _render_expected_step(
             with st.expander(f"📋 {len(assertions_for_step)} assertion(s)", expanded=False):
                 for a in assertions_for_step:
                     st.code(yaml.dump(a, allow_unicode=True, sort_keys=False), language="yaml")
+
+        export_yaml = _build_step_export_yaml(
+            scenario_step=ref_step,
+            session_a_step=session_a_step,
+            session_b_step=session_b_step,
+            session_a_config=session_a_config,
+            session_b_config=session_b_config,
+            session_a_scores=session_a_scores,
+            session_b_scores=session_b_scores,
+        )
+        if st.button("📤 Export this step", key=f"export_step_{export_key}"):
+            st.warning("Copy/paste export YAML below")
+            st.code(export_yaml, language="yaml")
 
 
 
@@ -604,7 +662,17 @@ def render_diff_tab() -> None:
         cols = st.columns([1, 2, 2])
 
         with cols[0]:
-            _render_expected_step(ref_step, step_assertions)
+            _render_expected_step(
+                ref_step=ref_step,
+                assertions_for_step=step_assertions,
+                session_a_step=steps_by_id_a.get(step_id),
+                session_b_step=steps_by_id_b.get(step_id) if session_b_path else None,
+                session_a_config=_session_config_description(session_a),
+                session_b_config=_session_config_description(session_b) if session_b_path else {},
+                session_a_scores=step_scores_by_id_a.get(step_id, []),
+                session_b_scores=step_scores_by_id_b.get(step_id, []) if session_b_path else [],
+                export_key=f"{selected_scenario_name}_{step_id}_{i}",
+            )
 
         with cols[1]:
             step_a = steps_by_id_a.get(step_id)
