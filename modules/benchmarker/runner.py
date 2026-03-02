@@ -162,7 +162,9 @@ class ScenarioRunner:
                 step_result = self._replay_step(resolved)
                 steps_out.append(step_result)
 
-            assertions_out = self._evaluate_assertions(scenario.get("assertions", []), steps_out)
+            auto_assertions = self._build_auto_memory_assertions(scenario)
+            all_assertions = list(scenario.get("assertions", [])) + auto_assertions
+            assertions_out = self._evaluate_assertions(all_assertions, steps_out)
 
         except Exception as exc:
             msg = f"Run-level failure: {exc}"
@@ -255,6 +257,31 @@ class ScenarioRunner:
                 errors.append(f"Unknown assertion type: {atype}")
 
         return errors
+
+
+    @staticmethod
+    def _build_auto_memory_assertions(scenario: Dict) -> List[Dict]:
+        """Create synthetic assertions for steps declaring expected_memory."""
+        auto_assertions: List[Dict] = []
+        for step in scenario.get("steps", []):
+            step_id = step.get("id")
+            expected_memory = step.get("expected_memory", "")
+            if not step_id:
+                continue
+            if isinstance(expected_memory, str) and expected_memory.strip():
+                auto_assertions.append(
+                    {
+                        "id": f"auto_memory_{step_id}",
+                        "type": "memory_contains_semantic",
+                        "description": f"Auto-generated: memory from {step_id} matches expected_memory",
+                        "params": {
+                            "step_id": step_id,
+                            "contains": expected_memory.strip(),
+                            "threshold": 0.70,
+                        },
+                    }
+                )
+        return auto_assertions
 
     def _replay_step(self, step: Dict) -> StepResult:
         """Replay one step and continue on action/context errors."""

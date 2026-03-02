@@ -235,3 +235,4 @@ def test_trainer_assertions_registered(monkeypatch):
     names = [a["name"] for a in driver.list_assertions()]
     assert "action_succeeded" in names
     assert "injected_context_contains" in names
+    assert "injected_context_contains_semantics" in names

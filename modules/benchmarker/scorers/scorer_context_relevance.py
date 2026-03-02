@@ -54,12 +54,14 @@ class ScorerPlugin(BaseScorerPlugin):
         manager = get_llm_manager()
 
         scores_by_source: Dict[str, List[float]] = defaultdict(list)
+        step_scores = []
         skipped = 0
         for step in steps_with_context:
+            step_id = str(step.get("id", ""))
             user_message = str((step.get("params") or {}).get("content", ""))
             for entry in (step.get("injected_contexts") or []):
                 source = str(entry.get("source", "unknown"))
-                context_content = str(entry.get("content") or entry.get("content_preview", ""))
+                context_content = str(entry.get("content", ""))
                 prompt = self._build_prompt(user_message=user_message, source=source, context_content=context_content)
                 response_text, response_error = self._call_llm(manager, llm_id, prompt)
                 if response_error:
@@ -73,6 +75,7 @@ class ScorerPlugin(BaseScorerPlugin):
                     skipped += 1
                     continue
                 scores_by_source[source].append(float(relevance))
+                step_scores.append({"step_id": step_id, "source": source, "relevance": float(relevance)})
 
         if not scores_by_source:
             container.warning("Could not compute any relevance score (all items failed to parse/call).")
@@ -84,6 +87,25 @@ class ScorerPlugin(BaseScorerPlugin):
             if values
         }
 
+        for item in step_scores:
+            step_result = ScoringResult(
+                scorer_id=self.id,
+                session_path=session_path,
+                scores={"relevance": round(item["relevance"], 2)},
+                scorer_config={
+                    "level": "step",
+                    "step_id": item["step_id"],
+                    "source": item["source"],
+                    "llm_id": llm_id,
+                },
+                source="llm_internal",
+                notes=None,
+                scored_at=self._now(),
+                parse_errors=[],
+                complete=True,
+            )
+            self._write_score(step_result)
+
         result = ScoringResult(
             scorer_id=self.id,
             session_path=session_path,
@@ -92,6 +114,7 @@ class ScorerPlugin(BaseScorerPlugin):
                 "llm_id": llm_id,
                 "steps_evaluated": len(steps_with_context),
                 "sources_found": sources,
+                "level": "session",
             },
             source="llm_internal",
             notes=None,

@@ -8,21 +8,19 @@ from typing import Dict, List
 
 import yaml
 
-from st_shared.cached import get_section
 
 
 class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
 
     def _serialise_injected_contexts(self, injected: List[Dict]) -> List[Dict]:
-        """Serialise injected contexts for YAML output with preview + full text."""
+        """Serialise injected contexts for YAML output with full text only."""
         result: List[Dict] = []
         for ctx in injected:
             result.append(
                 {
                     "source": ctx.get("source", "unknown"),
                     "role": ctx.get("role", "system"),
-                    "content_preview": ctx.get("content", "")[:150],
                     "content": ctx.get("content", ""),
                 }
             )
@@ -69,6 +67,10 @@ class SessionSerializer:
             expected_response = scenario_step.get("expected_response")
             if isinstance(expected_response, str) and expected_response.strip():
                 serialised_step["expected_response"] = expected_response
+
+            expected_memory = scenario_step.get("expected_memory")
+            if isinstance(expected_memory, str) and expected_memory.strip():
+                serialised_step["expected_memory"] = expected_memory
 
             steps_payload.append(serialised_step)
 

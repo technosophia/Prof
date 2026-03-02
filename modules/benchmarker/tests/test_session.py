@@ -43,15 +43,6 @@ def test_serialise_run_result_to_yaml(tmp_path):
     assert data["summary"]["assertions_passed"] == 1
 
 
-def test_llm_response_truncated_in_yaml(tmp_path):
-    serializer = SessionSerializer()
-    path = serializer.write(_run_result(tmp_path), events=[], output_dir=str(tmp_path))
-
-    with open(path, "r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
-
-    assert len(data["steps"][0]["result"]["llm_response"]) == 500
-
 
 def test_session_file_named_correctly(tmp_path):
     serializer = SessionSerializer()
@@ -71,7 +62,7 @@ def test_all_events_present_in_session(tmp_path):
     assert len(data["events"]) == 2
 
 
-def test_injected_contexts_serialized_as_preview_only(tmp_path):
+def test_injected_contexts_serialized_with_full_content_only(tmp_path):
     serializer = SessionSerializer()
     path = serializer.write(_run_result(tmp_path), events=[], output_dir=str(tmp_path))
 
@@ -80,7 +71,7 @@ def test_injected_contexts_serialized_as_preview_only(tmp_path):
 
     assert "injected_contexts" in data["steps"][0]
     assert data["steps"][0]["injected_contexts"][0]["source"] == "rag_mock"
-    assert len(data["steps"][0]["injected_contexts"][0]["content_preview"]) == 150
+    assert "content_preview" not in data["steps"][0]["injected_contexts"][0]
     assert "injected_contexts" not in data["steps"][0]["result"]
 
 

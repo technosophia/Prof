@@ -82,7 +82,10 @@ Empty cells shown explicitly with runs_scored: 0.
 | `plugin_event_occurred` | `plugin_id`, `event` | Driver plugin event occurred |
 | `option_was_active` | `group`, `name` | Option switch event was recorded |
 | `context_field_set` | `field`, `value` (opt) | Context switch set field (and value if provided) |
-| `injected_context_contains` | `step_id`, `contains` (opt), `not_contains` (opt), `source_contains` (opt) | Context matching criteria was injected into LLM for that step (fails if RAG no-result marker is present) |
+| `injected_context_contains` | `step_id`, `contains` (str or list, opt), `not_contains` (opt), `source_contains` (opt) | Context matching criteria was injected into LLM for that step (fails if RAG no-result marker is present) |
+| `injected_context_contains_semantics` | `step_id`, `contains` (str or list), `threshold` (opt, default 0.70), `mode` (opt, "embedding"/"substring"), `source_contains` (opt) | Injected context semantically contains expected concept |
+| `response_contains_semantic` | `step_id`, `contains` (str or list), `threshold` (opt, default 0.70), `mode` (opt, "embedding"/"substring") | LLM response semantically contains expected concept |
+| `memory_contains_semantic` | `step_id`, `contains` (str or list), `threshold` (opt, default 0.70), `mode` (opt) | Memory content semantically contains expected concept |
 
 ### How `injected_context_contains` works
 
@@ -138,3 +141,9 @@ a separate `teacher_id` field — the trainer IS the teacher in this app.
 
 Actor validation: violations log a WARNING and record a step error.
 The run continues (does not abort).
+
+
+## Step expected fields
+
+- `expected_response` can be set on `user_send_message` steps for response-based scorers.
+- `expected_memory` can be set on `trigger_memory_analysis` steps. The runner auto-generates a `memory_contains_semantic` assertion (`auto_memory_<step_id>`).

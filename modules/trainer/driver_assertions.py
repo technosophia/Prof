@@ -16,6 +16,94 @@ def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
+def _as_text_list(value) -> List[str]:
+    """Normalize assertion value into a cleaned list of strings."""
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if value is None:
+        return []
+    coerced = str(value).strip()
+    return [coerced] if coerced else []
+
+
+def _parse_threshold(value, default: float = 0.70) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _semantic_contains_check(*, actual_text: str, contains_terms: List[str], threshold: float, mode: str, subject: str, step_id: str) -> Dict:
+    """Shared semantic/substring containment checker with AND semantics."""
+    if not contains_terms:
+        return {"passed": False, "message": "Assertion param 'contains' is required"}
+
+    normalized_mode = str(mode or "embedding").lower()
+    text = actual_text or ""
+
+    if normalized_mode == "substring":
+        missing = [term for term in contains_terms if term.lower() not in text.lower()]
+        if missing:
+            return {
+                "passed": False,
+                "message": f"Missing substring(s) {missing} in {subject} for step '{step_id}'",
+            }
+        return {
+            "passed": True,
+            "message": f"All substrings {contains_terms} found in {subject} for step '{step_id}'",
+        }
+
+    try:
+        from shared.common import get_embedding
+        import numpy as np
+
+        vec_actual = np.asarray(get_embedding(text), dtype=np.float32)
+        norm_actual = float(np.linalg.norm(vec_actual))
+        if norm_actual == 0:
+            return {"passed": False, "message": "Could not compute embeddings (zero vector)"}
+
+        similarities = {}
+        failed_terms = []
+        for term in contains_terms:
+            vec_term = np.asarray(get_embedding(term), dtype=np.float32)
+            norm_term = float(np.linalg.norm(vec_term))
+            if norm_term == 0:
+                failed_terms.append(term)
+                similarities[term] = None
+                continue
+            similarity = float(np.dot(vec_actual, vec_term) / (norm_actual * norm_term))
+            similarities[term] = similarity
+            if similarity < threshold:
+                failed_terms.append(term)
+
+        if failed_terms:
+            details = ", ".join(
+                f"{term}={similarities[term]:.3f}" if similarities[term] is not None else f"{term}=NaN"
+                for term in contains_terms
+            )
+            return {
+                "passed": False,
+                "message": (
+                    f"Semantic similarity below threshold {threshold} for {subject} terms {failed_terms} "
+                    f"on step '{step_id}' ({details})"
+                ),
+            }
+
+        details = ", ".join(f"{term}={similarities[term]:.3f}" for term in contains_terms)
+        return {
+            "passed": True,
+            "message": (
+                f"Semantic similarity passed (threshold {threshold}) for all terms in {subject} on step '{step_id}' "
+                f"({details})"
+            ),
+        }
+    except Exception as exc:
+        return {"passed": False, "message": f"Embedding check failed: {exc}"}
+
+
 def assertion_action_succeeded(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
     del events
     step_id = params.get("step_id")
@@ -69,8 +157,8 @@ def assertion_context_field_set(*, params: Dict, steps_by_id: Dict[str, object],
 def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
     del events
     step_id = params.get("step_id")
-    contains = params.get("contains", "")
-    not_contains = params.get("not_contains", "")
+    contains_terms = _as_text_list(params.get("contains", ""))
+    not_contains_terms = _as_text_list(params.get("not_contains", ""))
     source_contains = params.get("source_contains", "")
 
     step = _get_step(steps_by_id, step_id)
@@ -97,9 +185,7 @@ def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, 
             }
 
     no_rag_markers = ["no rag results found", "no rag result found", "no results found", "no result found"]
-    forbidden_terms = []
-    if not_contains:
-        forbidden_terms.append(_normalize_text(not_contains))
+    forbidden_terms = [_normalize_text(term) for term in not_contains_terms]
     forbidden_terms.extend(no_rag_markers)
 
     forbidden_match = None
@@ -120,31 +206,160 @@ def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, 
             }
         return {
             "passed": False,
-            "message": f"Context from source matching '{source_contains}' for step '{step_id}' contains forbidden text '{not_contains}'.",
+            "message": f"Context from source matching '{source_contains}' for step '{step_id}' contains forbidden text '{matched_term}'.",
         }
 
-    if not_contains:
+    if not_contains_terms and not contains_terms:
         return {
             "passed": True,
-            "message": f"Context from source matching '{source_contains}' for step '{step_id}' does not contain '{not_contains}'.",
+            "message": f"Context from source matching '{source_contains}' for step '{step_id}' does not contain forbidden terms {not_contains_terms}.",
         }
 
-    if contains:
-        matching = [c for c in candidates if contains.lower() in c.get("content", "").lower()]
-        if not matching:
+    if contains_terms:
+        missing = []
+        for term in contains_terms:
+            has_term = any(term.lower() in c.get("content", "").lower() for c in candidates)
+            if not has_term:
+                missing.append(term)
+
+        if missing:
             preview = candidates[0].get("content", "")[:100] if candidates else ""
+            if len(missing) == 1 and len(contains_terms) == 1:
+                return {
+                    "passed": False,
+                    "message": (
+                        f"Context from source matching '{source_contains}' found for step '{step_id}' "
+                        f"but does not contain '{contains_terms[0]}'. Content preview: '{preview}...'"
+                    ),
+                }
             return {
                 "passed": False,
-                "message": f"Context from source matching '{source_contains}' found for step '{step_id}' but does not contain '{contains}'. Content preview: '{preview}...'",
+                "message": (
+                    f"Context from source matching '{source_contains}' found for step '{step_id}' "
+                    f"but missing required term(s) {missing}. Content preview: '{preview}...'"
+                ),
             }
+
         return {
             "passed": True,
-            "message": f"Found '{contains}' in context from '{matching[0].get('source', '')}' for step '{step_id}'",
+            "message": f"Found all required term(s) {contains_terms} in injected context for step '{step_id}'",
         }
 
     if source_contains:
         return {"passed": True, "message": f"Found context from source matching '{source_contains}' for step '{step_id}'"}
     return {"passed": True, "message": f"Injected contexts captured for step '{step_id}'"}
+
+
+def assertion_response_contains_semantic(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
+    """Check that a step llm_response semantically contains expected content."""
+    del events
+
+    step_id = params.get("step_id")
+    contains_terms = _as_text_list(params.get("contains", ""))
+    threshold = _parse_threshold(params.get("threshold", 0.70), default=0.70)
+    mode = str(params.get("mode", "embedding"))
+
+    step = _get_step(steps_by_id, step_id)
+    if not step:
+        return {"passed": False, "message": f"Step '{step_id}' not found"}
+
+    llm_response = (step.result or {}).get("llm_response", "")
+    if not llm_response:
+        return {"passed": False, "message": f"Step '{step_id}' has no llm_response"}
+
+    return _semantic_contains_check(
+        actual_text=llm_response,
+        contains_terms=contains_terms,
+        threshold=threshold,
+        mode=mode,
+        subject="response",
+        step_id=step_id,
+    )
+
+
+def assertion_memory_contains_semantic(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
+    """Check that trigger_memory_analysis output semantically contains expected content."""
+    del events
+
+    step_id = params.get("step_id")
+    contains_terms = _as_text_list(params.get("contains", ""))
+    threshold = _parse_threshold(params.get("threshold", 0.70), default=0.70)
+    mode = str(params.get("mode", "embedding"))
+
+    step = _get_step(steps_by_id, step_id)
+    if not step:
+        return {"passed": False, "message": f"Step '{step_id}' not found"}
+    if step.action != "trigger_memory_analysis":
+        return {
+            "passed": False,
+            "message": f"Step '{step_id}' is not a trigger_memory_analysis step (got '{step.action}')",
+        }
+
+    memory_content = (step.result or {}).get("memory_content", "")
+    if not memory_content:
+        return {
+            "passed": False,
+            "message": (
+                f"Step '{step_id}' has no memory_content in result. "
+                "Ensure memory plugins include memory_content in trigger analysis output."
+            ),
+        }
+
+    return _semantic_contains_check(
+        actual_text=memory_content,
+        contains_terms=contains_terms,
+        threshold=threshold,
+        mode=mode,
+        subject="memory",
+        step_id=step_id,
+    )
+
+
+def assertion_injected_context_contains_semantics(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
+    """Check that injected context semantically contains expected content."""
+    del events
+
+    step_id = params.get("step_id")
+    contains_terms = _as_text_list(params.get("contains", ""))
+    threshold = _parse_threshold(params.get("threshold", 0.70), default=0.70)
+    mode = str(params.get("mode", "embedding"))
+    source_contains = params.get("source_contains", "")
+
+    step = _get_step(steps_by_id, step_id)
+    if not step:
+        return {"passed": False, "message": f"Step '{step_id}' not found in run results"}
+
+    injected = step.result.get("injected_contexts", [])
+    if not injected:
+        return {
+            "passed": False,
+            "message": f"No injected contexts captured for step '{step_id}'. Check that the monitor callback was registered correctly.",
+        }
+
+    candidates = injected
+    if source_contains:
+        alias_map = {"student_pad": ["student_pad", "student_note", "student_notes", "get_student_notes_context"]}
+        match_terms = alias_map.get(source_contains.lower(), [source_contains.lower()])
+        candidates = [c for c in injected if any(term in c.get("source", "").lower() for term in match_terms)]
+        if not candidates:
+            sources = [c.get("source", "") for c in injected]
+            return {
+                "passed": False,
+                "message": f"No context with source containing '{source_contains}' found for step '{step_id}'. Sources present: {sources}",
+            }
+
+    joined_content = "\n".join(str(c.get("content", "")) for c in candidates if c.get("content", ""))
+    if not joined_content.strip():
+        return {"passed": False, "message": f"Injected contexts for step '{step_id}' have no content to evaluate"}
+
+    return _semantic_contains_check(
+        actual_text=joined_content,
+        contains_terms=contains_terms,
+        threshold=threshold,
+        mode=mode,
+        subject="injected context",
+        step_id=step_id,
+    )
 
 
 def register_trainer_driver_assertions(register_assertion) -> None:
@@ -158,4 +373,19 @@ def register_trainer_driver_assertions(register_assertion) -> None:
         "injected_context_contains",
         assertion_injected_context_contains,
         "Validate injected contexts captured during a message step",
+    )
+    register_assertion(
+        "injected_context_contains_semantics",
+        assertion_injected_context_contains_semantics,
+        "Check injected context semantically contains expected concept",
+    )
+    register_assertion(
+        "response_contains_semantic",
+        assertion_response_contains_semantic,
+        "Check LLM response semantically contains expected concept (embedding cosine similarity)",
+    )
+    register_assertion(
+        "memory_contains_semantic",
+        assertion_memory_contains_semantic,
+        "Check memory produced by trigger_memory_analysis semantically contains expected concept",
     )

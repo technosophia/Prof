@@ -56,11 +56,31 @@ class ScorerPlugin(BaseScorerPlugin):
             scores[step_id] = round(similarity, 4)
             rows.append({"step": step_id, "similarity": similarity})
 
+        for step in qualifying:
+            step_id = step["id"]
+            similarity = scores[step_id]
+            step_result = ScoringResult(
+                scorer_id=self.id,
+                session_path=session_path,
+                scores={"similarity": similarity},
+                scorer_config={
+                    "model": "global_llm_embedding",
+                    "level": "step",
+                    "step_id": step_id,
+                },
+                source="embedding",
+                notes=None,
+                scored_at=self._now(),
+                parse_errors=[],
+                complete=True,
+            )
+            self._write_score(step_result)
+
         result = ScoringResult(
             scorer_id=self.id,
             session_path=session_path,
             scores=scores,
-            scorer_config={"model": "global_llm_embedding", "steps_scored": len(scores)},
+            scorer_config={"model": "global_llm_embedding", "steps_scored": len(scores), "level": "session"},
             source="embedding",
             notes=None,
             scored_at=self._now(),

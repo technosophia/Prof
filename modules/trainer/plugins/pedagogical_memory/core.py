@@ -636,10 +636,30 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             "messages_analyzed": result.get("messages_analyzed", 0),
         }
 
+        active_facts = self._get_active_facts(context.trainer_id, context.student_id)
+        facts_text = "\n".join(
+            f"[{fact['fact_type']}] {fact['content']} (confidence={fact['confidence']:.2f})"
+            for fact in active_facts
+        )
+
         record_plugin_event("pedagogical_memory", "analysis_complete", event_data)
         record_plugin_event("memory", "analysis_complete", event_data)
 
-        return {"success": True, "plugin": "pedagogical_memory", **result, **event_data}
+        return {
+            "success": True,
+            "plugin": "pedagogical_memory",
+            **result,
+            **event_data,
+            "memory_content": facts_text,
+            "facts": [
+                {
+                    "fact_type": fact["fact_type"],
+                    "content": fact["content"],
+                    "confidence": fact["confidence"],
+                }
+                for fact in active_facts
+            ],
+        }
 
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
