@@ -200,6 +200,73 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
 
 
 
+
+def test_injected_context_contains_accepts_contains_list_with_and_semantics():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {"source": "rag_mock", "content": "sweet spot et évolutionnaire", "role": "system"}
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "contains": ["sweet spot", "évolutionnaire"]},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
+
+
+def test_injected_context_contains_semantics_accepts_contains_list_substring_mode():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {"source": "rag_mock", "content": "sweet spot et évolutionnaire", "role": "system"}
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains_semantics",
+                "params": {
+                    "step_id": "s1",
+                    "contains": ["sweet spot", "évolutionnaire"],
+                    "mode": "substring",
+                    "threshold": 0.95,
+                },
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
+
 def test_injected_context_contains_semantics_substring_passes():
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
