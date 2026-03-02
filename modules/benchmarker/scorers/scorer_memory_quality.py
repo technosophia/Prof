@@ -1,28 +1,31 @@
-"""Memory quality scorer — evaluates trigger_memory_analysis steps against expected_memory."""
+"""Memory quality scorer — uses SemanticEvaluator service."""
 
 from typing import Dict
 
 from modules.benchmarker.scorers.base import ScorerPlugin as BaseScorerPlugin, ScoringResult
 
 
+def _get_evaluator():
+    try:
+        from shared.common import get_module_handler
+        services = get_module_handler().get_services()
+        if services:
+            return services.get("semantic_eval")
+    except Exception:
+        pass
+    return None
+
+
 class ScorerPlugin(BaseScorerPlugin):
-    """Automatic scorer for trigger_memory_analysis steps."""
+    """Automatic scorer for trigger_memory_analysis steps (full-document similarity)."""
 
     id = "memory_quality"
     name = "Memory Quality (Embedding)"
 
     def is_available(self) -> bool:
-        try:
-            from shared.common import get_embedding  # noqa: F401
-            import numpy  # noqa: F401
-            return True
-        except ImportError:
-            return False
+        return _get_evaluator() is not None
 
     def compute_score(self, session: Dict, config: Dict, container) -> None:
-        import numpy as np
-        from shared.common import get_embedding
-
         session_path = config["session_path"]
 
         qualifying = [
@@ -39,18 +42,19 @@ class ScorerPlugin(BaseScorerPlugin):
             )
             return
 
+        evaluator = _get_evaluator()
+        if evaluator is None:
+            container.error("'semantic_eval' service not found in ServiceLocator.")
+            return
+
         batch_mode = bool(config.get("batch_mode"))
-        container.info(f"Found {len(qualifying)} qualifying memory step(s) to score.")
+        container.info(
+            f"Found {len(qualifying)} qualifying memory step(s). "
+            f"Similarity threshold: {evaluator.default_similarity_threshold}"
+        )
         submit_key = f"mem_quality_submit_{session_path}"
         if not batch_mode and not container.button("Score memory quality", key=submit_key):
             return
-
-        def _cosine(a, b):
-            norm_a = float(np.linalg.norm(a))
-            norm_b = float(np.linalg.norm(b))
-            if norm_a == 0 or norm_b == 0:
-                return 0.0
-            return float(np.dot(a, b) / (norm_a * norm_b))
 
         aggregated_scores = {}
         parse_errors = []
@@ -60,36 +64,34 @@ class ScorerPlugin(BaseScorerPlugin):
             memory_content = step["result"]["memory_content"]
             expected_memory = step["expected_memory"]
 
-            similarity = None
             step_parse_errors = []
+            sim_result = None
             try:
-                vec_memory = np.asarray(get_embedding(memory_content), dtype=np.float32)
-                vec_expected = np.asarray(get_embedding(expected_memory), dtype=np.float32)
-                similarity = round(_cosine(vec_memory, vec_expected), 4)
+                sim_result = evaluator.similarity(memory_content, expected_memory)
             except Exception as exc:
-                message = f"Embedding failed for step {step_id}: {exc}"
+                message = f"Similarity failed for step {step_id}: {exc}"
                 parse_errors.append(message)
                 step_parse_errors.append(message)
 
             step_result = ScoringResult(
                 scorer_id=self.id,
                 session_path=session_path,
-                scores={"similarity": similarity} if similarity is not None else {},
+                scores={"similarity": sim_result.score} if sim_result else {},
                 scorer_config={
-                    "model": "global_llm_embedding",
                     "level": "step",
                     "step_id": step_id,
+                    "threshold": evaluator.default_similarity_threshold,
                 },
                 source="embedding",
                 notes=None,
                 scored_at=self._now(),
                 parse_errors=step_parse_errors,
-                complete=similarity is not None,
+                complete=sim_result is not None,
             )
             self._write_score(step_result)
 
-            if similarity is not None:
-                aggregated_scores[step_id] = similarity
+            if sim_result is not None:
+                aggregated_scores[step_id] = sim_result.score
 
         if not aggregated_scores:
             container.warning("All memory quality scoring attempts failed.")
@@ -100,9 +102,9 @@ class ScorerPlugin(BaseScorerPlugin):
             session_path=session_path,
             scores=aggregated_scores,
             scorer_config={
-                "model": "global_llm_embedding",
                 "level": "session",
                 "steps_scored": len(aggregated_scores),
+                "threshold": evaluator.default_similarity_threshold,
             },
             source="embedding",
             notes=None,
@@ -115,7 +117,7 @@ class ScorerPlugin(BaseScorerPlugin):
         overall = sum(aggregated_scores.values()) / len(aggregated_scores)
         container.success(
             f"Memory quality scored for {len(aggregated_scores)} step(s). "
-            f"Overall similarity: {overall:.4f}"
+            f"Overall: {overall:.4f}"
         )
         container.dataframe(
             [{"step_id": sid, "similarity": score} for sid, score in aggregated_scores.items()],

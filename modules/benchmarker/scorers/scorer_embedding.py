@@ -1,21 +1,29 @@
-"""Embedding similarity scorer plugin."""
+"""Embedding similarity scorer plugin — uses SemanticEvaluator service."""
 
 from typing import Dict
 
 from modules.benchmarker.scorers.base import ScorerPlugin as BaseScorerPlugin, ScoringResult
 
 
+def _get_evaluator():
+    """Retrieve SemanticEvaluator from the ServiceLocator."""
+    try:
+        from shared.common import get_module_handler
+        services = get_module_handler().get_services()
+        if services:
+            return services.get("semantic_eval")
+    except Exception:
+        pass
+    return None
+
+
 class ScorerPlugin(BaseScorerPlugin):
-    """Automatic cosine similarity scorer."""
+    """Automatic cosine similarity scorer (full-document, response vs expected)."""
 
     id = "embedding_similarity"
     name = "Embedding Similarity"
 
     def compute_score(self, session: Dict, config: Dict, container) -> None:
-        import numpy as np
-
-        from shared.common import get_embedding
-
         session_path = config["session_path"]
 
         qualifying = [
@@ -32,41 +40,48 @@ class ScorerPlugin(BaseScorerPlugin):
             )
             return
 
+        evaluator = _get_evaluator()
+        if evaluator is None:
+            container.error(
+                "'semantic_eval' service not found in ServiceLocator. "
+                "Register SemanticEvaluator at startup."
+            )
+            return
+
         batch_mode = bool(config.get("batch_mode"))
-        container.info("Computing embeddings with the global LLM embedding service")
+        container.info(
+            f"Full-document cosine similarity for {len(qualifying)} step(s). "
+            f"Threshold: {evaluator.default_similarity_threshold}"
+        )
         submit_key = f"embedding_submit_{session_path}"
         if not batch_mode and not container.button("Compute similarity", key=submit_key):
             return
 
-        def _cosine_similarity(vec_a, vec_b) -> float:
-            denominator = float(np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
-            if denominator == 0:
-                return 0.0
-            return float(np.dot(vec_a, vec_b) / denominator)
-
         scores = {}
         rows = []
+
         for step in qualifying:
             step_id = step["id"]
             answer = step["result"]["llm_response"]
             expected = step["expected_response"]
-            emb_answer = get_embedding(answer)
-            emb_expected = get_embedding(expected)
-            similarity = _cosine_similarity(np.array(emb_answer), np.array(emb_expected))
-            scores[step_id] = round(similarity, 4)
-            rows.append({"step": step_id, "similarity": similarity})
 
-        for step in qualifying:
-            step_id = step["id"]
-            similarity = scores[step_id]
+            result = evaluator.similarity(answer, expected)
+            scores[step_id] = result.score
+            rows.append({
+                "step": step_id,
+                "similarity": result.score,
+                "passed": result.passed,
+                "threshold": result.threshold,
+            })
+
             step_result = ScoringResult(
                 scorer_id=self.id,
                 session_path=session_path,
-                scores={"similarity": similarity},
+                scores={"similarity": result.score},
                 scorer_config={
-                    "model": "global_llm_embedding",
                     "level": "step",
                     "step_id": step_id,
+                    "threshold": result.threshold,
                 },
                 source="embedding",
                 notes=None,
@@ -76,18 +91,26 @@ class ScorerPlugin(BaseScorerPlugin):
             )
             self._write_score(step_result)
 
-        result = ScoringResult(
+        session_result = ScoringResult(
             scorer_id=self.id,
             session_path=session_path,
             scores=scores,
-            scorer_config={"model": "global_llm_embedding", "steps_scored": len(scores), "level": "session"},
+            scorer_config={
+                "steps_scored": len(scores),
+                "level": "session",
+                "threshold": evaluator.default_similarity_threshold,
+            },
             source="embedding",
             notes=None,
             scored_at=self._now(),
             parse_errors=[],
             complete=True,
         )
-        self._write_score(result)
+        self._write_score(session_result)
 
-        container.success(f"Similarity computed for {len(scores)} step(s). Overall: {result.overall:.4f}")
+        overall = session_result.overall
+        container.success(
+            f"Similarity computed for {len(scores)} step(s). "
+            f"Overall: {overall:.4f}"
+        )
         container.dataframe(rows)

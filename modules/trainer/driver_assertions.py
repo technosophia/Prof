@@ -36,73 +36,124 @@ def _parse_threshold(value, default: float = 0.70) -> float:
         return default
 
 
-def _semantic_contains_check(*, actual_text: str, contains_terms: List[str], threshold: float, mode: str, subject: str, step_id: str) -> Dict:
-    """Shared semantic/substring containment checker with AND semantics."""
+def _get_semantic_evaluator():
+    """
+    Retrieve the SemanticEvaluator from the ServiceLocator.
+
+    Returns None (with a warning) if the service is not yet registered,
+    so assertion handlers degrade gracefully rather than crashing.
+    """
+    try:
+        from shared.common import get_module_handler
+        services = get_module_handler().get_services()
+        if services is None:
+            log("warning", "SemanticEvaluator: ServiceLocator not yet initialised")
+            return None
+        evaluator = services.get("semantic_eval")
+        if evaluator is None:
+            log("warning", "SemanticEvaluator: 'semantic_eval' not registered in ServiceLocator")
+        return evaluator
+    except Exception as exc:
+        log("error", f"SemanticEvaluator: could not retrieve service — {exc}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Shared semantic helpers (used by multiple assertion types)
+# ---------------------------------------------------------------------------
+
+def _run_semantic_containment(
+    *,
+    actual_text: str,
+    contains_terms: List[str],
+    threshold: float,
+    subject: str,
+    step_id: str,
+) -> Dict:
+    """
+    Check that EVERY term in `contains_terms` is semantically contained
+    somewhere inside `actual_text` (AND semantics, max-pooled per chunk).
+
+    Delegates to SemanticEvaluator.contains_all_concepts().
+    Falls back to substring matching if the service is unavailable.
+    """
     if not contains_terms:
         return {"passed": False, "message": "Assertion param 'contains' is required"}
 
-    normalized_mode = str(mode or "embedding").lower()
     text = actual_text or ""
 
-    if normalized_mode == "substring":
-        missing = [term for term in contains_terms if term.lower() not in text.lower()]
+    evaluator = _get_semantic_evaluator()
+    if evaluator is None:
+        # Graceful fallback to substring
+        missing = [t for t in contains_terms if t.lower() not in text.lower()]
         if missing:
             return {
                 "passed": False,
-                "message": f"Missing substring(s) {missing} in {subject} for step '{step_id}'",
-            }
-        return {
-            "passed": True,
-            "message": f"All substrings {contains_terms} found in {subject} for step '{step_id}'",
-        }
-
-    try:
-        from shared.common import get_embedding
-        import numpy as np
-
-        vec_actual = np.asarray(get_embedding(text), dtype=np.float32)
-        norm_actual = float(np.linalg.norm(vec_actual))
-        if norm_actual == 0:
-            return {"passed": False, "message": "Could not compute embeddings (zero vector)"}
-
-        similarities = {}
-        failed_terms = []
-        for term in contains_terms:
-            vec_term = np.asarray(get_embedding(term), dtype=np.float32)
-            norm_term = float(np.linalg.norm(vec_term))
-            if norm_term == 0:
-                failed_terms.append(term)
-                similarities[term] = None
-                continue
-            similarity = float(np.dot(vec_actual, vec_term) / (norm_actual * norm_term))
-            similarities[term] = similarity
-            if similarity < threshold:
-                failed_terms.append(term)
-
-        if failed_terms:
-            details = ", ".join(
-                f"{term}={similarities[term]:.3f}" if similarities[term] is not None else f"{term}=NaN"
-                for term in contains_terms
-            )
-            return {
-                "passed": False,
                 "message": (
-                    f"Semantic similarity below threshold {threshold} for {subject} terms {failed_terms} "
-                    f"on step '{step_id}' ({details})"
+                    f"[fallback:substring] Missing term(s) {missing} in {subject} "
+                    f"for step '{step_id}' (SemanticEvaluator unavailable)"
                 ),
             }
-
-        details = ", ".join(f"{term}={similarities[term]:.3f}" for term in contains_terms)
         return {
             "passed": True,
             "message": (
-                f"Semantic similarity passed (threshold {threshold}) for all terms in {subject} on step '{step_id}' "
-                f"({details})"
+                f"[fallback:substring] All terms {contains_terms} found in {subject} "
+                f"for step '{step_id}'"
             ),
         }
-    except Exception as exc:
-        return {"passed": False, "message": f"Embedding check failed: {exc}"}
 
+    check = evaluator.contains_all_concepts(text, contains_terms, threshold=threshold)
+    if check["passed"]:
+        scores = {c: f"{r.best_score:.3f}" for c, r in check["results"].items()}
+        return {
+            "passed": True,
+            "message": (
+                f"All concepts {contains_terms} semantically present in {subject} "
+                f"for step '{step_id}' — scores: {scores}"
+            ),
+        }
+    else:
+        failed_detail = {
+            c: f"best={r.best_score:.3f}<{threshold}"
+            for c, r in check["results"].items()
+            if not r.passed
+        }
+        return {
+            "passed": False,
+            "message": (
+                f"Concepts not found in {subject} for step '{step_id}': {failed_detail}"
+            ),
+        }
+
+
+def _run_full_similarity(
+    *,
+    text_a: str,
+    text_b: str,
+    threshold: float,
+    label: str,
+) -> Dict:
+    """
+    Full-document cosine similarity between two texts.
+    Delegates to SemanticEvaluator.similarity().
+    """
+    evaluator = _get_semantic_evaluator()
+    if evaluator is None:
+        return {
+            "passed": False,
+            "message": f"SemanticEvaluator unavailable — cannot compute similarity for {label}",
+        }
+    result = evaluator.similarity(text_a, text_b, threshold=threshold)
+    status = "PASS" if result.passed else "FAIL"
+    return {
+        "passed": result.passed,
+        "message": f"[{status}] similarity={result.score:.4f} (threshold={threshold}) for {label}",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Assertion handlers
+# ---------------------------------------------------------------------------
 
 def assertion_action_succeeded(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
     del events
@@ -251,13 +302,15 @@ def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, 
 
 
 def assertion_response_contains_semantic(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
-    """Check that a step llm_response semantically contains expected content."""
+    """
+    Check that a step llm_response semantically contains all expected concepts.
+    Uses chunked max-pooling via SemanticEvaluator.contains_all_concepts().
+    """
     del events
 
     step_id = params.get("step_id")
     contains_terms = _as_text_list(params.get("contains", ""))
-    threshold = _parse_threshold(params.get("threshold", 0.70), default=0.70)
-    mode = str(params.get("mode", "embedding"))
+    threshold = _parse_threshold(params.get("threshold"), default=0.45)
 
     step = _get_step(steps_by_id, step_id)
     if not step:
@@ -267,24 +320,25 @@ def assertion_response_contains_semantic(*, params: Dict, steps_by_id: Dict[str,
     if not llm_response:
         return {"passed": False, "message": f"Step '{step_id}' has no llm_response"}
 
-    return _semantic_contains_check(
+    return _run_semantic_containment(
         actual_text=llm_response,
         contains_terms=contains_terms,
         threshold=threshold,
-        mode=mode,
         subject="response",
         step_id=step_id,
     )
 
 
 def assertion_memory_contains_semantic(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
-    """Check that trigger_memory_analysis output semantically contains expected content."""
+    """
+    Check that trigger_memory_analysis output semantically contains all expected concepts.
+    Uses chunked max-pooling via SemanticEvaluator.contains_all_concepts().
+    """
     del events
 
     step_id = params.get("step_id")
     contains_terms = _as_text_list(params.get("contains", ""))
-    threshold = _parse_threshold(params.get("threshold", 0.70), default=0.70)
-    mode = str(params.get("mode", "embedding"))
+    threshold = _parse_threshold(params.get("threshold"), default=0.45)
 
     step = _get_step(steps_by_id, step_id)
     if not step:
@@ -305,24 +359,25 @@ def assertion_memory_contains_semantic(*, params: Dict, steps_by_id: Dict[str, o
             ),
         }
 
-    return _semantic_contains_check(
+    return _run_semantic_containment(
         actual_text=memory_content,
         contains_terms=contains_terms,
         threshold=threshold,
-        mode=mode,
         subject="memory",
         step_id=step_id,
     )
 
 
 def assertion_injected_context_contains_semantics(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
-    """Check that injected context semantically contains expected content."""
+    """
+    Check that injected context semantically contains all expected concepts.
+    Uses chunked max-pooling via SemanticEvaluator.contains_all_concepts().
+    """
     del events
 
     step_id = params.get("step_id")
     contains_terms = _as_text_list(params.get("contains", ""))
-    threshold = _parse_threshold(params.get("threshold", 0.70), default=0.70)
-    mode = str(params.get("mode", "embedding"))
+    threshold = _parse_threshold(params.get("threshold"), default=0.45)
     source_contains = params.get("source_contains", "")
 
     step = _get_step(steps_by_id, step_id)
@@ -352,13 +407,44 @@ def assertion_injected_context_contains_semantics(*, params: Dict, steps_by_id: 
     if not joined_content.strip():
         return {"passed": False, "message": f"Injected contexts for step '{step_id}' have no content to evaluate"}
 
-    return _semantic_contains_check(
+    return _run_semantic_containment(
         actual_text=joined_content,
         contains_terms=contains_terms,
         threshold=threshold,
-        mode=mode,
-        subject="injected context",
+        subject=f"injected context (source='{source_contains}')",
         step_id=step_id,
+    )
+
+
+def assertion_response_similarity(*, params: Dict, steps_by_id: Dict[str, object], events: List[Dict]) -> Dict:
+    """
+    Full-document cosine similarity between llm_response and expected_response.
+
+    Use this for overall response quality — not for checking if a specific
+    concept is present (use response_contains_semantic for that).
+    """
+    del events
+
+    step_id = params.get("step_id")
+    threshold = _parse_threshold(params.get("threshold"), default=0.70)
+
+    step = _get_step(steps_by_id, step_id)
+    if not step:
+        return {"passed": False, "message": f"Step '{step_id}' not found"}
+
+    llm_response = str((step.result or {}).get("llm_response", "")).strip()
+    expected = str(step.get("expected_response", "") if hasattr(step, "get") else "").strip()
+
+    if not llm_response:
+        return {"passed": False, "message": f"Step '{step_id}' has no llm_response"}
+    if not expected:
+        return {"passed": False, "message": f"Step '{step_id}' has no expected_response to compare against"}
+
+    return _run_full_similarity(
+        text_a=llm_response,
+        text_b=expected,
+        threshold=threshold,
+        label=f"step '{step_id}'",
     )
 
 
@@ -372,20 +458,25 @@ def register_trainer_driver_assertions(register_assertion) -> None:
     register_assertion(
         "injected_context_contains",
         assertion_injected_context_contains,
-        "Validate injected contexts captured during a message step",
+        "Validate injected contexts captured during a message step (substring)",
     )
     register_assertion(
         "injected_context_contains_semantics",
         assertion_injected_context_contains_semantics,
-        "Check injected context semantically contains expected concept",
+        "Check injected context semantically contains expected concept (chunked max-pooling)",
     )
     register_assertion(
         "response_contains_semantic",
         assertion_response_contains_semantic,
-        "Check LLM response semantically contains expected concept (embedding cosine similarity)",
+        "Check LLM response semantically contains expected concept (chunked max-pooling)",
     )
     register_assertion(
         "memory_contains_semantic",
         assertion_memory_contains_semantic,
         "Check memory produced by trigger_memory_analysis semantically contains expected concept",
+    )
+    register_assertion(
+        "response_similarity",
+        assertion_response_similarity,
+        "Full-document cosine similarity between llm_response and expected_response",
     )

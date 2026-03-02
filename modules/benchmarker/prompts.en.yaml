@@ -28,3 +28,21 @@ judge_response_format: |
   {dimension_lines}
     overall: <mean of above>
     notes: "<one paragraph evaluation summary>"
+
+context_relevance_prompt: |
+  You are evaluating whether a context chunk injected into an AI tutoring system
+  is relevant to the student's question.
+
+  Student question:
+  {user_message}
+
+  Injected context chunk (source: {source}):
+  {context_content}
+
+  Score the relevance of this context chunk to the student's question.
+  1 = completely irrelevant
+  3 = partially relevant
+  5 = highly relevant and directly useful
+
+  Respond ONLY with a YAML block, no explanation:
+  relevance: <1-5>

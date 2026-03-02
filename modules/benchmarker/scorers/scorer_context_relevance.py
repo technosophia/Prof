@@ -9,7 +9,7 @@ import yaml
 
 from core.logging import log
 from modules.benchmarker.scorers.base import ScorerPlugin as BaseScorerPlugin, ScoringResult
-from shared.common import get_current_llm_id, get_llm_manager
+from shared.common import get_current_llm_id, get_llm_manager, get_prompt
 
 
 class ScorerPlugin(BaseScorerPlugin):
@@ -62,7 +62,11 @@ class ScorerPlugin(BaseScorerPlugin):
             for entry in (step.get("injected_contexts") or []):
                 source = str(entry.get("source", "unknown"))
                 context_content = str(entry.get("content", ""))
-                prompt = self._build_prompt(user_message=user_message, source=source, context_content=context_content)
+                prompt = self._build_prompt(
+                    user_message=user_message,
+                    source=source,
+                    context_content=context_content,
+                )
                 response_text, response_error = self._call_llm(manager, llm_id, prompt)
                 if response_error:
                     log("warning", f"Context relevance LLM call failed for source '{source}': {response_error}")
@@ -135,19 +139,16 @@ class ScorerPlugin(BaseScorerPlugin):
 
     @staticmethod
     def _build_prompt(user_message: str, source: str, context_content: str) -> str:
-        return (
-            "You are evaluating whether a context chunk injected into an AI tutoring system\n"
-            "is relevant to the student's question.\n\n"
-            "Student question:\n"
-            f"{user_message}\n\n"
-            f"Injected context chunk (source: {source}):\n"
-            f"{context_content}\n\n"
-            "Score the relevance of this context chunk to the student's question.\n"
-            "1 = completely irrelevant\n"
-            "3 = partially relevant\n"
-            "5 = highly relevant and directly useful\n\n"
-            "Respond ONLY with a YAML block, no explanation:\n"
-            "relevance: <1-5>"
+        """Build the relevance scoring prompt using the multilingual prompt system.
+
+        Falls back to a hardcoded English prompt if the key is not found,
+        so the scorer remains functional even before prompts are loaded.
+        """
+        template = get_prompt("benchmarker.context_relevance_prompt")
+        return template.format(
+            user_message=user_message,
+            source=source,
+            context_content=context_content,
         )
 
     @staticmethod

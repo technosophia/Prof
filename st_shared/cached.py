@@ -72,6 +72,7 @@ from shared.llm import LLMManager
 from shared.settings import UserSettingsManager
 from shared.users import get_user_manager as _get_user_manager
 from shared.module_handler import module_handler as global_module_handler
+from shared.semantic_eval import SemanticEvaluator
 
 # ---------------------------------------------------------------------------
 # Cache service
@@ -236,6 +237,10 @@ def get_driver():
     from shared.driver import get_driver as _get_driver
     return _get_driver()
 
+@_CACHE
+def get_semantic_evaluator():
+    """Get or create the global SemanticEvaluator instance."""
+    return SemanticEvaluator(get_llm_manager())
 
 def register_all_services(module_handler_instance=None):
     """
@@ -264,6 +269,7 @@ def register_all_services(module_handler_instance=None):
     services.register("user_settings_manager", get_user_settings_manager())
     services.register("driver", get_driver())
     services.register("language_service", get_language_service())
+    services.register("semantic_eval", get_semantic_evaluator())
 
     handler.set_services(services)
 

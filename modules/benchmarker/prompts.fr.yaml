@@ -28,3 +28,21 @@ judge_response_format: |
   {dimension_lines}
     overall: <mean of above>
     notes: "<one paragraph evaluation summary>"
+
+context_relevance_prompt: |
+  Vous évaluez si un chunk de contexte injecté dans un système de tutorat IA
+  est pertinent par rapport à la question de l'étudiant.
+
+  Question de l'étudiant :
+  {user_message}
+
+  Chunk de contexte injecté (source : {source}) :
+  {context_content}
+
+  Notez la pertinence de ce chunk par rapport à la question de l'étudiant.
+  1 = complètement hors sujet
+  3 = partiellement pertinent
+  5 = très pertinent et directement utile
+
+  Répondez UNIQUEMENT avec un bloc YAML, sans explication :
+  relevance: <1-5>
