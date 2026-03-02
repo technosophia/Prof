@@ -76,6 +76,57 @@ def _load_scenario_from_file(runner: ScenarioRunner, scenario_file: str) -> Dict
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Score Display Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _format_score_bar(score: float, max_score: float = 1.0) -> str:
+    """Format a score with a colored bar and emoji indicator."""
+    if score > max_score:
+        # For 5-point scales
+        normalized = (score - 1) / 4  # Convert 1-5 to 0-1
+        bar_len = int(round(normalized * 10))
+        bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
+        if score >= 4:
+            color = "\U0001f7e2"  # green
+        elif score >= 2.5:
+            color = "\U0001f7e1"  # yellow
+        else:
+            color = "\U0001f534"  # red
+        return f"{color} **{score:.1f}/5**  {bar}"
+    else:
+        # For 0-1 scales
+        bar_len = int(round(score * 10))
+        bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
+        if score >= 0.7:
+            color = "\U0001f7e2"  # green
+        elif score >= 0.4:
+            color = "\U0001f7e1"  # yellow
+        else:
+            color = "\U0001f534"  # red
+        return f"{color} **{score:.3f}**  {bar}"
+
+
+def _render_score_dict(scores: Dict, step_id: Optional[str] = None, action: Optional[str] = None) -> None:
+    """Render a dictionary of scores with consistent formatting."""
+    if not scores:
+        st.caption("*(no scores)*")
+        return
+
+    for key, value in scores.items():
+        if value is not None:
+            try:
+                fval = float(value)
+                if step_id and action and key == step_id:
+                    # This is a per-step score matching the current step
+                    st.markdown(f"{_format_score_bar(fval)} `{action}`")
+                else:
+                    # This is a dimension or other score
+                    st.markdown(f"{_format_score_bar(fval)} `{key}`")
+            except (ValueError, TypeError):
+                st.markdown(f"`{key}`: {value}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Renderers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -125,7 +176,6 @@ def _render_session_header(session_data: Dict, col, label: str) -> None:
         col.info(f"Steps: {steps_ok}/{steps_total}")
 
 
-
 def _expander_title(prefix: str, text: str, max_preview: int = 80) -> str:
     """Build expander title: prefix + start of text + char count."""
     if not text:
@@ -136,9 +186,7 @@ def _expander_title(prefix: str, text: str, max_preview: int = 80) -> str:
     return f"{prefix} · {len(text)} chars — {preview}"
 
 
-
-
-def _render_step_scores_expander(step_scoring_runs: List[Dict]) -> None:
+def _render_step_scores_expander(step_scoring_runs: List[Dict], step_action: Optional[str] = None) -> None:
     """Render step-level scoring runs inside the fancy step-score expander."""
     if not step_scoring_runs:
         return
@@ -148,22 +196,40 @@ def _render_step_scores_expander(step_scoring_runs: List[Dict]) -> None:
             scorer_id = score_run.get("scorer_id", "?")
             score_cfg = score_run.get("scorer_config") or {}
             scored_at = str(score_run.get("scored_at") or "")[:16]
+
             st.markdown(f"**`{scorer_id}`** · {scored_at}")
-            st.code(
-                yaml.dump(
-                    {
-                        "scores": score_run.get("scores") or {},
-                        "overall_score": score_run.get("overall_score"),
-                        "scorer_config": score_cfg,
-                        "source": score_run.get("source"),
-                    },
-                    allow_unicode=True,
-                    sort_keys=False,
-                ),
-                language="yaml",
-            )
+
+            # Display scores using the same visual style as evaluations
+            scores = score_run.get("scores") or {}
+            overall = score_run.get("overall_score")
+
+            if overall is not None:
+                st.markdown(f"**Overall:** {_format_score_bar(overall)}")
+
+            if scores:
+                st.markdown("**Scores:**")
+                _render_score_dict(scores)
+
+            # Show config and source in a compact way
+            config_info = []
+            if score_cfg:
+                rubric = score_cfg.get("rubric") or score_cfg.get("model") or ""
+                if rubric:
+                    config_info.append(f"rubric: {rubric}")
+                else:
+                    config_info.append(f"config: {str(score_cfg)[:60]}")
+            if score_run.get("source"):
+                config_info.append(f"source: {score_run['source']}")
+
+            if config_info:
+                st.caption(" · ".join(config_info))
+
+            if score_run.get("notes"):
+                st.info(f"\U0001f4dd {score_run['notes']}")
+
             if idx < len(step_scoring_runs) - 1:
                 st.markdown("---")
+
 
 def _render_session_step(
     step_data: Dict,
@@ -251,7 +317,7 @@ def _render_session_step(
                 st.caption("*(no context injected)*")
 
             # 4. Step scoring
-            _render_step_scores_expander(step_scoring_runs)
+            _render_step_scores_expander(step_scoring_runs, action)
 
             # 5. Raw result
             raw_result = {k: v for k, v in result.items()}
@@ -269,7 +335,7 @@ def _render_session_step(
                 with st.expander(result_title, expanded=False):
                     st.code(result_str, language="yaml")
 
-            _render_step_scores_expander(step_scoring_runs)
+            _render_step_scores_expander(step_scoring_runs, action)
 
             for assertion, a_result in step_assertion_results:
                 if a_result:
@@ -277,8 +343,6 @@ def _render_session_step(
                         st.success(f"✅ `{assertion.get('id')}` {a_result.get('message', '')}")
                     else:
                         st.error(f"❌ `{assertion.get('id')}` {a_result.get('message', 'Failed')}")
-
-
 
 
 def _session_config_description(session_data: Dict) -> Dict:
@@ -316,6 +380,7 @@ def _build_step_export_yaml(
         },
     }
     return yaml.dump(payload, allow_unicode=True, sort_keys=False)
+
 
 def _render_expected_step(
     ref_step: Dict,
@@ -375,7 +440,6 @@ def _render_expected_step(
         if st.button("📤 Export this step", key=f"export_step_{export_key}"):
             st.warning("Copy/paste export YAML below")
             st.code(export_yaml, language="yaml")
-
 
 
 def _row_to_scoring_run_dict(row: ScoringRun) -> Dict:
@@ -441,11 +505,7 @@ def _render_scoring_run(run: Dict, ref_steps: List[Dict]) -> None:
 
     # Header: overall score
     if overall is not None:
-        bar = ""
-        if overall <= 1.0:
-            bar_len = int(round(overall * 10))
-            bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
-        st.markdown(f"**Overall: {overall:.2f}** {bar}")
+        st.markdown(f"**Overall:** {_format_score_bar(overall)}")
     else:
         st.caption("Overall: \u2014")
 
@@ -469,30 +529,12 @@ def _render_scoring_run(run: Dict, ref_steps: List[Dict]) -> None:
             val = scores.get(sid)
             action = step.get("action", "?")
             if val is not None:
-                fval = float(val)
-                bar_len = int(round(fval * 10)) if fval <= 1.0 else 0
-                bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len) if fval <= 1.0 else ""
-                color = "\U0001f7e2" if fval >= 0.7 else ("\U0001f7e1" if fval >= 0.4 else "\U0001f534")
-                st.markdown(f"{color} `{sid}` `{action}` \u2014 **{val:.3f}** {bar}")
+                st.markdown(f"{_format_score_bar(val)} `{sid}` `{action}`")
             else:
                 st.markdown(f"\u26aa `{sid}` `{action}` \u2014 \u2014")
     else:
         st.markdown("**Dimension scores:**")
-        for dim, val in scores.items():
-            if val is not None:
-                fval = float(val)
-                if fval > 1.0:
-                    normalized = (fval - 1) / 4
-                    bar_len = int(round(normalized * 10))
-                    bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
-                    color = "\U0001f7e2" if fval >= 4 else ("\U0001f7e1" if fval >= 2.5 else "\U0001f534")
-                    st.markdown(f"{color} `{dim}` \u2014 **{fval:.1f}/5**  {bar}")
-                else:
-                    bar_len = int(round(fval * 10))
-                    bar = "\u2588" * bar_len + "\u2591" * (10 - bar_len)
-                    color = "\U0001f7e2" if fval >= 0.7 else ("\U0001f7e1" if fval >= 0.4 else "\U0001f534")
-                    st.markdown(f"{color} `{dim}` \u2014 **{fval:.3f}**  {bar}")
-                st.markdown(f"\u26aa `{dim}` \u2014 \u2014")
+        _render_score_dict(scores)
 
 
 def _render_evaluations_section(
@@ -551,6 +593,7 @@ def _render_evaluations_section(
                     st.caption("\u2014")
 
             st.divider()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main render
