@@ -9,6 +9,7 @@ from modules.trainer.driver_assertions import (
     assertion_action_succeeded,
     assertion_context_field_set,
     assertion_injected_context_contains,
+    assertion_injected_context_contains_semantics,
     assertion_llm_calls_made,
     assertion_option_was_active,
     assertion_plugin_event_occurred,
@@ -32,6 +33,7 @@ class FakeDriver:
             "option_was_active": assertion_option_was_active,
             "context_field_set": assertion_context_field_set,
             "injected_context_contains": assertion_injected_context_contains,
+            "injected_context_contains_semantics": assertion_injected_context_contains_semantics,
         }
 
     def list_options(self):
@@ -196,6 +198,69 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
     context_events = [e for e in runner.driver.get_session_events() if e.get("type") == "context_switch"]
     assert any(e.get("data", {}).get("llm_id") == "mock" for e in context_events)
 
+
+
+def test_injected_context_contains_semantics_substring_passes():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {"source": "rag_mock", "content": "Voss review threshold is 400 lines", "role": "system"}
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains_semantics",
+                "params": {"step_id": "s1", "contains": "threshold is 400", "mode": "substring"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is True
+
+
+def test_injected_context_contains_semantics_substring_fails_with_source_filter():
+    runner = ScenarioRunner()
+    runner.driver = FakeDriver()
+    steps = [
+        StepResult(
+            step_id="s1",
+            action="user_send_message",
+            actor="student",
+            success=True,
+            result={
+                "injected_contexts": [
+                    {"source": "memory_mock", "content": "Voss review threshold is 400 lines", "role": "system"}
+                ]
+            },
+        )
+    ]
+
+    out = runner._evaluate_assertions(
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains_semantics",
+                "params": {"step_id": "s1", "contains": "threshold is 400", "mode": "substring", "source_contains": "rag"},
+            }
+        ],
+        steps,
+    )
+
+    assert out[0].passed is False
+    assert "Sources present" in out[0].message
 
 def test_injected_context_contains_passes(monkeypatch):
     runner = ScenarioRunner()

@@ -83,6 +83,7 @@ Empty cells shown explicitly with runs_scored: 0.
 | `option_was_active` | `group`, `name` | Option switch event was recorded |
 | `context_field_set` | `field`, `value` (opt) | Context switch set field (and value if provided) |
 | `injected_context_contains` | `step_id`, `contains` (opt), `not_contains` (opt), `source_contains` (opt) | Context matching criteria was injected into LLM for that step (fails if RAG no-result marker is present) |
+| `injected_context_contains_semantics` | `step_id`, `contains`, `threshold` (opt, default 0.70), `mode` (opt, "embedding"/"substring"), `source_contains` (opt) | Injected context semantically contains expected concept |
 | `response_contains_semantic` | `step_id`, `contains`, `threshold` (opt, default 0.70), `mode` (opt, "embedding"/"substring") | LLM response semantically contains expected concept |
 | `memory_contains_semantic` | `step_id`, `contains`, `threshold` (opt, default 0.70), `mode` (opt) | Memory content semantically contains expected concept |
 
