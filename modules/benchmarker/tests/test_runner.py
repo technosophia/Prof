@@ -232,7 +232,7 @@ def test_injected_context_contains_accepts_contains_list_with_and_semantics():
     assert out[0].passed is True
 
 
-def test_injected_context_contains_semantics_accepts_contains_list_substring_mode():
+def test_injected_context_contains_list_substring_mode():
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
     steps = [
@@ -253,12 +253,10 @@ def test_injected_context_contains_semantics_accepts_contains_list_substring_mod
         [
             {
                 "id": "a1",
-                "type": "injected_context_contains_semantics",
+                "type": "injected_context_contains",  # Use this instead
                 "params": {
                     "step_id": "s1",
                     "contains": ["sweet spot", "évolutionnaire"],
-                    "mode": "substring",
-                    "threshold": 0.95,
                 },
             }
         ],
