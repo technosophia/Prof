@@ -136,6 +136,35 @@ def _expander_title(prefix: str, text: str, max_preview: int = 80) -> str:
     return f"{prefix} · {len(text)} chars — {preview}"
 
 
+
+
+def _render_step_scores_expander(step_scoring_runs: List[Dict]) -> None:
+    """Render step-level scoring runs inside the fancy step-score expander."""
+    if not step_scoring_runs:
+        return
+
+    with st.expander(f"🏅 Step scores ({len(step_scoring_runs)})", expanded=False):
+        for idx, score_run in enumerate(step_scoring_runs):
+            scorer_id = score_run.get("scorer_id", "?")
+            score_cfg = score_run.get("scorer_config") or {}
+            scored_at = str(score_run.get("scored_at") or "")[:16]
+            st.markdown(f"**`{scorer_id}`** · {scored_at}")
+            st.code(
+                yaml.dump(
+                    {
+                        "scores": score_run.get("scores") or {},
+                        "overall_score": score_run.get("overall_score"),
+                        "scorer_config": score_cfg,
+                        "source": score_run.get("source"),
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                language="yaml",
+            )
+            if idx < len(step_scoring_runs) - 1:
+                st.markdown("---")
+
 def _render_session_step(
     step_data: Dict,
     ref_step: Optional[Dict],
@@ -222,21 +251,7 @@ def _render_session_step(
                 st.caption("*(no context injected)*")
 
             # 4. Step scoring
-            if step_scoring_runs:
-                with st.expander(f"🏅 Step scores ({len(step_scoring_runs)})", expanded=False):
-                    for idx, score_run in enumerate(step_scoring_runs):
-                        scorer_id = score_run.get("scorer_id", "?")
-                        score_cfg = score_run.get("scorer_config") or {}
-                        scored_at = str(score_run.get("scored_at") or "")[:16]
-                        st.markdown(f"**`{scorer_id}`** · {scored_at}")
-                        st.code(yaml.dump({
-                            "scores": score_run.get("scores") or {},
-                            "overall_score": score_run.get("overall_score"),
-                            "scorer_config": score_cfg,
-                            "source": score_run.get("source"),
-                        }, allow_unicode=True, sort_keys=False), language="yaml")
-                        if idx < len(step_scoring_runs) - 1:
-                            st.markdown("---")
+            _render_step_scores_expander(step_scoring_runs)
 
             # 5. Raw result
             raw_result = {k: v for k, v in result.items()}
@@ -254,21 +269,7 @@ def _render_session_step(
                 with st.expander(result_title, expanded=False):
                     st.code(result_str, language="yaml")
 
-            if step_scoring_runs:
-                with st.expander(f"🏅 Step scores ({len(step_scoring_runs)})", expanded=False):
-                    for idx, score_run in enumerate(step_scoring_runs):
-                        scorer_id = score_run.get("scorer_id", "?")
-                        score_cfg = score_run.get("scorer_config") or {}
-                        scored_at = str(score_run.get("scored_at") or "")[:16]
-                        st.markdown(f"**`{scorer_id}`** · {scored_at}")
-                        st.code(yaml.dump({
-                            "scores": score_run.get("scores") or {},
-                            "overall_score": score_run.get("overall_score"),
-                            "scorer_config": score_cfg,
-                            "source": score_run.get("source"),
-                        }, allow_unicode=True, sort_keys=False), language="yaml")
-                        if idx < len(step_scoring_runs) - 1:
-                            st.markdown("---")
+            _render_step_scores_expander(step_scoring_runs)
 
             for assertion, a_result in step_assertion_results:
                 if a_result:
