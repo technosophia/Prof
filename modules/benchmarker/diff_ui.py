@@ -141,6 +141,7 @@ def _render_session_step(
     ref_step: Optional[Dict],
     assertions_for_step: List[Dict],
     assertions_results: Dict[str, Dict],
+    step_scores_by_id: Dict[str, List[Dict]],
     session_key: str,
     step_idx: int,
 ) -> None:
@@ -154,6 +155,7 @@ def _render_session_step(
     badge = "✅" if success else "❌"
     action = step_data.get("action", "?")
     step_id = step_data.get("id", f"step_{step_idx + 1}")
+    step_scoring_runs = step_scores_by_id.get(step_id, [])
     duration = step_data.get("duration_seconds", 0.0)
     result = step_data.get("result", {})
     # injected_contexts is serialized at step level by session.py, NOT inside result
@@ -219,7 +221,24 @@ def _render_session_step(
             else:
                 st.caption("*(no context injected)*")
 
-            # 4. Raw result
+            # 4. Step scoring
+            if step_scoring_runs:
+                with st.expander(f"🏅 Step scores ({len(step_scoring_runs)})", expanded=False):
+                    for idx, score_run in enumerate(step_scoring_runs):
+                        scorer_id = score_run.get("scorer_id", "?")
+                        score_cfg = score_run.get("scorer_config") or {}
+                        scored_at = str(score_run.get("scored_at") or "")[:16]
+                        st.markdown(f"**`{scorer_id}`** · {scored_at}")
+                        st.code(yaml.dump({
+                            "scores": score_run.get("scores") or {},
+                            "overall_score": score_run.get("overall_score"),
+                            "scorer_config": score_cfg,
+                            "source": score_run.get("source"),
+                        }, allow_unicode=True, sort_keys=False), language="yaml")
+                        if idx < len(step_scoring_runs) - 1:
+                            st.markdown("---")
+
+            # 5. Raw result
             raw_result = {k: v for k, v in result.items()}
             if raw_result:
                 with st.expander("🗂 Raw result", expanded=False):
@@ -234,6 +253,22 @@ def _render_session_step(
                 result_title = _expander_title("📦 Result", result_str)
                 with st.expander(result_title, expanded=False):
                     st.code(result_str, language="yaml")
+
+            if step_scoring_runs:
+                with st.expander(f"🏅 Step scores ({len(step_scoring_runs)})", expanded=False):
+                    for idx, score_run in enumerate(step_scoring_runs):
+                        scorer_id = score_run.get("scorer_id", "?")
+                        score_cfg = score_run.get("scorer_config") or {}
+                        scored_at = str(score_run.get("scored_at") or "")[:16]
+                        st.markdown(f"**`{scorer_id}`** · {scored_at}")
+                        st.code(yaml.dump({
+                            "scores": score_run.get("scores") or {},
+                            "overall_score": score_run.get("overall_score"),
+                            "scorer_config": score_cfg,
+                            "source": score_run.get("source"),
+                        }, allow_unicode=True, sort_keys=False), language="yaml")
+                        if idx < len(step_scoring_runs) - 1:
+                            st.markdown("---")
 
             for assertion, a_result in step_assertion_results:
                 if a_result:
@@ -284,24 +319,53 @@ def _render_expected_step(
 
 
 
+def _row_to_scoring_run_dict(row: ScoringRun) -> Dict:
+    """Convert a ScoringRun row to a detached plain dict."""
+    return {
+        "scorer_id": row.scorer_id,
+        "scores": dict(row.scores or {}),
+        "overall_score": row.overall_score,
+        "scored_at": row.scored_at,
+        "scorer_config": dict(row.scorer_config or {}),
+        "source": row.source,
+        "notes": row.notes,
+    }
+
+
 def _load_scoring_runs(session_path: str) -> List[Dict]:
-    """Load all scoring runs for a session file from DB as plain dicts (avoids DetachedInstanceError)."""
+    """Load session-level (aggregated) scoring runs for a session file."""
     if not session_path:
         return []
     with get_db_manager().get_session() as db:
         rows = db.query(ScoringRun).filter(ScoringRun.session_file == session_path).all()
         return [
-            {
-                "scorer_id": r.scorer_id,
-                "scores": dict(r.scores or {}),
-                "overall_score": r.overall_score,
-                "scored_at": r.scored_at,
-                "scorer_config": dict(r.scorer_config or {}),
-                "source": r.source,
-                "notes": r.notes,
-            }
-            for r in rows
+            _row_to_scoring_run_dict(row)
+            for row in rows
+            if (row.scorer_config or {}).get("level") in (None, "session")
         ]
+
+
+def _load_step_scores_by_step(session_path: str) -> Dict[str, List[Dict]]:
+    """Load step-level scoring runs grouped by step_id for a session file."""
+    if not session_path:
+        return {}
+
+    by_step: Dict[str, List[Dict]] = {}
+    with get_db_manager().get_session() as db:
+        rows = db.query(ScoringRun).filter(ScoringRun.session_file == session_path).all()
+        for row in rows:
+            config = dict(row.scorer_config or {})
+            if config.get("level") != "step":
+                continue
+            step_id = config.get("step_id")
+            if not step_id:
+                continue
+            by_step.setdefault(str(step_id), []).append(_row_to_scoring_run_dict(row))
+
+    for step_id in by_step:
+        by_step[step_id] = sorted(by_step[step_id], key=lambda r: r.get("scored_at") or "", reverse=True)
+
+    return by_step
 
 
 def _render_scoring_run(run: Dict, ref_steps: List[Dict]) -> None:
@@ -502,6 +566,8 @@ def render_diff_tab() -> None:
     steps_by_id_b = {s.get("id"): s for s in session_b.get("steps", [])}
     assertions_by_id_a = {a.get("id"): a for a in session_a.get("assertions", [])}
     assertions_by_id_b = {a.get("id"): a for a in session_b.get("assertions", [])}
+    step_scores_by_id_a = _load_step_scores_by_step(session_a_path)
+    step_scores_by_id_b = _load_step_scores_by_step(session_b_path) if session_b_path else {}
 
     # Build map: step_id → list of assertions
     assertions_by_step: Dict[str, List[Dict]] = {}
@@ -546,6 +612,7 @@ def render_diff_tab() -> None:
                 ref_step=ref_step,
                 assertions_for_step=step_assertions,
                 assertions_results=assertions_by_id_a,
+                step_scores_by_id=step_scores_by_id_a,
                 session_key="a",
                 step_idx=i,
             )
@@ -558,6 +625,7 @@ def render_diff_tab() -> None:
                     ref_step=ref_step,
                     assertions_for_step=step_assertions,
                     assertions_results=assertions_by_id_b,
+                    step_scores_by_id=step_scores_by_id_b,
                     session_key="b",
                     step_idx=i,
                 )
