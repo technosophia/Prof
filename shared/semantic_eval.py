@@ -85,7 +85,7 @@ class SimilarityResult:
 # Chunking helpers
 # ---------------------------------------------------------------------------
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str, min_length: int = 10) -> List[str]:
     """Split text into sentences using punctuation heuristics."""
     # Split on . ! ? followed by whitespace or end-of-string
     raw = re.split(r'(?<=[.!?])\s+', text.strip())
@@ -94,7 +94,7 @@ def _split_sentences(text: str) -> List[str]:
     for part in raw:
         sub = [s.strip() for s in part.split('\n') if s.strip()]
         sentences.extend(sub)
-    return [s for s in sentences if len(s) > 10]  # drop trivially short
+    return [s for s in sentences if len(s) > min_length]
 
 
 def _sliding_window_chunks(
