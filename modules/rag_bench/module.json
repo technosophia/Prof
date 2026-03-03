@@ -1,0 +1,9 @@
+{
+    "name": "rag_bench",
+    "version": "1.0.0",
+    "description": "Side-by-side view of LLM responses and RAG context",
+    "author": "System",
+    "enabled_by_default": true,
+    "category": "benchmarking",
+    "dependencies": []
+}
