@@ -91,6 +91,46 @@ def _get_service(service_name: str, default=None):
     return default
 
 
+
+
+def check_services(required_services: Optional[List[str]] = None, *, services=None, module_name: str = "") -> Dict[str, Any]:
+    """Validate required services and return them as a dict.
+
+    Args:
+        required_services: Optional list of service names to validate.
+            Defaults to a broad standard runtime set.
+        services: Optional ServiceLocator-like object. If omitted, uses module_handler services.
+        module_name: Optional module prefix used in raised error messages.
+    """
+    services = services or _get_services()
+    if services is None:
+        prefix = f"{module_name}: " if module_name else ""
+        raise RuntimeError(f"{prefix}services locator not available")
+
+    service_names = required_services or [
+        "config",
+        "user_manager",
+        "db_manager",
+        "conversation_manager",
+        "prompt_manager",
+        "llm_manager",
+        "user_settings_manager",
+        "driver",
+        "language_service",
+        "semantic_eval",
+        "cache",
+    ]
+
+    resolved: Dict[str, Any] = {}
+    for service_name in service_names:
+        value = services.get(service_name) if service_name in services else None
+        if value is None:
+            prefix = f"{module_name}: " if module_name else ""
+            raise RuntimeError(f"{prefix}'{service_name}' service not available")
+        resolved[service_name] = value
+    return resolved
+
+
 def _get_service_or_raise(service_name: str):
     """Get a service or raise an informative error."""
     service = _get_service(service_name)

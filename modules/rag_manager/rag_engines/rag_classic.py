@@ -24,16 +24,12 @@ class ClassicRAGEngine(RAGEngine):
         """
         Args:
             config: The 'engines.classic' section of the rag_manager config dict.
-                    If None, falls back to st_shared.cached for backward compatibility.
+                    If None, defaults to an empty engine-specific config dict.
         """
         super().__init__("classic")
         self.description = "Classic vector store with embeddings"
 
-        if config is None:
-            # Backward-compat: fetch from Streamlit-cached config
-            from st_shared.cached import get_config as _get_config
-            rag_config = _get_config().get("modules.rag_manager", {})
-            config = rag_config.get("engines", {}).get("classic", {})
+        config = config or {}
 
         self.index_path = Path(config.get("index_path", "data/classic_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)

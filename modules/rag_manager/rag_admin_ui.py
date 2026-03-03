@@ -999,11 +999,6 @@ def inject_ui_admin_tab():
     return ("RAG Manager", show_rag_admin_content)
 
 
-def inject_ui_initialize():
-    """Initialize RAG manager module."""
-    # RAG manager is already initialized as a singleton
-    return True
-
 
 def inject_ui_main_content():
     """Render RAG manager content in main area (if applicable)."""

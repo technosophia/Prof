@@ -295,22 +295,9 @@ _trainer_manager: Optional[TrainerManager] = None
 
 
 def get_trainer_manager() -> TrainerManager:
-    """
-    Get the global TrainerManager instance.
-
-    Prefer using manager_factory.get_trainer_manager() from application code.
-    This function is kept for backward compatibility and falls back to
-    st_shared.cached when no instance has been set.
-    """
-    global _trainer_manager
+    """Get the global TrainerManager instance."""
     if _trainer_manager is None:
-        # Legacy fallback — bridges to Streamlit-cached singletons
-        from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
-        _trainer_manager = TrainerManager(
-            db_manager=get_db_manager(),
-            user_manager=get_user_manager(),
-            conversation_manager=get_conversation_manager(),
-        )
+        raise RuntimeError("trainer: manager is not initialized; activate module first")
     return _trainer_manager
 
 

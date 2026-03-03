@@ -1,333 +1,212 @@
-# modules/rag_manager/__init__.py
-"""
-RAG Manager Module — Package Init
+"""RAG manager module — driver options and LLM context callback lifecycle."""
 
-Functional lifecycle hooks (no Streamlit):
-    on_module_activated(services)   — register driver options + LLM callbacks
-    on_module_deactivated()         — unregister
-    on_module_config_changed()      — refresh config
-
-The module exposes RAGManager for direct use and rag_manager as the singleton
-built by the factory. In a Streamlit context the factory uses st_shared.cached;
-in a headless context call reset_rag_manager() + get_rag_manager(config, um).
-
-No import of st_shared here. The singleton is obtained lazily via the factory.
-"""
-
-from typing import Callable, Dict, List, Optional, Any
+from typing import Callable, Dict, List, Optional
 
 from core.logging import log
+from shared.common import check_services
+from modules.rag_manager.rag_factory import get_rag_manager, reset_rag_manager
 
-# Will be set by on_module_activated
+
+_LLM_MANAGER = None
 _services = None
-
-_INITIALIZED = False
-_RAG_OPTIONS_REGISTERED = False
 _ENGINE_CONTEXT_CALLBACKS: Dict[str, Callable[[str, List[Dict]], tuple]] = {}
-_ACTIVE_ENGINE_NAME: Optional[str] = None  # Track which engine is currently active
+_ACTIVE_ENGINE_NAME: Optional[str] = None
 
 
-# ---------------------------------------------------------------------------
-# Service locator management
-# ---------------------------------------------------------------------------
-
-def set_services(services):
-    """Set the service locator for this module."""
+def set_services(services) -> None:
+    """Compatibility helper used by tests to inject callback registry services."""
     global _services
     _services = services
-    log("debug", "RAG Manager: services set")
 
 
-def _get_llm_callback_registry():
-    """Get the LLM callback registry from services or fallback to shared.common."""
-    if _services and 'llm_callback_registry' in _services:
-        return _services.get('llm_callback_registry')
-    else:
-        # Fallback for backward compatibility
-        from shared.common import register_llm_context_callback, unregister_llm_context_callback
-        return type('FallbackRegistry', (), {
-            'register': staticmethod(register_llm_context_callback),
-            'unregister': staticmethod(unregister_llm_context_callback)
-        })()
+def _callback_registry():
+    if _services is not None and "llm_callback_registry" in _services:
+        return _services.get("llm_callback_registry")
+    return None
 
-
-# ---------------------------------------------------------------------------
-# Lazy singleton accessor (no Streamlit import at module level)
-# ---------------------------------------------------------------------------
-from typing import Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from modules.rag_manager.rag_manager import RAGManager
-
-def _get_manager() -> "RAGManager":
-    """Return the RAGManager singleton via the factory."""
-    from modules.rag_manager.rag_factory import get_rag_manager
-    return get_rag_manager()
-
-
-# Backward-compat alias used by other parts of the codebase that do
-#   from modules.rag_manager import rag_manager
-# We expose a proxy that delegates attribute access to the factory singleton.
-class _ManagerProxy:
-    """
-    Lazy proxy for RAGManager singleton.
-
-    Allows `from modules.rag_manager import rag_manager` to work in both
-    Streamlit and headless contexts without importing st_shared at module load.
-    """
-    def __getattr__(self, name: str):
-        return getattr(_get_manager(), name)
-
-    def __repr__(self):
-        return f"<RAGManagerProxy -> {_get_manager()!r}>"
-
-
-rag_manager = _ManagerProxy()
-
-
-# ---------------------------------------------------------------------------
-# Engine helpers  (defined BEFORE they're used)
-# ---------------------------------------------------------------------------
 
 def _engine_exists(name: str) -> bool:
-    """Check if an engine exists and is enabled."""
-    mgr = _get_manager()
-    if mgr.get_engine(name) is None:
-        return False
-    return mgr.is_engine_enabled(name)
+    manager = get_rag_manager()
+    return manager.get_engine(name) is not None and manager.is_engine_enabled(name)
 
 
 def _make_engine_context_callback(name: str) -> Callable:
-    """Create a context callback for a specific engine."""
     def _callback(user_id: str, messages: List[Dict]) -> tuple:
         user_messages = [msg for msg in messages if msg.get("role") == "user"]
         if not user_messages:
             return "", "system", "bottom"
-
         query = user_messages[-1].get("content", "")
         if not query:
             return "", "system", "bottom"
 
-        mgr = _get_manager()
-        # Only use context if this is the active engine AND RAG is enabled
-        if not mgr.is_rag_enabled() or not mgr.is_engine_enabled(name):
+        manager = get_rag_manager()
+        if not manager.is_rag_enabled() or not manager.is_engine_enabled(name):
             return "", "system", "bottom"
-
-        # Double-check that this is still the active engine
         if _ACTIVE_ENGINE_NAME != name:
             return "", "system", "bottom"
 
-        context = mgr.get_rag_context(user_id=user_id, query=query, engine_type=name)
+        context = manager.get_rag_context(user_id=user_id, query=query, engine_type=name)
         return context, "system", "bottom"
 
     _callback.__name__ = f"rag_context_callback_{name}"
     return _callback
 
 
-def _activate_rag_engine(name: str) -> None:
-    """Activate a RAG engine and register its callback.
+def _register_context_callback(callback: Callable) -> None:
+    registry = _callback_registry()
+    if registry is not None:
+        registry.register(callback)
+        return
+    if _LLM_MANAGER is None:
+        raise RuntimeError("rag_manager: 'llm_manager' is not initialized")
+    _LLM_MANAGER.register_context_callback(callback)
 
-    This ensures only ONE engine is active at any time.
-    """
+
+def _unregister_context_callback(callback: Callable) -> None:
+    registry = _callback_registry()
+    if registry is not None:
+        registry.unregister(callback)
+        return
+    if _LLM_MANAGER is not None:
+        _LLM_MANAGER.unregister_context_callback(callback)
+
+
+def _resolve_activation_engine(name: str) -> Optional[str]:
+    if _engine_exists(name):
+        return name
+    for candidate in ("simple", "classic", "faiss_hierarchical"):
+        if _engine_exists(candidate):
+            return candidate
+    return None
+
+
+def _activate_rag_engine(name: str) -> None:
     global _ACTIVE_ENGINE_NAME
 
-    try:
-        if not _engine_exists(name):
-            log("warning", f"Cannot activate unavailable RAG engine: {name}")
-            return
+    resolved_name = _resolve_activation_engine(name)
+    if resolved_name is None:
+        log("warning", f"Cannot activate unavailable RAG engine: {name}")
+        return
+    if resolved_name != name:
+        log("warning", f"RAG engine '{name}' unavailable, falling back to '{resolved_name}'")
+    name = resolved_name
 
-        mgr = _get_manager()
-        mgr.default_engine = name
+    manager = get_rag_manager()
+    manager.default_engine = name
 
-        # DEACTIVATE any currently active engine first (ensures only one is active)
-        if _ACTIVE_ENGINE_NAME is not None and _ACTIVE_ENGINE_NAME != name:
-            log("debug", f"Deactivating previous engine '{_ACTIVE_ENGINE_NAME}' before activating '{name}'")
-            _deactivate_rag_engine(_ACTIVE_ENGINE_NAME)
+    if _ACTIVE_ENGINE_NAME and _ACTIVE_ENGINE_NAME != name:
+        _deactivate_rag_engine(_ACTIVE_ENGINE_NAME)
 
-        # If this engine already has a callback, reuse it
-        if name in _ENGINE_CONTEXT_CALLBACKS:
-            callback = _ENGINE_CONTEXT_CALLBACKS[name]
-        else:
-            # Create and store new callback
-            callback = _make_engine_context_callback(name)
-            _ENGINE_CONTEXT_CALLBACKS[name] = callback
+    callback = _ENGINE_CONTEXT_CALLBACKS.get(name)
+    if callback is None:
+        callback = _make_engine_context_callback(name)
+        _ENGINE_CONTEXT_CALLBACKS[name] = callback
 
-        # Register the callback (will replace any existing one)
-        registry = _get_llm_callback_registry()
-        registry.register(callback)
-
-        # Update active engine tracker
-        _ACTIVE_ENGINE_NAME = name
-
-        log("info", f"Activated RAG engine: {name} (only active engine)")
-
-    except Exception as exc:
-        log("warning", f"Failed to activate RAG engine '{name}': {exc}")
+    _register_context_callback(callback)
+    _ACTIVE_ENGINE_NAME = name
+    log("info", f"Activated RAG engine: {name}")
 
 
 def _deactivate_rag_engine(name: str) -> None:
-    """Deactivate a RAG engine and unregister its callback."""
     global _ACTIVE_ENGINE_NAME
 
     callback = _ENGINE_CONTEXT_CALLBACKS.get(name)
-    if callback is not None:
-        # Unregister from the registry
-        registry = _get_llm_callback_registry()
-        try:
-            registry.unregister(callback)
-            log("debug", f"Unregistered RAG callback for engine: {name}")
-        except Exception as exc:
-            log("warning", f"Failed to unregister RAG callback for {name}: {exc}")
+    if callback is None:
+        return
 
-        # Remove from our internal dictionary
-        del _ENGINE_CONTEXT_CALLBACKS[name]
+    _unregister_context_callback(callback)
 
-        # Clear active engine if this was the active one
-        if _ACTIVE_ENGINE_NAME == name:
-            _ACTIVE_ENGINE_NAME = None
-            log("debug", f"Active engine cleared (was: {name})")
+    del _ENGINE_CONTEXT_CALLBACKS[name]
+    if _ACTIVE_ENGINE_NAME == name:
+        _ACTIVE_ENGINE_NAME = None
 
 
 def _clear_registered_context_callbacks() -> None:
-    """Clear all registered context callbacks."""
     global _ACTIVE_ENGINE_NAME
 
-    registry = _get_llm_callback_registry()
-
-    for name, callback in list(_ENGINE_CONTEXT_CALLBACKS.items()):
-        try:
-            registry.unregister(callback)
-            log("debug", f"Unregistered RAG callback for engine: {name}")
-        except Exception as exc:
-            log("debug", f"Failed to unregister RAG callback for {name}: {exc}")
-
+    for callback in list(_ENGINE_CONTEXT_CALLBACKS.values()):
+        _unregister_context_callback(callback)
     _ENGINE_CONTEXT_CALLBACKS.clear()
     _ACTIVE_ENGINE_NAME = None
 
 
-# ---------------------------------------------------------------------------
-# Driver registration  (no Streamlit, safe to call headless)
-# ---------------------------------------------------------------------------
+def on_module_activated(services) -> None:
+    """Register driver options and activate the default RAG context callback."""
+    global _LLM_MANAGER
 
-def initialize() -> bool:
-    """Register RAG engine options into the app driver."""
-    global _INITIALIZED, _RAG_OPTIONS_REGISTERED
-    try:
-        if not _RAG_OPTIONS_REGISTERED:
-            log("info", "rag_manager: registering rag_engine driver options")
-            for name, description in [
-                ("simple", "Keyword-based retrieval — fast, no embeddings"),
-                ("classic", "Vector similarity retrieval — standard RAG"),
-                ("faiss_hierarchical", "Hierarchical chunking and retrieval — best for long documents"),
-            ]:
-                if _engine_exists(name):  # Now this is defined
-                    from shared.common import register_option
-                    register_option(
-                        group="rag_engine",
-                        name=name,
-                        activate_fn=lambda n=name: _activate_rag_engine(n),
-                        deactivate_fn=lambda n=name: _deactivate_rag_engine(n),
-                        description=description,
-                    )
-                    log("debug", f"  Registered rag_engine option: {name}")
-            _RAG_OPTIONS_REGISTERED = True
-            from shared.common import get_driver
-            options = [opt["name"] for opt in get_driver().list_options().get("rag_engine", [])]
-            log("info", f"rag_manager: registered rag_engine options={options}")
+    required = check_services(
+        ["driver", "config", "user_manager", "llm_manager"],
+        services=services,
+        module_name="rag_manager",
+    )
+    driver = required["driver"]
+    config = required["config"]
+    user_manager = required["user_manager"]
+    llm_manager = required["llm_manager"]
+    cache_fn = services.get("cache") if "cache" in services else None
 
-        _INITIALIZED = True
-        return True
-    except Exception as exc:
-        log("error", f"Failed to initialize rag_manager driver options: {exc}", stacktrace=True)
-        return False
+    set_services(services)
+    _LLM_MANAGER = llm_manager
+    reset_rag_manager()
+    manager = get_rag_manager(config=config, user_manager=user_manager)
+    manager._cache_fn = cache_fn
 
+    for name, description in [
+        ("simple", "Keyword-based retrieval — fast, no embeddings"),
+        ("classic", "Vector similarity retrieval — standard RAG"),
+        ("faiss_hierarchical", "Hierarchical chunking and retrieval"),
+    ]:
+        if _engine_exists(name):
+            driver.register_option(
+                group="rag_engine",
+                name=name,
+                activate_fn=lambda n=name: _activate_rag_engine(n),
+                deactivate_fn=lambda n=name: _deactivate_rag_engine(n),
+                description=description,
+            )
 
-# ---------------------------------------------------------------------------
-# Module lifecycle hooks  (NO Streamlit)
-# ---------------------------------------------------------------------------
-
-def on_module_activated(services: Optional[Any] = None) -> None:
-    """
-    Called by ModuleHandler when the module is activated.
-
-    Receives an optional ServiceLocator. If running headless (tests, CLI),
-    services may be None or a plain ServiceLocator.
-
-    Registers:
-    - Driver options (rag_engine group)
-    - LLM context callbacks for the default engine (ONLY ONE)
-    """
-    # Store services for later use
-    if services is not None:
-        set_services(services)
-
-        # If a ServiceLocator was provided, use it to build the manager with
-        # injected dependencies instead of Streamlit-cached ones.
-        cfg = services.get("config") if hasattr(services, "get") else None
-        um = services.get("user_manager") if hasattr(services, "get") else None
-        if cfg is not None and um is not None:
-            from modules.rag_manager.rag_factory import get_rag_manager, reset_rag_manager
-            from modules.rag_manager.rag_factory import _instance
-            if _instance is None:
-                get_rag_manager(config=cfg, user_manager=um)
-
-    initialize()
-
-    # Clear any existing callbacks first to ensure clean state
     _clear_registered_context_callbacks()
+    if manager.is_rag_enabled() and manager.default_engine:
+        _activate_rag_engine(manager.default_engine)
 
-    try:
-        mgr = _get_manager()
-        if mgr.is_rag_enabled() and mgr.default_engine:
-            # This will automatically deactivate any other engine and
-            # ensure only this one is active
-            _activate_rag_engine(mgr.default_engine)
-            log("info", f"RAG engine '{mgr.default_engine}' activated on module startup (single engine mode)")
-    except Exception as exc:
-        log("warning", f"Failed to activate default RAG engine on startup: {exc}")
+    log("info", "rag_manager: activated")
 
 
 def on_module_deactivated() -> None:
-    """Called by ModuleHandler when the module is deactivated."""
-    global _INITIALIZED
+    """Unregister RAG callbacks."""
+    global _LLM_MANAGER, _services
     _clear_registered_context_callbacks()
-    _INITIALIZED = False
-    global _services
+    _LLM_MANAGER = None
     _services = None
+    log("info", "rag_manager: deactivated")
 
 
 def on_module_config_changed() -> None:
-    """Called by ModuleHandler when the module config changes."""
-    _get_manager().refresh_config()
+    """Reload config-dependent state."""
+    manager = get_rag_manager()
+    manager.refresh_config()
     _clear_registered_context_callbacks()
-
-    # Re-activate the (possibly changed) default engine
-    try:
-        mgr = _get_manager()
-        if mgr.is_rag_enabled() and mgr.default_engine:
-            _activate_rag_engine(mgr.default_engine)
-            log("info", f"RAG engine '{mgr.default_engine}' re-activated after config change")
-    except Exception as exc:
-        log("warning", f"Failed to activate default RAG engine after config change: {exc}")
-
-
-# Add helper to check active engine
-def get_active_engine() -> Optional[str]:
-    """Return the name of the currently active RAG engine."""
-    return _ACTIVE_ENGINE_NAME
+    if manager.is_rag_enabled() and manager.default_engine:
+        _activate_rag_engine(manager.default_engine)
 
 
 __all__ = [
-    "RAGManager",
     "rag_manager",
-    "initialize",
+    "set_services",
     "on_module_activated",
     "on_module_deactivated",
     "on_module_config_changed",
-    "set_services",
     "_activate_rag_engine",
     "_deactivate_rag_engine",
     "_ENGINE_CONTEXT_CALLBACKS",
     "_make_engine_context_callback",
-    "get_active_engine",
+    "_services",
 ]
+
+
+class _ManagerProxy:
+    def __getattr__(self, name: str):
+        return getattr(get_rag_manager(), name)
+
+
+rag_manager = _ManagerProxy()

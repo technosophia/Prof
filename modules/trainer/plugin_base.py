@@ -170,10 +170,21 @@ class PluginManager:
             return instance
 
     def _initialize_plugin(self, plugin):
+        if self._services is None:
+            return True
         try:
             return plugin.initialize(self._services)
         except TypeError:
             return plugin.initialize()
+
+    def initialize(self, services) -> None:
+        """Inject services and (re)initialize already-loaded plugin cores."""
+        self.set_services(services)
+        for plugin in self.plugins.values():
+            try:
+                plugin.initialize(self._services)
+            except TypeError:
+                plugin.initialize()
 
     def get_plugin(self, plugin_id: str) -> Optional[TrainerPluginCore]:
         return self.plugins.get(plugin_id)

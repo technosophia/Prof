@@ -1,8 +1,4 @@
-# modules/llm_monitor/llm_monitor_factory.py
-"""
-Bridge between Streamlit-cached singletons and the pure functional core.
-This is the ONLY file in this module that may import from st_shared.
-"""
+"""Factory for creating the LLM monitor singleton with injected dependencies."""
 
 from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
@@ -19,12 +15,10 @@ def get_llm_monitor(config=None, db_manager=None) -> "LLMMonitor":
     if _instance is not None:
         return _instance
 
-    if config is None or db_manager is None:
-        from st_shared.cached import get_config, get_db_manager
-        if config is None:
-            config = get_config()
-        if db_manager is None:
-            db_manager = get_db_manager()
+    if config is None:
+        raise RuntimeError("llm_monitor_factory: 'config' is required")
+    if db_manager is None:
+        raise RuntimeError("llm_monitor_factory: 'db_manager' is required")
 
     from modules.llm_monitor.llm_monitor import LLMMonitor
     _instance = LLMMonitor(config=config, db_manager=db_manager)

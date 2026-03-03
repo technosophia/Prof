@@ -12,7 +12,8 @@ from core.logging import log
 def _get_monitor():
     """Get monitor instance via factory (Streamlit context)."""
     from modules.llm_monitor.llm_monitor_factory import get_llm_monitor
-    return get_llm_monitor()
+    from st_shared.cached import get_config, get_db_manager
+    return get_llm_monitor(config=get_config(), db_manager=get_db_manager())
 
 
 def _get_llm_manager():

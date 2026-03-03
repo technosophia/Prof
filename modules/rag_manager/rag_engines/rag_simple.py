@@ -5,6 +5,7 @@ No Streamlit dependency. Config is injected at construction time.
 """
 
 import os
+import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -21,15 +22,12 @@ class SimpleRAGEngine(RAGEngine):
         """
         Args:
             config: The 'engines.simple' section of the rag_manager config dict.
-                    If None, falls back to st_shared.cached for backward compatibility.
+                    If None, defaults to an empty engine-specific config dict.
         """
         super().__init__("simple")
         self.description = "Simple text-based RAG engine using keyword matching"
 
-        if config is None:
-            from st_shared.cached import get_config as _get_config
-            rag_config = _get_config().get("modules.rag_manager", {})
-            config = rag_config.get("engines", {}).get("simple", {})
+        config = config or {}
 
         self.index_path = Path(config.get("index_path", "data/simple_indexes"))
         self.indices: Dict[str, Dict] = {}
@@ -122,11 +120,28 @@ class SimpleRAGEngine(RAGEngine):
     def _extract_context(self, content: str, query: str, context_size: int = 200) -> str:
         content_lower = content.lower()
         pos = content_lower.find(query)
+
         if pos == -1:
-            for word in query.split():
-                pos = content_lower.find(word)
-                if pos != -1:
+            stop_words = {
+                "the", "and", "for", "with", "that", "this", "from", "have", "what", "when",
+                "where", "who", "also", "just", "about", "into", "your", "you", "are", "how",
+                "is", "it", "to", "of", "in", "on", "a", "an", "i", "im", "i'm",
+            }
+            candidates = [
+                token
+                for token in re.findall(r"[a-zA-Z0-9_]+", query.lower())
+                if len(token) >= 3 and token not in stop_words
+            ]
+            candidates.sort(key=len, reverse=True)
+
+            best_pos = -1
+            for token in candidates:
+                token_pos = content_lower.find(token)
+                if token_pos != -1:
+                    best_pos = token_pos
                     break
+            pos = best_pos
+
         if pos == -1:
             return (content[:context_size] + "...") if len(content) > context_size else content
 
