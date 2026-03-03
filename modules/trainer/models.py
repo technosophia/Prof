@@ -4,35 +4,35 @@ Defines tables for plugin data and trainer configurations.
 """
 
 from datetime import datetime
-from sqlalchemy import Column, String, Text, DateTime, JSON, Boolean, ForeignKey, Index
-from sqlalchemy.orm import relationship
-
 import uuid
 
+from sqlalchemy import Boolean, Column, DateTime, Index, JSON, String, Text
 
-from core.logging import log, set_log_module_level
 from core.database import Base
+from core.logging import log
 
 
 class TrainerConfig(Base):
     """Store trainer-specific configuration."""
-    __tablename__ = 'trainer_config'
-    __table_args__ = {'extend_existing': True}
+
+    __tablename__ = "trainer_config"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     trainer_id = Column(String(36), nullable=False, unique=True, index=True)
     training_program = Column(Text, nullable=True)
-    config = Column(JSON, default={})  # For future configuration options
+    config = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PluginData(Base):
     """Generic storage for plugin data."""
-    __tablename__ = 'trainer_plugin_data'
+
+    __tablename__ = "trainer_plugin_data"
     __table_args__ = (
-        Index('ix_trainer_plugin_data_user_id', 'user_id'),
-        {'extend_existing': True}
+        Index("ix_trainer_plugin_data_user_id", "user_id"),
+        {"extend_existing": True},
     )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -47,8 +47,9 @@ class PluginData(Base):
 
 class PluginActivation(Base):
     """Store plugin activation status per trainer."""
-    __tablename__ = 'trainer_plugin_activations'
-    __table_args__ = {'extend_existing': True}
+
+    __tablename__ = "trainer_plugin_activations"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     trainer_id = Column(String(36), nullable=False, index=True)
@@ -59,10 +60,11 @@ class PluginActivation(Base):
     activation_metadata = Column(JSON, default={})
 
 
-def ensure_tables_exist() -> bool:
+def ensure_tables_exist(db_manager) -> bool:
     """Create Trainer core tables when a database engine is available."""
-    db = get_db_manager()
-    if not db.is_initialized() or db._engine is None:
+    if db_manager is None:
+        raise RuntimeError("trainer: 'db_manager' service not available")
+    if not db_manager.is_initialized() or db_manager._engine is None:
         return False
 
     TrainerConfig.__table__.create(bind=db_manager._engine, checkfirst=True)

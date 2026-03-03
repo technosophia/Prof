@@ -47,8 +47,15 @@ class ScoringRun(Base):
     parse_errors = Column(JSON, default=[])
 
 
-def ensure_tables_exist(db_manager) -> None:
+def ensure_tables_exist(db_manager=None) -> None:
     """Create benchmarker tables when DB engine is available."""
+    if db_manager is None:
+        from shared.common import _get_service
+
+        db_manager = _get_service("db_manager")
+    if db_manager is None:
+        raise RuntimeError("benchmarker: 'db_manager' service not available")
+
     if db_manager.is_initialized() and db_manager._engine is not None:
         BenchmarkRun.__table__.create(bind=db_manager._engine, checkfirst=True)
         ScoringRun.__table__.create(bind=db_manager._engine, checkfirst=True)

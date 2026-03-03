@@ -7,8 +7,21 @@ from modules.rag_manager.rag_factory import get_rag_manager, reset_rag_manager
 
 
 _LLM_MANAGER = None
+_services = None
 _ENGINE_CONTEXT_CALLBACKS: Dict[str, Callable[[str, List[Dict]], tuple]] = {}
 _ACTIVE_ENGINE_NAME: Optional[str] = None
+
+
+def set_services(services) -> None:
+    """Compatibility helper used by tests to inject callback registry services."""
+    global _services
+    _services = services
+
+
+def _callback_registry():
+    if _services is not None and "llm_callback_registry" in _services:
+        return _services.get("llm_callback_registry")
+    return None
 
 
 def _engine_exists(name: str) -> bool:
@@ -32,20 +45,54 @@ def _make_engine_context_callback(name: str) -> Callable:
             return "", "system", "bottom"
 
         context = manager.get_rag_context(user_id=user_id, query=query, engine_type=name)
+        if not context or context.startswith("No result found"):
+            fallback_engine = _resolve_activation_engine("simple")
+            if fallback_engine and fallback_engine != name:
+                context = manager.get_rag_context(user_id=user_id, query=query, engine_type=fallback_engine)
         return context, "system", "bottom"
 
     _callback.__name__ = f"rag_context_callback_{name}"
     return _callback
 
 
+def _register_context_callback(callback: Callable) -> None:
+    registry = _callback_registry()
+    if registry is not None:
+        registry.register(callback)
+        return
+    if _LLM_MANAGER is None:
+        raise RuntimeError("rag_manager: 'llm_manager' is not initialized")
+    _LLM_MANAGER.register_context_callback(callback)
+
+
+def _unregister_context_callback(callback: Callable) -> None:
+    registry = _callback_registry()
+    if registry is not None:
+        registry.unregister(callback)
+        return
+    if _LLM_MANAGER is not None:
+        _LLM_MANAGER.unregister_context_callback(callback)
+
+
+def _resolve_activation_engine(name: str) -> Optional[str]:
+    if _engine_exists(name):
+        return name
+    for candidate in ("simple", "classic", "faiss_hierarchical"):
+        if _engine_exists(candidate):
+            return candidate
+    return None
+
+
 def _activate_rag_engine(name: str) -> None:
     global _ACTIVE_ENGINE_NAME
 
-    if _LLM_MANAGER is None:
-        raise RuntimeError("rag_manager: 'llm_manager' is not initialized")
-    if not _engine_exists(name):
+    resolved_name = _resolve_activation_engine(name)
+    if resolved_name is None:
         log("warning", f"Cannot activate unavailable RAG engine: {name}")
         return
+    if resolved_name != name:
+        log("warning", f"RAG engine '{name}' unavailable, falling back to '{resolved_name}'")
+    name = resolved_name
 
     manager = get_rag_manager()
     manager.default_engine = name
@@ -58,7 +105,7 @@ def _activate_rag_engine(name: str) -> None:
         callback = _make_engine_context_callback(name)
         _ENGINE_CONTEXT_CALLBACKS[name] = callback
 
-    _LLM_MANAGER.register_context_callback(callback)
+    _register_context_callback(callback)
     _ACTIVE_ENGINE_NAME = name
     log("info", f"Activated RAG engine: {name}")
 
@@ -70,8 +117,7 @@ def _deactivate_rag_engine(name: str) -> None:
     if callback is None:
         return
 
-    if _LLM_MANAGER is not None:
-        _LLM_MANAGER.unregister_context_callback(callback)
+    _unregister_context_callback(callback)
 
     del _ENGINE_CONTEXT_CALLBACKS[name]
     if _ACTIVE_ENGINE_NAME == name:
@@ -81,9 +127,8 @@ def _deactivate_rag_engine(name: str) -> None:
 def _clear_registered_context_callbacks() -> None:
     global _ACTIVE_ENGINE_NAME
 
-    if _LLM_MANAGER is not None:
-        for callback in list(_ENGINE_CONTEXT_CALLBACKS.values()):
-            _LLM_MANAGER.unregister_context_callback(callback)
+    for callback in list(_ENGINE_CONTEXT_CALLBACKS.values()):
+        _unregister_context_callback(callback)
     _ENGINE_CONTEXT_CALLBACKS.clear()
     _ACTIVE_ENGINE_NAME = None
 
@@ -107,6 +152,7 @@ def on_module_activated(services) -> None:
     if llm_manager is None:
         raise RuntimeError("rag_manager: 'llm_manager' service not available")
 
+    set_services(services)
     _LLM_MANAGER = llm_manager
     reset_rag_manager()
     manager = get_rag_manager(config=config, user_manager=user_manager)
@@ -135,9 +181,10 @@ def on_module_activated(services) -> None:
 
 def on_module_deactivated() -> None:
     """Unregister RAG callbacks."""
-    global _LLM_MANAGER
+    global _LLM_MANAGER, _services
     _clear_registered_context_callbacks()
     _LLM_MANAGER = None
+    _services = None
     log("info", "rag_manager: deactivated")
 
 
@@ -152,9 +199,15 @@ def on_module_config_changed() -> None:
 
 __all__ = [
     "rag_manager",
+    "set_services",
     "on_module_activated",
     "on_module_deactivated",
     "on_module_config_changed",
+    "_activate_rag_engine",
+    "_deactivate_rag_engine",
+    "_ENGINE_CONTEXT_CALLBACKS",
+    "_make_engine_context_callback",
+    "_services",
 ]
 
 

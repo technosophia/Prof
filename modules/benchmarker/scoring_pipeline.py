@@ -41,7 +41,13 @@ def _do_build_registry() -> Dict[str, object]:
 class ScoringPipeline:
     """Discovers scorer plugins and provides result-loading helpers."""
 
-    def __init__(self, db_manager, cache_fn=None):
+    def __init__(self, db_manager=None, cache_fn=None):
+        if db_manager is None:
+            from shared.common import _get_service
+
+            db_manager = _get_service("db_manager")
+        if db_manager is None:
+            raise RuntimeError("benchmarker: 'db_manager' service not available")
         self._db_manager = db_manager
         build = cache_fn(_do_build_registry) if cache_fn else _do_build_registry
         self._registry = build()

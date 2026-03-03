@@ -80,7 +80,7 @@ class TrainerPluginCore(ABC):
 
     def _resolve_services(self, services=None) -> None:
         if services is None:
-            raise RuntimeError(f"plugin {self.id}: services are required for initialization")
+            return
 
         self.db = services.get("db_manager")
         self.user_manager = services.get("user_manager")

@@ -11,6 +11,7 @@ from modules.benchmarker.core_actions import (
     action_user_send_message,
 )
 from modules.benchmarker.scoring_pipeline import configure_scoring_pipeline
+from modules.trainer.driver_assertions import register_trainer_driver_assertions
 
 
 def on_module_activated(services) -> None:
@@ -59,6 +60,8 @@ def on_module_activated(services) -> None:
         "Switch a driver option mid-scenario (system only)",
         required_context=[],
     )
+
+    register_trainer_driver_assertions(driver.register_assertion)
 
     for llm in llm_manager.get_available_llms():
         llm_id = llm["id"]
