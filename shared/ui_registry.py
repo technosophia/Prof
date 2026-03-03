@@ -19,7 +19,7 @@ import os
 import sys
 import importlib.util
 import inspect
-from typing import Dict, List, Callable, Any, Set, Tuple
+from typing import Dict, List, Callable, Any, Set, Tuple, Optional
 from core.logging import log
 
 
@@ -84,6 +84,7 @@ def _discover_ui_modules(
                                 'path': file_path,
                                 'is_shared': is_shared,
                                 'base_name': base_name,
+                                'module': module,  # Store module reference for lazy loading
                             }
                             log("info", f"Registered UI module: {module_key} with {len(render_functions)} functions: {list(render_functions.keys())}")
                         else:
@@ -133,6 +134,8 @@ class UIRegistry:
         self.shared_ui_dir = shared_ui_dir
         # Track which modules have had inject_ui_initialize called
         self._initialized_modules: Set[str] = set()
+        # Cache for lazy-loaded render results
+        self._tab_cache: Dict[str, Tuple[str, Callable]] = {}
 
     def set_module_handler(self, handler, shared_ui_dir: str | None = None):
         """Set the module handler instance."""
@@ -157,6 +160,8 @@ class UIRegistry:
         if current_hash != self.last_active_hash:
             self.modules, self.injection_points = _discover_ui_modules(current_hash, self.shared_ui_dir)
             self.last_active_hash = current_hash
+            # Clear tab cache when modules change
+            self._tab_cache.clear()
             log("info", f"UI Registry refreshed: {len(self.modules)} modules registered")
             log("debug", f"Discovered injection points: {sorted(self.injection_points)}")
 
@@ -254,8 +259,71 @@ class UIRegistry:
         """Legacy: returns list of results."""
         return list(self.render(injection_point).values())
 
+    def get_admin_tabs(self) -> Dict[str, Tuple[str, Callable]]:
+        """
+        Get all admin tabs without rendering them.
+        Returns {tab_name: (module_key, render_function)} for lazy loading.
+        """
+        self.ensure_initialized()
+
+        tabs = {}
+        active_modules = set(self.module_handler.get_active_modules())
+
+        for module_key, module_info in self.modules.items():
+            is_shared = module_info['is_shared']
+            base_name = module_info['base_name']
+
+            if not is_shared and base_name not in active_modules:
+                continue
+
+            render_func = module_info['render_functions'].get('admin_tab')
+            if render_func:
+                try:
+                    # Call the function to get tab info without rendering content
+                    result = render_func()
+                    if isinstance(result, tuple) and len(result) == 2:
+                        tab_name, content_func = result
+                        tabs[tab_name] = (module_key, content_func)
+                        log("debug", f"Found tab '{tab_name}' from {module_key}")
+                except Exception as e:
+                    log("error", f"Error getting tab info from {module_key}: {e}")
+
+        return tabs
+
+    def render_admin_tab(self, tab_name: str, module_key: str, content_func: Callable) -> Any:
+        """
+        Render a specific admin tab by name.
+        This is called only when the tab is actually selected.
+        """
+        log("info", f"Lazy rendering tab '{tab_name}' from {module_key}")
+
+        # Check cache
+        cache_key = f"{module_key}:{tab_name}"
+        if cache_key in self._tab_cache:
+            log("debug", f"Using cached render for tab '{tab_name}'")
+            return self._tab_cache[cache_key][1]()
+
+        # Render the content
+        try:
+            result = content_func()
+
+            # Optionally cache for this session
+            import streamlit as st
+            if 'tab_cache_enabled' in st.session_state and st.session_state.tab_cache_enabled:
+                self._tab_cache[cache_key] = (time.time(), lambda: result)
+
+            return result
+        except Exception as e:
+            log("error", f"Error rendering tab '{tab_name}': {e}", exc_info=True)
+            import streamlit as st
+            st.error(f"Error loading tab '{tab_name}': {e}")
+            return None
+
     def render_admin_tabs(self) -> Dict[str, Any]:
-        """Render all admin tabs. Returns {tab_name: content_function}."""
+        """
+        LEGACY: Render all admin tabs immediately.
+        Use get_admin_tabs() + render_admin_tab() for lazy loading instead.
+        """
         return self.render("admin_tab")
 
     def get_all_injection_points(self) -> List[str]:

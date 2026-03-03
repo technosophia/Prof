@@ -53,7 +53,7 @@ init_database(use_memory=False, db_path=db_path)
 register_all_services()
 # Add other services as needed
 module_handler.initialize()
-    # IMPORTANT: Activate all modules to trigger on_module_activated() hooks
+# IMPORTANT: Activate all modules to trigger on_module_activated() hooks
 module_handler.activate_all()
 
 # Get the language service and set up the resolver
@@ -130,6 +130,10 @@ if "admin_current_tab" not in st.session_state:
 if "current_language" not in st.session_state:
     st.session_state.current_language = "en"
 
+# Track active admin tab index for lazy loading
+if "active_admin_tab_index" not in st.session_state:
+    st.session_state.active_admin_tab_index = 0
+
 def can_access_admin(current_user):
     """Check if current user can access admin panel."""
     if not current_user:
@@ -138,6 +142,31 @@ def can_access_admin(current_user):
     # Only admin and master users can access admin
     from shared.common import UserRole
     return current_user.get("role") in [UserRole.ADMIN.value, UserRole.MASTER.value]
+
+
+def render_admin_tabs_lazy(admin_tabs_dict):
+    if not admin_tabs_dict:
+        return
+
+    tab_names = list(admin_tabs_dict.keys())
+    if "System" in tab_names:
+        tab_names.remove("System")
+        tab_names = ["System"] + sorted(tab_names)
+
+    # Segmented control looks like tabs but supports lazy loading
+    selected_tab = st.segmented_control(
+        "Admin Sections",
+        options=tab_names,
+        default=tab_names[0],
+        selection_mode="single",
+        label_visibility="collapsed"
+    )
+
+    st.divider()
+
+    if selected_tab and selected_tab in admin_tabs_dict:
+        admin_tabs_dict[selected_tab]()
+
 
 def main():
     # Log main function entry
@@ -177,24 +206,24 @@ def main():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("💬 Chat", width='stretch'):
+            if st.button("💬 Chat", use_container_width=True):
                 st.session_state.current_page = "chat"
                 st.rerun()
 
         with col2:
-            if st.button("⚙️ Settings", width='stretch'):
+            if st.button("⚙️ Settings", use_container_width=True):
                 st.session_state.current_page = "settings"
                 st.rerun()
 
         with col3:
             # Only show Admin button for users who can access it
             if can_access_admin(current_user):
-                if st.button("🔧 Admin", width='stretch'):
+                if st.button("🔧 Admin", use_container_width=True):
                     st.session_state.current_page = "admin"
                     st.rerun()
             else:
                 # Disabled button for normal users
-                st.button("🔧 Admin", width='stretch', disabled=True,
+                st.button("🔧 Admin", use_container_width=True, disabled=True,
                          help="Admin access requires Master or Admin role")
 
         # INJECTION POINT 2: Sidebar Content from UI Modules
@@ -253,7 +282,7 @@ def main():
                 st.rerun()
 
     elif st.session_state.current_page == "admin":
-        # Admin page content - using the new injection mechanism
+        # Admin page content - using lazy loading for better performance
         # Check if user can access admin
         current_user = st.session_state.get("current_user")
         if not can_access_admin(current_user):
@@ -267,7 +296,7 @@ def main():
 
         st.title("🔧 Admin Panel")
 
-        # Get all admin tabs from UI modules
+        # Get all admin tabs from UI modules (minimal cost - just gets tab names)
         admin_tabs_dict = ui_registry.render_admin_tabs()
 
         if not admin_tabs_dict:
@@ -280,26 +309,8 @@ def main():
                 st.rerun()
             return
 
-        # Get tab names and ensure System is first
-        tab_names = list(admin_tabs_dict.keys())
-        if "System" in tab_names:
-            # Move System to first position
-            tab_names.remove("System")
-            tab_names = ["System"] + sorted(tab_names)
-
-        # Create tabs
-        tabs = st.tabs(tab_names)
-
-        # Render each tab content
-        for i, tab_name in enumerate(tab_names):
-            with tabs[i]:
-                if tab_name in admin_tabs_dict:
-                    try:
-                        # Call the tab's render function
-                        admin_tabs_dict[tab_name]()
-                    except Exception as e:
-                        st.error(f"Error loading {tab_name} admin page: {str(e)}")
-                        log("error", f"Error loading {tab_name} admin page: {str(e)}", exc_info=True)
+        # Render with lazy loading - only the active tab actually executes its code
+        render_admin_tabs_lazy(admin_tabs_dict)
 
     # === TEST READINESS MARKER ===
     # Invisible div rendered only after full script execution.
