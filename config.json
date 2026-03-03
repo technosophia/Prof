@@ -2,6 +2,7 @@
   "logging": {
     "level": "INFO",
     "format": "[{level}({function})] {timestamp} - {message}",
+    "capture_file": "data/logs/captured_output.txt",
     "include_traceback": true,
     "use_filtering" : true,
     "filtered_functions": [
