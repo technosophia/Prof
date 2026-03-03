@@ -3,9 +3,11 @@ import traceback
 import time
 import inspect
 import os
+import json
 from enum import IntEnum
-from typing import Optional, Callable, Any, Dict, List, Set
+from typing import Optional, Callable, Any, Dict, List, Set, Tuple
 from datetime import datetime
+from pathlib import Path
 
 class LogLevel(IntEnum):
     """Log levels in increasing order of severity."""
@@ -14,6 +16,84 @@ class LogLevel(IntEnum):
     WARNING = 30
     ERROR = 40
     CRITICAL = 50
+
+class LogCapture:
+    """Handles log capture functionality for a logger instance."""
+
+    def __init__(self, level: LogLevel, max_messages: int = 0, capture_file: Optional[str] = None):
+        """
+        Initialize a log capture session.
+
+        Args:
+            level: Minimum log level to capture
+            max_messages: Maximum number of messages to keep (0 for unlimited)
+            capture_file: Optional file path to persist captured logs
+        """
+        self.level = level
+        self.max_messages = max_messages
+        self.capture_file = capture_file
+        self.captured_logs: List[str] = []
+        self.warning_count = 0
+        self.warning_threshold = 1000
+        self.active = True
+
+        # Initialize capture file if specified
+        if capture_file:
+            try:
+                # Ensure directory exists
+                Path(capture_file).parent.mkdir(parents=True, exist_ok=True)
+                # Clear the file
+                with open(capture_file, 'w', encoding='utf-8') as f:
+                    f.write('')
+            except Exception as e:
+                print(f"Warning: Could not initialize capture file {capture_file}: {e}")
+                self.capture_file = None
+
+    def add_log(self, formatted_message: str, level: LogLevel):
+        """
+        Add a log message to the capture if it meets the level requirement.
+
+        Args:
+            formatted_message: The formatted log message
+            level: The log level of the message
+        """
+        if not self.active or level < self.level:
+            return
+
+        # Add to memory
+        self.captured_logs.append(formatted_message)
+
+        # Check size limits
+        if self.max_messages > 0 and len(self.captured_logs) > self.max_messages:
+            self.captured_logs.pop(0)  # Remove oldest
+
+        # Warning for large captures
+        if self.max_messages == 0:  # Unlimited
+            current_size = len(self.captured_logs)
+            if current_size >= self.warning_threshold and current_size % self.warning_threshold == 0:
+                if current_size > self.warning_count * self.warning_threshold:
+                    self.warning_count = current_size // self.warning_threshold
+                    print(f"Warning: Log capture has reached {current_size} messages. "
+                          f"Consider setting a max_messages limit.")
+
+        # Write to file if configured
+        if self.capture_file:
+            try:
+                with open(self.capture_file, 'a', encoding='utf-8') as f:
+                    f.write(formatted_message + '\n')
+            except Exception as e:
+                print(f"Warning: Could not write to capture file {self.capture_file}: {e}")
+
+    def stop(self) -> List[str]:
+        """
+        Stop the capture session and return captured logs.
+
+        Returns:
+            List of captured log messages
+        """
+        self.active = False
+        return self.captured_logs.copy()
+
 
 class Logger:
     """Simple logging system with configurable levels and per-module configuration."""
@@ -33,6 +113,7 @@ class Logger:
         self._include_traceback = False
         self._filtered_functions: Set[str] = set()  # Set of function names to filter out
         self._use_filtering = True
+        self._capture: Optional[LogCapture] = None  # Current capture session
 
         # Check FORCE_LOG environment variable
         self._force_log = os.environ.get('FORCE_LOG', '').upper()
@@ -250,6 +331,10 @@ class Logger:
             except Exception as e:
                 print(f"Log handler error: {e}")
 
+        # Send to capture if active
+        if self._capture and self._capture.active:
+            self._capture.add_log(formatted_output, level)
+
     def debug(self, message: str, *args: Any):
         """Log debug message."""
         self._log(LogLevel.DEBUG, "DEBUG", message, *args)
@@ -295,6 +380,65 @@ class Logger:
         else:
             self.warning(f"Unknown log level '{level}', logging as INFO")
             self.info(message, *args)
+
+    # New methods for log capture
+    def capture_start(self, level: str, max_messages: int = 0, capture_file: Optional[str] = None):
+        """
+        Start capturing logs above a certain level.
+
+        Args:
+            level: Minimum log level to capture (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+            max_messages: Maximum number of messages to keep in memory (0 for unlimited)
+            capture_file: Optional file path to persist captured logs
+                         If not provided, uses config setting or keeps only in memory
+
+        Returns:
+            The logger instance for chaining
+        """
+        # Stop any existing capture
+        if self._capture and self._capture.active:
+            self.capture_end()
+
+        # Convert level string to LogLevel
+        try:
+            level_enum = LogLevel[level.upper()]
+        except KeyError:
+            level_enum = LogLevel.INFO
+            print(f"Warning: Invalid capture level '{level}', using INFO")
+
+        # Start new capture
+        self._capture = LogCapture(level_enum, max_messages, capture_file)
+        print(f"Log capture started - Level: {level}, Max messages: {'unlimited' if max_messages == 0 else max_messages}")
+
+        return self
+
+    def capture_end(self) -> List[str]:
+        """
+        Stop the current log capture and return captured logs.
+
+        Returns:
+            List of captured log messages, or empty list if no capture was active
+        """
+        if not self._capture or not self._capture.active:
+            print("Warning: No active log capture to end")
+            return []
+
+        captured_logs = self._capture.stop()
+        print(f"Log capture ended - Captured {len(captured_logs)} messages")
+
+        # Clear the capture reference
+        self._capture = None
+
+        return captured_logs
+
+    def is_capturing(self) -> bool:
+        """Check if log capture is currently active."""
+        return self._capture is not None and self._capture.active
+
+    def get_capture_file(self) -> Optional[str]:
+        """Get the current capture file path if one is being used."""
+        return self._capture.capture_file if self._capture else None
+
 
 # Global logger instance
 _logger_instance = None
@@ -414,3 +558,38 @@ def configure_logging_from_dict(config_dict: dict):
     # New: handle use_filtering configuration
     if "use_filtering" in config_dict:
         logger.set_use_filtering(config_dict["use_filtering"])
+
+    # New: handle capture_file configuration (for default capture file)
+    if "capture_file" in config_dict:
+        # Store as an attribute for later use if needed
+        logger._default_capture_file = config_dict["capture_file"]
+
+
+# New convenience functions for log capture
+def capture_log_start(level: str, max_messages: int = 0, capture_file: Optional[str] = None):
+    """
+    Start capturing logs above a certain level.
+
+    Args:
+        level: Minimum log level to capture (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        max_messages: Maximum number of messages to keep in memory (0 for unlimited)
+        capture_file: Optional file path to persist captured logs
+                     If not provided, logs are kept only in memory
+    """
+    logger = get_logger()
+    return logger.capture_start(level, max_messages, capture_file)
+
+def capture_log_end() -> List[str]:
+    """
+    Stop the current log capture and return captured logs.
+
+    Returns:
+        List of captured log messages
+    """
+    logger = get_logger()
+    return logger.capture_end()
+
+def is_log_capturing() -> bool:
+    """Check if log capture is currently active."""
+    logger = get_logger()
+    return logger.is_capturing()
