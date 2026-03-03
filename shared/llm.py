@@ -152,7 +152,8 @@ class LLMManager:
         log("debug", f"Embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)")
 
     def _get_embedding_model(self):
-        """Return cached sentence-transformers model, lazily initialized."""
+        """Return cached sentence-transformers model for the configured default.
+        Lazily initialized on first call."""
         if hasattr(self, "_embedding_model") and self._embedding_model is not None:
             return self._embedding_model
 
@@ -167,6 +168,78 @@ class LLMManager:
         self._embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
         log("info", f"Loaded embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)")
         return self._embedding_model
+
+    def _get_named_embedding_model(self, model_name: str):
+        """
+        Load and cache a sentence-transformers model by explicit name.
+
+        This is separate from the default model cache so that:
+          - Existing code using get_embedding() is unaffected.
+          - The calibrator can load multiple models simultaneously.
+          - Each named model is cached after first load (session lifetime).
+
+        Args:
+            model_name: HuggingFace model identifier, e.g. "all-mpnet-base-v2"
+        """
+        # Lazy-init the multi-model cache
+        if not hasattr(self, "_model_cache"):
+            self._model_cache: dict = {}
+
+        if model_name in self._model_cache:
+            return self._model_cache[model_name]
+
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as e:
+            raise RuntimeError("sentence-transformers is required for embeddings") from e
+
+        import torch
+        device = (
+            "cuda" if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available()
+            else "cpu"
+        )
+        log("info", f"Loading named embedding model: {model_name} on {device}")
+        model = SentenceTransformer(model_name, device=device)
+        self._model_cache[model_name] = model
+        log("info", f"Named embedding model loaded and cached: {model_name}")
+        return model
+
+    def get_embedding_for_model(self, text: str, model_name: str) -> List[float]:
+        """
+        Embed a single string using a specific (possibly non-default) model.
+
+        The model is lazy-loaded and cached on first call.
+        Subsequent calls with the same model_name reuse the cached instance.
+
+        Args:
+            text:       String to embed.
+            model_name: HuggingFace model identifier.
+
+        Returns:
+            Float vector as a plain Python list.
+        """
+        model = self._get_named_embedding_model(model_name)
+        vector = model.encode(text or "", convert_to_numpy=True)
+        return vector.tolist()
+
+    def get_embeddings_for_model(self, texts: List[str], model_name: str) -> List[List[float]]:
+        """
+        Embed a list of strings using a specific (possibly non-default) model.
+
+        The model is lazy-loaded and cached on first call.
+        Subsequent calls with the same model_name reuse the cached instance.
+
+        Args:
+            texts:      List of strings to embed.
+            model_name: HuggingFace model identifier.
+
+        Returns:
+            List of float vectors as plain Python lists.
+        """
+        model = self._get_named_embedding_model(model_name)
+        vectors = model.encode(texts or [], convert_to_numpy=True)
+        return vectors.tolist()
 
     def get_embedding(self, text: str) -> List[float]:
         """Embed a single string. Returns a float vector."""

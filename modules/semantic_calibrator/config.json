@@ -1,0 +1,45 @@
+{
+  "semantic_calibrator": {
+    "enabled": true,
+    "output_dir": "calibration_results",
+    "chunk_window": 3,
+    "chunk_step": 1,
+    "available_models": [
+      {
+        "key": "all-MiniLM-L6-v2",
+        "type": "sentence_transformer",
+        "description": "Fast, lightweight. English-biased. 384 dims."
+      },
+      {
+        "key": "all-mpnet-base-v2",
+        "type": "sentence_transformer",
+        "description": "Higher quality than MiniLM. English. 768 dims."
+      },
+      {
+        "key": "paraphrase-multilingual-MiniLM-L12-v2",
+        "type": "sentence_transformer",
+        "description": "Multilingual (50+ languages). 384 dims."
+      },
+      {
+        "key": "paraphrase-multilingual-mpnet-base-v2",
+        "type": "sentence_transformer",
+        "description": "Multilingual, higher quality. 768 dims."
+      },
+      {
+        "key": "text-embedding-ada-002",
+        "type": "openai",
+        "description": "OpenAI Ada-002. 1536 dims. Requires OPENAI_API_KEY."
+      },
+      {
+        "key": "text-embedding-3-small",
+        "type": "openai",
+        "description": "OpenAI v3 small. Requires OPENAI_API_KEY."
+      },
+      {
+        "key": "text-embedding-3-large",
+        "type": "openai",
+        "description": "OpenAI v3 large. 3072 dims. Requires OPENAI_API_KEY."
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "semantic_calibrator",
+  "version": "1.0.0",
+  "description": "Calibrates semantic embedding models against a benchmark dataset. Derives optimal thresholds for similarity and concept-containment tasks. Outputs calibration_results.json consumed by the test suite.",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "system",
+  "dependencies": []
+}

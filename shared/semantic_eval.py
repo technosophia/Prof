@@ -198,6 +198,10 @@ class SemanticEvaluator:
         if threshold is None:
             threshold = self.default_similarity_threshold
 
+        # Guard: empty input
+        if not text_a or not text_a.strip() or not text_b or not text_b.strip():
+            return SimilarityResult(score=0.0, passed=False, threshold=threshold)
+
         try:
             import numpy as np
             vec_a = np.asarray(self._embed(text_a), dtype=np.float32)

@@ -4,8 +4,9 @@
     "debug",
     "llm_monitor",
     "rag_manager",
+    "semantic_calibrator",
     "test",
     "trainer"
   ],
-  "total_modules": 6
+  "total_modules": 7
 }
