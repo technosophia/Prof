@@ -13,8 +13,8 @@ It uses /shared/common.py to implements it's ui and interact with the applicatio
 Cf /shared/AGENTS.md for more details.
 It must respect the global app architecture and file/directory structure, and coding standards.
 
-See /modules/CODE.md for more details on coding principle for modules, how to architecture them.
-Se /shared/API.md for implemetantion details.
+See /shared/_docs/CODE.md for more details on coding principle for modules, how to architecture them.
+See /shared/_docs/API_xxx.md for implemetantion details.
 
 Module are automatically discovered and loaded by the application provided the are a directory within the /modules directory and that they provide a valide module.json file.
 

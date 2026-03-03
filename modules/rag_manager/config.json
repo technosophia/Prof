@@ -3,7 +3,7 @@
     "data_directory": "data/rag_documents",
     "allowed_extensions": [".txt", ".pdf", ".md", ".docx", ".csv", ".json"],
     "max_file_size_mb": 20,
-    "default_engine": "faiss_hierarchical",
+    "default_engine": "classic",
     "engines": {
       "simple": {
         "enabled": true,
@@ -12,7 +12,7 @@
       },
       "classic": {
         "enabled": true,
-        "description": "FAISS vector store with embeddings",
+        "description": "Classic vector store with embeddings",
         "index_path": "data/classic_indexes",
         "chunk_size": 500,
         "chunk_overlap": 50,
