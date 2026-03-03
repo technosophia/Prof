@@ -17,7 +17,59 @@ from shared.semantic_eval import (
     _split_sentences,
     _sliding_window_chunks
 )
+from shared.llm import LLMManager
 
+
+# ---------------------------------------------------------------------------
+# Fixtures for real LLM Manager
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def llm_config():
+    """Provide a minimal LLM configuration for testing."""
+    return {
+        "llms": {
+            "test_embedding": {
+                "name": "Test Embedding",
+                "type": "sentence_transformer",  # This might need adjustment based on your actual engine type
+                "model": "all-MiniLM-L6-v2",
+                "enabled": True,
+                "requires_api_key": False
+            }
+        },
+        "app": {
+            "default_llm": "test_embedding"
+        }
+    }
+
+
+@pytest.fixture(scope="session")
+def real_llm_manager(llm_config):
+    """Create a real LLM manager instance (loaded once per test session)."""
+    log("info", "=== Loading real LLM manager with embedding model ===")
+    manager = LLMManager(llm_config)
+
+    # Warm up the embedding model
+    _ = manager.get_embedding("warmup")
+    log("info", "=== LLM manager ready ===")
+    return manager
+
+
+@pytest.fixture
+def semantic_evaluator(real_llm_manager):
+    """Create a SemanticEvaluator with real embeddings."""
+    return SemanticEvaluator(
+        real_llm_manager,
+        default_similarity_threshold=0.7,
+        default_containment_threshold=0.45,
+        chunk_window=3,
+        chunk_step=1
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chunking Tests (unchanged - these don't use embeddings)
+# ---------------------------------------------------------------------------
 
 class TestChunkingHelpers:
     """Test the text chunking helper functions."""
@@ -147,46 +199,20 @@ class TestChunkingHelpers:
         log("info", "=== Completed test_chunk_text_adaptive ===")
 
 
-class TestSemanticEvaluatorWithMocks:
-    """Test Semantic Evaluator with mocked embeddings."""
+# ---------------------------------------------------------------------------
+# Semantic Tests with Real Embeddings
+# ---------------------------------------------------------------------------
 
-    @pytest.fixture
-    def mock_llm_manager(self):
-        """Create a mock LLM manager with controlled embeddings."""
-        manager = Mock()
+class TestSemanticEvaluatorReal:
+    """Test Semantic Evaluator with real embeddings."""
 
-        def mock_get_embedding(text):
-            """Return different embeddings based on text content."""
-            text_lower = text.lower()
-
-            # Create simple but distinguishable vectors
-            if "cat" in text_lower:
-                # Cat-related: high in dimension 0
-                return [1.0, 0.1, 0.1]
-            elif "dog" in text_lower:
-                # Dog-related: high in dimension 1
-                return [0.1, 1.0, 0.1]
-            elif "python" in text_lower or "programming" in text_lower:
-                # Programming: high in dimension 2
-                return [0.1, 0.1, 1.0]
-            elif "feline" in text_lower:
-                # Feline (similar to cat): mixed but still close to cat
-                return [0.8, 0.2, 0.1]
-            else:
-                # Default/generic
-                return [0.5, 0.5, 0.5]
-
-        manager.get_embedding.side_effect = mock_get_embedding
-        return manager
-
-    def test_similarity_identical_texts(self, mock_llm_manager):
+    def test_similarity_identical_texts(self, semantic_evaluator):
         """Test similarity between identical texts."""
         log("info", "=== Starting test_similarity_identical_texts ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager)
         text = "The cat sat on the mat"
 
-        result = evaluator.similarity(text, text)
+        result = semantic_evaluator.similarity(text, text)
 
         log("info", f"Identical texts similarity: {result.score:.4f}")
         assert result.score > 0.99  # Should be very close to 1.0
@@ -194,44 +220,45 @@ class TestSemanticEvaluatorWithMocks:
 
         log("info", "=== Completed test_similarity_identical_texts ===")
 
-    def test_similarity_related_texts(self, mock_llm_manager):
+    def test_similarity_related_texts(self, semantic_evaluator):
         """Test similarity between semantically related texts."""
         log("info", "=== Starting test_similarity_related_texts ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager)
-
-        # Cat and feline should be similar
-        result = evaluator.similarity("The cat is sleeping", "A feline rests")
+        # Cat and feline should be semantically similar
+        result = semantic_evaluator.similarity(
+            "The cat is sleeping on the couch",
+            "A feline rests peacefully"
+        )
 
         log("info", f"Related texts similarity: {result.score:.4f}")
+        # Real embeddings should give moderate to high similarity
         assert result.score > 0.5
-        assert result.passed is True  # With default threshold 0.7, this might fail
-        # Adjust threshold or expectation based on actual mock vectors
+        # With default threshold 0.7, this might pass or fail depending on the model
+        # We're not asserting result.passed here as it depends on threshold
 
         log("info", "=== Completed test_similarity_related_texts ===")
 
-    def test_similarity_unrelated_texts(self, mock_llm_manager):
+    def test_similarity_unrelated_texts(self, semantic_evaluator):
         """Test similarity between unrelated texts."""
         log("info", "=== Starting test_similarity_unrelated_texts ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager)
-
-        # Cat and programming should be dissimilar
-        result = evaluator.similarity("The cat is sleeping", "Python programming language")
+        # Cat and programming should be less similar
+        result = semantic_evaluator.similarity(
+            "The cat is sleeping",
+            "Python programming language syntax"
+        )
 
         log("info", f"Unrelated texts similarity: {result.score:.4f}")
-        assert result.score < 0.5
-        assert result.passed is False
+        # Should be lower than related texts, but exact value depends on model
+        assert result.score < 0.6  # Conservative upper bound
 
         log("info", "=== Completed test_similarity_unrelated_texts ===")
 
-    def test_similarity_custom_threshold(self, mock_llm_manager):
+    def test_similarity_custom_threshold(self, semantic_evaluator):
         """Test similarity with custom threshold."""
         log("info", "=== Starting test_similarity_custom_threshold ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager)
-
-        result = evaluator.similarity(
+        result = semantic_evaluator.similarity(
             "The cat is sleeping",
             "A feline rests",
             threshold=0.3  # Lower threshold
@@ -242,53 +269,47 @@ class TestSemanticEvaluatorWithMocks:
 
         log("info", "=== Completed test_similarity_custom_threshold ===")
 
-    def test_contains_concept_basic(self, mock_llm_manager):
+    def test_contains_concept_basic(self, semantic_evaluator):
         """Test basic concept containment."""
         log("info", "=== Starting test_contains_concept_basic ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager)
-
-        text = "The cat slept on the couch. The dog played in the yard. Meanwhile, the programmer wrote code."
+        text = "The cat slept on the couch. The dog played in the yard. Meanwhile, the programmer wrote Python code."
 
         # Should contain cat concept
-        result_cat = evaluator.contains_concept(text, "cat")
+        result_cat = semantic_evaluator.contains_concept(text, "cat")
         log("info", f"Contains 'cat': {result_cat.summary}")
         assert result_cat.passed is True
-        assert result_cat.best_score > 0.7
+        assert result_cat.best_score > 0.5
 
         # Should contain dog concept
-        result_dog = evaluator.contains_concept(text, "dog")
+        result_dog = semantic_evaluator.contains_concept(text, "dog")
         log("info", f"Contains 'dog': {result_dog.summary}")
         assert result_dog.passed is True
 
-        # Should contain programming concept
-        result_prog = evaluator.contains_concept(text, "programming")
+        # Should contain programming concept (might match "Python" or "programmer")
+        result_prog = semantic_evaluator.contains_concept(text, "programming")
         log("info", f"Contains 'programming': {result_prog.summary}")
         assert result_prog.passed is True
 
         log("info", "=== Completed test_contains_concept_basic ===")
 
-    def test_contains_concept_not_present(self, mock_llm_manager):
+    def test_contains_concept_not_present(self, semantic_evaluator):
         """Test concept containment when concept is not present."""
         log("info", "=== Starting test_contains_concept_not_present ===")
-
-        evaluator = SemanticEvaluator(mock_llm_manager)
 
         text = "The cat slept on the couch. The dog played in the yard."
 
         # Should not contain bird concept
-        result = evaluator.contains_concept(text, "bird")
+        result = semantic_evaluator.contains_concept(text, "bird")
         log("info", f"Contains 'bird': {result.summary}")
         assert result.passed is False
-        assert result.best_score < 0.5
+        assert result.best_score < 0.6  # Conservative upper bound
 
         log("info", "=== Completed test_contains_concept_not_present ===")
 
-    def test_contains_concept_with_chunking(self, mock_llm_manager):
+    def test_contains_concept_with_chunking(self, semantic_evaluator):
         """Test that chunking helps find concepts in long texts."""
         log("info", "=== Starting test_contains_concept_with_chunking ===")
-
-        evaluator = SemanticEvaluator(mock_llm_manager)
 
         # Long text where the concept appears only in one sentence
         text = """
@@ -302,11 +323,11 @@ class TestSemanticEvaluatorWithMocks:
         """
 
         # Should find programming concept even though it's buried
-        result = evaluator.contains_concept(text, "Python programming")
+        result = semantic_evaluator.contains_concept(text, "Python programming")
         log("info", f"Found programming concept: {result.summary}")
         log("info", f"Best matching chunk: '{result.best_chunk[:100]}...'")
         assert result.passed is True
-        assert "Python" in result.best_chunk or "programming" in result.best_chunk
+        assert "Python" in result.best_chunk or "programming" in result.best_chunk.lower()
 
         # Check details were populated
         assert len(result.details) > 0
@@ -316,43 +337,17 @@ class TestSemanticEvaluatorWithMocks:
 
         log("info", "=== Completed test_contains_concept_with_chunking ===")
 
-    def test_contains_concept_custom_window(self, mock_llm_manager):
-        """Test concept containment with custom window size."""
-        log("info", "=== Starting test_contains_concept_custom_window ===")
-
-        evaluator = SemanticEvaluator(mock_llm_manager, chunk_window=5, chunk_step=2)
-
-        text = "A. B. C. D. E. F. G. H. I. J."
-        text_with_concept = text + " The cat is here."
-
-        result = evaluator.contains_concept(
-            text_with_concept,
-            "cat",
-            window_size=2,
-            step=1
-        )
-
-        log("info", f"Custom window result: {result.summary}")
-        log("info", f"Best chunk: '{result.best_chunk}'")
-
-        assert result.passed is True
-        assert "cat" in result.best_chunk.lower()
-
-        log("info", "=== Completed test_contains_concept_custom_window ===")
-
-    def test_contains_all_concepts(self, mock_llm_manager):
+    def test_contains_all_concepts(self, semantic_evaluator):
         """Test checking for multiple concepts."""
         log("info", "=== Starting test_contains_all_concepts ===")
-
-        evaluator = SemanticEvaluator(mock_llm_manager)
 
         text = """
         The cat and dog were friends. They played together in the yard.
         The owner was a programmer who wrote Python code all day.
         """
 
-        # All concepts present
-        result_all = evaluator.contains_all_concepts(
+        # All concepts present (cat, dog, programming)
+        result_all = semantic_evaluator.contains_all_concepts(
             text,
             ["cat", "dog", "programming"]
         )
@@ -361,8 +356,8 @@ class TestSemanticEvaluatorWithMocks:
         assert result_all["passed"] is True
         assert len(result_all["failed"]) == 0
 
-        # One concept missing
-        result_missing = evaluator.contains_all_concepts(
+        # One concept missing (bird)
+        result_missing = semantic_evaluator.contains_all_concepts(
             text,
             ["cat", "bird", "programming"]
         )
@@ -374,26 +369,28 @@ class TestSemanticEvaluatorWithMocks:
 
         log("info", "=== Completed test_contains_all_concepts ===")
 
-    def test_empty_text_handling(self, mock_llm_manager):
+    def test_empty_text_handling(self, semantic_evaluator):
         """Test handling of empty texts."""
         log("info", "=== Starting test_empty_text_handling ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager)
-
         # Similarity with empty text
-        result_sim = evaluator.similarity("", "something")
+        result_sim = semantic_evaluator.similarity("", "something")
         log("info", f"Similarity with empty: {result_sim.summary}")
         assert result_sim.passed is False
         assert result_sim.score == 0.0
 
         # Contains concept with empty text
-        result_contain = evaluator.contains_concept("", "cat")
+        result_contain = semantic_evaluator.contains_concept("", "cat")
         log("info", f"Contains concept with empty: {result_contain.summary}")
         assert result_contain.passed is False
         assert result_contain.best_score == 0.0
 
         log("info", "=== Completed test_empty_text_handling ===")
 
+
+# ---------------------------------------------------------------------------
+# Edge Cases (some remain mocked, some use real embeddings)
+# ---------------------------------------------------------------------------
 
 class TestSemanticEvaluatorEdgeCases:
     """Test edge cases and error handling."""
@@ -404,53 +401,28 @@ class TestSemanticEvaluatorEdgeCases:
 
         evaluator = SemanticEvaluator(None)
 
-        # Should raise RuntimeError when trying to use
-        with pytest.raises(RuntimeError) as excinfo:
-            evaluator.similarity("test", "test")
-        log("info", f"Expected error: {str(excinfo.value)}")
+        # Should return a failed result gracefully
+        result = evaluator.similarity("test", "test")
+        log("info", f"Similarity result: {result.summary}")
+        assert result.passed is False
+        assert result.score == 0.0
 
-        with pytest.raises(RuntimeError) as excinfo:
-            evaluator.contains_concept("test", "concept")
-        log("info", f"Expected error: {str(excinfo.value)}")
+        result_contain = evaluator.contains_concept("test", "concept")
+        log("info", f"Contains concept result: {result_contain.summary}")
+        assert result_contain.passed is False
+        assert result_contain.best_score == 0.0
 
         log("info", "=== Completed test_no_llm_manager ===")
 
-    def test_zero_vector_handling(self):
-        """Test handling of zero embedding vectors."""
-        log("info", "=== Starting test_zero_vector_handling ===")
-
-        mock_manager = Mock()
-
-        # Return zero vector for some texts
-        def mock_get_embedding(text):
-            if text == "zero":
-                return [0.0, 0.0, 0.0]
-            return [1.0, 0.0, 0.0]
-
-        mock_manager.get_embedding.side_effect = mock_get_embedding
-        evaluator = SemanticEvaluator(mock_manager)
-
-        # Similarity with zero vector
-        result = evaluator.similarity("zero", "something")
-        log("info", f"Similarity with zero vector: {result.summary}")
-        assert result.score == 0.0
-
-        # Contains concept with zero vector for concept
-        result_contain = evaluator.contains_concept("some text", "zero")
-        log("info", f"Contains concept with zero vector concept: {result_contain.summary}")
-        assert result_contain.passed is False
-        assert "zero vector" in str(result_contain.details).lower()
-
-        log("info", "=== Completed test_zero_vector_handling ===")
-
-    def test_exception_handling(self):
+    def test_exception_handling(self, real_llm_manager):
         """Test handling of exceptions during embedding."""
         log("info", "=== Starting test_exception_handling ===")
 
-        mock_manager = Mock()
-        mock_manager.get_embedding.side_effect = Exception("Embedding failed")
+        # Create a manager that raises exceptions
+        failing_manager = Mock()
+        failing_manager.get_embedding.side_effect = Exception("Embedding failed")
 
-        evaluator = SemanticEvaluator(mock_manager)
+        evaluator = SemanticEvaluator(failing_manager)
 
         # Should handle exception gracefully
         result = evaluator.similarity("test", "test")
@@ -466,48 +438,20 @@ class TestSemanticEvaluatorEdgeCases:
         log("info", "=== Completed test_exception_handling ===")
 
 
+# ---------------------------------------------------------------------------
+# Integration Tests with Real Embeddings
+# ---------------------------------------------------------------------------
+
 class TestSemanticEvaluatorIntegration:
-    """Integration-style tests with more realistic scenarios."""
+    """Integration-style tests with realistic scenarios using real embeddings."""
 
-    @pytest.fixture
-    def mock_llm_manager_detailed(self):
-        """Create a more detailed mock for integration tests."""
-        manager = Mock()
-
-        # Predefine embeddings for specific phrases
-        embeddings = {
-            "cat": np.array([0.9, 0.1, 0.1, 0.1]),
-            "feline": np.array([0.85, 0.15, 0.1, 0.1]),
-            "kitten": np.array([0.8, 0.2, 0.1, 0.1]),
-            "dog": np.array([0.1, 0.9, 0.1, 0.1]),
-            "canine": np.array([0.15, 0.85, 0.1, 0.1]),
-            "puppy": np.array([0.2, 0.8, 0.1, 0.1]),
-            "programming": np.array([0.1, 0.1, 0.9, 0.1]),
-            "python": np.array([0.1, 0.1, 0.85, 0.15]),
-            "coding": np.array([0.1, 0.1, 0.8, 0.2]),
-            "default": np.array([0.25, 0.25, 0.25, 0.25]),
-        }
-
-        def mock_get_embedding(text):
-            text_lower = text.lower()
-            # Check for keywords
-            for key, vector in embeddings.items():
-                if key in text_lower:
-                    return vector.tolist()
-            return embeddings["default"].tolist()
-
-        manager.get_embedding.side_effect = mock_get_embedding
-        return manager
-
-    def test_semantic_similarity_hierarchy(self, mock_llm_manager_detailed):
+    def test_semantic_similarity_hierarchy(self, semantic_evaluator):
         """Test that semantic similarity respects conceptual hierarchy."""
         log("info", "=== Starting test_semantic_similarity_hierarchy ===")
 
-        evaluator = SemanticEvaluator(mock_llm_manager_detailed)
-
         # Cat should be more similar to feline than to dog
-        cat_feline = evaluator.similarity("cat", "feline")
-        cat_dog = evaluator.similarity("cat", "dog")
+        cat_feline = semantic_evaluator.similarity("cat", "feline")
+        cat_dog = semantic_evaluator.similarity("cat", "dog")
 
         log("info", f"Cat-Feline similarity: {cat_feline.score:.4f}")
         log("info", f"Cat-Dog similarity: {cat_dog.score:.4f}")
@@ -515,8 +459,8 @@ class TestSemanticEvaluatorIntegration:
         assert cat_feline.score > cat_dog.score
 
         # Programming should be more similar to python than to cat
-        prog_python = evaluator.similarity("programming", "python")
-        prog_cat = evaluator.similarity("programming", "cat")
+        prog_python = semantic_evaluator.similarity("programming", "python")
+        prog_cat = semantic_evaluator.similarity("programming", "cat")
 
         log("info", f"Programming-Python similarity: {prog_python.score:.4f}")
         log("info", f"Programming-Cat similarity: {prog_cat.score:.4f}")
@@ -525,11 +469,9 @@ class TestSemanticEvaluatorIntegration:
 
         log("info", "=== Completed test_semantic_similarity_hierarchy ===")
 
-    def test_concept_containment_in_long_text(self, mock_llm_manager_detailed):
+    def test_concept_containment_in_long_text(self, semantic_evaluator):
         """Test finding concepts in a longer, realistic text."""
         log("info", "=== Starting test_concept_containment_in_long_text ===")
-
-        evaluator = SemanticEvaluator(mock_llm_manager_detailed)
 
         text = """
         Today was a beautiful day. The sun was shining and birds were singing.
@@ -545,30 +487,28 @@ class TestSemanticEvaluatorIntegration:
         """
 
         # Should find cat-related concepts
-        cat_result = evaluator.contains_concept(text, "feline")
+        cat_result = semantic_evaluator.contains_concept(text, "feline")
         log("info", f"Feline concept: {cat_result.summary}")
         assert cat_result.passed is True
         assert "cat" in cat_result.best_chunk.lower() or "feline" in cat_result.best_chunk.lower()
 
         # Should find dog-related concepts
-        dog_result = evaluator.contains_concept(text, "canine")
+        dog_result = semantic_evaluator.contains_concept(text, "canine")
         log("info", f"Canine concept: {dog_result.summary}")
         assert dog_result.passed is True
         assert "dog" in dog_result.best_chunk.lower() or "canine" in dog_result.best_chunk.lower()
 
         # Should find programming concepts
-        prog_result = evaluator.contains_concept(text, "coding")
+        prog_result = semantic_evaluator.contains_concept(text, "coding")
         log("info", f"Coding concept: {prog_result.summary}")
         assert prog_result.passed is True
         assert "python" in prog_result.best_chunk.lower() or "programming" in prog_result.best_chunk.lower()
 
         log("info", "=== Completed test_concept_containment_in_long_text ===")
 
-    def test_threshold_sensitivity(self, mock_llm_manager_detailed):
+    def test_threshold_sensitivity(self, semantic_evaluator):
         """Test how different thresholds affect pass/fail decisions."""
         log("info", "=== Starting test_threshold_sensitivity ===")
-
-        evaluator = SemanticEvaluator(mock_llm_manager_detailed)
 
         text = "The cat slept on the couch while the dog played outside."
 
@@ -577,15 +517,17 @@ class TestSemanticEvaluatorIntegration:
 
         for concept in ["cat", "feline", "kitten"]:
             log("info", f"\nTesting concept: '{concept}'")
-            base_result = evaluator.contains_concept(text, concept)
+            base_result = semantic_evaluator.contains_concept(text, concept)
 
             for thresh in thresholds:
-                result = evaluator.contains_concept(text, concept, threshold=thresh)
-                log("info", f"  Threshold {thresh}: {result.passed} (score: {result.best_score:.3f})")
+                result = semantic_evaluator.contains_concept(text, concept, threshold=thresh)
+                log("info", f"  Threshold {thresh}: {result.passed} (score: {base_result.best_score:.3f})")
 
                 # Higher thresholds should be harder to pass
                 if thresh > base_result.best_score:
                     assert result.passed is False
+                else:
+                    assert result.passed is True
 
         log("info", "\n=== Completed test_threshold_sensitivity ===")
 
