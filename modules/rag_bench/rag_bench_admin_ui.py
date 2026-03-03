@@ -209,7 +209,7 @@ def render_rag_comparison_interface():
     cola, colb = st.columns([1, 1])
     # Debug toggle
     with cola:
-        debug_mode = st.checkbox("Enable debug logging", value=True, key="rag_bench_debug_mode")
+        debug_mode = st.checkbox("Enable debug logging", value=False, key="rag_bench_debug_mode")
         if debug_mode:
             st.info("Debug mode enabled - logs will be captured and displayed")
 
@@ -240,10 +240,14 @@ def render_rag_comparison_interface():
     with col2:
         st.write("")  # Spacing
         st.write("")
-        compare_button = st.button("🔍 Compare All Engines", type="primary", width='stretch')  # Fixed: width='stretch' -> width='stretch'
+        compare_button = st.button("🔍 Compare All Engines", type="primary", use_container_width=True)
 
     # Handle comparison
     if compare_button and query:
+        # Generate a unique run_id for this comparison
+        run_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        st.session_state["_rag_comparison_run_id"] = run_id
+
         # Store query info
         st.session_state["_rag_comparison_query"] = query
         st.session_state["_rag_comparison_limit"] = limit
@@ -254,9 +258,10 @@ def render_rag_comparison_interface():
 
         # Start log capture if debug mode is enabled
         if debug_mode:
-            capture_log_start("DEBUG", max_messages=1000)  # Increase max_messages
+            capture_log_start("DEBUG", max_messages=1000)
             st.session_state["_rag_comparison_debug_mode"] = True
             log("debug", "[RAG Compare] ========== STARTING RAG ENGINE COMPARISON ==========")
+            log("debug", f"[RAG Compare] Run ID: {run_id}")
             log("debug", f"[RAG Compare] User ID: {user_id}")
             log("debug", f"[RAG Compare] Query: {query}")
             log("debug", f"[RAG Compare] Limit per engine: {limit}")
@@ -268,7 +273,7 @@ def render_rag_comparison_interface():
                 try:
                     log("debug", f"[RAG Compare] Testing engine: {engine_type} with query: {query}")
 
-                    # Get search results directly (single call)
+                    # Get search results directly
                     search_results = rag_manager.search(
                         user_id=user_id,
                         query=query,
@@ -279,7 +284,7 @@ def render_rag_comparison_interface():
                     engine_results = search_results.get(engine_type, []) if search_results else []
                     log("debug", f"[RAG Compare] Engine {engine_type} returned {len(engine_results)} search results")
 
-                    # Get context text for display (optional, but we already have results)
+                    # Get context text for display
                     context_text = ""
                     if engine_results:
                         context_parts = [
@@ -288,12 +293,13 @@ def render_rag_comparison_interface():
                         ]
                         context_text = "Relevant context from documents:\n" + "\n".join(context_parts)
 
-                    # Store for display
+                    # Store for display with run_id
                     capture_rag_context_for_comparison(
                         engine_type=engine_type,
                         query=query,
                         context_text=context_text,
-                        results=engine_results
+                        results=engine_results,
+                        run_id=run_id
                     )
                 except Exception as e:
                     log("error", f"[RAG Compare] Error with {engine_type}: {str(e)}", stacktrace=True)
@@ -310,8 +316,9 @@ def render_rag_comparison_interface():
         if "_rag_comparison_timestamp" in st.session_state:
             st.caption(f"Retrieved at: {st.session_state['_rag_comparison_timestamp']}")
 
-        # Get all captured contexts
-        comparison_contexts = get_captured_comparison_contexts()
+        # Get all captured contexts for this run_id
+        run_id = st.session_state.get("_rag_comparison_run_id")
+        comparison_contexts = get_captured_comparison_contexts(run_id=run_id)
 
         if not comparison_contexts:
             st.warning("No comparison results yet. Click 'Compare All Engines' to retrieve contexts.")
@@ -327,6 +334,11 @@ def render_rag_comparison_interface():
         with col2:
             if engines_without_results:
                 st.warning(f"❌ Engines with no results: {len(engines_without_results)}")
+
+        # Sort comparison contexts to match engine_options order for consistent display
+        engine_order = [e['type'] for e in engine_options]
+        comparison_contexts.sort(key=lambda x: engine_order.index(x['engine_type'])
+                                 if x['engine_type'] in engine_order else 999)
 
         # Create tabs for each engine
         engine_tabs = st.tabs([f"⚙️ {ctx['engine_type'].upper()}" for ctx in comparison_contexts])
@@ -441,9 +453,8 @@ def render_rag_comparison_interface():
             })
 
         if summary_data:
-            st.dataframe(summary_data, width='stretch')
+            st.dataframe(summary_data, use_container_width=True)
 
-        # Show debug logs if they were captured
         # Show debug logs if they were captured
         if st.session_state.get("_rag_comparison_debug_mode", False):
             st.divider()
@@ -463,7 +474,7 @@ def render_rag_comparison_interface():
 
                     # Format logs as markdown with line breaks
                     log_text = "\n".join(flat_logs)
-                    st.markdown(f"```\n{log_text}\n```")  # Display as code block in markdown
+                    st.markdown(f"```\n{log_text}\n```")
             else:
                 st.info("No logs captured")
 
@@ -471,11 +482,11 @@ def render_rag_comparison_interface():
             del st.session_state["_rag_comparison_debug_mode"]
 
         # Clear button
-        if st.button("🧹 Clear Comparison Results", width='stretch'):  # Fixed: width='stretch' -> width='stretch'
+        if st.button("🧹 Clear Comparison Results", use_container_width=True):
             clear_comparison_contexts()
             # Clear the stored session state variables
             keys_to_clear = ["_rag_comparison_query", "_rag_comparison_timestamp",
-                           "_rag_comparison_limit"]
+                           "_rag_comparison_limit", "_rag_comparison_run_id"]
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]

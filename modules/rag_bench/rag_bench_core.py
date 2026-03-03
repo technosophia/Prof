@@ -112,11 +112,19 @@ def capture_rag_context_for_comparison(
     engine_type: str,
     query: str,
     context_text: str,
-    results: List[Dict]
+    results: List[Dict],
+    run_id: Optional[str] = None
 ) -> None:
     """
     Capture RAG context for engine comparison.
     This is called when comparing engines directly.
+
+    Args:
+        engine_type: The engine type
+        query: The search query
+        context_text: The context text
+        results: List of result dictionaries
+        run_id: Optional unique identifier for this comparison run
     """
     global _captured_comparison_contexts
 
@@ -147,8 +155,11 @@ def capture_rag_context_for_comparison(
             "result_count": len([r for r in results if not r.get('no_results')]),
             "max_score": max_score,
             "avg_score": avg_score,
-            "threshold": threshold
+            "threshold": threshold,
+            "run_id": run_id
         }
+
+        log("debug", f"[RAG Compare] Capturing context for engine: {engine_type} with {len(results)} results, run_id={run_id}")
 
         _captured_comparison_contexts.append(comparison_data)
 
@@ -156,34 +167,81 @@ def capture_rag_context_for_comparison(
         if len(_captured_comparison_contexts) > _max_comparison_stored:
             _captured_comparison_contexts = _captured_comparison_contexts[-_max_comparison_stored:]
 
+        log("debug", f"[RAG Compare] Total comparison contexts now: {len(_captured_comparison_contexts)}")
+
     except Exception as e:
         log("error", f"rag_bench: failed to capture comparison context: {e}")
 
 
-def get_captured_comparison_contexts() -> List[Dict]:
-    """Get all captured comparison contexts for the most recent query."""
+def get_captured_comparison_contexts(run_id: Optional[str] = None) -> List[Dict]:
+    """Get all captured comparison contexts for the most recent query.
+
+    Args:
+        run_id: If provided, return contexts with this run_id.
+                If None, return contexts with the most recent run_id.
+    """
     global _captured_comparison_contexts
 
     if not _captured_comparison_contexts:
         return []
 
-    # Group by the most recent timestamp
-    latest_timestamp = None
-    for ctx in reversed(_captured_comparison_contexts):
-        if latest_timestamp is None:
-            latest_timestamp = ctx.get("timestamp")
-        elif ctx.get("timestamp") != latest_timestamp:
-            break
+    if run_id is not None:
+        # Return contexts with specific run_id
+        result = [ctx for ctx in _captured_comparison_contexts if ctx.get("run_id") == run_id]
+        result.sort(key=lambda x: x.get('engine_type', ''))
+        log("debug", f"[RAG Compare] Retrieved {len(result)} contexts for run_id={run_id}")
+        return result
 
-    # Return all contexts with the latest timestamp
-    return [ctx for ctx in _captured_comparison_contexts
-            if ctx.get("timestamp") == latest_timestamp]
+    # Find the most recent run_id
+    run_ids = {}
+    for ctx in _captured_comparison_contexts:
+        rid = ctx.get("run_id")
+        if rid:
+            # Use timestamp as tie-breaker if needed
+            run_ids[rid] = ctx.get("timestamp")
+
+    if not run_ids:
+        # Fallback to old timestamp grouping (for backward compatibility)
+        log("debug", "[RAG Compare] No run_id found, falling back to timestamp grouping")
+        return _get_latest_by_timestamp()
+
+    # Get the most recent run_id by timestamp
+    latest_run_id = max(run_ids.items(), key=lambda x: x[1])[0]
+    log("debug", f"[RAG Compare] Most recent run_id: {latest_run_id}")
+
+    # Return all contexts with that run_id
+    result = [ctx for ctx in _captured_comparison_contexts if ctx.get("run_id") == latest_run_id]
+    result.sort(key=lambda x: x.get('engine_type', ''))
+    log("debug", f"[RAG Compare] Retrieved {len(result)} contexts for latest run_id")
+    return result
+
+
+def _get_latest_by_timestamp() -> List[Dict]:
+    """Fallback method: group by latest timestamp (old behavior)."""
+    global _captured_comparison_contexts
+
+    if not _captured_comparison_contexts:
+        return []
+
+    # Find the most recent timestamp
+    latest_timestamp = None
+    for ctx in _captured_comparison_contexts:
+        ts = ctx.get("timestamp")
+        if latest_timestamp is None or ts > latest_timestamp:
+            latest_timestamp = ts
+
+    # Return all contexts with that timestamp
+    result = [ctx for ctx in _captured_comparison_contexts if ctx.get("timestamp") == latest_timestamp]
+    result.sort(key=lambda x: x.get('engine_type', ''))
+    log("debug", f"[RAG Compare] Retrieved {len(result)} contexts for timestamp {latest_timestamp}")
+    return result
 
 
 def clear_comparison_contexts() -> None:
     """Clear all captured comparison contexts."""
     global _captured_comparison_contexts
     _captured_comparison_contexts = []
+    log("debug", "[RAG Compare] Cleared all comparison contexts")
 
 
 def get_captured_interactions(limit: int = 100, offset: int = 0) -> List[Dict]:

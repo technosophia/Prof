@@ -247,7 +247,7 @@ class UIRegistry:
                         if isinstance(result, tuple) and len(result) == 2:
                             tab_name, content_func = result
                             results[tab_name] = content_func
-                            log("debug", f"ADDED TAB '{tab_name}' from {module_key}")
+                            #log("debug", f"ADDED TAB '{tab_name}' from {module_key}")
                         else:
                             log("warning", f"Module {module_key} returned invalid format for admin_tab.")
                     else:
@@ -295,7 +295,7 @@ class UIRegistry:
         Render a specific admin tab by name.
         This is called only when the tab is actually selected.
         """
-        log("info", f"Lazy rendering tab '{tab_name}' from {module_key}")
+        log("debug", f"Lazy rendering tab '{tab_name}' from {module_key}")
 
         # Check cache
         cache_key = f"{module_key}:{tab_name}"
