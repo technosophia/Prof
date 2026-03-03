@@ -17,6 +17,7 @@ import json
 
 from st_shared.cached import get_config, get_user_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
+from modules.debug.debug_profiler_tab import show_profiler_tab
 
 
 # Try to import ui_registry for injection point debugging
@@ -560,12 +561,13 @@ def show_debug_admin_content():
     """Main function to display the Debug Admin with tabs."""
     st.header("🔧 Debug and Testing")
 
-    # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # Create tabs - AJOUTE LE 5ÈME ONGLET
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📝 Text & LLM",
         "⚙️ Config",
         "🎯 UI Registry",
-        "⚡ Quick Tests"
+        "⚡ Quick Tests",
+        "⏱️ Profiler"  # Nouvel onglet
     ])
 
     with tab1:
@@ -579,6 +581,9 @@ def show_debug_admin_content():
 
     with tab4:
         show_quick_tests_tab()
+
+    with tab5:
+        show_profiler_tab()
 
 
 def inject_ui_admin_tab():
