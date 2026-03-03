@@ -57,13 +57,14 @@ def real_llm_manager(llm_config):
 
 @pytest.fixture
 def semantic_evaluator(real_llm_manager):
-    """Create a SemanticEvaluator with real embeddings."""
+    """Create a SemanticEvaluator with real embeddings, forcing all-MiniLM-L6-v2."""
     return SemanticEvaluator(
         real_llm_manager,
         default_similarity_threshold=0.7,
         default_containment_threshold=0.45,
         chunk_window=3,
-        chunk_step=1
+        chunk_step=1,
+        embedding_model_name="all-MiniLM-L6-v2"  # Force this specific model
     )
 
 

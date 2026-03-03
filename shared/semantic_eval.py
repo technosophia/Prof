@@ -162,6 +162,8 @@ class SemanticEvaluator:
         Number of sentences per chunk for concept-containment search.
     chunk_step:
         Sliding step between chunks (< window → overlap).
+    embedding_model_name:
+        Optional specific embedding model to use. If None, uses LLMManager's default.
     """
 
     def __init__(
@@ -171,12 +173,14 @@ class SemanticEvaluator:
         default_containment_threshold: float = 0.45,
         chunk_window: int = 3,
         chunk_step: int = 1,
+        embedding_model_name: Optional[str] = None,  # New parameter
     ):
         self._llm_manager = llm_manager
         self.default_similarity_threshold = default_similarity_threshold
         self.default_containment_threshold = default_containment_threshold
         self.chunk_window = chunk_window
         self.chunk_step = chunk_step
+        self.embedding_model_name = embedding_model_name
 
     # ------------------------------------------------------------------
     # Public API — Problem 1: Similarity
@@ -354,6 +358,12 @@ class SemanticEvaluator:
         """Get embedding via the injected LLM manager."""
         if self._llm_manager is None:
             raise RuntimeError("SemanticEvaluator has no LLM manager — cannot embed")
+
+        # Use model-specific embedding if model name is provided
+        if hasattr(self, 'embedding_model_name') and self.embedding_model_name is not None:
+            return self._llm_manager.get_embedding_for_model(text, self.embedding_model_name)
+
+        # Fallback to default embedding
         return self._llm_manager.get_embedding(text)
 
     @staticmethod
