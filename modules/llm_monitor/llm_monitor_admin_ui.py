@@ -228,7 +228,7 @@ def show_user_stats_tab(monitor):
 
     except Exception as e:
         st.error(f"Error loading user statistics: {str(e)}")
-        log("error", f"User stats tab error: {e}", exc_info=True)
+        log("error", f"User stats tab error: {e}", stacktrace=True)
 
 
 def show_call_logs_tab(monitor):
@@ -616,7 +616,7 @@ def show_diagnostics_tab(monitor):
 
     except Exception as e:
         st.error(f"Error getting database info: {str(e)}")
-        log("error", f"Database error in diagnostics tab: {e}", exc_info=True)
+        log("error", f"Database error in diagnostics tab: {e}", stacktrace=True)
 
     st.divider()
 
@@ -711,7 +711,7 @@ def test_rate_limit_tracking(monitor):
 
     except Exception as e:
         st.error(f"Error querying rate limit data: {str(e)}")
-        log("error", f"Test rate limit error: {e}", exc_info=True)
+        log("error", f"Test rate limit error: {e}", stacktrace=True)
 
 
 def inject_ui_admin_tab():

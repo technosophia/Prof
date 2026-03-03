@@ -162,7 +162,7 @@ def show_text_llm_tab():
             except Exception as e:
                 error_msg = f"Error calling LLM: {str(e)}"
                 st.error(error_msg)
-                log("error", error_msg, exc_info=True)
+                log("error", error_msg, stacktrace=True)
                 st.session_state.debug_llm_loading = False
                 st.session_state.debug_llm_response = f"Error: {str(e)}"
                 st.rerun()

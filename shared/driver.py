@@ -409,12 +409,12 @@ class AppDriver:
                 try:
                     group_options[previous]["deactivate_fn"]()
                 except Exception as e:
-                    log("error", f"Error while deactivating option {group}.{previous}: {e}", exc_info=True)
+                    log("error", f"Error while deactivating option {group}.{previous}: {e}", stacktrace=True)
 
             try:
                 option["activate_fn"]()
             except Exception as e:
-                log("error", f"Error while activating option {group}.{name}: {e}", exc_info=True)
+                log("error", f"Error while activating option {group}.{name}: {e}", stacktrace=True)
                 raise DriverOptionError(f"Failed to activate option '{name}' in group '{group}'") from e
 
             self._active_options[group] = name
@@ -468,7 +468,7 @@ class AppDriver:
             return action_event.result
         except Exception as e:
             action_event.error = str(e)
-            log("error", f"Driver action failed: {name}: {e}", exc_info=True)
+            log("error", f"Driver action failed: {name}: {e}", stacktrace=True)
             raise
         finally:
             with self._lock:

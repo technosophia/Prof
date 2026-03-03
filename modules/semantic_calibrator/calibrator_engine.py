@@ -721,7 +721,7 @@ def run_calibration(
             )
 
         except Exception as exc:
-            log("error", f"[calibrator] Erreur : {exc}", exc_info=True)
+            log("error", f"[calibrator] Erreur : {exc}", stacktrace=True)
             _cb(f"✗ Erreur calibration : {exc}")
             model_results[model_key] = {
                 "model_key": model_key, "model_type": model_type,

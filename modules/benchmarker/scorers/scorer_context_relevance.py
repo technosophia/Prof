@@ -180,5 +180,5 @@ class ScorerPlugin(BaseScorerPlugin):
                 return None
             return float(value)
         except Exception as exc:
-            log("warning", f"Error parsing relevance from response: {exc}", exc_info=True)
+            log("warning", f"Error parsing relevance from response: {exc}", stacktrace=True)
             return None

@@ -236,7 +236,7 @@ class AlembicMigrationHelper:
             log("info", "Database upgrade completed successfully")
             return True
         except Exception as e:
-            log("error", f"Database upgrade failed: {e}", exc_info=True)
+            log("error", f"Database upgrade failed: {e}", stacktrace=True)
             return False
 
     def stamp(self, revision="head"):
@@ -389,7 +389,7 @@ class DatabaseManager:
             session.commit()
         except Exception as e:
             session.rollback()
-            log("error", f"Database error: {e}", exc_info=True)
+            log("error", f"Database error: {e}", stacktrace=True)
             raise
         finally:
             session.close()
@@ -454,7 +454,7 @@ class DatabaseManager:
                 return True
 
         except Exception as e:
-            log("error", f"Failed to empty all tables: {e}", exc_info=True)
+            log("error", f"Failed to empty all tables: {e}", stacktrace=True)
             try:
                 if self._in_memory or 'sqlite' in str(self._engine.url):
                     with self._engine.connect() as conn:
@@ -496,7 +496,7 @@ class DatabaseManager:
                 log("debug", "Database schema is up to date")
                 return True
         except Exception as e:
-            log("error", f"Failed to check/upgrade schema: {e}", exc_info=True)
+            log("error", f"Failed to check/upgrade schema: {e}", stacktrace=True)
             return False
 
     def create_migration(self, message: str, autogenerate: bool = True):

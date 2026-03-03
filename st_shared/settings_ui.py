@@ -126,7 +126,7 @@ def show_settings_content():
                 render_func()
             except Exception as e:
                 st.error(f"Error loading {tab_name} settings tab: {str(e)}")
-                log("error", f"Error loading {tab_name} settings tab: {str(e)}", exc_info=True)
+                log("error", f"Error loading {tab_name} settings tab: {str(e)}", stacktrace=True)
 
     # Save button at the bottom (outside tabs)
     st.divider()

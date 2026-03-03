@@ -79,7 +79,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
                                         st.success("Fact updated")
                                         st.rerun()
                         except Exception as e:
-                            log("error", f"Failed to save fact edits: {e}", exc_info=True)
+                            log("error", f"Failed to save fact edits: {e}", stacktrace=True)
                             st.error("Failed to save fact")
                 with c2:
                     if st.button("Delete", key=f"delete_fact_{fact['id']}"):
@@ -93,7 +93,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
                                     st.success("Fact deleted")
                                     st.rerun()
                         except Exception as e:
-                            log("error", f"Failed to delete fact: {e}", exc_info=True)
+                            log("error", f"Failed to delete fact: {e}", stacktrace=True)
                             st.error("Failed to delete fact")
                 st.divider()
 
@@ -127,7 +127,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
                             st.success("Manual fact added")
                             st.rerun()
                     except Exception as e:
-                        log("error", f"Failed to add manual fact: {e}", exc_info=True)
+                        log("error", f"Failed to add manual fact: {e}", stacktrace=True)
                         st.error("Failed to add manual fact")
 
             st.markdown("#### Analysis")
@@ -162,7 +162,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
                     try:
                         _run_async(self.refresh_memory(trainer_id, student["id"]))
                     except Exception as e:
-                        log("error", f"Run-all analysis failed for {student['id']}: {e}", exc_info=True)
+                        log("error", f"Run-all analysis failed for {student['id']}: {e}", stacktrace=True)
                     progress.progress((idx + 1) / max(1, total))
                 status.caption("All analyses completed")
                 st.rerun()

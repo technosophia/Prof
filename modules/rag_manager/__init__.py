@@ -238,7 +238,7 @@ def initialize() -> bool:
         _INITIALIZED = True
         return True
     except Exception as exc:
-        log("error", f"Failed to initialize rag_manager driver options: {exc}", exc_info=True)
+        log("error", f"Failed to initialize rag_manager driver options: {exc}", stacktrace=True)
         return False
 
 

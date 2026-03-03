@@ -116,7 +116,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             register_llm_context_callback(self.get_memory_context)
             return True
         except Exception as e:
-            log("error", f"Failed to initialize pedagogical_memory plugin: {e}", exc_info=True)
+            log("error", f"Failed to initialize pedagogical_memory plugin: {e}", stacktrace=True)
             return False
 
     def on_activate(self, trainer_id: str) -> None:
@@ -169,7 +169,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 )
                 return analysis.created_at if analysis else None
         except Exception as e:
-            log("error", f"Failed to read last analysis date: {e}", exc_info=True)
+            log("error", f"Failed to read last analysis date: {e}", stacktrace=True)
             return None
 
     def _get_next_analysis_version(self, trainer_id: str, student_id: str) -> int:
@@ -183,7 +183,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 )
                 return (latest.version + 1) if latest else 1
         except Exception as e:
-            log("error", f"Failed to compute analysis version: {e}", exc_info=True)
+            log("error", f"Failed to compute analysis version: {e}", stacktrace=True)
             return 1
 
     def _get_new_conversations(self, student_id: str, since: Optional[datetime]) -> List[Dict[str, Any]]:
@@ -208,7 +208,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                         })
             new_messages.sort(key=lambda x: x.get("timestamp", ""))
         except Exception as e:
-            log("error", f"Failed to read conversations: {e}", exc_info=True)
+            log("error", f"Failed to read conversations: {e}", stacktrace=True)
         return new_messages
 
     def _format_fact_types(self, fact_types: Dict[str, str]) -> str:
@@ -249,7 +249,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             try:
                 payload = json.loads(response)
             except Exception as e:
-                log("error", f"Failed to parse extraction JSON output: {e}\n {response}", exc_info=True)
+                log("error", f"Failed to parse extraction JSON output: {e}\n {response}", stacktrace=True)
                 return []
 
             if not isinstance(payload, list):
@@ -266,7 +266,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     filtered.append({"fact_type": fact_type, "content": content})
             return filtered
         except Exception as e:
-            log("error", f"Failed to extract candidate facts: {e}", exc_info=True)
+            log("error", f"Failed to extract candidate facts: {e}", stacktrace=True)
             return []
 
     def _find_similar_facts(
@@ -292,7 +292,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             scored.sort(key=lambda x: x[1], reverse=True)
             return scored[:top_n]
         except Exception as e:
-            log("error", f"Failed to search similar facts: {e}", exc_info=True)
+            log("error", f"Failed to search similar facts: {e}", stacktrace=True)
             return []
 
     async def _decide_reconciliation(self, fact_type: str, existing_content: str, candidate_content: str) -> str:
@@ -316,7 +316,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 return decision
             return "DISCARD"
         except Exception as e:
-            log("error", f"Failed reconciliation decision: {e}", exc_info=True)
+            log("error", f"Failed reconciliation decision: {e}", stacktrace=True)
             return "DISCARD"
 
     def _find_similar_facts_in_memory(
@@ -352,7 +352,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                         fact.is_active = 0
                     fact.updated_at = datetime.utcnow()
         except Exception as e:
-            log("error", f"Failed confidence decay: {e}", exc_info=True)
+            log("error", f"Failed confidence decay: {e}", stacktrace=True)
 
     async def refresh_memory(self, trainer_id: str, student_id: str) -> Dict[str, int]:
         stats = {"created": 0, "updated": 0, "reinforced": 0, "discarded": 0, "messages_analyzed": 0}
@@ -523,7 +523,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 session.commit()
                 return stats
         except Exception as e:
-            log("error", f"Failed to refresh pedagogical memory: {e}", exc_info=True)
+            log("error", f"Failed to refresh pedagogical memory: {e}", stacktrace=True)
             return stats
 
     def _get_active_facts(self, trainer_id: str, student_id: str) -> List[Dict[str, Any]]:
@@ -555,7 +555,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     for fact in rows
                 ]
         except Exception as e:
-            log("error", f"Failed to get active facts: {e}", exc_info=True)
+            log("error", f"Failed to get active facts: {e}", stacktrace=True)
             return []
 
     def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
@@ -605,7 +605,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             context = context_prompt.format(facts=facts_text)
             return (context, "system", "top")
         except Exception as e:
-            log("error", f"Failed to inject pedagogical memory context: {e}", exc_info=True)
+            log("error", f"Failed to inject pedagogical memory context: {e}", stacktrace=True)
             return None
 
     def get_context(self, student_id: str) -> Dict[str, str]:
@@ -708,5 +708,5 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                         "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
                     })
         except Exception as e:
-            log("error", f"Failed to export pedagogical_memory history: {e}", exc_info=True)
+            log("error", f"Failed to export pedagogical_memory history: {e}", stacktrace=True)
         return events

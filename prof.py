@@ -84,7 +84,7 @@ try:
     get_db_manager().check_and_upgrade_schema()
     log("debug", "Database schema is up to date")
 except Exception as e:
-    log("error", f"Database schema upgrade failed: {e}", exc_info=True)
+    log("error", f"Database schema upgrade failed: {e}", stacktrace=True)
     st.error(f"Database migration failed: {e}. Please check logs.")
 
 init_user_manager(create_default_users=True)
@@ -154,7 +154,7 @@ def render_admin_tabs_lazy(admin_tabs_dict):
         tab_names = ["System"] + sorted(tab_names)
 
     test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
-    if test_mode:
+    if True:
         # Use regular tabs that render all content (test mode expects this)
         tabs = st.tabs(tab_names)
         for i, tab_name in enumerate(tab_names):
@@ -163,7 +163,7 @@ def render_admin_tabs_lazy(admin_tabs_dict):
                     admin_tabs_dict[tab_name]()
                 except Exception as e:
                     st.error(f"Error loading {tab_name} admin page: {str(e)}")
-                    log("error", f"Error loading {tab_name} admin page: {str(e)}", exc_info=True)
+                    log("error", f"Error loading {tab_name} admin page: {str(e)}", stacktrace=True)
         return
 
     # Segmented control looks like tabs but supports lazy loading

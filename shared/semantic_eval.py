@@ -217,7 +217,7 @@ class SemanticEvaluator:
                 threshold=threshold,
             )
         except Exception as exc:
-            log("error", f"SemanticEvaluator.similarity failed: {exc}", exc_info=True)
+            log("error", f"SemanticEvaluator.similarity failed: {exc}", stacktrace=True)
             return SimilarityResult(score=0.0, passed=False, threshold=threshold)
 
     # ------------------------------------------------------------------
@@ -304,7 +304,7 @@ class SemanticEvaluator:
             )
 
         except Exception as exc:
-            log("error", f"SemanticEvaluator.contains_concept failed: {exc}", exc_info=True)
+            log("error", f"SemanticEvaluator.contains_concept failed: {exc}", stacktrace=True)
             return ContainmentResult(
                 passed=False,
                 best_score=0.0,

@@ -174,7 +174,7 @@ class LLMMonitor:
                 session.commit()
 
         except Exception as e:
-            log("error", f"Failed to update rate limit usage: {e}", exc_info=True)
+            log("error", f"Failed to update rate limit usage: {e}", stacktrace=True)
 
     def _update_rate_limit_usage_internal(self, session: Session, provider: str,
                                          model: str, tokens_used: int,
@@ -244,7 +244,7 @@ class LLMMonitor:
             log("debug", f"Updated rate limit usage for {provider}: +1 request, +{tokens_used} tokens")
 
         except Exception as e:
-            log("error", f"Failed to update rate limit usage (internal): {e}", exc_info=True)
+            log("error", f"Failed to update rate limit usage (internal): {e}", stacktrace=True)
             raise
 
     def get_rate_limit_usage(self, provider: str, model: str,
@@ -434,7 +434,7 @@ class LLMMonitor:
                 log("debug", f"Logged LLM call: {data['llm_id']} for user {user_id}")
 
         except Exception as e:
-            log("error", f"Failed to log LLM call: {e}", exc_info=True)
+            log("error", f"Failed to log LLM call: {e}", stacktrace=True)
 
     def _update_daily_cost_summary(self, session: Session, provider: str, model: str,
                                   input_tokens: int, output_tokens: int, total_cost: float):

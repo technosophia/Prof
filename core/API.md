@@ -27,7 +27,7 @@ Simple, configurable logging with multiple severity levels and stack trace suppo
 - **Customizable format**: Configurable log message format
 
 **Exported functions:**
-- `log(level, message, *args, exc_info=False)`: Main logging function
+- `log(level, message, *args, stacktrace=False)`: Main logging function
 - `debug()`, `info()`, `warning()`, `error()`, `critical()`: Level-specific shortcuts
 - `set_level(level, module=None)`: Set global or module-specific log level
 - `set_log_module_level(level)`: Enable debug for current module (auto-detects module name)

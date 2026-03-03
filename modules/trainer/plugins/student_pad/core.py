@@ -64,7 +64,7 @@ class StudentPadPluginCore(TrainerPluginCore):
             register_llm_context_callback(self.get_teacher_notes_context)
             return True
         except Exception as e:
-            log("error", f"Failed to initialize student_pad plugin: {e}", exc_info=True)
+            log("error", f"Failed to initialize student_pad plugin: {e}", stacktrace=True)
             return False
 
     def on_activate(self, trainer_id: str) -> None:
@@ -148,7 +148,7 @@ class StudentPadPluginCore(TrainerPluginCore):
                 session.commit()
                 return True
         except Exception as e:
-            log("error", f"Failed to save student note: {e}", exc_info=True)
+            log("error", f"Failed to save student note: {e}", stacktrace=True)
             return False
 
     def _ensure_single_current_note(self, session, student_id: str, trainer_id: str,

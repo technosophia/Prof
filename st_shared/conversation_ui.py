@@ -71,7 +71,7 @@ async def generate_llm_response(user_message, conversation_history, current_llm_
         return response, current_llm_info.get("id") if current_llm_info else None
     except Exception as e:
         error_msg = f"Error calling LLM: {str(e)}"
-        log("error", error_msg, exc_info=True)
+        log("error", error_msg, stacktrace=True)
         st.session_state.streaming_active = False
         # Use translated error message for user-facing error
         st.error(_("error_llm_call").format(error=str(e)))
@@ -142,7 +142,7 @@ def inject_ui_sidebar():
         log("debug", f"Found {len(user_conversations)} conversations for user {st.session_state.current_user['id']}")
 
     except Exception as e:
-        log("error", f"Error getting user conversations: {e}", exc_info=True)
+        log("error", f"Error getting user conversations: {e}", stacktrace=True)
         user_conversations = []
         st.error(_("error_loading_conversations").format(error=str(e)))
 
@@ -484,7 +484,7 @@ def show_conversation_interface():
 
                 except Exception as e:
                     error_msg = _("error_regenerating").format(error=str(e))
-                    log("error", f"Error regenerating response: {str(e)}", exc_info=True)
+                    log("error", f"Error regenerating response: {str(e)}", stacktrace=True)
                     st.error(error_msg)
                     # Restore original messages if regeneration failed
                     conversation = get_conversation_manager().get_conversation(
@@ -594,7 +594,7 @@ def show_conversation_interface():
 
             except Exception as e:
                 error_msg = _("error_processing_message").format(error=str(e))
-                log("error", f"Error processing message: {str(e)}", exc_info=True)
+                log("error", f"Error processing message: {str(e)}", stacktrace=True)
                 st.error(error_msg)
     else:
         st.warning(_("conversation_not_found"))

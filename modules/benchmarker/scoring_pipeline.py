@@ -34,7 +34,7 @@ def _do_build_registry() -> Dict[str, object]:
             registry[instance.id] = instance
             log("info", f"Scorer registered: {instance.id} ({instance.name})")
         except Exception as exc:
-            log("warning", f"Failed to load scorer module {module_name}: {exc}", exc_info=True)
+            log("warning", f"Failed to load scorer module {module_name}: {exc}", stacktrace=True)
 
     return registry
 

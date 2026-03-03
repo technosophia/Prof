@@ -551,4 +551,4 @@ def render_system_overview(monitor):
 
     except Exception as e:
         st.error(f"Error loading system overview: {str(e)}")
-        log("error", f"System overview error: {e}", exc_info=True)
+        log("error", f"System overview error: {e}", stacktrace=True)

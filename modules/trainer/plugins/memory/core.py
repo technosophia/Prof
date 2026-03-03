@@ -185,7 +185,7 @@ class MemoryPluginCore(TrainerPluginCore):
                 session.commit()
                 return True
         except Exception as e:
-            log("error", f"Failed to save memory: {e}", exc_info=True)
+            log("error", f"Failed to save memory: {e}", stacktrace=True)
             return False
 
     def _get_student_trainer_id(self, student_id: str) -> Optional[str]:
@@ -263,7 +263,7 @@ class MemoryPluginCore(TrainerPluginCore):
                 log("error", f"LLM analysis failed: {response}")
                 return None, source
         except Exception as e:
-            log("error", f"Error during LLM analysis: {e}", exc_info=True)
+            log("error", f"Error during LLM analysis: {e}", stacktrace=True)
             return None, source
 
     async def refresh_memory(self, trainer_id: str, student_id: str) -> bool:

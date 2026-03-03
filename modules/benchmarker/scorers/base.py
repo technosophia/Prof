@@ -114,7 +114,7 @@ class ScorerPlugin(ABC):
                 ))
             log("info", f"Scorer '{result.scorer_id}' wrote score for {result.session_path}")
         except Exception as exc:
-            log("error", f"Scorer '{result.scorer_id}' failed to write score: {exc}", exc_info=True)
+            log("error", f"Scorer '{result.scorer_id}' failed to write score: {exc}", stacktrace=True)
 
     @staticmethod
     def _now() -> str:

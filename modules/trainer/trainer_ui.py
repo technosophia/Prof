@@ -12,7 +12,7 @@ def inject_ui_initialize():
     try:
         return initialize_trainer()
     except Exception as e:
-        log("error", f"Failed to initialize trainer module from trainer_ui: {e}", exc_info=True)
+        log("error", f"Failed to initialize trainer module from trainer_ui: {e}", stacktrace=True)
 
 
 def inject_ui_main_footer():

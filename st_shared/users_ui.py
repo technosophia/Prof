@@ -40,7 +40,7 @@ def apply_user_preferences(user):
         from st_shared.settings_ui import get_user_settings_manager
         settings_manager = get_user_settings_manager()
     except Exception as e:
-        log("warning", f"Settings UI module not available for applying preferences: {e}", exc_info=True)
+        log("warning", f"Settings UI module not available for applying preferences: {e}", stacktrace=True)
         return False
 
     applied = False

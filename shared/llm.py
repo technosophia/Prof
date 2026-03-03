@@ -160,7 +160,7 @@ class LLMManager:
         try:
             from sentence_transformers import SentenceTransformer
         except Exception as e:
-            log("error", "sentence-transformers is required for embeddings but is not installed", exc_info=True)
+            log("error", "sentence-transformers is required for embeddings but is not installed", stacktrace=True)
             raise RuntimeError("sentence-transformers is required for embeddings") from e
 
         import torch
@@ -712,7 +712,7 @@ class LLMManager:
                     }
                     self._notify_monitor_callbacks(monitor_data)
                 except Exception as e:
-                    log("error", f"Error notifying monitor callbacks: {str(e)}", exc_info=True)
+                    log("error", f"Error notifying monitor callbacks: {str(e)}", stacktrace=True)
 
             return response
 

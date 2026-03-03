@@ -398,7 +398,7 @@ class ModuleHandler:
                 hook()
             log("info", f"Executed module hook {module_path}.{hook_name}()")
         except Exception as e:
-            log("warning", f"Module hook failed {module_path}.{hook_name}(): {e}", exc_info=True)
+            log("warning", f"Module hook failed {module_path}.{hook_name}(): {e}", stacktrace=True)
 
     # ------------------------------------------------------------------
     # Config change notification
@@ -494,7 +494,7 @@ class ModuleHandler:
             return module
 
         except Exception as e:
-            log("error", f"Failed to load UI module {module_name}: {str(e)}", exc_info=True)
+            log("error", f"Failed to load UI module {module_name}: {str(e)}", stacktrace=True)
             return None
 
 

@@ -140,7 +140,7 @@ class ClassicRAGEngine(RAGEngine):
             self._save_user_index(user_id)
             return True
         except Exception as e:
-            log("error", f"Failed to index document {filename}: {str(e)}", exc_info=True)
+            log("error", f"Failed to index document {filename}: {str(e)}", stacktrace=True)
             return False
 
     def delete_document(self, user_id: str, filename: str) -> bool:
@@ -185,7 +185,7 @@ class ClassicRAGEngine(RAGEngine):
                     break
             return results
         except Exception as e:
-            log("error", f"FAISS search failed: {str(e)}")
+            log("error", f"Classic search failed: {str(e)}", stacktrace=True)
             return []
 
     def get_indexed_documents(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:

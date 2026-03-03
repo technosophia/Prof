@@ -78,7 +78,7 @@ def _register_monitor_callback(llm_manager):
         log("info", f"LLM monitor callback registered: {callback.__name__} from {callback.__module__}")
 
     except Exception as e:
-        log("error", f"Failed to register monitor callback: {e}", exc_info=True)
+        log("error", f"Failed to register monitor callback: {e}", stacktrace=True)
 
 
 def _unregister_monitor_callback(llm_manager):
@@ -225,7 +225,7 @@ def initialize() -> bool:
         _INITIALIZED = True
         return True
     except Exception as exc:
-        log("error", f"Failed to initialize LLM monitor: {exc}", exc_info=True)
+        log("error", f"Failed to initialize LLM monitor: {exc}", stacktrace=True)
         return False
 
 

@@ -1026,5 +1026,5 @@ def test_rag_manager():
 
         return True
     except Exception as e:
-        log("error", f"RAG Manager test failed: {str(e)}", exc_info=True)
+        log("error", f"RAG Manager test failed: {str(e)}", stacktrace=True)
         return False

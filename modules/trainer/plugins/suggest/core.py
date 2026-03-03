@@ -257,7 +257,7 @@ class SuggestPluginCore(TrainerPluginCore):
                 log("debug", "Suggestion generated ...? ")
 
         except Exception as e:
-            log("error", f"Error in suggestion callback: {e}", exc_info=True)
+            log("error", f"Error in suggestion callback: {e}", stacktrace=True)
 
     async def _generate_suggestion_async(self, student_id: str, trainer_id: str,
                                         conversation_id: str, messages: List[Message],
@@ -401,7 +401,7 @@ class SuggestPluginCore(TrainerPluginCore):
                 return True
 
         except Exception as e:
-            log("error", f"Failed to generate suggestion: {e}", exc_info=True)
+            log("error", f"Failed to generate suggestion: {e}", stacktrace=True)
             return False
 
     def _get_student_config(self, student_id: str, trainer_id: str) -> Optional[Dict]:

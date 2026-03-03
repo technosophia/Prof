@@ -119,7 +119,7 @@ def inject_ui_main_footer():
                 st.success("Warning message logged")
         with col4:
             if st.button("Error", key="error_btn"):
-                log("error", "Error test message from Streamlit", exc_info=False)
+                log("error", "Error test message from Streamlit", stacktrace=False)
                 st.success("Error message logged")
 
         # Test error with traceback
@@ -128,7 +128,7 @@ def inject_ui_main_footer():
                 # Create a test error
                 raise ValueError("This is a test error for traceback")
             except Exception as e:
-                log("error", "Test error with traceback", exc_info=True)
+                log("error", "Test error with traceback", stacktrace=True)
                 st.success("Error with traceback logged")
 
         # Toggle debug

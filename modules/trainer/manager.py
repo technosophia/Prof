@@ -154,7 +154,7 @@ class TrainerManager:
                 session.commit()
                 return True
         except Exception as e:
-            log("error", f"Failed to set plugin activation: {e}", exc_info=True)
+            log("error", f"Failed to set plugin activation: {e}", stacktrace=True)
             return False
 
     def _expand_minimal_events(self, events: List[Dict], student_info: Dict) -> List[Dict]:
@@ -267,7 +267,7 @@ class TrainerManager:
                 return True
 
         except Exception as e:
-            log("error", f"Failed to set training program for trainer {trainer_id}: {e}", exc_info=True)
+            log("error", f"Failed to set training program for trainer {trainer_id}: {e}", stacktrace=True)
             return False
 
 

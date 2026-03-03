@@ -50,7 +50,7 @@ def force_reload_modules():
 
             except Exception as e:
                 failed.append(module_name)
-                log("error", f"Error reloading module {module_name}: {str(e)}", exc_info=True)
+                log("error", f"Error reloading module {module_name}: {str(e)}", stacktrace=True)
 
         # Refresh module discovery to pick up any new files
         try:
@@ -73,7 +73,7 @@ def force_reload_modules():
                 st.session_state.ui_registry.last_active_hash = tuple(sorted(active_modules))
                 log("info", f"UI Registry updated: {len(modules)} modules registered")
             except Exception as e:
-                log("error", f"Error re-initializing UI registry: {str(e)}", exc_info=True)
+                log("error", f"Error re-initializing UI registry: {str(e)}", stacktrace=True)
 
     return reloaded, failed
 
@@ -88,7 +88,7 @@ def show_system_admin_content():
         all_modules = module_handler.get_all_modules()
     except Exception as e:
         st.error(f"Error loading modules: {str(e)}")
-        log("error", f"Error in show_system_admin_content: {str(e)}", exc_info=True)
+        log("error", f"Error in show_system_admin_content: {str(e)}", stacktrace=True)
         return
 
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -161,7 +161,7 @@ def show_system_admin_content():
                             st.error(f"❌ Failed to reload '{module_name}'")
                     except Exception as e:
                         st.error(f"Error reloading module: {str(e)}")
-                        log("error", f"Error reloading {module_name}: {str(e)}", exc_info=True)
+                        log("error", f"Error reloading {module_name}: {str(e)}", stacktrace=True)
 
         with col4:
             if is_active:

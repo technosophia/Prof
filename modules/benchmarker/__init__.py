@@ -108,5 +108,5 @@ def initialize() -> bool:
         log("debug", "Benchmarker module initialized")
         return True
     except Exception as exc:
-        log("error", f"Failed to initialize benchmarker module: {exc}", exc_info=True)
+        log("error", f"Failed to initialize benchmarker module: {exc}", stacktrace=True)
         return False

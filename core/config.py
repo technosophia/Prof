@@ -244,7 +244,7 @@ def _load_config() -> Config:
         return config
 
     except Exception as e:
-        log("error", f"_load_config failed: {e}", exc_info=True)
+        log("error", f"_load_config failed: {e}", stacktrace=True)
 
         # Return a minimal default config as fallback
         from core.config import Config

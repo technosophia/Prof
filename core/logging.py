@@ -262,15 +262,15 @@ class Logger:
         """Log warning message."""
         self._log(LogLevel.WARNING, "WARNING", message, *args)
 
-    def error(self, message: str, *args: Any, exc_info: bool = False):
+    def error(self, message: str, *args: Any, stacktrace: bool = False):
         """Log error message with optional exception info."""
-        self._log(LogLevel.ERROR, "ERROR", message, *args, include_traceback=exc_info)
+        self._log(LogLevel.ERROR, "ERROR", message, *args, include_traceback=stacktrace)
 
-    def critical(self, message: str, *args: Any, exc_info: bool = False):
+    def critical(self, message: str, *args: Any, stacktrace: bool = False):
         """Log critical message with optional exception info."""
-        self._log(LogLevel.CRITICAL, "CRITICAL", message, *args, include_traceback=exc_info)
+        self._log(LogLevel.CRITICAL, "CRITICAL", message, *args, include_traceback=stacktrace)
 
-    def log(self, level: str, message: str, *args: Any, exc_info: bool = False):
+    def log(self, level: str, message: str, *args: Any, stacktrace: bool = False):
         """
         Generic log method with string level.
 
@@ -278,7 +278,7 @@ class Logger:
             level: Log level as string (debug, info, warning, error, critical)
             message: Log message
             *args: Format arguments
-            exc_info: Whether to include exception traceback
+            stacktrace: Whether to include exception traceback
         """
         level_upper = level.upper()
 
@@ -289,9 +289,9 @@ class Logger:
         elif level_upper == "WARNING":
             self.warning(message, *args)
         elif level_upper == "ERROR":
-            self.error(message, *args, exc_info=exc_info)
+            self.error(message, *args, stacktrace=stacktrace)
         elif level_upper == "CRITICAL":
-            self.critical(message, *args, exc_info=exc_info)
+            self.critical(message, *args, stacktrace=stacktrace)
         else:
             self.warning(f"Unknown log level '{level}', logging as INFO")
             self.info(message, *args)
@@ -306,13 +306,13 @@ def get_logger(name: str = "app") -> Logger:
         _logger_instance = Logger(name)
     return _logger_instance
 
-def log(level: str, message: str, *args: Any, exc_info: bool = False):
+def log(level: str, message: str, *args: Any, stacktrace: bool = False):
     """
     Convenience function for logging.
     This is the main function that modules should use.
     """
     logger = get_logger()
-    logger.log(level, message, *args, exc_info=exc_info)
+    logger.log(level, message, *args, stacktrace=stacktrace)
 
 def debug(message: str, *args: Any):
     """Convenience function for debug logging."""
@@ -326,13 +326,13 @@ def warning(message: str, *args: Any):
     """Convenience function for warning logging."""
     log("WARNING", message, *args)
 
-def error(message: str, *args: Any, exc_info: bool = False):
+def error(message: str, *args: Any, stacktrace: bool = False):
     """Convenience function for error logging."""
-    log("ERROR", message, *args, exc_info=exc_info)
+    log("ERROR", message, *args, stacktrace=stacktrace)
 
-def critical(message: str, *args: Any, exc_info: bool = False):
+def critical(message: str, *args: Any, stacktrace: bool = False):
     """Convenience function for critical logging."""
-    log("CRITICAL", message, *args, exc_info=exc_info)
+    log("CRITICAL", message, *args, stacktrace=stacktrace)
 
 def set_level(level: str, module: Optional[str] = None):
     """

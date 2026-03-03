@@ -169,7 +169,7 @@ class ScenarioRunner:
         except Exception as exc:
             msg = f"Run-level failure: {exc}"
             run_errors.append(msg)
-            log("error", msg, exc_info=True)
+            log("error", msg, stacktrace=True)
 
         summary = self.driver.get_session_summary()
         summary.update(summary_overrides)
@@ -316,7 +316,7 @@ class ScenarioRunner:
         except (DriverContextError, DriverActionError, DriverOptionError, ValueError) as exc:
             msg = str(exc)
             duration = time.time() - started
-            log("warning", f"Step {step_id} failed in {duration:.3f}s: {msg}", exc_info=True)
+            log("warning", f"Step {step_id} failed in {duration:.3f}s: {msg}", stacktrace=True)
             return StepResult(
                 step_id=step_id,
                 action=action,
@@ -372,7 +372,7 @@ class ScenarioRunner:
             except Exception as exc:
                 passed = False
                 message = f"An unexpected error occurred during evaluation of assertion '{aid}' (type: '{atype}'): {exc}"
-                log("error", f"Unexpected error evaluating assertion {aid} ({atype}):", exc_info=True)
+                log("error", f"Unexpected error evaluating assertion {aid} ({atype}):", stacktrace=True)
 
             results.append(AssertionResult(id=aid, passed=passed, message=message, assertion_type=atype))
 
@@ -429,4 +429,4 @@ class ScenarioRunner:
                     )
                 )
         except Exception as exc:
-            log("error", f"Failed to persist benchmark run: {exc}", exc_info=True)
+            log("error", f"Failed to persist benchmark run: {exc}", stacktrace=True)

@@ -91,7 +91,7 @@ def _discover_ui_modules(
                             log("warning", f"No render functions found in module: {module_key}")
 
                     except Exception as e:
-                        log("error", f"Failed to register UI module {module_key}: {str(e)}", exc_info=True)
+                        log("error", f"Failed to register UI module {module_key}: {str(e)}", stacktrace=True)
 
     _recursive_discover(shared_dir, is_shared=True, base_name="shared")
 
@@ -192,7 +192,7 @@ class UIRegistry:
                     init_fn()
                     log("info", f"Called inject_ui_initialize for module: {base_name}")
                 except Exception as e:
-                    log("error", f"inject_ui_initialize failed for {base_name}: {e}", exc_info=True)
+                    log("error", f"inject_ui_initialize failed for {base_name}: {e}", stacktrace=True)
 
             self._initialized_modules.add(base_name)
 
@@ -214,7 +214,7 @@ class UIRegistry:
                     result = new_result
             return result
         except Exception as e:
-            log("error", f"Error rendering {injection_point} from {module_key}: {str(e)}", exc_info=True)
+            log("error", f"Error rendering {injection_point} from {module_key}: {str(e)}", stacktrace=True)
             return None
 
     def render(self, injection_point: str) -> Dict[str, Any]:
@@ -314,7 +314,7 @@ class UIRegistry:
 
             return result
         except Exception as e:
-            log("error", f"Error rendering tab '{tab_name}': {e}", exc_info=True)
+            log("error", f"Error rendering tab '{tab_name}': {e}", stacktrace=True)
             import streamlit as st
             st.error(f"Error loading tab '{tab_name}': {e}")
             return None

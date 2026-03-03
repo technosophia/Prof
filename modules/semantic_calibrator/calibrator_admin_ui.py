@@ -442,7 +442,7 @@ def show_calibrator_admin_content():
                 st.session_state.calibration_results = results
                 status.update(label="✓ Calibration complete", state="complete")
             except Exception as exc:
-                log("error", f"[calibrator_ui] Calibration failed: {exc}", exc_info=True)
+                log("error", f"[calibrator_ui] Calibration failed: {exc}", stacktrace=True)
                 status.update(label=f"✗ Calibration failed: {exc}", state="error")
                 st.error(f"Calibration error: {exc}")
 

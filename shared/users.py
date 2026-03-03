@@ -605,7 +605,7 @@ class UserManager:
             return result["failure_count"] == 0
 
         except Exception as e:
-            log("error", f"Auto-import failed: {e}", exc_info=True)
+            log("error", f"Auto-import failed: {e}", stacktrace=True)
             return False
 
     def create_default_users(self):

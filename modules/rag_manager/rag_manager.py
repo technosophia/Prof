@@ -379,7 +379,7 @@ class RAGManager:
             return unique_filename
 
         except Exception as e:
-            log("error", f"Failed to upload document {original_filename}: {str(e)}", exc_info=True)
+            log("error", f"Failed to upload document {original_filename}: {str(e)}", stacktrace=True)
             return None
 
     def index_document(self, filename: str, engine_type: str, user_id: str) -> bool:
@@ -416,7 +416,7 @@ class RAGManager:
             return False
 
         except Exception as e:
-            log("error", f"Failed to index document {filename}: {str(e)}", exc_info=True)
+            log("error", f"Failed to index document {filename}: {str(e)}", stacktrace=True)
             return False
 
     def delete_document(self, filename: str, user_id: str) -> bool:
@@ -446,7 +446,7 @@ class RAGManager:
             return True
 
         except Exception as e:
-            log("error", f"Failed to delete document {filename}: {str(e)}", exc_info=True)
+            log("error", f"Failed to delete document {filename}: {str(e)}", stacktrace=True)
             return False
 
     # ------------------------------------------------------------------
@@ -619,7 +619,7 @@ class RAGManager:
             return True
 
         except Exception as e:
-            log("error", f"Failed to clear all documents: {str(e)}", exc_info=True)
+            log("error", f"Failed to clear all documents: {str(e)}", stacktrace=True)
             return False
 
     def _handle_user_deletion(self, user_id: str) -> bool:
@@ -691,7 +691,7 @@ class RAGManager:
                 self._auto_import_for_user(user_id, files)
 
         except Exception as e:
-            log("error", f"Failed to run auto-import: {str(e)}", exc_info=True)
+            log("error", f"Failed to run auto-import: {str(e)}", stacktrace=True)
 
     def _auto_import_for_user(self, user_id: str, files: List[Dict]):
         try:
@@ -746,4 +746,4 @@ class RAGManager:
                     self.index_document(stored_filename, engine_type, user_id)
 
         except Exception as e:
-            log("error", f"Auto-import failed for user {user_id}: {str(e)}", exc_info=True)
+            log("error", f"Auto-import failed for user {user_id}: {str(e)}", stacktrace=True)

@@ -104,7 +104,7 @@ class MatrixRunner:
         try:
             available_llms = {str(item.get("id", "")) for item in get_available_llms() if item.get("id")}
         except Exception as exc:
-            log("warning", f"Unable to fetch available LLMs for matrix validation: {exc}", exc_info=True)
+            log("warning", f"Unable to fetch available LLMs for matrix validation: {exc}", stacktrace=True)
             available_llms = set()
 
         for scenario_path in scenario_paths:
@@ -234,7 +234,7 @@ class MatrixRunner:
                 )
             except Exception as exc:
                 failed += 1
-                log("error", f"Matrix run failed for scenario={scenario_path} cell={cell}: {exc}", exc_info=True)
+                log("error", f"Matrix run failed for scenario={scenario_path} cell={cell}: {exc}", stacktrace=True)
                 out.append(
                     MatrixCellResult(
                         scenario_name=scenario_name,
@@ -282,7 +282,7 @@ class MatrixRunner:
                     )
             except Exception as exc:
                 errors.append(f"Scorer {scorer_item['id']} failed: {exc}")
-                log("warning", f"Matrix scoring failed for scorer {scorer_item['id']}: {exc}", exc_info=True)
+                log("warning", f"Matrix scoring failed for scorer {scorer_item['id']}: {exc}", stacktrace=True)
         return errors
 
     @staticmethod
@@ -339,4 +339,4 @@ class MatrixRunner:
                 summary["matrix_run"] = True
                 row.summary = summary
         except Exception as exc:
-            log("warning", f"Failed to tag matrix run summary for {session_path}: {exc}", exc_info=True)
+            log("warning", f"Failed to tag matrix run summary for {session_path}: {exc}", stacktrace=True)

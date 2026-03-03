@@ -217,7 +217,7 @@ class ConversationManager:
             try:
                 callback(conversation_id, messages)
             except Exception as e:
-                log("error", f"Error in user message callback: {e}", exc_info=True)
+                log("error", f"Error in user message callback: {e}", stacktrace=True)
 
     def _ensure_tables_exist(self):
         """Ensure the conversation tables exist."""

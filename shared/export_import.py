@@ -180,7 +180,7 @@ class ConversationExporter:
             return yaml_data
 
         except Exception as e:
-            log("error", f"Failed to export conversation {conversation_id}: {e}", exc_info=True)
+            log("error", f"Failed to export conversation {conversation_id}: {e}", stacktrace=True)
             return None
 
     @staticmethod
@@ -240,7 +240,7 @@ class ConversationExporter:
             return yaml_data
 
         except Exception as e:
-            log("error", f"Failed to export conversations for user {user_id}: {e}", exc_info=True)
+            log("error", f"Failed to export conversations for user {user_id}: {e}", stacktrace=True)
             return None
 
     @staticmethod
@@ -300,7 +300,7 @@ class ConversationImporter:
             return conversation_id
 
         except Exception as e:
-            log("error", f"Failed to import conversation: {e}", exc_info=True)
+            log("error", f"Failed to import conversation: {e}", stacktrace=True)
             return None
 
     @staticmethod
@@ -346,7 +346,7 @@ class ConversationImporter:
                 return imported_ids
 
         except Exception as e:
-            log("error", f"Failed to import bulk conversations: {e}", exc_info=True)
+            log("error", f"Failed to import bulk conversations: {e}", stacktrace=True)
             return []
 
     @staticmethod
@@ -426,7 +426,7 @@ class ConversationImporter:
             return conversation_id
 
         except Exception as e:
-            log("error", f"Failed to import single conversation: {e}", exc_info=True)
+            log("error", f"Failed to import single conversation: {e}", stacktrace=True)
             return None
 
     @staticmethod
@@ -596,7 +596,7 @@ def auto_import_conversations_from_config(
                 error_count += 1
 
         except Exception as e:
-            log("error", f"Error auto-importing conversation from {file_path}: {e}", exc_info=True)
+            log("error", f"Error auto-importing conversation from {file_path}: {e}", stacktrace=True)
             error_count += 1
 
     log("info", f"Auto-import conversations completed: {imported_count} imported, {error_count} errors")
