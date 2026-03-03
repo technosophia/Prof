@@ -20,5 +20,3 @@ tiktoken
 plotly
 alembic
 sqlalchemy-utils
-
-mem0ai
