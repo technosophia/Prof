@@ -9,6 +9,16 @@ from typing import Dict, List
 import yaml
 
 
+def _literal_representer(dumper, data):
+    """Force literal block style (|) for multiline strings, for human-readable YAML output."""
+    if '\n' in data:
+        data = '\n'.join(line.rstrip() for line in data.splitlines())
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+
+yaml.add_representer(str, _literal_representer, Dumper=yaml.SafeDumper)
+
 
 class SessionSerializer:
     """Converts run result and driver events to a YAML session artifact."""
