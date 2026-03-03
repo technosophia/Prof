@@ -248,7 +248,7 @@ def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, 
             break
 
     if forbidden_match:
-        preview = forbidden_match.get("content", "")[:140]
+        preview = forbidden_match.get("content", "")
         log("info", f"[trainer] injected_context_contains forbidden term matched for step {step_id}: {matched_term}")
         if matched_term in no_rag_markers:
             return {
@@ -274,7 +274,7 @@ def assertion_injected_context_contains(*, params: Dict, steps_by_id: Dict[str, 
                 missing.append(term)
 
         if missing:
-            preview = candidates[0].get("content", "")[:100] if candidates else ""
+            preview = candidates[0].get("content", "") if candidates else ""
             if len(missing) == 1 and len(contains_terms) == 1:
                 return {
                     "passed": False,

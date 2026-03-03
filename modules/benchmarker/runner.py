@@ -268,6 +268,7 @@ class ScenarioRunner:
         for step in scenario.get("steps", []):
             step_id = step.get("id")
             expected_memory = step.get("expected_memory", "")
+            threshold = step.get("threshold", 0.5)
             if not step_id:
                 continue
             if isinstance(expected_memory, str) and expected_memory.strip():
@@ -279,7 +280,7 @@ class ScenarioRunner:
                         "params": {
                             "step_id": step_id,
                             "contains": expected_memory.strip(),
-                            "threshold": 0.70,
+                            "threshold": threshold,
                         },
                     }
                 )

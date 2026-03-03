@@ -154,7 +154,7 @@ def render_admin_tabs_lazy(admin_tabs_dict):
         tab_names = ["System"] + sorted(tab_names)
 
     test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
-    if True:
+    if test_mode:
         # Use regular tabs that render all content (test mode expects this)
         tabs = st.tabs(tab_names)
         for i, tab_name in enumerate(tab_names):
