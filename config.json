@@ -75,6 +75,10 @@
       "description": "Auto-import conversations from YAML files for specific users"
     }
   },
+  "embedding": {
+    "model_name": "all-MiniLM-L6-v2",
+    "vector_dimension": 384
+  },
   "llms": {
     "mock": {
       "type": "mock",

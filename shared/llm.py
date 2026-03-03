@@ -114,10 +114,6 @@ from core.logging import log, set_log_module_level
 from shared.llm_engine import LLMEngine
 
 
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-EMBEDDING_VECTOR_DIMENSION = 384
-
-
 class ContextPosition(Enum):
     """Position where context should be inserted in the messages list."""
     TOP = "top"          # Insert at the beginning (first system messages)
@@ -139,6 +135,10 @@ class LLMManager:
         self.llm_callbacks = []  # Legacy callbacks: return just context string
         self.context_callbacks = []  # Enhanced callbacks: return (context, role, position)
 
+        # Load embedding configuration
+        self.embedding_model_name = self.config.get("embedding.model_name", "all-MiniLM-L6-v2")
+        self.embedding_vector_dimension = self.config.get("embedding.vector_dimension", 384)
+
         # Discover and load all engine modules
         self.discover_engines()
 
@@ -149,6 +149,7 @@ class LLMManager:
         self.initialize_current_llm()
 
         log("debug", f"LLMManager initialized with {len(self.engines)} engines")
+        log("debug", f"Embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)")
 
     def _get_embedding_model(self):
         """Return cached sentence-transformers model, lazily initialized."""
@@ -163,8 +164,8 @@ class LLMManager:
 
         import torch
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-        self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=device)
-        log("info", f"Loaded embedding model: {EMBEDDING_MODEL_NAME} ({EMBEDDING_VECTOR_DIMENSION} dims)")
+        self._embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
+        log("info", f"Loaded embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)")
         return self._embedding_model
 
     def get_embedding(self, text: str) -> List[float]:
@@ -352,6 +353,16 @@ class LLMManager:
         if "llms" not in self.config:
             log("error", "No 'llms' section in configuration")
             return False
+
+        # Validate embedding configuration
+        if "embedding" not in self.config:
+            log("warning", "No 'embedding' section in configuration, using defaults")
+        else:
+            embedding_config = self.config.get("embedding", {})
+            if "model_name" not in embedding_config:
+                log("warning", "Embedding config missing 'model_name', using default")
+            if "vector_dimension" not in embedding_config:
+                log("warning", "Embedding config missing 'vector_dimension', using default")
 
         llms_config = self.config.get("llms", {})
         if not isinstance(llms_config, dict):
