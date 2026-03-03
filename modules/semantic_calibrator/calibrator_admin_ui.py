@@ -28,6 +28,13 @@ import streamlit as st
 
 from core.logging import log
 
+import cProfile
+import io
+import pstats
+from pstats import SortKey
+import streamlit as st
+import tempfile
+import os
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,7 +45,7 @@ def _get_module_config() -> dict:
     try:
         from st_shared.cached import get_config
         cfg = get_config()
-        return cfg.get("semantic_calibrator", {})
+        return cfg.get("modules.semantic_calibrator", {})
     except Exception:
         return {}
 
@@ -63,25 +70,27 @@ def _render_ranking_table(results: dict):
     for model_key, cal in results.items():
         if cal.get("skipped"):
             rows.append({
-                "Model": model_key,
-                "Status": f"⚠ {cal.get('error', 'skipped')}",
-                "Sim Thresh": "—",
-                "Cont Thresh": "—",
-                "Sim Acc": "—",
-                "Cont Acc": "—",
-                "Sim Sep": "—",
-                "Cont Sep": "—",
+                "Modèle": model_key,
+                "Statut": f"⚠ {cal.get('error', 'ignoré')}",
+                "Seuil strict": "—",
+                "Seuil faible": "—",
+                "Seuil cont.": "—",
+                "Préc. strict": "—",
+                "Préc. cont.": "—",
+                "Séparabilité sim": "—",
+                "Séparabilité cont": "—",
             })
         else:
             rows.append({
-                "Model": model_key,
-                "Status": "✓ OK",
-                "Sim Thresh": cal.get("recommended_similarity_threshold", "—"),
-                "Cont Thresh": cal.get("recommended_containment_threshold", "—"),
-                "Sim Acc": f"{cal.get('similarity_accuracy', 0):.1%}",
-                "Cont Acc": f"{cal.get('containment_accuracy', 0):.1%}",
-                "Sim Sep": f"{cal.get('similarity_separability', 0):.4f}",
-                "Cont Sep": f"{cal.get('containment_separability', 0):.4f}",
+                "Modèle": model_key,
+                "Statut": "✓ OK",
+                "Seuil strict": cal.get("recommended_similarity_threshold", "—"),
+                "Seuil faible": cal.get("weak_similarity_threshold", "—"),
+                "Seuil cont.": cal.get("recommended_containment_threshold", "—"),
+                "Préc. strict": f"{cal.get('strong_similarity_accuracy', 0):.1%}",
+                "Préc. cont.": f"{cal.get('containment_accuracy', 0):.1%}",
+                "Séparabilité sim": f"{cal.get('similarity_separability', 0):.4f}",
+                "Séparabilité cont": f"{cal.get('containment_separability', 0):.4f}",
             })
 
     # Sort by combined separability (best first)
@@ -98,14 +107,55 @@ def _render_ranking_table(results: dict):
 def _render_model_detail(model_key: str, cal: dict, benchmark: dict):
     """Render the per-model detail section."""
     if cal.get("skipped"):
-        st.error(f"Model skipped: {cal.get('error', 'unknown error')}")
+        st.error(f"Modèle ignoré : {cal.get('error', 'erreur inconnue')}")
         return
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Sim Threshold", cal.get("recommended_similarity_threshold"))
-    col2.metric("Cont Threshold", cal.get("recommended_containment_threshold"))
-    col3.metric("Sim Accuracy", f"{cal.get('similarity_accuracy', 0):.1%}")
-    col4.metric("Cont Accuracy", f"{cal.get('containment_accuracy', 0):.1%}")
+    st.markdown("**Seuils de similarité**")
+    col1, col2, col3 = st.columns(3)
+    col1.metric(
+        "Seuil strict (validation)",
+        cal.get("recommended_similarity_threshold"),
+        help="identical+strongly_related vs le reste. Pour valider des réponses LLM.",
+    )
+    col2.metric(
+        "Seuil faible (RAG)",
+        cal.get("weak_similarity_threshold"),
+        help="identical+strongly_related+related vs le reste. Pour le retrieval RAG.",
+    )
+    col3.metric(
+        "Seuil containment",
+        cal.get("recommended_containment_threshold"),
+        help="Seuil pour contains_concept().",
+    )
+
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Précision seuil strict", f"{cal.get('strong_similarity_accuracy', 0):.1%}")
+    col5.metric("Précision seuil faible", f"{cal.get('weak_similarity_accuracy', 0):.1%}")
+    col6.metric("Précision containment", f"{cal.get('containment_accuracy', 0):.1%}")
+
+    # Label score distributions
+    label_dist = cal.get("label_distributions", {})
+    if label_dist:
+        st.markdown("**Distribution des scores par label**")
+        VALID_LABELS = ["identical", "strongly_related", "related", "weakly_related", "unrelated"]
+        dist_rows = []
+        for label in VALID_LABELS:
+            if label in label_dist:
+                d = label_dist[label]
+                dist_rows.append({
+                    "Label": label,
+                    "N": d["count"],
+                    "Moyenne": f"{d['mean']:.4f}",
+                    "Min": f"{d['min']:.4f}",
+                    "Max": f"{d['max']:.4f}",
+                    "Écart-type": f"{d['std']:.4f}",
+                })
+        if dist_rows:
+            st.dataframe(dist_rows, use_container_width=True)
+            st.caption(
+                "💡 Bien calibré si mean(identical) > mean(strongly_related) > "
+                "mean(related) > mean(weakly_related) > mean(unrelated)."
+            )
 
     col5, col6 = st.columns(2)
     col5.metric("Sim Separability", f"{cal.get('similarity_separability', 0):.4f}",
@@ -392,9 +442,10 @@ def show_calibrator_admin_content():
         )
         best = successful[best_key]
         st.success(
-            f"**Best model for your use case: `{best_key}`**  \n"
-            f"Similarity threshold: `{best['recommended_similarity_threshold']}`  |  "
-            f"Containment threshold: `{best['recommended_containment_threshold']}`"
+            f"**Meilleur modèle pour votre usage : `{best_key}`**  \n"
+            f"Seuil strict (validation) : `{best['recommended_similarity_threshold']}`  |  "
+            f"Seuil faible (RAG) : `{best.get('weak_similarity_threshold', '—')}`  |  "
+            f"Seuil containment : `{best['recommended_containment_threshold']}`"
         )
 
     # Per-model tabs
@@ -414,14 +465,16 @@ def show_calibrator_admin_content():
     col1, col2 = st.columns(2)
 
     col1.download_button(
-        label="⬇ Download calibration_results.json",
+        label="⬇ Télécharger calibration_results.json",
         data=output_json,
         file_name="calibration_results.json",
         mime="application/json",
         type="primary",
         help=(
-            "Place this file at calibration_results/calibration_results.json "
-            "relative to shared/tests/ so the test suite can read it."
+            "Placez ce fichier dans calibration_results/calibration_results.json "
+            "relatif à shared/tests/ pour que la suite de tests puisse le lire. "
+            "Il contient les deux seuils : recommended_similarity_threshold (strict) "
+            "et weak_similarity_threshold (RAG)."
         ),
     )
 

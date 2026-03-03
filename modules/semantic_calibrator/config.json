@@ -8,37 +8,79 @@
       {
         "key": "all-MiniLM-L6-v2",
         "type": "sentence_transformer",
-        "description": "Fast, lightweight. English-biased. 384 dims."
+        "description": "Rapide, léger. Plutôt anglais. 384 dims.",
+        "language_strength": "en"
       },
       {
         "key": "all-mpnet-base-v2",
         "type": "sentence_transformer",
-        "description": "Higher quality than MiniLM. English. 768 dims."
+        "description": "Meilleure qualité que MiniLM. Anglais. 768 dims.",
+        "language_strength": "en"
       },
       {
         "key": "paraphrase-multilingual-MiniLM-L12-v2",
         "type": "sentence_transformer",
-        "description": "Multilingual (50+ languages). 384 dims."
+        "description": "Multilingue (50+ langues dont français). 384 dims.",
+        "language_strength": "multilingual"
       },
       {
         "key": "paraphrase-multilingual-mpnet-base-v2",
         "type": "sentence_transformer",
-        "description": "Multilingual, higher quality. 768 dims."
+        "description": "Multilingue haute qualité. 768 dims. Recommandé pour le français.",
+        "language_strength": "multilingual"
       },
       {
-        "key": "text-embedding-ada-002",
-        "type": "openai",
-        "description": "OpenAI Ada-002. 1536 dims. Requires OPENAI_API_KEY."
+        "key": "BAAI/bge-m3",
+        "type": "sentence_transformer",
+        "description": "Multilingue (100+ langues). Dense+sparse+multi-vector. 1024 dims. Excellent pour le français.",
+        "language_strength": "multilingual"
       },
       {
-        "key": "text-embedding-3-small",
-        "type": "openai",
-        "description": "OpenAI v3 small. Requires OPENAI_API_KEY."
+        "key": "BAAI/bge-large-en-v1.5",
+        "type": "together",
+        "api_model_id": "BAAI/bge-large-en-v1.5",
+        "description": "BGE Large anglais via Together AI. 1024 dims. MTEB top. Nécessite TOGETHER_API_KEY.",
+        "language_strength": "en",
+        "requires_api_key": "TOGETHER_API_KEY"
       },
       {
-        "key": "text-embedding-3-large",
-        "type": "openai",
-        "description": "OpenAI v3 large. 3072 dims. Requires OPENAI_API_KEY."
+        "key": "WhereIsAI/UAE-Large-V1",
+        "type": "together",
+        "api_model_id": "WhereIsAI/UAE-Large-V1",
+        "description": "UAE-Large via Together AI. 1024 dims. Top MTEB. Nécessite TOGETHER_API_KEY.",
+        "language_strength": "en",
+        "requires_api_key": "TOGETHER_API_KEY"
+      },
+      {
+        "key": "togethercomputer/m2-bert-80M-32k-retrieval",
+        "type": "together",
+        "api_model_id": "togethercomputer/m2-bert-80M-32k-retrieval",
+        "description": "M2-BERT long contexte (32k tokens) via Together AI. Nécessite TOGETHER_API_KEY.",
+        "language_strength": "en",
+        "requires_api_key": "TOGETHER_API_KEY"
+      },
+      {
+        "key": "qwen/qwen3-embedding-8b",
+        "type": "sentence_transformer",
+        "api_model_id": "qwen/qwen3-embedding-8b",
+        "description": "Qwen3 Embedding 8B via OpenRouter. Multilingue, 32k ctx. ~$0.01/M tokens. Nécessite OPENROUTER_API_KEY.",
+        "language_strength": "multilingual"
+      },
+      {
+        "key": "mistralai/mistral-embed-2312",
+        "type": "openrouter",
+        "api_model_id": "mistralai/mistral-embed-2312",
+        "description": "Mistral Embed via OpenRouter. 1024 dims. Bon pour le français. Nécessite OPENROUTER_API_KEY.",
+        "language_strength": "multilingual",
+        "requires_api_key": "OPENROUTER_API_KEY"
+      },
+      {
+        "key": "mistralai/codestral-embed-2505",
+        "type": "openrouter",
+        "api_model_id": "mistralai/codestral-embed-2505",
+        "description": "Codestral Embed (Mai 2025) via OpenRouter. Nécessite OPENROUTER_API_KEY.",
+        "language_strength": "multilingual",
+        "requires_api_key": "OPENROUTER_API_KEY"
       }
     ]
   }
