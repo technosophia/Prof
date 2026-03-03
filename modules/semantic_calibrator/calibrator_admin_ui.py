@@ -89,8 +89,11 @@ def _render_ranking_table(results: dict):
     # Sort by combined separability (best first)
     def _sort_key(row):
         try:
-            return float(row["Sim Sep"]) + float(row["Cont Sep"])
-        except (ValueError, TypeError):
+            # Convert string values back to floats for sorting
+            sim_sep = float(row["Séparabilité sim"]) if row["Séparabilité sim"] != "—" else -999.0
+            cont_sep = float(row["Séparabilité cont"]) if row["Séparabilité cont"] != "—" else -999.0
+            return sim_sep + cont_sep
+        except (ValueError, TypeError, KeyError):
             return -999.0
 
     rows.sort(key=_sort_key, reverse=True)
