@@ -11,8 +11,7 @@ import yaml
 from core.logging import log
 from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
-from shared.common import get_available_llms, get_driver
-from st_shared.cached import get_db_manager
+from shared.common import get_available_llms, get_driver, _get_service
 from modules.benchmarker.benchmarker import BenchmarkRun
 
 
@@ -67,6 +66,9 @@ class _BatchContainer:
     def success(self, text: str) -> None:
         self.messages.append(str(text))
 
+    def error(self, text: str) -> None:
+        self.messages.append(str(text))
+
     def dataframe(self, *args, **kwargs) -> None:  # noqa: ANN002,ANN003
         return
 
@@ -74,8 +76,12 @@ class _BatchContainer:
 class MatrixRunner:
     """Run scenario × option matrix and auto-score each resulting session."""
 
-    def __init__(self, progress_callback: Optional[Callable[[int, int, str], None]] = None):
-        self.scenario_runner = ScenarioRunner()
+    def __init__(self, progress_callback: Optional[Callable[[int, int, str], None]] = None, driver=None, config=None, db_manager=None):
+        self.driver = driver or get_driver()
+        self.db_manager = db_manager or _get_service("db_manager")
+        if self.db_manager is None:
+            raise RuntimeError("benchmarker: 'db_manager' service not available")
+        self.scenario_runner = ScenarioRunner(driver=self.driver, config=config, db_manager=self.db_manager)
         self.pipeline = get_scoring_pipeline()
         self.progress_callback = progress_callback
 
@@ -98,7 +104,7 @@ class MatrixRunner:
         rag_engines: List[str],
     ) -> List[MatrixWarning]:
         warnings: List[MatrixWarning] = []
-        driver_options = get_driver().list_options()
+        driver_options = self.driver.list_options()
         memory_names = {opt.get("name") for opt in driver_options.get("memory_backend", [])}
         rag_names = {opt.get("name") for opt in driver_options.get("rag_engine", [])}
         try:
@@ -326,7 +332,7 @@ class MatrixRunner:
         if not session_path:
             return
         try:
-            with get_db_manager().get_session() as session:
+            with self.db_manager.get_session() as session:
                 row = (
                     session.query(BenchmarkRun)
                     .filter(BenchmarkRun.session_file == session_path)

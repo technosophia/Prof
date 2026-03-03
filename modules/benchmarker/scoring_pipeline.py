@@ -10,7 +10,6 @@ from typing import Dict, List, Optional
 from core.logging import log
 from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.scorers.base import ScoringResult
-from st_shared.cached import get_db_manager
 
 
 def _do_build_registry() -> Dict[str, object]:
@@ -42,39 +41,27 @@ def _do_build_registry() -> Dict[str, object]:
 class ScoringPipeline:
     """Discovers scorer plugins and provides result-loading helpers."""
 
-    def __init__(self, cache_fn=None):
-        """
-        Args:
-            cache_fn: Optional caching decorator (e.g. st.cache_resource).
-                      If None, no caching is applied (useful for tests / headless).
-        """
+    def __init__(self, db_manager, cache_fn=None):
+        self._db_manager = db_manager
         build = cache_fn(_do_build_registry) if cache_fn else _do_build_registry
         self._registry = build()
 
     def get_scorer(self, scorer_id: str):
-        """Return scorer instance by id, or None."""
         return self._registry.get(scorer_id)
 
     def list_scorers(self) -> List[Dict]:
-        """Return scorer metadata for UI selection."""
         return [
-            {
-                "id": scorer.id,
-                "name": scorer.name,
-                "available": scorer.is_available(),
-            }
+            {"id": scorer.id, "name": scorer.name, "available": scorer.is_available()}
             for scorer in self._registry.values()
         ]
 
     def load_results(self, session_path: str) -> List[ScoringResult]:
-        """Load all scoring results for a given session path."""
-        with get_db_manager().get_session() as db:
+        with self._db_manager.get_session() as db:
             rows = db.query(ScoringRun).filter(ScoringRun.session_file == session_path).all()
             return [self._row_to_result(row) for row in rows]
 
     def load_results_for_scenario(self, scenario_name: str, scorer_id: str = None) -> List[ScoringResult]:
-        """Load scoring results for runs of one scenario, optionally filtered by scorer."""
-        with get_db_manager().get_session() as db:
+        with self._db_manager.get_session() as db:
             query = db.query(ScoringRun).join(BenchmarkRun, ScoringRun.run_id == BenchmarkRun.id)
             query = query.filter(BenchmarkRun.scenario_name == scenario_name)
             if scorer_id:
@@ -100,14 +87,13 @@ class ScoringPipeline:
 _SCORING_PIPELINE: Optional[ScoringPipeline] = None
 
 
-def get_scoring_pipeline() -> ScoringPipeline:
-    """Return singleton scoring pipeline, using the cache service from ServiceLocator if available."""
+def configure_scoring_pipeline(db_manager, cache_fn=None) -> None:
+    """Configure singleton dependencies from module activation."""
     global _SCORING_PIPELINE
+    _SCORING_PIPELINE = ScoringPipeline(db_manager=db_manager, cache_fn=cache_fn)
+
+
+def get_scoring_pipeline() -> ScoringPipeline:
     if _SCORING_PIPELINE is None:
-        try:
-            from shared.common import _get_service
-            cache_fn = _get_service("cache")
-        except Exception:
-            cache_fn = None
-        _SCORING_PIPELINE = ScoringPipeline(cache_fn=cache_fn)
+        raise RuntimeError("benchmarker: scoring pipeline is not configured; activate module first")
     return _SCORING_PIPELINE

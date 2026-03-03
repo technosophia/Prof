@@ -11,16 +11,14 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from shared.common import get_current_llm_id, get_driver, get_user_manager, set_current_llm
+from shared.common import get_current_llm_id, get_driver, get_user_manager, set_current_llm, _get_service
 from shared.driver import DriverActionError, DriverContextError, DriverOptionError, DriverAssertionError
 
-from modules.benchmarker import initialize as initialize_benchmarker
 from modules.benchmarker.benchmarker import BenchmarkRun
 from modules.benchmarker.session import SessionSerializer
 
 
 from core.logging import log, set_log_module_level
-from st_shared.cached import get_section, get_db_manager
 @dataclass
 class AssertionResult:
     """Result of a single scenario assertion."""
@@ -69,11 +67,15 @@ class ScenarioRunner:
         "system": {"create_conversation", "set_training_program", "switch_option"},
     }
 
-    def __init__(self):
-        # Ensure benchmarker actions and table are available before any validation/run.
-        initialize_benchmarker()
-        self.driver = get_driver()
-        self.config = get_section("benchmarker")
+    def __init__(self, driver=None, config=None, db_manager=None):
+        self.driver = driver or get_driver()
+        app_config = config or _get_service("config")
+        if app_config is None:
+            raise RuntimeError("benchmarker: 'config' service not available")
+        self.config = app_config.get("benchmarker", {})
+        self.db_manager = db_manager or _get_service("db_manager")
+        if self.db_manager is None:
+            raise RuntimeError("benchmarker: 'db_manager' service not available")
 
     def run(
         self,
@@ -413,7 +415,7 @@ class ScenarioRunner:
         try:
 
 
-            with get_db_manager().get_session() as session:
+            with self.db_manager.get_session() as session:
                 session.add(
                     BenchmarkRun(
                         scenario_name=run_result.scenario_name,

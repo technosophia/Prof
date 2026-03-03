@@ -21,15 +21,12 @@ class SimpleRAGEngine(RAGEngine):
         """
         Args:
             config: The 'engines.simple' section of the rag_manager config dict.
-                    If None, falls back to st_shared.cached for backward compatibility.
+                    If None, defaults to an empty engine-specific config dict.
         """
         super().__init__("simple")
         self.description = "Simple text-based RAG engine using keyword matching"
 
-        if config is None:
-            from st_shared.cached import get_config as _get_config
-            rag_config = _get_config().get("modules.rag_manager", {})
-            config = rag_config.get("engines", {}).get("simple", {})
+        config = config or {}
 
         self.index_path = Path(config.get("index_path", "data/simple_indexes"))
         self.indices: Dict[str, Dict] = {}

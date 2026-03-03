@@ -7,7 +7,6 @@ from sqlalchemy import Column, DateTime, Float, Integer, JSON, String, Text
 
 from core.logging import log
 from core.database import Base
-from st_shared.cached import get_db_manager
 
 
 class BenchmarkRun(Base):
@@ -48,11 +47,10 @@ class ScoringRun(Base):
     parse_errors = Column(JSON, default=[])
 
 
-def ensure_tables_exist() -> None:
+def ensure_tables_exist(db_manager) -> None:
     """Create benchmarker tables when DB engine is available."""
-    db = get_db_manager()
-    if db.is_initialized() and db._engine is not None:
-        BenchmarkRun.__table__.create(bind=db._engine, checkfirst=True)
-        ScoringRun.__table__.create(bind=db._engine, checkfirst=True)
+    if db_manager.is_initialized() and db_manager._engine is not None:
+        BenchmarkRun.__table__.create(bind=db_manager._engine, checkfirst=True)
+        ScoringRun.__table__.create(bind=db_manager._engine, checkfirst=True)
         log("debug", "Benchmarker table ensured: benchmark_runs")
         log("debug", "Benchmarker table ensured: scoring_runs")

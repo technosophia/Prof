@@ -57,7 +57,6 @@ def inject_ui_initialize() -> bool:
     if 'last_rag_timestamp' not in st.session_state:
         st.session_state.last_rag_timestamp = 0
 
-    log("debug", "rag_manager_ui: session state initialized")
     return True
 
 # ---------------------------------------------------------------------------

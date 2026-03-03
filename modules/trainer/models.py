@@ -12,7 +12,6 @@ import uuid
 
 from core.logging import log, set_log_module_level
 from core.database import Base
-from st_shared.cached import get_db_manager
 
 
 class TrainerConfig(Base):
@@ -66,8 +65,8 @@ def ensure_tables_exist() -> bool:
     if not db.is_initialized() or db._engine is None:
         return False
 
-    TrainerConfig.__table__.create(bind=db._engine, checkfirst=True)
-    PluginData.__table__.create(bind=db._engine, checkfirst=True)
-    PluginActivation.__table__.create(bind=db._engine, checkfirst=True)
+    TrainerConfig.__table__.create(bind=db_manager._engine, checkfirst=True)
+    PluginData.__table__.create(bind=db_manager._engine, checkfirst=True)
+    PluginActivation.__table__.create(bind=db_manager._engine, checkfirst=True)
     log("debug", "Trainer tables ensured: trainer_config, trainer_plugin_data, trainer_plugin_activations")
     return True

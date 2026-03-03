@@ -24,15 +24,12 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         """
         Args:
             config: The 'engines.faiss_hierarchical' section of the rag_manager config.
-                    If None, falls back to st_shared.cached for backward compatibility.
+                    If None, defaults to an empty engine-specific config dict.
         """
         super().__init__("faiss_hierarchical")
         self.description = "FAISS vector store with hierarchical markdown parsing (chapter résumé + subsections)"
 
-        if config is None:
-            from st_shared.cached import get_config as _get_config
-            rag_config = _get_config().get("modules.rag_manager", {})
-            config = rag_config.get("engines", {}).get("faiss_hierarchical", {})
+        config = config or {}
 
         self.index_path = Path(config.get("index_path", "./data/hierarchical_indexes"))
         self.index_path.mkdir(parents=True, exist_ok=True)

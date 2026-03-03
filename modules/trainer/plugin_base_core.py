@@ -79,27 +79,14 @@ class TrainerPluginCore(ABC):
         return self._is_active
 
     def _resolve_services(self, services=None) -> None:
-        if services is not None:
-            self.db = services.get("db_manager")
-            self.user_manager = services.get("user_manager")
-            self.conversation_manager = services.get("conversation_manager")
-            self.llm_manager = services.get("llm_manager")
-            self.config = services.get("config")
-        else:
-            try:
-                from st_shared.cached import (
-                    get_db_manager,
-                    get_user_manager,
-                    get_conversation_manager,
-                    get_llm_manager,
-                )
-                self.db = get_db_manager()
-                self.user_manager = get_user_manager()
-                self.conversation_manager = get_conversation_manager()
-                self.llm_manager = get_llm_manager()
-            except Exception as e:
-                log("warning", f"plugin {self.id}: could not resolve services from st_shared.cached: {e}")
+        if services is None:
+            raise RuntimeError(f"plugin {self.id}: services are required for initialization")
 
+        self.db = services.get("db_manager")
+        self.user_manager = services.get("user_manager")
+        self.conversation_manager = services.get("conversation_manager")
+        self.llm_manager = services.get("llm_manager")
+        self.config = services.get("config")
     def set_trainer_manager(self, trainer_manager) -> None:
         self.trainer_manager = trainer_manager
 
