@@ -1,102 +1,213 @@
 {
-  "generated_at": "2026-03-03T04:44:38.393868",
+  "generated_at": "2026-03-03T07:40:51.406057",
   "chunk_window": 3,
   "chunk_step": 1,
+  "valid_labels": [
+    "identical",
+    "strongly_related",
+    "related",
+    "weakly_related",
+    "unrelated"
+  ],
   "models": {
     "all-MiniLM-L6-v2": {
       "model_key": "all-MiniLM-L6-v2",
       "model_type": "sentence_transformer",
-      "timestamp": "2026-03-03T02:23:34.021304",
+      "timestamp": "2026-03-03T07:40:37.831550",
       "skipped": false,
       "error": null,
-      "recommended_similarity_threshold": 0.1077,
-      "recommended_containment_threshold": 0.243,
-      "similarity_f1": 0.9714,
-      "containment_f1": 0.9231,
-      "similarity_accuracy": 0.96,
-      "containment_accuracy": 0.8947,
-      "similarity_separability": 0.5548,
-      "containment_separability": 0.3236,
+      "recommended_similarity_threshold": 0.5827,
+      "weak_similarity_threshold": 0.35,
+      "recommended_containment_threshold": 0.0387,
+      "strong_similarity_f1": 0.88,
+      "strong_similarity_accuracy": 0.8421,
+      "weak_similarity_f1": 0.8889,
+      "weak_similarity_accuracy": 0.8148,
+      "containment_f1": 0.8333,
+      "containment_accuracy": 0.7273,
+      "similarity_separability": 0.1957,
+      "containment_separability": 0.198,
+      "label_distributions": {
+        "identical": {
+          "count": 3,
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "strongly_related": {
+          "count": 9,
+          "mean": 0.7278,
+          "min": 0.4495,
+          "max": 0.9566,
+          "std": 0.1423
+        },
+        "related": {
+          "count": 8,
+          "mean": 0.6013,
+          "min": 0.4062,
+          "max": 0.7721,
+          "std": 0.1049
+        },
+        "weakly_related": {
+          "count": 4,
+          "mean": 0.4016,
+          "min": 0.3149,
+          "max": 0.5446,
+          "std": 0.0945
+        },
+        "unrelated": {
+          "count": 7,
+          "mean": 0.5223,
+          "min": 0.342,
+          "max": 0.8015,
+          "std": 0.1535
+        }
+      },
       "category_report": {
         "sim/exact_match": {
-          "n_positive": 3,
+          "n_strong_positive": 3,
+          "n_weak_positive": 3,
           "n_negative": 0,
-          "mean_positive": 1.0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 1.0,
+          "mean_weak_positive": 1.0,
           "mean_negative": null,
-          "min_positive": 1.0,
+          "mean_ambiguous": null,
+          "min_strong_positive": 1.0,
           "max_negative": null
         },
-        "sim/paraphrase": {
-          "n_positive": 6,
+        "sim/direct_paraphrase": {
+          "n_strong_positive": 5,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.6955,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.806,
+          "mean_weak_positive": 0.806,
           "mean_negative": null,
-          "min_positive": 0.1928,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.7036,
           "max_negative": null
         },
-        "sim/cross_lingual": {
-          "n_positive": 4,
+        "sim/same_topic_different_angle": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.3394,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.587,
           "mean_negative": null,
-          "min_positive": 0.1146,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
           "max_negative": null
         },
-        "sim/response_vs_expected": {
-          "n_positive": 4,
+        "sim/broad_domain_match": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 0,
+          "n_ambiguous": 4,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": null,
+          "mean_ambiguous": 0.4016,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_correct": {
+          "n_strong_positive": 4,
+          "n_weak_positive": 4,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.63,
+          "mean_weak_positive": 0.63,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.4495,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_partial": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 3,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.6251,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_wrong": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
           "n_negative": 3,
-          "mean_positive": 0.4822,
-          "mean_negative": 0.115,
-          "min_positive": 0.2581,
-          "max_negative": 0.2678
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.6722,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.8015
         },
         "sim/unrelated": {
-          "n_positive": 0,
-          "n_negative": 5,
-          "mean_positive": null,
-          "mean_negative": 0.0278,
-          "min_positive": null,
-          "max_negative": 0.0607
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 4,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.4099,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.4742
         },
-        "cont/concept_present_short": {
+        "cont/concept_present_explicit": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.5993,
+          "mean_positive": 0.393,
           "mean_negative": null,
-          "min_positive": 0.4054,
+          "min_positive": 0.1635,
+          "max_negative": null
+        },
+        "cont/concept_present_synonyms": {
+          "n_positive": 4,
+          "n_negative": 0,
+          "mean_positive": 0.282,
+          "mean_negative": null,
+          "min_positive": 0.1404,
           "max_negative": null
         },
         "cont/concept_present_buried": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.4695,
+          "mean_positive": 0.4758,
           "mean_negative": null,
-          "min_positive": 0.3436,
+          "min_positive": 0.3713,
           "max_negative": null
         },
-        "cont/concept_present_synonyms": {
+        "cont/concept_present_implied": {
           "n_positive": 3,
           "n_negative": 0,
-          "mean_positive": 0.3111,
+          "mean_positive": 0.1751,
           "mean_negative": null,
-          "min_positive": 0.0659,
+          "min_positive": 0.0683,
           "max_negative": null
         },
-        "cont/cross_lingual_containment": {
-          "n_positive": 3,
-          "n_negative": 0,
-          "mean_positive": 0.311,
-          "mean_negative": null,
-          "min_positive": 0.0679,
-          "max_negative": null
-        },
-        "cont/concept_absent": {
+        "cont/concept_absent_plausible": {
           "n_positive": 0,
-          "n_negative": 5,
+          "n_negative": 4,
           "mean_positive": null,
-          "mean_negative": 0.1151,
+          "mean_negative": 0.1593,
           "min_positive": null,
-          "max_negative": 0.2085
+          "max_negative": 0.2559
+        },
+        "cont/concept_absent_clear": {
+          "n_positive": 0,
+          "n_negative": 3,
+          "mean_positive": null,
+          "mean_negative": 0.1234,
+          "min_positive": null,
+          "max_negative": 0.1947
         }
       },
       "similarity_scores": [
@@ -104,7 +215,7 @@
           "pair_id": "sim_001",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
@@ -118,413 +229,583 @@
           "pair_id": "sim_003",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
           "pair_id": "sim_004",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.8039
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.7988
         },
         {
           "pair_id": "sim_005",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
-          "score": 0.9571
+          "score": 0.7036
         },
         {
           "pair_id": "sim_006",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.8264
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.7599
         },
         {
           "pair_id": "sim_007",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
-          "score": 0.7953
+          "score": 0.811
         },
         {
           "pair_id": "sim_008",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.5978
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9566
         },
         {
           "pair_id": "sim_009",
           "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.1928
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.6678
         },
         {
           "pair_id": "sim_010",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.4353
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.7721
         },
         {
           "pair_id": "sim_011",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.5887
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.6025
         },
         {
           "pair_id": "sim_012",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.1146
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.4062
         },
         {
           "pair_id": "sim_013",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.2191
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.4863
         },
         {
           "pair_id": "sim_014",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.4773
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.5446
         },
         {
           "pair_id": "sim_015",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.512
+          "score": 0.4289
         },
         {
           "pair_id": "sim_016",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.2581
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.3178
         },
         {
           "pair_id": "sim_017",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.6814
+          "score": 0.3149
         },
         {
           "pair_id": "sim_018",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.1009
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.8422
         },
         {
           "pair_id": "sim_019",
-          "label": "unrelated",
-          "category": "response_vs_expected",
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
           "language": "fr",
-          "score": 0.2678
+          "score": 0.4495
         },
         {
           "pair_id": "sim_020",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": -0.0236
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.6181
         },
         {
           "pair_id": "sim_021",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0607
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.6104
         },
         {
           "pair_id": "sim_022",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0566
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.6144
         },
         {
           "pair_id": "sim_023",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0055
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.6555
         },
         {
           "pair_id": "sim_024",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": -0.0287
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.6054
         },
         {
           "pair_id": "sim_025",
           "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.8015
+        },
+        {
+          "pair_id": "sim_026",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.555
+        },
+        {
+          "pair_id": "sim_027",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.66
+        },
+        {
+          "pair_id": "sim_028",
+          "label": "unrelated",
           "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0448
+          "language": "fr",
+          "score": 0.342
+        },
+        {
+          "pair_id": "sim_029",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.4741
+        },
+        {
+          "pair_id": "sim_030",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.4742
+        },
+        {
+          "pair_id": "sim_031",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.3495
         }
       ],
       "containment_scores": [
         {
           "case_id": "cont_001",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.6703,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.3714,
+          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau, c'est-à-dire que sans elle, on ne "
         },
         {
           "case_id": "cont_002",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.7355,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.1635,
+          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
         },
         {
           "case_id": "cont_003",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.4054,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.4373,
+          "best_chunk": "La respiration peut être à la fois automatique ou contrôlée."
         },
         {
           "case_id": "cont_004",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.5861,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "best_score": 0.5999,
+          "best_chunk": "Le système sympathique en gros, c'est une métaphore. C'est un peu comme l'accélérateur physiologique."
         },
         {
           "case_id": "cont_005",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.3436,
-          "best_chunk": "- MVP Features: - RAG with different RAG engines, means to compare and debug them. - Token stats: monitoring token usage"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.2382,
+          "best_chunk": "Le cerveau se concentre sur les régions où l'incertitude est optimale."
         },
         {
           "case_id": "cont_006",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.5134,
-          "best_chunk": "Il compare la difficulté à maintenir l'attention à un funambule en pleine tempête, cette tempête intérieure correspondan"
+          "best_score": 0.4916,
+          "best_chunk": "Pour réguler l'attention, il faut un modèle interne fidèle."
         },
         {
           "case_id": "cont_007",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.5603,
-          "best_chunk": "Runs scenarios where students ask questions about the document's content 2. Captures LLM responses and injected contexts"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.1404,
+          "best_chunk": "La position du corps influence l'état mental en pratique."
         },
         {
           "case_id": "cont_008",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.4607,
-          "best_chunk": "Le texte détaille ensuite le mécanisme de ce contrôle, en s'appuyant sur les sciences cognitives et le théorème du bon r"
+          "best_score": 0.2579,
+          "best_chunk": "Détendre le regard aide à libérer les tensions mentales."
         },
         {
           "case_id": "cont_009",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.4554,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.4851,
+          "best_chunk": "Je ne parle même pas d'avoir une attention absente, ça n'existe pas vraiment en fait. Pourquoi je dis que c'est l'attent"
         },
         {
           "case_id": "cont_010",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.0659,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.5309,
+          "best_chunk": "L'approche que je vous propose est fondée sur les sciences cognitives. Mais aussi sur l'étude évolutionnaire de l'attent"
         },
         {
           "case_id": "cont_011",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en",
-          "best_score": 0.4121,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.3713,
+          "best_chunk": "J'insiste sur ce dernier point. Ce que je vous propose, ce ne sont pas des pratiques ou des exercices qu'il faut faire. "
         },
         {
           "case_id": "cont_012",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.5876,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.5161,
+          "best_chunk": "Or, l'attention, c'est le mécanisme cognitif qui sert en quelque sorte à gérer l'incertitude. On me dit comme ça, ça peu"
         },
         {
           "case_id": "cont_013",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.2776,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.3549,
+          "best_chunk": "L'attention filtre les perceptions pour permettre l'auto-correction en vue d'une tâche."
         },
         {
           "case_id": "cont_014",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.0679,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.102,
+          "best_chunk": "Le cerveau cherche à réduire les erreurs de prédiction, attiré par une dose optimale de surprise."
         },
         {
           "case_id": "cont_015",
-          "expected": false,
-          "category": "concept_absent",
-          "language": "en",
-          "best_score": 0.1621,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "expected": true,
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.0683,
+          "best_chunk": "Maintenir un équilibre entre activation et calme via respiration, posture et regard."
         },
         {
           "case_id": "cont_016",
           "expected": false,
-          "category": "concept_absent",
+          "category": "concept_absent_plausible",
           "language": "fr",
-          "best_score": 0.2085,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.1533,
+          "best_chunk": "L'attention est une fonction cognitive fondamentale, on ne peut pas faire grand-chose sans elle."
         },
         {
           "case_id": "cont_017",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.1835,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.1217,
+          "best_chunk": "La méditation vise à diriger l'attention sur un objet spécifique pour calmer le mental."
         },
         {
           "case_id": "cont_018",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.0378,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.2559,
+          "best_chunk": "Le théorème du bon régulateur explique comment développer un modèle interne de l'attention."
         },
         {
           "case_id": "cont_019",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": -0.0164,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.1064,
+          "best_chunk": "La posture et le regard influencent l'équilibre du système nerveux en méditation."
+        },
+        {
+          "case_id": "cont_020",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1663,
+          "best_chunk": "L'attention gère l'incertitude pour la survie dans un contexte évolutionnaire."
+        },
+        {
+          "case_id": "cont_021",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1947,
+          "best_chunk": "Les pratiques méditatives enrichissent l'objet d'attention pour le rendre intéressant."
+        },
+        {
+          "case_id": "cont_022",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.0091,
+          "best_chunk": "Le flow attentionnel nécessite de réguler l'état interne via des leviers indirects."
         }
       ]
     },
     "all-mpnet-base-v2": {
       "model_key": "all-mpnet-base-v2",
       "model_type": "sentence_transformer",
-      "timestamp": "2026-03-03T02:23:44.285637",
+      "timestamp": "2026-03-03T07:40:40.812303",
       "skipped": false,
       "error": null,
-      "recommended_similarity_threshold": 0.1295,
-      "recommended_containment_threshold": 0.033,
-      "similarity_f1": 0.9714,
-      "containment_f1": 0.9032,
-      "similarity_accuracy": 0.96,
-      "containment_accuracy": 0.8421,
-      "similarity_separability": 0.5962,
-      "containment_separability": 0.2779,
+      "recommended_similarity_threshold": 0.5113,
+      "weak_similarity_threshold": 0.382,
+      "recommended_containment_threshold": 0.0,
+      "strong_similarity_f1": 0.9231,
+      "strong_similarity_accuracy": 0.8947,
+      "weak_similarity_f1": 0.9091,
+      "weak_similarity_accuracy": 0.8519,
+      "containment_f1": 0.8108,
+      "containment_accuracy": 0.6818,
+      "similarity_separability": 0.2726,
+      "containment_separability": 0.1475,
+      "label_distributions": {
+        "identical": {
+          "count": 3,
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "strongly_related": {
+          "count": 9,
+          "mean": 0.7614,
+          "min": 0.5146,
+          "max": 0.9188,
+          "std": 0.1288
+        },
+        "related": {
+          "count": 8,
+          "mean": 0.6031,
+          "min": 0.3821,
+          "max": 0.8199,
+          "std": 0.1259
+        },
+        "weakly_related": {
+          "count": 4,
+          "mean": 0.4262,
+          "min": 0.2657,
+          "max": 0.5543,
+          "std": 0.1103
+        },
+        "unrelated": {
+          "count": 7,
+          "mean": 0.4612,
+          "min": 0.128,
+          "max": 0.7564,
+          "std": 0.2087
+        }
+      },
       "category_report": {
         "sim/exact_match": {
-          "n_positive": 3,
+          "n_strong_positive": 3,
+          "n_weak_positive": 3,
           "n_negative": 0,
-          "mean_positive": 1.0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 1.0,
+          "mean_weak_positive": 1.0,
           "mean_negative": null,
-          "min_positive": 1.0,
+          "mean_ambiguous": null,
+          "min_strong_positive": 1.0,
           "max_negative": null
         },
-        "sim/paraphrase": {
-          "n_positive": 6,
+        "sim/direct_paraphrase": {
+          "n_strong_positive": 5,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.7567,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.8283,
+          "mean_weak_positive": 0.8283,
           "mean_negative": null,
-          "min_positive": 0.3583,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.7378,
           "max_negative": null
         },
-        "sim/cross_lingual": {
-          "n_positive": 4,
+        "sim/same_topic_different_angle": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.3182,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.6327,
           "mean_negative": null,
-          "min_positive": 0.1518,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
           "max_negative": null
         },
-        "sim/response_vs_expected": {
-          "n_positive": 4,
+        "sim/broad_domain_match": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 0,
+          "n_ambiguous": 4,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": null,
+          "mean_ambiguous": 0.4262,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_correct": {
+          "n_strong_positive": 4,
+          "n_weak_positive": 4,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.6776,
+          "mean_weak_positive": 0.6776,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.5146,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_partial": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 3,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.5538,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_wrong": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
           "n_negative": 3,
-          "mean_positive": 0.5216,
-          "mean_negative": 0.065,
-          "min_positive": 0.4087,
-          "max_negative": 0.1071
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.622,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.7564
         },
         "sim/unrelated": {
-          "n_positive": 0,
-          "n_negative": 5,
-          "mean_positive": null,
-          "mean_negative": 0.0329,
-          "min_positive": null,
-          "max_negative": 0.1653
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 4,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.3407,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.5081
         },
-        "cont/concept_present_short": {
+        "cont/concept_present_explicit": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.5478,
+          "mean_positive": 0.4295,
           "mean_negative": null,
-          "min_positive": 0.4047,
+          "min_positive": 0.1314,
+          "max_negative": null
+        },
+        "cont/concept_present_synonyms": {
+          "n_positive": 4,
+          "n_negative": 0,
+          "mean_positive": 0.2851,
+          "mean_negative": null,
+          "min_positive": 0.1213,
           "max_negative": null
         },
         "cont/concept_present_buried": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.3902,
+          "mean_positive": 0.5094,
           "mean_negative": null,
-          "min_positive": 0.3187,
+          "min_positive": 0.3697,
           "max_negative": null
         },
-        "cont/concept_present_synonyms": {
+        "cont/concept_present_implied": {
           "n_positive": 3,
           "n_negative": 0,
-          "mean_positive": 0.3001,
+          "mean_positive": 0.2147,
           "mean_negative": null,
-          "min_positive": 0.0869,
+          "min_positive": 0.0085,
           "max_negative": null
         },
-        "cont/cross_lingual_containment": {
-          "n_positive": 3,
-          "n_negative": 0,
-          "mean_positive": 0.317,
-          "mean_negative": null,
-          "min_positive": 0.0419,
-          "max_negative": null
-        },
-        "cont/concept_absent": {
+        "cont/concept_absent_plausible": {
           "n_positive": 0,
-          "n_negative": 5,
+          "n_negative": 4,
           "mean_positive": null,
-          "mean_negative": 0.1224,
+          "mean_negative": 0.2319,
           "min_positive": null,
-          "max_negative": 0.389
+          "max_negative": 0.3825
+        },
+        "cont/concept_absent_clear": {
+          "n_positive": 0,
+          "n_negative": 3,
+          "mean_positive": null,
+          "mean_negative": 0.2085,
+          "min_positive": null,
+          "max_negative": 0.2842
         }
       },
       "similarity_scores": [
@@ -532,7 +813,7 @@
           "pair_id": "sim_001",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
@@ -546,413 +827,583 @@
           "pair_id": "sim_003",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
           "pair_id": "sim_004",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.8142
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.8468
         },
         {
           "pair_id": "sim_005",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
-          "score": 0.9083
+          "score": 0.7378
         },
         {
           "pair_id": "sim_006",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.907
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.7383
         },
         {
           "pair_id": "sim_007",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
-          "score": 0.8448
+          "score": 0.9
         },
         {
           "pair_id": "sim_008",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.7073
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9188
         },
         {
           "pair_id": "sim_009",
           "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.3583
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.6893
         },
         {
           "pair_id": "sim_010",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.2963
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.8199
         },
         {
           "pair_id": "sim_011",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.6319
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.6864
         },
         {
           "pair_id": "sim_012",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.1927
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.3821
         },
         {
           "pair_id": "sim_013",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.1518
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.5858
         },
         {
           "pair_id": "sim_014",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.4902
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.5543
         },
         {
           "pair_id": "sim_015",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.4087
+          "score": 0.3877
         },
         {
           "pair_id": "sim_016",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.4595
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.4971
         },
         {
           "pair_id": "sim_017",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.7282
+          "score": 0.2657
         },
         {
           "pair_id": "sim_018",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.0397
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.8766
         },
         {
           "pair_id": "sim_019",
-          "label": "unrelated",
-          "category": "response_vs_expected",
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
           "language": "fr",
-          "score": 0.1071
+          "score": 0.5146
         },
         {
           "pair_id": "sim_020",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.0482
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.6925
         },
         {
           "pair_id": "sim_021",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": -0.0379
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.6269
         },
         {
           "pair_id": "sim_022",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0569
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.5279
         },
         {
           "pair_id": "sim_023",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": -0.0303
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.5038
         },
         {
           "pair_id": "sim_024",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0106
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.6297
         },
         {
           "pair_id": "sim_025",
           "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.7564
+        },
+        {
+          "pair_id": "sim_026",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.3818
+        },
+        {
+          "pair_id": "sim_027",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.7277
+        },
+        {
+          "pair_id": "sim_028",
+          "label": "unrelated",
           "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.1653
+          "language": "fr",
+          "score": 0.128
+        },
+        {
+          "pair_id": "sim_029",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.3001
+        },
+        {
+          "pair_id": "sim_030",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.5081
+        },
+        {
+          "pair_id": "sim_031",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.4265
         }
       ],
       "containment_scores": [
         {
           "case_id": "cont_001",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.4047,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.3387,
+          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau, c'est-à-dire que sans elle, on ne "
         },
         {
           "case_id": "cont_002",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.7771,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.1314,
+          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
         },
         {
           "case_id": "cont_003",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.4986,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.5279,
+          "best_chunk": "La respiration peut être à la fois automatique ou contrôlée."
         },
         {
           "case_id": "cont_004",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.5108,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "best_score": 0.7202,
+          "best_chunk": "Le système sympathique en gros, c'est une métaphore. C'est un peu comme l'accélérateur physiologique."
         },
         {
           "case_id": "cont_005",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.3257,
-          "best_chunk": "- MVP Features: - RAG with different RAG engines, means to compare and debug them. - Token stats: monitoring token usage"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.1213,
+          "best_chunk": "Le cerveau se concentre sur les régions où l'incertitude est optimale."
         },
         {
           "case_id": "cont_006",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.3187,
-          "best_chunk": "Il compare la difficulté à maintenir l'attention à un funambule en pleine tempête, cette tempête intérieure correspondan"
+          "best_score": 0.4601,
+          "best_chunk": "Pour réguler l'attention, il faut un modèle interne fidèle."
         },
         {
           "case_id": "cont_007",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.4011,
-          "best_chunk": "Captures LLM responses and injected contexts (RAG, memory, notes) 3. Uses a judge LLM to score quality according to thes"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.2868,
+          "best_chunk": "La position du corps influence l'état mental en pratique."
         },
         {
           "case_id": "cont_008",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.5153,
-          "best_chunk": "Le texte détaille ensuite le mécanisme de ce contrôle, en s'appuyant sur les sciences cognitives et le théorème du bon r"
+          "best_score": 0.2722,
+          "best_chunk": "Détendre le regard aide à libérer les tensions mentales."
         },
         {
           "case_id": "cont_009",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.4159,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.5275,
+          "best_chunk": "C'est très difficile de faire avec une attention déréglée. Je ne parle même pas d'avoir une attention absente, ça n'exis"
         },
         {
           "case_id": "cont_010",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.0869,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.6029,
+          "best_chunk": "Aujourd'hui, nous avons la science qui peut nous éclairer sur la manière de procéder. C'est ce que vous allez voir dans "
         },
         {
           "case_id": "cont_011",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en",
-          "best_score": 0.3976,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.3697,
+          "best_chunk": "J'insiste sur ce dernier point. Ce que je vous propose, ce ne sont pas des pratiques ou des exercices qu'il faut faire. "
         },
         {
           "case_id": "cont_012",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.4484,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.5376,
+          "best_chunk": "Qu'est-ce que l'incertitude ? En fait, si dans le noir vous avez une forme sinueuse devant vous. Si vous ne savez pas si"
         },
         {
           "case_id": "cont_013",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.4608,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.4731,
+          "best_chunk": "L'attention filtre les perceptions pour permettre l'auto-correction en vue d'une tâche."
         },
         {
           "case_id": "cont_014",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.0419,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.0085,
+          "best_chunk": "Le cerveau cherche à réduire les erreurs de prédiction, attiré par une dose optimale de surprise."
         },
         {
           "case_id": "cont_015",
-          "expected": false,
-          "category": "concept_absent",
-          "language": "en",
-          "best_score": 0.1547,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "expected": true,
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.1626,
+          "best_chunk": "Maintenir un équilibre entre activation et calme via respiration, posture et regard."
         },
         {
           "case_id": "cont_016",
           "expected": false,
-          "category": "concept_absent",
+          "category": "concept_absent_plausible",
           "language": "fr",
-          "best_score": 0.389,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.1964,
+          "best_chunk": "L'attention est une fonction cognitive fondamentale, on ne peut pas faire grand-chose sans elle."
         },
         {
           "case_id": "cont_017",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.0875,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.2908,
+          "best_chunk": "La méditation vise à diriger l'attention sur un objet spécifique pour calmer le mental."
         },
         {
           "case_id": "cont_018",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": -0.0434,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.3825,
+          "best_chunk": "Le théorème du bon régulateur explique comment développer un modèle interne de l'attention."
         },
         {
           "case_id": "cont_019",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.0242,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.0581,
+          "best_chunk": "La posture et le regard influencent l'équilibre du système nerveux en méditation."
+        },
+        {
+          "case_id": "cont_020",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1692,
+          "best_chunk": "L'attention gère l'incertitude pour la survie dans un contexte évolutionnaire."
+        },
+        {
+          "case_id": "cont_021",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.2842,
+          "best_chunk": "Les pratiques méditatives enrichissent l'objet d'attention pour le rendre intéressant."
+        },
+        {
+          "case_id": "cont_022",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1721,
+          "best_chunk": "Le flow attentionnel nécessite de réguler l'état interne via des leviers indirects."
         }
       ]
     },
     "paraphrase-multilingual-MiniLM-L12-v2": {
       "model_key": "paraphrase-multilingual-MiniLM-L12-v2",
       "model_type": "sentence_transformer",
-      "timestamp": "2026-03-03T02:23:55.390186",
+      "timestamp": "2026-03-03T07:40:45.575032",
       "skipped": false,
       "error": null,
-      "recommended_similarity_threshold": 0.3,
-      "recommended_containment_threshold": 0.25,
-      "similarity_f1": 0.9697,
-      "containment_f1": 0.9655,
-      "similarity_accuracy": 0.96,
-      "containment_accuracy": 0.9474,
-      "similarity_separability": 0.6715,
-      "containment_separability": 0.3501,
+      "recommended_similarity_threshold": 0.6764,
+      "weak_similarity_threshold": 0.3388,
+      "recommended_containment_threshold": 0.1225,
+      "strong_similarity_f1": 0.9565,
+      "strong_similarity_accuracy": 0.9474,
+      "weak_similarity_f1": 0.8837,
+      "weak_similarity_accuracy": 0.8148,
+      "containment_f1": 0.8824,
+      "containment_accuracy": 0.8182,
+      "similarity_separability": 0.3251,
+      "containment_separability": 0.2745,
+      "label_distributions": {
+        "identical": {
+          "count": 3,
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "strongly_related": {
+          "count": 9,
+          "mean": 0.8039,
+          "min": 0.2495,
+          "max": 0.9844,
+          "std": 0.2195
+        },
+        "related": {
+          "count": 8,
+          "mean": 0.6335,
+          "min": 0.3747,
+          "max": 0.8388,
+          "std": 0.158
+        },
+        "weakly_related": {
+          "count": 4,
+          "mean": 0.1909,
+          "min": 0.0395,
+          "max": 0.425,
+          "std": 0.1519
+        },
+        "unrelated": {
+          "count": 7,
+          "mean": 0.4401,
+          "min": 0.0793,
+          "max": 0.662,
+          "std": 0.2031
+        }
+      },
       "category_report": {
         "sim/exact_match": {
-          "n_positive": 3,
+          "n_strong_positive": 3,
+          "n_weak_positive": 3,
           "n_negative": 0,
-          "mean_positive": 1.0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 1.0,
+          "mean_weak_positive": 1.0,
           "mean_negative": null,
-          "min_positive": 1.0,
+          "mean_ambiguous": null,
+          "min_strong_positive": 1.0,
           "max_negative": null
         },
-        "sim/paraphrase": {
-          "n_positive": 6,
+        "sim/direct_paraphrase": {
+          "n_strong_positive": 5,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.9107,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.9512,
+          "mean_weak_positive": 0.9512,
           "mean_negative": null,
-          "min_positive": 0.7753,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.9206,
           "max_negative": null
         },
-        "sim/cross_lingual": {
-          "n_positive": 4,
+        "sim/same_topic_different_angle": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.9654,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.7244,
           "mean_negative": null,
-          "min_positive": 0.9274,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
           "max_negative": null
         },
-        "sim/response_vs_expected": {
-          "n_positive": 4,
+        "sim/broad_domain_match": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 0,
+          "n_ambiguous": 4,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": null,
+          "mean_ambiguous": 0.1909,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_correct": {
+          "n_strong_positive": 4,
+          "n_weak_positive": 4,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.6198,
+          "mean_weak_positive": 0.6198,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.2495,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_partial": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 3,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.4821,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_wrong": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
           "n_negative": 3,
-          "mean_positive": 0.4544,
-          "mean_negative": 0.1585,
-          "min_positive": 0.1802,
-          "max_negative": 0.1938
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.6289,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.662
         },
         "sim/unrelated": {
-          "n_positive": 0,
-          "n_negative": 5,
-          "mean_positive": null,
-          "mean_negative": 0.1617,
-          "min_positive": null,
-          "max_negative": 0.2704
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 4,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.2985,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.526
         },
-        "cont/concept_present_short": {
+        "cont/concept_present_explicit": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.6251,
+          "mean_positive": 0.5768,
           "mean_negative": null,
-          "min_positive": 0.4818,
+          "min_positive": 0.4993,
+          "max_negative": null
+        },
+        "cont/concept_present_synonyms": {
+          "n_positive": 4,
+          "n_negative": 0,
+          "mean_positive": 0.509,
+          "mean_negative": null,
+          "min_positive": 0.4068,
           "max_negative": null
         },
         "cont/concept_present_buried": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.5131,
+          "mean_positive": 0.5654,
           "mean_negative": null,
-          "min_positive": 0.3815,
+          "min_positive": 0.371,
           "max_negative": null
         },
-        "cont/concept_present_synonyms": {
+        "cont/concept_present_implied": {
           "n_positive": 3,
           "n_negative": 0,
-          "mean_positive": 0.6374,
+          "mean_positive": 0.2948,
           "mean_negative": null,
-          "min_positive": 0.532,
+          "min_positive": 0.1295,
           "max_negative": null
         },
-        "cont/cross_lingual_containment": {
-          "n_positive": 3,
-          "n_negative": 0,
-          "mean_positive": 0.5465,
-          "mean_negative": null,
-          "min_positive": 0.521,
-          "max_negative": null
-        },
-        "cont/concept_absent": {
+        "cont/concept_absent_plausible": {
           "n_positive": 0,
-          "n_negative": 5,
+          "n_negative": 4,
           "mean_positive": null,
-          "mean_negative": 0.2288,
+          "mean_negative": 0.2253,
           "min_positive": null,
-          "max_negative": 0.4093
+          "max_negative": 0.5034
+        },
+        "cont/concept_absent_clear": {
+          "n_positive": 0,
+          "n_negative": 3,
+          "mean_positive": null,
+          "mean_negative": 0.2241,
+          "min_positive": null,
+          "max_negative": 0.414
         }
       },
       "similarity_scores": [
@@ -960,7 +1411,7 @@
           "pair_id": "sim_001",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
@@ -974,413 +1425,583 @@
           "pair_id": "sim_003",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
           "pair_id": "sim_004",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.9096
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9635
         },
         {
           "pair_id": "sim_005",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9445
+        },
+        {
+          "pair_id": "sim_006",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9206
+        },
+        {
+          "pair_id": "sim_007",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9431
+        },
+        {
+          "pair_id": "sim_008",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
           "score": 0.9844
         },
         {
-          "pair_id": "sim_006",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.8559
-        },
-        {
-          "pair_id": "sim_007",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "fr",
-          "score": 0.9617
-        },
-        {
-          "pair_id": "sim_008",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.7753
-        },
-        {
           "pair_id": "sim_009",
           "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.977
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.8388
         },
         {
           "pair_id": "sim_010",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9775
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.7089
         },
         {
           "pair_id": "sim_011",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9837
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.8339
         },
         {
           "pair_id": "sim_012",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9274
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.597
         },
         {
           "pair_id": "sim_013",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9728
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.6433
         },
         {
           "pair_id": "sim_014",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.486
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.075
         },
         {
           "pair_id": "sim_015",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.4193
+          "score": 0.425
         },
         {
           "pair_id": "sim_016",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.1802
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.2242
         },
         {
           "pair_id": "sim_017",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.7321
+          "score": 0.0395
         },
         {
           "pair_id": "sim_018",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.1938
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.7752
         },
         {
           "pair_id": "sim_019",
-          "label": "unrelated",
-          "category": "response_vs_expected",
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
           "language": "fr",
-          "score": 0.1763
+          "score": 0.2495
         },
         {
           "pair_id": "sim_020",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.1054
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.7636
         },
         {
           "pair_id": "sim_021",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.1377
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.6907
         },
         {
           "pair_id": "sim_022",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.2203
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.646
         },
         {
           "pair_id": "sim_023",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0973
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.3747
         },
         {
           "pair_id": "sim_024",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.2704
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.4256
         },
         {
           "pair_id": "sim_025",
           "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.6117
+        },
+        {
+          "pair_id": "sim_026",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.662
+        },
+        {
+          "pair_id": "sim_027",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.6129
+        },
+        {
+          "pair_id": "sim_028",
+          "label": "unrelated",
           "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.0826
+          "language": "fr",
+          "score": 0.0793
+        },
+        {
+          "pair_id": "sim_029",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.3029
+        },
+        {
+          "pair_id": "sim_030",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.526
+        },
+        {
+          "pair_id": "sim_031",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.2858
         }
       ],
       "containment_scores": [
         {
           "case_id": "cont_001",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.6004,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.5129,
+          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau, c'est-à-dire que sans elle, on ne "
         },
         {
           "case_id": "cont_002",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.7638,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.5431,
+          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
         },
         {
           "case_id": "cont_003",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.4818,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.4993,
+          "best_chunk": "La respiration peut être à la fois automatique ou contrôlée."
         },
         {
           "case_id": "cont_004",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.6543,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "best_score": 0.7518,
+          "best_chunk": "Le système sympathique en gros, c'est une métaphore. C'est un peu comme l'accélérateur physiologique."
         },
         {
           "case_id": "cont_005",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.4023,
-          "best_chunk": "Planned Features: - Base: - multi-user, multilingual, multi-LLM, multi-conversation. - MVP Features: - RAG with differen"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.5693,
+          "best_chunk": "Le cerveau se concentre sur les régions où l'incertitude est optimale."
         },
         {
           "case_id": "cont_006",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.6903,
-          "best_chunk": "Le passage explique comment atteindre un état de flow attentionnel en méditation en régulant son état interne, en partic"
+          "best_score": 0.5896,
+          "best_chunk": "Pour réguler l'attention, il faut un modèle interne fidèle."
         },
         {
           "case_id": "cont_007",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.3815,
-          "best_chunk": "Captures LLM responses and injected contexts (RAG, memory, notes) 3. Uses a judge LLM to score quality according to thes"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.4068,
+          "best_chunk": "La position du corps influence l'état mental en pratique."
         },
         {
           "case_id": "cont_008",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.5781,
-          "best_chunk": "Le texte détaille ensuite le mécanisme de ce contrôle, en s'appuyant sur les sciences cognitives et le théorème du bon r"
+          "best_score": 0.4703,
+          "best_chunk": "Détendre le regard aide à libérer les tensions mentales."
         },
         {
           "case_id": "cont_009",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.7454,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.5961,
+          "best_chunk": "Je ne parle même pas d'avoir une attention absente, ça n'existe pas vraiment en fait. Pourquoi je dis que c'est l'attent"
         },
         {
           "case_id": "cont_010",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.532,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.672,
+          "best_chunk": "Aujourd'hui, nous avons la science qui peut nous éclairer sur la manière de procéder. C'est ce que vous allez voir dans "
         },
         {
           "case_id": "cont_011",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en",
-          "best_score": 0.6347,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.371,
+          "best_chunk": "Grâce à un programme progressif et qui a été mûri au fil de mes propres pratiques. Une maîtrise de plus en plus profonde"
         },
         {
           "case_id": "cont_012",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.521,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.6223,
+          "best_chunk": "Qu'est-ce que l'incertitude ? En fait, si dans le noir vous avez une forme sinueuse devant vous. Si vous ne savez pas si"
         },
         {
           "case_id": "cont_013",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.5244,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.5763,
+          "best_chunk": "L'attention filtre les perceptions pour permettre l'auto-correction en vue d'une tâche."
         },
         {
           "case_id": "cont_014",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.5941,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.1787,
+          "best_chunk": "Le cerveau cherche à réduire les erreurs de prédiction, attiré par une dose optimale de surprise."
         },
         {
           "case_id": "cont_015",
-          "expected": false,
-          "category": "concept_absent",
-          "language": "en",
-          "best_score": 0.2173,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "expected": true,
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.1295,
+          "best_chunk": "Maintenir un équilibre entre activation et calme via respiration, posture et regard."
         },
         {
           "case_id": "cont_016",
           "expected": false,
-          "category": "concept_absent",
+          "category": "concept_absent_plausible",
           "language": "fr",
-          "best_score": 0.188,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.2236,
+          "best_chunk": "L'attention est une fonction cognitive fondamentale, on ne peut pas faire grand-chose sans elle."
         },
         {
           "case_id": "cont_017",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.2239,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.1156,
+          "best_chunk": "La méditation vise à diriger l'attention sur un objet spécifique pour calmer le mental."
         },
         {
           "case_id": "cont_018",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.1053,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.5034,
+          "best_chunk": "Le théorème du bon régulateur explique comment développer un modèle interne de l'attention."
         },
         {
           "case_id": "cont_019",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.4093,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.0588,
+          "best_chunk": "La posture et le regard influencent l'équilibre du système nerveux en méditation."
+        },
+        {
+          "case_id": "cont_020",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1096,
+          "best_chunk": "L'attention gère l'incertitude pour la survie dans un contexte évolutionnaire."
+        },
+        {
+          "case_id": "cont_021",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.414,
+          "best_chunk": "Les pratiques méditatives enrichissent l'objet d'attention pour le rendre intéressant."
+        },
+        {
+          "case_id": "cont_022",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1486,
+          "best_chunk": "Le flow attentionnel nécessite de réguler l'état interne via des leviers indirects."
         }
       ]
     },
     "paraphrase-multilingual-mpnet-base-v2": {
       "model_key": "paraphrase-multilingual-mpnet-base-v2",
       "model_type": "sentence_transformer",
-      "timestamp": "2026-03-03T04:44:38.392123",
+      "timestamp": "2026-03-03T07:40:51.404323",
       "skipped": false,
       "error": null,
-      "recommended_similarity_threshold": 0.3961,
-      "recommended_containment_threshold": 0.3427,
-      "similarity_f1": 0.9697,
-      "containment_f1": 1.0,
-      "similarity_accuracy": 0.96,
-      "containment_accuracy": 1.0,
-      "similarity_separability": 0.643,
-      "containment_separability": 0.4271,
+      "recommended_similarity_threshold": 0.6741,
+      "weak_similarity_threshold": 0.6741,
+      "recommended_containment_threshold": 0.4065,
+      "strong_similarity_f1": 0.9565,
+      "strong_similarity_accuracy": 0.9474,
+      "weak_similarity_f1": 0.9189,
+      "weak_similarity_accuracy": 0.8889,
+      "containment_f1": 0.9286,
+      "containment_accuracy": 0.9091,
+      "similarity_separability": 0.3741,
+      "containment_separability": 0.2944,
+      "label_distributions": {
+        "identical": {
+          "count": 3,
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "strongly_related": {
+          "count": 9,
+          "mean": 0.8128,
+          "min": 0.3259,
+          "max": 0.9941,
+          "std": 0.2038
+        },
+        "related": {
+          "count": 8,
+          "mean": 0.6504,
+          "min": 0.3175,
+          "max": 0.8279,
+          "std": 0.1765
+        },
+        "weakly_related": {
+          "count": 4,
+          "mean": 0.2046,
+          "min": 0.0672,
+          "max": 0.2957,
+          "std": 0.0857
+        },
+        "unrelated": {
+          "count": 7,
+          "mean": 0.4018,
+          "min": 0.1542,
+          "max": 0.6602,
+          "std": 0.1598
+        }
+      },
       "category_report": {
         "sim/exact_match": {
-          "n_positive": 3,
+          "n_strong_positive": 3,
+          "n_weak_positive": 3,
           "n_negative": 0,
-          "mean_positive": 1.0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 1.0,
+          "mean_weak_positive": 1.0,
           "mean_negative": null,
-          "min_positive": 1.0,
+          "mean_ambiguous": null,
+          "min_strong_positive": 1.0,
           "max_negative": null
         },
-        "sim/paraphrase": {
-          "n_positive": 6,
+        "sim/direct_paraphrase": {
+          "n_strong_positive": 5,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.928,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.9562,
+          "mean_weak_positive": 0.9562,
           "mean_negative": null,
-          "min_positive": 0.8477,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.9115,
           "max_negative": null
         },
-        "sim/cross_lingual": {
-          "n_positive": 4,
+        "sim/same_topic_different_angle": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 5,
           "n_negative": 0,
-          "mean_positive": 0.9708,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.7555,
           "mean_negative": null,
-          "min_positive": 0.944,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
           "max_negative": null
         },
-        "sim/response_vs_expected": {
-          "n_positive": 4,
+        "sim/broad_domain_match": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 0,
+          "n_ambiguous": 4,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": null,
+          "mean_ambiguous": 0.2046,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_correct": {
+          "n_strong_positive": 4,
+          "n_weak_positive": 4,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": 0.6337,
+          "mean_weak_positive": 0.6337,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": 0.3259,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_partial": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 3,
+          "n_negative": 0,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": 0.4752,
+          "mean_negative": null,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": null
+        },
+        "sim/response_vs_expected_wrong": {
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
           "n_negative": 3,
-          "mean_positive": 0.4577,
-          "mean_negative": 0.1322,
-          "min_positive": 0.1482,
-          "max_negative": 0.2262
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.5551,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.6602
         },
         "sim/unrelated": {
-          "n_positive": 0,
-          "n_negative": 5,
-          "mean_positive": null,
-          "mean_negative": 0.2361,
-          "min_positive": null,
-          "max_negative": 0.364
+          "n_strong_positive": 0,
+          "n_weak_positive": 0,
+          "n_negative": 4,
+          "n_ambiguous": 0,
+          "mean_strong_positive": null,
+          "mean_weak_positive": null,
+          "mean_negative": 0.2869,
+          "mean_ambiguous": null,
+          "min_strong_positive": null,
+          "max_negative": 0.4284
         },
-        "cont/concept_present_short": {
+        "cont/concept_present_explicit": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.706,
+          "mean_positive": 0.6386,
           "mean_negative": null,
-          "min_positive": 0.5842,
+          "min_positive": 0.5904,
+          "max_negative": null
+        },
+        "cont/concept_present_synonyms": {
+          "n_positive": 4,
+          "n_negative": 0,
+          "mean_positive": 0.4881,
+          "mean_negative": null,
+          "min_positive": 0.4086,
           "max_negative": null
         },
         "cont/concept_present_buried": {
           "n_positive": 4,
           "n_negative": 0,
-          "mean_positive": 0.4664,
+          "mean_positive": 0.6571,
           "mean_negative": null,
-          "min_positive": 0.3809,
+          "min_positive": 0.5576,
           "max_negative": null
         },
-        "cont/concept_present_synonyms": {
+        "cont/concept_present_implied": {
           "n_positive": 3,
           "n_negative": 0,
-          "mean_positive": 0.6025,
+          "mean_positive": 0.372,
           "mean_negative": null,
-          "min_positive": 0.5689,
+          "min_positive": 0.2137,
           "max_negative": null
         },
-        "cont/cross_lingual_containment": {
-          "n_positive": 3,
-          "n_negative": 0,
-          "mean_positive": 0.6732,
-          "mean_negative": null,
-          "min_positive": 0.6075,
-          "max_negative": null
-        },
-        "cont/concept_absent": {
+        "cont/concept_absent_plausible": {
           "n_positive": 0,
-          "n_negative": 5,
+          "n_negative": 4,
           "mean_positive": null,
-          "mean_negative": 0.1812,
+          "mean_negative": 0.2756,
           "min_positive": null,
-          "max_negative": 0.3046
+          "max_negative": 0.3892
+        },
+        "cont/concept_absent_clear": {
+          "n_positive": 0,
+          "n_negative": 3,
+          "mean_positive": null,
+          "mean_negative": 0.2292,
+          "min_positive": null,
+          "max_negative": 0.4044
         }
       },
       "similarity_scores": [
@@ -1388,7 +2009,7 @@
           "pair_id": "sim_001",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
@@ -1402,316 +2023,382 @@
           "pair_id": "sim_003",
           "label": "identical",
           "category": "exact_match",
-          "language": "en",
+          "language": "fr",
           "score": 1.0
         },
         {
           "pair_id": "sim_004",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.8952
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9855
         },
         {
           "pair_id": "sim_005",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
-          "score": 0.9936
+          "score": 0.9365
         },
         {
           "pair_id": "sim_006",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en",
-          "score": 0.8477
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9115
         },
         {
           "pair_id": "sim_007",
-          "label": "related",
-          "category": "paraphrase",
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
           "language": "fr",
-          "score": 0.9537
+          "score": 0.9532
         },
         {
           "pair_id": "sim_008",
-          "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.9189
+          "label": "strongly_related",
+          "category": "direct_paraphrase",
+          "language": "fr",
+          "score": 0.9941
         },
         {
           "pair_id": "sim_009",
           "label": "related",
-          "category": "paraphrase",
-          "language": "en+fr",
-          "score": 0.9592
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.8279
         },
         {
           "pair_id": "sim_010",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9725
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.7371
         },
         {
           "pair_id": "sim_011",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9841
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.822
         },
         {
           "pair_id": "sim_012",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.944
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.689
         },
         {
           "pair_id": "sim_013",
           "label": "related",
-          "category": "cross_lingual",
-          "language": "en+fr",
-          "score": 0.9826
+          "category": "same_topic_different_angle",
+          "language": "fr",
+          "score": 0.7014
         },
         {
           "pair_id": "sim_014",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.5169
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.2513
         },
         {
           "pair_id": "sim_015",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.4281
+          "score": 0.2957
         },
         {
           "pair_id": "sim_016",
-          "label": "related",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.1482
+          "label": "weakly_related",
+          "category": "broad_domain_match",
+          "language": "fr",
+          "score": 0.2043
         },
         {
           "pair_id": "sim_017",
-          "label": "related",
-          "category": "response_vs_expected",
+          "label": "weakly_related",
+          "category": "broad_domain_match",
           "language": "fr",
-          "score": 0.7376
+          "score": 0.0672
         },
         {
           "pair_id": "sim_018",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.0982
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.824
         },
         {
           "pair_id": "sim_019",
-          "label": "unrelated",
-          "category": "response_vs_expected",
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
           "language": "fr",
-          "score": 0.2262
+          "score": 0.3259
         },
         {
           "pair_id": "sim_020",
-          "label": "unrelated",
-          "category": "response_vs_expected",
-          "language": "en",
-          "score": 0.0723
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.688
         },
         {
           "pair_id": "sim_021",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.181
+          "label": "strongly_related",
+          "category": "response_vs_expected_correct",
+          "language": "fr",
+          "score": 0.6969
         },
         {
           "pair_id": "sim_022",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.3049
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.7079
         },
         {
           "pair_id": "sim_023",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.1754
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.4001
         },
         {
           "pair_id": "sim_024",
-          "label": "unrelated",
-          "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.364
+          "label": "related",
+          "category": "response_vs_expected_partial",
+          "language": "fr",
+          "score": 0.3175
         },
         {
           "pair_id": "sim_025",
           "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.511
+        },
+        {
+          "pair_id": "sim_026",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.494
+        },
+        {
+          "pair_id": "sim_027",
+          "label": "unrelated",
+          "category": "response_vs_expected_wrong",
+          "language": "fr",
+          "score": 0.6602
+        },
+        {
+          "pair_id": "sim_028",
+          "label": "unrelated",
           "category": "unrelated",
-          "language": "en+fr",
-          "score": 0.1551
+          "language": "fr",
+          "score": 0.1542
+        },
+        {
+          "pair_id": "sim_029",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.2596
+        },
+        {
+          "pair_id": "sim_030",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.4284
+        },
+        {
+          "pair_id": "sim_031",
+          "label": "unrelated",
+          "category": "unrelated",
+          "language": "fr",
+          "score": 0.3055
         }
       ],
       "containment_scores": [
         {
           "case_id": "cont_001",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.6818,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.5904,
+          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau, c'est-à-dire que sans elle, on ne "
         },
         {
           "case_id": "cont_002",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.785,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.6428,
+          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
         },
         {
           "case_id": "cont_003",
           "expected": true,
-          "category": "concept_present_short",
-          "language": "en",
-          "best_score": 0.5842,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_explicit",
+          "language": "fr",
+          "best_score": 0.7175,
+          "best_chunk": "La respiration peut être à la fois automatique ou contrôlée."
         },
         {
           "case_id": "cont_004",
           "expected": true,
-          "category": "concept_present_short",
+          "category": "concept_present_explicit",
           "language": "fr",
-          "best_score": 0.7731,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "best_score": 0.6038,
+          "best_chunk": "Le système sympathique en gros, c'est une métaphore. C'est un peu comme l'accélérateur physiologique."
         },
         {
           "case_id": "cont_005",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.3918,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions. Planned Features: - Base: - multi-user, multilingual, mul"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.6325,
+          "best_chunk": "Le cerveau se concentre sur les régions où l'incertitude est optimale."
         },
         {
           "case_id": "cont_006",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.3809,
-          "best_chunk": "Le passage explique comment atteindre un état de flow attentionnel en méditation en régulant son état interne, en partic"
+          "best_score": 0.4139,
+          "best_chunk": "Pour réguler l'attention, il faut un modèle interne fidèle."
         },
         {
           "case_id": "cont_007",
           "expected": true,
-          "category": "concept_present_buried",
-          "language": "en",
-          "best_score": 0.5048,
-          "best_chunk": "Runs scenarios where students ask questions about the document's content 2. Captures LLM responses and injected contexts"
+          "category": "concept_present_synonyms",
+          "language": "fr",
+          "best_score": 0.4973,
+          "best_chunk": "La position du corps influence l'état mental en pratique."
         },
         {
           "case_id": "cont_008",
           "expected": true,
-          "category": "concept_present_buried",
+          "category": "concept_present_synonyms",
           "language": "fr",
-          "best_score": 0.5883,
-          "best_chunk": "Le texte détaille ensuite le mécanisme de ce contrôle, en s'appuyant sur les sciences cognitives et le théorème du bon r"
+          "best_score": 0.4086,
+          "best_chunk": "Détendre le regard aide à libérer les tensions mentales."
         },
         {
           "case_id": "cont_009",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.66,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.6753,
+          "best_chunk": "Je ne parle même pas d'avoir une attention absente, ça n'existe pas vraiment en fait. Pourquoi je dis que c'est l'attent"
         },
         {
           "case_id": "cont_010",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en+fr",
-          "best_score": 0.5689,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.6681,
+          "best_chunk": "Aujourd'hui, nous avons la science qui peut nous éclairer sur la manière de procéder. C'est ce que vous allez voir dans "
         },
         {
           "case_id": "cont_011",
           "expected": true,
-          "category": "concept_present_synonyms",
-          "language": "en",
-          "best_score": 0.5785,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.5576,
+          "best_chunk": "J'insiste sur ce dernier point. Ce que je vous propose, ce ne sont pas des pratiques ou des exercices qu'il faut faire. "
         },
         {
           "case_id": "cont_012",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.6623,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "category": "concept_present_buried",
+          "language": "fr",
+          "best_score": 0.7274,
+          "best_chunk": "Qu'est-ce que l'incertitude ? En fait, si dans le noir vous avez une forme sinueuse devant vous. Si vous ne savez pas si"
         },
         {
           "case_id": "cont_013",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.6075,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.655,
+          "best_chunk": "L'attention filtre les perceptions pour permettre l'auto-correction en vue d'une tâche."
         },
         {
           "case_id": "cont_014",
           "expected": true,
-          "category": "cross_lingual_containment",
-          "language": "en+fr",
-          "best_score": 0.7498,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude. Trop peu d'incertitude, c'est t"
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.2137,
+          "best_chunk": "Le cerveau cherche à réduire les erreurs de prédiction, attiré par une dose optimale de surprise."
         },
         {
           "case_id": "cont_015",
-          "expected": false,
-          "category": "concept_absent",
-          "language": "en",
-          "best_score": 0.1445,
-          "best_chunk": "The goal is to build a Professor application. It takes training material (pdf, markdown) of a real training course."
+          "expected": true,
+          "category": "concept_present_implied",
+          "language": "fr",
+          "best_score": 0.2474,
+          "best_chunk": "Maintenir un équilibre entre activation et calme via respiration, posture et regard."
         },
         {
           "case_id": "cont_016",
           "expected": false,
-          "category": "concept_absent",
+          "category": "concept_absent_plausible",
           "language": "fr",
-          "best_score": 0.2278,
-          "best_chunk": "L'attention est une des fonctions cognitives les plus fondamentales de notre cerveau. C'est grâce à la maîtrise de l'att"
+          "best_score": 0.3284,
+          "best_chunk": "L'attention est une fonction cognitive fondamentale, on ne peut pas faire grand-chose sans elle."
         },
         {
           "case_id": "cont_017",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.1596,
-          "best_chunk": "These rubrics will be used in a benchmark system that: 1. Runs scenarios where students ask questions about the document"
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.1338,
+          "best_chunk": "La méditation vise à diriger l'attention sur un objet spécifique pour calmer le mental."
         },
         {
           "case_id": "cont_018",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.0695,
-          "best_chunk": "Le cerveau va se focaliser, va chercher les zones où il y a la bonne dose d'incertitude."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.3892,
+          "best_chunk": "Le théorème du bon régulateur explique comment développer un modèle interne de l'attention."
         },
         {
           "case_id": "cont_019",
           "expected": false,
-          "category": "concept_absent",
-          "language": "en+fr",
-          "best_score": 0.3046,
-          "best_chunk": "The main benefit is in that memory and pro-active suggestions."
+          "category": "concept_absent_plausible",
+          "language": "fr",
+          "best_score": 0.251,
+          "best_chunk": "La posture et le regard influencent l'équilibre du système nerveux en méditation."
+        },
+        {
+          "case_id": "cont_020",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1474,
+          "best_chunk": "L'attention gère l'incertitude pour la survie dans un contexte évolutionnaire."
+        },
+        {
+          "case_id": "cont_021",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.4044,
+          "best_chunk": "Les pratiques méditatives enrichissent l'objet d'attention pour le rendre intéressant."
+        },
+        {
+          "case_id": "cont_022",
+          "expected": false,
+          "category": "concept_absent_clear",
+          "language": "fr",
+          "best_score": 0.1359,
+          "best_chunk": "Le flow attentionnel nécessite de réguler l'état interne via des leviers indirects."
         }
       ]
     }
