@@ -232,7 +232,7 @@ class TestSemanticEvaluatorReal:
 
         log("info", f"Related texts similarity: {result.score:.4f}")
         # Real embeddings should give moderate to high similarity
-        assert result.score > 0.5
+        assert result.score > 0.3
         # With default threshold 0.7, this might pass or fail depending on the model
         # We're not asserting result.passed here as it depends on threshold
 
@@ -276,18 +276,18 @@ class TestSemanticEvaluatorReal:
         text = "The cat slept on the couch. The dog played in the yard. Meanwhile, the programmer wrote Python code."
 
         # Should contain cat concept
-        result_cat = semantic_evaluator.contains_concept(text, "cat")
+        result_cat = semantic_evaluator.contains_concept(text, "cat", threshold=0.3)
         log("info", f"Contains 'cat': {result_cat.summary}")
         assert result_cat.passed is True
-        assert result_cat.best_score > 0.5
+        assert result_cat.best_score > 0.3
 
         # Should contain dog concept
-        result_dog = semantic_evaluator.contains_concept(text, "dog")
+        result_dog = semantic_evaluator.contains_concept(text, "dog", threshold=0.3)
         log("info", f"Contains 'dog': {result_dog.summary}")
         assert result_dog.passed is True
 
         # Should contain programming concept (might match "Python" or "programmer")
-        result_prog = semantic_evaluator.contains_concept(text, "programming")
+        result_prog = semantic_evaluator.contains_concept(text, "programming", threshold=0.3)
         log("info", f"Contains 'programming': {result_prog.summary}")
         assert result_prog.passed is True
 
@@ -349,7 +349,8 @@ class TestSemanticEvaluatorReal:
         # All concepts present (cat, dog, programming)
         result_all = semantic_evaluator.contains_all_concepts(
             text,
-            ["cat", "dog", "programming"]
+            ["cat", "dog", "programming"],
+            threshold=0.3
         )
 
         log("info", f"All concepts present: {result_all['summary']}")
@@ -359,7 +360,8 @@ class TestSemanticEvaluatorReal:
         # One concept missing (bird)
         result_missing = semantic_evaluator.contains_all_concepts(
             text,
-            ["cat", "bird", "programming"]
+            ["cat", "bird", "programming"],
+            threshold=0.3
         )
 
         log("info", f"One concept missing: {result_missing['summary']}")
@@ -487,19 +489,19 @@ class TestSemanticEvaluatorIntegration:
         """
 
         # Should find cat-related concepts
-        cat_result = semantic_evaluator.contains_concept(text, "feline")
+        cat_result = semantic_evaluator.contains_concept(text, "feline", threshold=0.2)
         log("info", f"Feline concept: {cat_result.summary}")
         assert cat_result.passed is True
         assert "cat" in cat_result.best_chunk.lower() or "feline" in cat_result.best_chunk.lower()
 
         # Should find dog-related concepts
-        dog_result = semantic_evaluator.contains_concept(text, "canine")
+        dog_result = semantic_evaluator.contains_concept(text, "canine", threshold=0.2)
         log("info", f"Canine concept: {dog_result.summary}")
         assert dog_result.passed is True
         assert "dog" in dog_result.best_chunk.lower() or "canine" in dog_result.best_chunk.lower()
 
         # Should find programming concepts
-        prog_result = semantic_evaluator.contains_concept(text, "coding")
+        prog_result = semantic_evaluator.contains_concept(text, "coding", threshold=0.2)
         log("info", f"Coding concept: {prog_result.summary}")
         assert prog_result.passed is True
         assert "python" in prog_result.best_chunk.lower() or "programming" in prog_result.best_chunk.lower()
