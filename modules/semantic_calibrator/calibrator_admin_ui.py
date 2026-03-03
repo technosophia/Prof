@@ -28,13 +28,6 @@ import streamlit as st
 
 from core.logging import log
 
-import cProfile
-import io
-import pstats
-from pstats import SortKey
-import streamlit as st
-import tempfile
-import os
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -310,13 +303,54 @@ def show_calibrator_admin_content():
     selected_keys: List[str] = []
 
     st.markdown("**Sentence-Transformers** (local, no API key required)")
+
+    # Add a refresh button for model info
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🔄 Refresh download status", key="refresh_model_info"):
+            if "model_info_cache" in st.session_state:
+                del st.session_state.model_info_cache
+            st.rerun()
+
     for m in st_models:
-        checked = st.checkbox(
-            f"`{m['key']}`",
-            value=False,
-            help=m.get("description", ""),
-            key=f"model_check_{m['key']}",
-        )
+        # Get model info (cached in session state to avoid repeated API calls)
+        if "model_info_cache" not in st.session_state:
+            st.session_state.model_info_cache = {}
+
+        if m["key"] not in st.session_state.model_info_cache:
+            with st.spinner(f"Fetching info for {m['key']}..."):
+                from modules.semantic_calibrator.calibrator_engine import get_model_info
+                st.session_state.model_info_cache[m["key"]] = get_model_info(m["key"])
+
+        model_info = st.session_state.model_info_cache[m["key"]]
+
+        # Create a nicer display with columns
+        col1, col2, col3 = st.columns([3, 1, 1])
+
+        with col1:
+            checked = st.checkbox(
+                f"`{m['key']}`",
+                value=False,
+                help=m.get("description", ""),
+                key=f"model_check_{m['key']}",
+            )
+
+        with col2:
+            # Display download status
+            if model_info["downloaded"]:
+                st.markdown(f"✅ Downloaded")
+            else:
+                st.markdown(f"🔄 Not cached")
+
+        with col3:
+            # Display size
+            if model_info.get("size_readable"):
+                st.markdown(f"📦 {model_info['size_readable']}")
+            elif model_info.get("hf_size_readable"):
+                st.markdown(f"📦 {model_info['hf_size_readable']} (remote)")
+            else:
+                st.markdown("📦 Size unknown")
+
         if checked:
             selected_keys.append(m["key"])
 

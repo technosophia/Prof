@@ -49,7 +49,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from core.logging import log
-
+from huggingface_hub import snapshot_download, model_info
 
 # ---------------------------------------------------------------------------
 # Label taxonomy
@@ -111,6 +111,85 @@ DEFAULT_MODELS: List[Dict] = [
     },
 ]
 
+def get_model_info(model_key: str) -> dict:
+    """
+    Get information about a Sentence-Transformers model including:
+    - Download status (if already cached locally)
+    - Model size (if available)
+    - Total parameters
+    """
+    info = {
+        "downloaded": False,
+        "size_mb": None,
+        "size_readable": None,
+        "parameters": None,
+        "error": None
+    }
+
+    try:
+        # Check if model is in HuggingFace cache
+        cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+        if os.path.exists(cache_dir):
+            # Look for model in cache
+            model_name_safe = model_key.replace("/", "--")
+            for item in os.listdir(cache_dir):
+                if model_name_safe in item and "models--" in item:
+                    model_path = os.path.join(cache_dir, item, "snapshots")
+                    if os.path.exists(model_path):
+                        # Model is downloaded, calculate size
+                        total_size = 0
+                        for root, dirs, files in os.walk(model_path):
+                            total_size += sum(os.path.getsize(os.path.join(root, f)) for f in files)
+
+                        info["downloaded"] = True
+                        info["size_mb"] = round(total_size / (1024 * 1024), 2)
+
+                        # Format size
+                        if info["size_mb"] > 1024:
+                            info["size_readable"] = f"{info['size_mb'] / 1024:.2f} GB"
+                        else:
+                            info["size_readable"] = f"{info['size_mb']:.1f} MB"
+                        break
+
+        # Get model info from HuggingFace Hub (for size/parameters)
+        try:
+            hf_info = model_info(model_key)
+
+            # Try to get model size from various sources
+            if hasattr(hf_info, 'siblings'):
+                # Calculate total size from all files
+                total_size = sum(s.size for s in hf_info.siblings if s.size)
+                if total_size:
+                    info["hf_size_mb"] = round(total_size / (1024 * 1024), 2)
+                    if info["hf_size_mb"] > 1024:
+                        info["hf_size_readable"] = f"{info['hf_size_mb'] / 1024:.2f} GB"
+                    else:
+                        info["hf_size_readable"] = f"{info['hf_size_mb']:.1f} MB"
+
+            # Try to get parameter count
+            if hasattr(hf_info, 'cardData'):
+                if 'parameters' in hf_info.cardData:
+                    params = hf_info.cardData['parameters']
+                    if isinstance(params, (int, float)):
+                        info["parameters"] = params
+                    elif isinstance(params, str):
+                        # Parse string like "109M", "1.2B"
+                        if params.endswith('B'):
+                            info["parameters"] = float(params[:-1]) * 1e9
+                        elif params.endswith('M'):
+                            info["parameters"] = float(params[:-1]) * 1e6
+                        else:
+                            try:
+                                info["parameters"] = float(params)
+                            except ValueError:
+                                pass
+        except Exception as e:
+            info["error"] = f"Could not fetch model info from Hub: {e}"
+
+    except Exception as e:
+        info["error"] = str(e)
+
+    return info
 
 # ---------------------------------------------------------------------------
 # Embedders
