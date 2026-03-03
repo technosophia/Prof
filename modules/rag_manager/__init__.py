@@ -45,10 +45,6 @@ def _make_engine_context_callback(name: str) -> Callable:
             return "", "system", "bottom"
 
         context = manager.get_rag_context(user_id=user_id, query=query, engine_type=name)
-        if not context or context.startswith("No result found"):
-            fallback_engine = _resolve_activation_engine("simple")
-            if fallback_engine and fallback_engine != name:
-                context = manager.get_rag_context(user_id=user_id, query=query, engine_type=fallback_engine)
         return context, "system", "bottom"
 
     _callback.__name__ = f"rag_context_callback_{name}"
