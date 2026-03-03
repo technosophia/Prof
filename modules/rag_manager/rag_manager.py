@@ -518,6 +518,8 @@ class RAGManager:
     # Search
     # ------------------------------------------------------------------
 
+    # modules/rag_manager/rag_manager.py
+
     def search(
         self,
         user_id: str,
@@ -529,91 +531,146 @@ class RAGManager:
         """Search for documents across one or all engines."""
         results: Dict[str, Any] = {}
 
+        log("debug", f"[RAG Search] ========== SEARCH START ==========")
+        log("debug", f"[RAG Search] user_id={user_id}, query='{query}', engine_type={engine_type}, search_all={search_all}")
+
         if not self.is_rag_enabled():
-            log("debug", "[RAG Search] RAG search skipped: modules.rag_manager.enabled is false")
+            log("debug", "[RAG Search] RAG disabled, returning empty")
             return results
 
         target_engine = engine_type
         if not target_engine and not search_all:
             target_engine = self.default_engine
+            log("debug", f"[RAG Search] Using default engine: {target_engine}")
 
         # Get accessible documents for this user
         accessible_docs = self.get_user_documents(user_id)
-
-        log("debug", f"[RAG Search] User {user_id} has {len(accessible_docs)} accessible documents")
+        log("debug", f"[RAG Search] User {user_id} has {len(accessible_docs)} accessible documents total")
 
         if not accessible_docs:
-            log("warning", f"[RAG Search] Search aborted: no accessible docs for user={user_id}")
+            log("warning", f"[RAG Search] No accessible docs for user={user_id}")
             return results
 
         # Log document details for debugging
-        for doc in accessible_docs[:5]:  # Log first 5 docs
-            log("debug", f"[RAG Search] Accessible doc: {doc['filename']} (owner: {doc['uploaded_by']}, indexed_in: {doc.get('indexed_in', [])})")
+        for i, doc in enumerate(accessible_docs[:5]):  # Log first 5 docs
+            log("debug", f"[RAG Search] Doc {i}: filename={doc['filename']}, owner={doc['uploaded_by']}, indexed_in={doc.get('indexed_in', [])}")
 
         allowed_filenames = {doc['filename'] for doc in accessible_docs}
         owners = {doc['uploaded_by'] for doc in accessible_docs}
+        log("debug", f"[RAG Search] Allowed filenames: {allowed_filenames}")
+        log("debug", f"[RAG Search] Owners: {owners}")
 
-        log("debug", f"[RAG Search] Owners for this user: {owners}")
+        # Determine which engines to search
+        if search_all:
+            engine_types = list(self.engines.keys())
+            log("debug", f"[RAG Search] Searching ALL engines: {engine_types}")
+        elif target_engine:
+            engine_types = [target_engine]
+            log("debug", f"[RAG Search] Searching single engine: {target_engine}")
+        else:
+            engine_types = []
+            log("debug", f"[RAG Search] No engines to search")
 
-        engine_types = [target_engine] if target_engine else list(self.engines.keys())
+        # Filter by enabled status
         engine_types = [e for e in engine_types if self.is_engine_enabled(e)]
+        log("debug", f"[RAG Search] Enabled engines: {engine_types}")
 
         if not engine_types:
             log("debug", f"[RAG Search] No enabled engines found")
             return results
 
-        log("debug", f"[RAG Search] Searching engines: {engine_types}")
-
         for eng_type in engine_types:
+            log("debug", f"[RAG Search] ====== Processing engine: {eng_type} ======")
+
             engine = self.get_engine(eng_type)
             if not engine:
-                log("debug", f"[RAG Search] Engine {eng_type} not found")
+                log("debug", f"[RAG Search] Engine {eng_type} not found in self.engines. Available engines: {list(self.engines.keys())}")
                 continue
 
-            log("debug", f"[RAG Search] Querying engine {eng_type} with query: {query}")
+            # Check if engine is available
+            if not engine.is_available():
+                log("debug", f"[RAG Search] Engine {eng_type} reports is_available()=False")
+                results[eng_type] = []
+                continue
+
+            log("debug", f"[RAG Search] Engine {eng_type} description: {engine.description}")
+            log("debug", f"[RAG Search] Engine {eng_type} similarity_threshold: {getattr(engine, 'similarity_threshold', 'N/A')}")
 
             engine_results = []
+
             for owner in owners:
-                # Check if engine has documents for this owner
+                log("debug", f"[RAG Search] Searching for owner: {owner}")
+
+                # Check what documents this engine has for this owner
                 indexed_docs = engine.get_indexed_documents(owner)
                 log("debug", f"[RAG Search] Engine {eng_type} has {len(indexed_docs)} indexed docs for owner {owner}")
 
                 if indexed_docs:
-                    # Log first few indexed documents
-                    for doc in indexed_docs[:3]:
-                        log("debug", f"[RAG Search] Engine {eng_type} indexed doc for {owner}: {doc.get('filename')}")
+                    for i, doc in enumerate(indexed_docs[:3]):  # Log first 3
+                        log("debug", f"[RAG Search]   Indexed doc {i}: {doc.get('filename')}")
+                else:
+                    log("debug", f"[RAG Search]   No indexed documents for owner {owner}")
 
+                # Perform the search
                 owner_results = engine.search(owner, query, limit * 5)
                 log("debug", f"[RAG Search] Engine {eng_type} returned {len(owner_results)} raw results for owner {owner}")
 
-                # Check if any results before filtering
                 if owner_results:
-                    for r in owner_results[:3]:  # Log first 3 results
-                        log("debug", f"[RAG Search] Raw result from {eng_type}: file={r.get('filename')}, score={r.get('score', 0)}")
+                    for i, r in enumerate(owner_results[:3]):  # Log first 3
+                        log("debug", f"[RAG Search]   Raw result {i}: file={r.get('filename')}, score={r.get('score', 0):.4f}")
+                else:
+                    log("debug", f"[RAG Search]   No raw results for owner {owner}")
 
                 # Filter results to only include accessible documents
                 pre_filter_count = len(owner_results)
+                filtered_for_owner = []
+
                 for result in owner_results:
                     if result['filename'] in allowed_filenames:
-                        engine_results.append(result)
+                        filtered_for_owner.append(result)
+                        log("debug", f"[RAG Search]   ✓ Result kept: {result['filename']}")
+                    else:
+                        log("debug", f"[RAG Search]   ✗ Result filtered out: {result['filename']} (not in allowed_filenames)")
 
-                log("debug", f"[RAG Search] Engine {eng_type}: {pre_filter_count} raw results, {len(owner_results) - len(engine_results)} filtered out, {len(engine_results)} kept for owner {owner}")
+                engine_results.extend(filtered_for_owner)
+                log("debug", f"[RAG Search] Engine {eng_type}: {pre_filter_count} raw, {len(filtered_for_owner)} kept for owner {owner}")
 
             # Sort by score and limit
             engine_results.sort(key=lambda x: x['score'], reverse=True)
             final_results = engine_results[:limit]
 
-            log("debug", f"[RAG Search] Engine {eng_type} final results: {len(final_results)}")
+            log("debug", f"[RAG Search] Engine {eng_type} final results count: {len(final_results)}")
 
-            # Log why we might have no results
-            if not final_results:
-                log("debug", f"[RAG Search] No results from {eng_type}. Possible reasons:")
-                log("debug", f"  - Check if documents are indexed in this engine")
-                log("debug", f"  - Check similarity threshold: {getattr(engine, 'similarity_threshold', 'N/A')}")
-                log("debug", f"  - Query: '{query}' might not match any content")
-                log("debug", f"  - Document owners: {owners}")
+            if final_results:
+                for i, r in enumerate(final_results):
+                    log("debug", f"[RAG Search]   Final {i}: {r['filename']} (score: {r['score']:.4f})")
+            else:
+                log("debug", f"[RAG Search] No final results for engine {eng_type}")
+
+                # Diagnostic info
+                log("debug", f"[RAG Search]   Diagnostic for {eng_type}:")
+                log("debug", f"[RAG Search]     - Engine type: {type(engine).__name__}")
+                log("debug", f"[RAG Search]     - Owners searched: {owners}")
+                log("debug", f"[RAG Search]     - Query: '{query}'")
+
+                # Check if engine has any indexed documents at all
+                total_indexed = 0
+                for owner in owners:
+                    indexed_docs = engine.get_indexed_documents(owner)
+                    total_indexed += len(indexed_docs)
+                log("debug", f"[RAG Search]     - Total indexed docs for these owners: {total_indexed}")
+
+                if total_indexed == 0:
+                    log("debug", f"[RAG Search]     - REASON: No documents indexed for any owner")
+
+                # Check similarity threshold
+                threshold = getattr(engine, 'similarity_threshold', 'N/A')
+                log("debug", f"[RAG Search]     - Similarity threshold: {threshold}")
 
             results[eng_type] = final_results
+
+        log("debug", f"[RAG Search] ========== SEARCH COMPLETE ==========")
+        log("debug", f"[RAG Search] Final results summary: { {k: len(v) for k, v in results.items()} }")
 
         return results
 

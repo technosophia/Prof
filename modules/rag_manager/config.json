@@ -22,7 +22,7 @@
         "enabled": true,
         "description": "FAISS vector store with hierarchical markdown parsing",
         "index_path": "data/hierarchical_indexes",
-        "similarity_threshold": 0.5
+        "similarity_threshold": 0.3
       }
     }
   }

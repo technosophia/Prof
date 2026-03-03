@@ -18,7 +18,7 @@ from modules.rag_bench.rag_bench_core import (
     clear_comparison_contexts
 )
 from shared.common import llm_conversation_generate, get_current_llm_info
-
+from core.logging import log, capture_log_start, capture_log_end
 
 def inject_ui_admin_tab():
     """
@@ -206,14 +206,15 @@ def render_rag_comparison_interface():
         st.warning("No RAG engines available")
         return
 
+    cola, colb = st.columns([1, 1])
     # Debug toggle
-    with st.expander("🔧 Debug Options", expanded=False):
-        debug_mode = st.checkbox("Enable debug logging", value=False, key="rag_bench_debug_mode")
+    with cola:
+        debug_mode = st.checkbox("Enable debug logging", value=True, key="rag_bench_debug_mode")
         if debug_mode:
             st.info("Debug mode enabled - logs will be captured and displayed")
 
     # Show engine status
-    with st.expander("ℹ️ Available Engines", expanded=False):
+    with colb:
         for engine in engine_options:
             default_marker = "⭐ " if engine['default'] else ""
             st.write(f"{default_marker}**{engine['type']}**: {engine['description']}")
@@ -253,9 +254,12 @@ def render_rag_comparison_interface():
 
         # Start log capture if debug mode is enabled
         if debug_mode:
-            from core.logging import capture_log_start, capture_log_end
-            capture_log_start("DEBUG", max_messages=1000)
+            capture_log_start("DEBUG", max_messages=1000)  # Increase max_messages
             st.session_state["_rag_comparison_debug_mode"] = True
+            log("debug", "[RAG Compare] ========== STARTING RAG ENGINE COMPARISON ==========")
+            log("debug", f"[RAG Compare] User ID: {user_id}")
+            log("debug", f"[RAG Compare] Query: {query}")
+            log("debug", f"[RAG Compare] Limit per engine: {limit}")
 
         # Run comparison for all engines
         with st.spinner(f"Retrieving context from {len(engine_options)} engines..."):
@@ -263,7 +267,6 @@ def render_rag_comparison_interface():
                 engine_type = engine_info['type']
                 try:
                     # Log the attempt
-                    from core.logging import log
                     log("debug", f"[RAG Compare] Testing engine: {engine_type} with query: {query}")
 
                     # Get context directly from RAG manager
@@ -391,17 +394,26 @@ def render_rag_comparison_interface():
             st.dataframe(summary_data, width='stretch')
 
         # Show debug logs if they were captured
+        # Show debug logs if they were captured
         if st.session_state.get("_rag_comparison_debug_mode", False):
             st.divider()
             st.subheader("🔧 Debug Logs")
 
-            from core.logging import capture_log_end
             logs = capture_log_end()
 
             if logs:
                 with st.expander(f"View {len(logs)} captured log messages", expanded=True):
-                    for log_msg in logs[-50:]:  # Show last 50 logs
-                        st.code(log_msg)
+                    # Flatten the logs if they're nested lists
+                    flat_logs = []
+                    for log_item in logs[-500:]:  # Take last 500 items
+                        if isinstance(log_item, list):
+                            flat_logs.extend(log_item)
+                        else:
+                            flat_logs.append(str(log_item))
+
+                    # Format logs as markdown with line breaks
+                    log_text = "\n".join(flat_logs)
+                    st.markdown(f"```\n{log_text}\n```")  # Display as code block in markdown
             else:
                 st.info("No logs captured")
 
