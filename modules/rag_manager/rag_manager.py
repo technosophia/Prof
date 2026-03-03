@@ -188,6 +188,8 @@ class RAGManager:
             if str(engines_dir.parent) not in sys.path:
                 sys.path.insert(0, str(engines_dir.parent))
 
+            engines_config = self._get_rag_config().get("engines", {})
+
             for _, module_name, is_pkg in pkgutil.iter_modules([str(engines_dir)]):
                 if is_pkg or not module_name.startswith('rag_'):
                     continue
@@ -200,7 +202,26 @@ class RAGManager:
                                 and issubclass(attr, RAGEngine)
                                 and attr is not RAGEngine):
                             try:
-                                engine = attr()
+                                guessed_key = module_name.replace("rag_", "")
+                                if guessed_key == "hierarchical":
+                                    guessed_key = "faiss_hierarchical"
+
+                                if guessed_key not in engines_config:
+                                    class_name = attr_name.lower()
+                                    if "classic" in class_name:
+                                        guessed_key = "classic"
+                                    elif "simple" in class_name:
+                                        guessed_key = "simple"
+                                    elif "hierarchical" in class_name:
+                                        guessed_key = "faiss_hierarchical"
+
+                                engine_config = engines_config.get(guessed_key, {})
+
+                                try:
+                                    engine = attr(config=engine_config)
+                                except TypeError:
+                                    engine = attr()
+
                                 engines[engine.engine_type] = engine
                                 log("debug", f"Registered RAG engine: {engine.engine_type}")
                             except Exception as e:
