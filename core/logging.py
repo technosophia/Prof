@@ -57,7 +57,7 @@ class LogCapture:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.file_handle.write(f"--- Log capture started at {timestamp} ---\n")
             self.file_handle.flush()  # Ensure it's written
-            print(f"Log capture file initialized: {file_path.absolute()}")
+            #print(f"Log capture file initialized: {file_path.absolute()}")
         except Exception as e:
             print(f"Warning: Could not initialize capture file {self.capture_file}: {e}")
             self.capture_file = None
@@ -507,7 +507,7 @@ class Logger:
 
         if capture_file:
             abs_path = str(Path(capture_file).absolute())
-            print(f"Captured logs written to: {abs_path}")
+            #print(f"Captured logs written to: {abs_path}")
 
         # Clear the capture references
         self._capture = None
