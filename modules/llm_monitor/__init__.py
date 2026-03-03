@@ -26,7 +26,7 @@ def on_module_activated(services) -> None:
     monitor = get_llm_monitor(config=config, db_manager=db_manager)
 
     def monitor_callback(monitor_data):
-        monitor.record_llm_call(monitor_data)
+        monitor.log_llm_call(monitor_data)
 
     monitor_callback.__name__ = "llm_monitor_callback"
 
