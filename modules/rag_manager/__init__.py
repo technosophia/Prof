@@ -3,6 +3,7 @@
 from typing import Callable, Dict, List, Optional
 
 from core.logging import log
+from shared.common import check_services
 from modules.rag_manager.rag_factory import get_rag_manager, reset_rag_manager
 
 
@@ -133,20 +134,16 @@ def on_module_activated(services) -> None:
     """Register driver options and activate the default RAG context callback."""
     global _LLM_MANAGER
 
-    driver = services.get("driver")
-    config = services.get("config")
-    user_manager = services.get("user_manager")
-    llm_manager = services.get("llm_manager")
-    cache_fn = services.get("cache")
-
-    if driver is None:
-        raise RuntimeError("rag_manager: 'driver' service not available")
-    if config is None:
-        raise RuntimeError("rag_manager: 'config' service not available")
-    if user_manager is None:
-        raise RuntimeError("rag_manager: 'user_manager' service not available")
-    if llm_manager is None:
-        raise RuntimeError("rag_manager: 'llm_manager' service not available")
+    required = check_services(
+        ["driver", "config", "user_manager", "llm_manager"],
+        services=services,
+        module_name="rag_manager",
+    )
+    driver = required["driver"]
+    config = required["config"]
+    user_manager = required["user_manager"]
+    llm_manager = required["llm_manager"]
+    cache_fn = services.get("cache") if "cache" in services else None
 
     set_services(services)
     _LLM_MANAGER = llm_manager

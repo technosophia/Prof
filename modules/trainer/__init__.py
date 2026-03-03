@@ -1,6 +1,7 @@
 """Trainer module — plugin-backed training memory and actions."""
 
 from core.logging import log
+from shared.common import check_services
 from shared.common import record_plugin_event, set_prompt
 
 from .driver_layer import register_trainer_driver_bindings
@@ -16,19 +17,15 @@ __all__ = [
 
 def on_module_activated(services) -> None:
     """Functional initialization. No Streamlit usage."""
-    driver = services.get("driver")
-    db_manager = services.get("db_manager")
-    user_manager = services.get("user_manager")
-    conversation_manager = services.get("conversation_manager")
-
-    if driver is None:
-        raise RuntimeError("trainer: 'driver' service not available")
-    if db_manager is None:
-        raise RuntimeError("trainer: 'db_manager' service not available")
-    if user_manager is None:
-        raise RuntimeError("trainer: 'user_manager' service not available")
-    if conversation_manager is None:
-        raise RuntimeError("trainer: 'conversation_manager' service not available")
+    required = check_services(
+        ["driver", "db_manager", "user_manager", "conversation_manager"],
+        services=services,
+        module_name="trainer",
+    )
+    driver = required["driver"]
+    db_manager = required["db_manager"]
+    user_manager = required["user_manager"]
+    conversation_manager = required["conversation_manager"]
 
     ensure_tables_exist(db_manager)
 

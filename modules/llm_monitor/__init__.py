@@ -1,6 +1,7 @@
 """LLM monitor module — callback registration and lifecycle hooks."""
 
 from core.logging import log
+from shared.common import check_services
 from modules.llm_monitor.llm_monitor_factory import get_llm_monitor, reset_llm_monitor
 
 _LLM_MANAGER = None
@@ -11,16 +12,14 @@ def on_module_activated(services) -> None:
     """Functional initialization using injected services."""
     global _LLM_MANAGER, _MONITOR_CALLBACK
 
-    config = services.get("config")
-    db_manager = services.get("db_manager")
-    llm_manager = services.get("llm_manager")
-
-    if config is None:
-        raise RuntimeError("llm_monitor: 'config' service not available")
-    if db_manager is None:
-        raise RuntimeError("llm_monitor: 'db_manager' service not available")
-    if llm_manager is None:
-        raise RuntimeError("llm_monitor: 'llm_manager' service not available")
+    required = check_services(
+        ["config", "db_manager", "llm_manager"],
+        services=services,
+        module_name="llm_monitor",
+    )
+    config = required["config"]
+    db_manager = required["db_manager"]
+    llm_manager = required["llm_manager"]
 
     reset_llm_monitor()
     monitor = get_llm_monitor(config=config, db_manager=db_manager)

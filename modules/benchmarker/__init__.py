@@ -3,6 +3,7 @@
 import os
 
 from core.logging import log
+from shared.common import check_services
 from modules.benchmarker.benchmarker import ensure_tables_exist
 from modules.benchmarker.core_actions import (
     action_create_conversation,
@@ -16,20 +17,16 @@ from modules.trainer.driver_assertions import register_trainer_driver_assertions
 
 def on_module_activated(services) -> None:
     """Functional initialization. No Streamlit usage."""
-    driver = services.get("driver")
-    config = services.get("config")
-    db_manager = services.get("db_manager")
-    llm_manager = services.get("llm_manager")
-    cache_fn = services.get("cache")
-
-    if driver is None:
-        raise RuntimeError("benchmarker: 'driver' service not available")
-    if config is None:
-        raise RuntimeError("benchmarker: 'config' service not available")
-    if db_manager is None:
-        raise RuntimeError("benchmarker: 'db_manager' service not available")
-    if llm_manager is None:
-        raise RuntimeError("benchmarker: 'llm_manager' service not available")
+    required = check_services(
+        ["driver", "config", "db_manager", "llm_manager"],
+        services=services,
+        module_name="benchmarker",
+    )
+    driver = required["driver"]
+    config = required["config"]
+    db_manager = required["db_manager"]
+    llm_manager = required["llm_manager"]
+    cache_fn = services.get("cache") if "cache" in services else None
 
     ensure_tables_exist(db_manager)
 
