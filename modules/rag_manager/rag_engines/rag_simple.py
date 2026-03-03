@@ -102,9 +102,17 @@ class SimpleRAGEngine(RAGEngine):
             return results
 
         query_lower = query.lower()
+        max_score_reached = 0.0
+        threshold = getattr(self, 'similarity_threshold', 0)  # Simple engine doesn't use threshold
+
         for filename, data in self.indices[user_id].items():
             content = data['content'].lower()
             score = sum(content.count(word) for word in query_lower.split())
+
+            # Track max score
+            if score > max_score_reached:
+                max_score_reached = score
+
             if score > 0:
                 context = self._extract_context(data['content'], query_lower)
                 results.append({
@@ -112,9 +120,27 @@ class SimpleRAGEngine(RAGEngine):
                     'score': score,
                     'content': context,
                     'metadata': data['metadata'],
+                    'threshold_used': None,
+                    'max_score_reached': None  # Will be set after loop
                 })
 
         results.sort(key=lambda x: x['score'], reverse=True)
+
+        # Add max_score_reached to results
+        for result in results[:limit]:
+            result['max_score_reached'] = max_score_reached
+
+        # If no results, return max score info
+        if not results:
+            return [{
+                'filename': None,
+                'score': 0,
+                'content': '',
+                'threshold_used': None,
+                'max_score_reached': 0,
+                'no_results': True
+            }]
+
         return results[:limit]
 
     def _extract_context(self, content: str, query: str, context_size: int = 200) -> str:

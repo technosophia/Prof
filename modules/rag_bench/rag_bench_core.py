@@ -121,13 +121,33 @@ def capture_rag_context_for_comparison(
     global _captured_comparison_contexts
 
     try:
+        # Calculate aggregate stats
+        max_score = 0
+        avg_score = 0
+        threshold = None
+
+        if results:
+            scores = [r.get('score', 0) for r in results if not r.get('no_results')]
+            if scores:
+                max_score = max(scores)
+                avg_score = sum(scores) / len(scores)
+
+            # Get threshold from first result if available
+            for r in results:
+                if r.get('threshold_used') is not None:
+                    threshold = r.get('threshold_used')
+                    break
+
         comparison_data = {
             "timestamp": datetime.now().isoformat(),
             "engine_type": engine_type,
             "query": query,
             "context_text": context_text,
             "results": results,
-            "result_count": len(results)
+            "result_count": len([r for r in results if not r.get('no_results')]),
+            "max_score": max_score,
+            "avg_score": avg_score,
+            "threshold": threshold
         }
 
         _captured_comparison_contexts.append(comparison_data)

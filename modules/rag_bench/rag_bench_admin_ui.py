@@ -266,19 +266,9 @@ def render_rag_comparison_interface():
             for engine_info in engine_options:
                 engine_type = engine_info['type']
                 try:
-                    # Log the attempt
                     log("debug", f"[RAG Compare] Testing engine: {engine_type} with query: {query}")
 
-                    # Get context directly from RAG manager
-                    context = rag_manager.get_rag_context(
-                        user_id=user_id,
-                        query=query,
-                        engine_type=engine_type
-                    )
-
-                    log("debug", f"[RAG Compare] Engine {engine_type} returned context length: {len(context) if context else 0}")
-
-                    # Also get detailed search results
+                    # Get search results directly (single call)
                     search_results = rag_manager.search(
                         user_id=user_id,
                         query=query,
@@ -289,11 +279,20 @@ def render_rag_comparison_interface():
                     engine_results = search_results.get(engine_type, []) if search_results else []
                     log("debug", f"[RAG Compare] Engine {engine_type} returned {len(engine_results)} search results")
 
+                    # Get context text for display (optional, but we already have results)
+                    context_text = ""
+                    if engine_results:
+                        context_parts = [
+                            f"From document '{r['filename']}':\n{r['content']}\n"
+                            for r in engine_results
+                        ]
+                        context_text = "Relevant context from documents:\n" + "\n".join(context_parts)
+
                     # Store for display
                     capture_rag_context_for_comparison(
                         engine_type=engine_type,
                         query=query,
-                        context_text=context,
+                        context_text=context_text,
                         results=engine_results
                     )
                 except Exception as e:
@@ -345,32 +344,83 @@ def render_rag_comparison_interface():
                 st.markdown("### 📚 Retrieved Context")
 
                 if ctx.get('results'):
-                    st.success(f"Found {len(ctx['results'])} results")
+                    # Calculate threshold statistics
+                    results_with_threshold = [r for r in ctx['results'] if r.get('threshold_used') is not None]
+
+                    if results_with_threshold:
+                        # Get the first result's threshold info (all should be same for the engine)
+                        sample_result = results_with_threshold[0]
+                        threshold = sample_result.get('threshold_used')
+                        max_score = max([r.get('max_score_reached', 0) for r in ctx['results'] if r.get('max_score_reached')])
+
+                        # Display threshold info with visual indicator
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if threshold is not None:
+                                st.metric("Similarity Threshold", f"{threshold:.3f}")
+                        with col2:
+                            if max_score > 0:
+                                st.metric("Max Score Achieved", f"{max_score:.3f}")
+
+                        # Show if threshold might be too high
+                        if threshold is not None and max_score > 0:
+                            if max_score < threshold:
+                                st.warning(f"⚠️ Max score ({max_score:.3f}) is below threshold ({threshold:.3f}) - no results would be returned in normal operation")
+                            elif max_score - threshold < 0.1:
+                                st.info(f"📊 Max score is close to threshold (difference: {max_score - threshold:.3f})")
+                            else:
+                                st.success(f"✅ Good margin above threshold (difference: {max_score - threshold:.3f})")
+
+                    st.success(f"Found {len([r for r in ctx['results'] if not r.get('no_results')])} results")
+
                     for i, result in enumerate(ctx['results']):
-                        with st.expander(f"📄 {result.get('filename', f'Result {i+1}')} (score: {result.get('score', 0):.4f})", expanded=i==0):
+                        if result.get('no_results'):
+                            with st.expander(f"📊 No Results - Diagnostic Info", expanded=True):
+                                st.warning("No documents matched the query")
+                                if result.get('max_score_reached', 0) > 0:
+                                    st.info(f"Highest score achieved: {result['max_score_reached']:.3f}")
+                                    if result.get('threshold_used') is not None:
+                                        if result['max_score_reached'] < result['threshold_used']:
+                                            st.error(f"❌ All scores below threshold ({result['threshold_used']:.3f})")
+                                        else:
+                                            st.success(f"✅ Scores above threshold but filtered elsewhere")
+                                else:
+                                    st.info("No matches found at all")
+                            continue
+
+                        # Get threshold info
+                        threshold_used = result.get('threshold_used', 'N/A')
+                        max_score_reached = result.get('max_score_reached', 0)
+
+                        # Create score display
+                        score_display = f"score: {result.get('score', 0):.4f}"
+                        if isinstance(threshold_used, float):
+                            score_display += f" | threshold: {threshold_used:.2f}"
+                        if max_score_reached > 0:
+                            score_display += f" | max: {max_score_reached:.3f}"
+
+                        with st.expander(
+                            f"📄 {result.get('filename', f'Result {i+1}')} ({score_display})",
+                            expanded=i==0
+                        ):
                             st.markdown(result.get('content', 'No content'))
 
                             # Show metadata
                             metadata = {k: v for k, v in result.items()
-                                      if k not in ['content', 'filename', 'score']}
+                                      if k not in ['content', 'filename', 'score', 'threshold_used', 'max_score_reached', 'no_results', 'metadata']}
+                            if result.get('metadata'):
+                                metadata.update(result['metadata'])
                             if metadata:
                                 st.caption("Metadata:")
                                 st.json(metadata)
                 else:
                     st.error("❌ No results retrieved by this engine")
 
-                    # Show why there might be no results
-                    st.info("Possible reasons:")
-                    st.markdown("""
-                    - No documents indexed for this engine
-                    - Documents exist but don't match the query
-                    - Similarity threshold too high
-                    - Engine configuration issue
-                    """)
-
-                # Show raw context text if available
-                if ctx.get('context_text') and not ctx.get('results'):
-                    st.text_area("Raw context", ctx['context_text'], height=200, key=f"raw_context_{engine_type}")
+                    # Get threshold from engine if possible
+                    rag_manager = _get_rag_manager()
+                    engine = rag_manager.get_engine(engine_type)
+                    if engine and hasattr(engine, 'similarity_threshold'):
+                        st.info(f"Current similarity threshold: {engine.similarity_threshold}")
 
         # Summary statistics
         st.divider()

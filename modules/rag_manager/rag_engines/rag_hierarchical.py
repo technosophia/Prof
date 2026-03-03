@@ -244,16 +244,47 @@ class FaissHierarchicalRAGEngine(RAGEngine):
             query_emb = self._encode_texts([query])
             D, I = self.indices[user_id].search(query_emb, limit * 3)
             results = []
+            threshold = getattr(self, 'similarity_threshold', 0.5)
+            max_score_reached = 0.0  # Track highest score
+
             for dist, idx in zip(D[0], I[0]):
                 if idx == -1:
                     break
-                if dist < self.similarity_threshold:
+
+                # Track max score regardless of threshold
+                if dist > max_score_reached:
+                    max_score_reached = dist
+
+                if dist < threshold:
                     continue
+
                 meta = self.metadata[user_id][idx]
                 formatted = f"**{meta['chapter']}**\n**{meta['section']}**\n\n{meta['content']}"
-                results.append({'filename': meta['filename'], 'score': float(dist), 'content': formatted})
+                results.append({
+                    'filename': meta['filename'],
+                    'score': float(dist),
+                    'content': formatted,
+                    'threshold_used': threshold,
+                    'max_score_reached': None  # Will be set after loop
+                })
                 if len(results) >= limit:
                     break
+
+            # Add max_score_reached to all results
+            for result in results:
+                result['max_score_reached'] = max_score_reached
+
+            # If no results, still return info about max score
+            if not results:
+                return [{
+                    'filename': None,
+                    'score': 0,
+                    'content': '',
+                    'threshold_used': threshold,
+                    'max_score_reached': max_score_reached,
+                    'no_results': True
+                }]
+
             return results
         except Exception as e:
             log("error", f"Hierarchical FAISS search failed: {str(e)}")
