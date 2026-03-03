@@ -526,44 +526,94 @@ class RAGManager:
         limit: int = 5,
         search_all: bool = False,
     ) -> Dict[str, Any]:
+        """Search for documents across one or all engines."""
         results: Dict[str, Any] = {}
 
         if not self.is_rag_enabled():
-            log("debug", "RAG search skipped: modules.rag_manager.enabled is false")
+            log("debug", "[RAG Search] RAG search skipped: modules.rag_manager.enabled is false")
             return results
 
         target_engine = engine_type
         if not target_engine and not search_all:
             target_engine = self.default_engine
 
+        # Get accessible documents for this user
         accessible_docs = self.get_user_documents(user_id)
+
+        log("debug", f"[RAG Search] User {user_id} has {len(accessible_docs)} accessible documents")
+
         if not accessible_docs:
-            log("warning", f"Search aborted: no accessible docs for user={user_id}")
+            log("warning", f"[RAG Search] Search aborted: no accessible docs for user={user_id}")
             return results
+
+        # Log document details for debugging
+        for doc in accessible_docs[:5]:  # Log first 5 docs
+            log("debug", f"[RAG Search] Accessible doc: {doc['filename']} (owner: {doc['uploaded_by']}, indexed_in: {doc.get('indexed_in', [])})")
 
         allowed_filenames = {doc['filename'] for doc in accessible_docs}
         owners = {doc['uploaded_by'] for doc in accessible_docs}
+
+        log("debug", f"[RAG Search] Owners for this user: {owners}")
 
         engine_types = [target_engine] if target_engine else list(self.engines.keys())
         engine_types = [e for e in engine_types if self.is_engine_enabled(e)]
 
         if not engine_types:
+            log("debug", f"[RAG Search] No enabled engines found")
             return results
+
+        log("debug", f"[RAG Search] Searching engines: {engine_types}")
 
         for eng_type in engine_types:
             engine = self.get_engine(eng_type)
             if not engine:
+                log("debug", f"[RAG Search] Engine {eng_type} not found")
                 continue
+
+            log("debug", f"[RAG Search] Querying engine {eng_type} with query: {query}")
 
             engine_results = []
             for owner in owners:
+                # Check if engine has documents for this owner
+                indexed_docs = engine.get_indexed_documents(owner)
+                log("debug", f"[RAG Search] Engine {eng_type} has {len(indexed_docs)} indexed docs for owner {owner}")
+
+                if indexed_docs:
+                    # Log first few indexed documents
+                    for doc in indexed_docs[:3]:
+                        log("debug", f"[RAG Search] Engine {eng_type} indexed doc for {owner}: {doc.get('filename')}")
+
                 owner_results = engine.search(owner, query, limit * 5)
+                log("debug", f"[RAG Search] Engine {eng_type} returned {len(owner_results)} raw results for owner {owner}")
+
+                # Check if any results before filtering
+                if owner_results:
+                    for r in owner_results[:3]:  # Log first 3 results
+                        log("debug", f"[RAG Search] Raw result from {eng_type}: file={r.get('filename')}, score={r.get('score', 0)}")
+
+                # Filter results to only include accessible documents
+                pre_filter_count = len(owner_results)
                 for result in owner_results:
                     if result['filename'] in allowed_filenames:
                         engine_results.append(result)
 
+                log("debug", f"[RAG Search] Engine {eng_type}: {pre_filter_count} raw results, {len(owner_results) - len(engine_results)} filtered out, {len(engine_results)} kept for owner {owner}")
+
+            # Sort by score and limit
             engine_results.sort(key=lambda x: x['score'], reverse=True)
-            results[eng_type] = engine_results[:limit]
+            final_results = engine_results[:limit]
+
+            log("debug", f"[RAG Search] Engine {eng_type} final results: {len(final_results)}")
+
+            # Log why we might have no results
+            if not final_results:
+                log("debug", f"[RAG Search] No results from {eng_type}. Possible reasons:")
+                log("debug", f"  - Check if documents are indexed in this engine")
+                log("debug", f"  - Check similarity threshold: {getattr(engine, 'similarity_threshold', 'N/A')}")
+                log("debug", f"  - Query: '{query}' might not match any content")
+                log("debug", f"  - Document owners: {owners}")
+
+            results[eng_type] = final_results
 
         return results
 
@@ -573,27 +623,47 @@ class RAGManager:
         query: str,
         engine_type: Optional[str] = None,
     ) -> str:
+        """Get RAG context for a query."""
         if not self.is_rag_enabled():
+            log("debug", "[RAG Context] RAG disabled, returning empty context")
             return ""
 
         if not engine_type:
             engine_type = self.default_engine
+            log("debug", f"[RAG Context] Using default engine: {engine_type}")
 
         if not self.is_engine_enabled(engine_type):
-            log("debug", f"RAG context skipped: engine {engine_type} disabled in config")
+            log("debug", f"[RAG Context] Engine {engine_type} disabled in config, returning empty context")
             return ""
+
+        log("debug", f"[RAG Context] Getting context for user={user_id}, engine={engine_type}, query='{query}'")
 
         search_results = self.search(user_id, query, engine_type, limit=3)
         engine_results = search_results.get(engine_type, []) if search_results else []
 
         if not engine_results:
-            log("warning", f"No RAG ({engine_type}) results found for query: {query!r}")
+            log("warning", f"[RAG Context] No results found for query: '{query}' with engine {engine_type}")
+            # Check if user has any documents indexed in this engine
+            accessible_docs = self.get_user_documents(user_id)
+            docs_in_engine = []
+            for doc in accessible_docs:
+                if engine_type in doc.get('indexed_in', []):
+                    docs_in_engine.append(doc['original_filename'])
+
+            if docs_in_engine:
+                log("debug", f"[RAG Context] User has {len(docs_in_engine)} docs indexed in {engine_type}: {docs_in_engine[:5]}")
+                log("debug", f"[RAG Context] Query '{query}' didn't match any content in these documents")
+            else:
+                log("debug", f"[RAG Context] User has no documents indexed in engine {engine_type}")
+
             return f"No result found for : '{query}'"
 
         context_parts = [
             f"From document '{r['filename']}':\n{r['content']}\n"
             for r in engine_results
         ]
+
+        log("debug", f"[RAG Context] Returning {len(context_parts)} context chunks")
         return "Relevant context from documents:\n" + "\n".join(context_parts)
 
     # ------------------------------------------------------------------

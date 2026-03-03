@@ -1,7 +1,7 @@
-# modules/rag_bench/rag_bench_ui.py
+# modules/rag_bench/rag_bench_admin_ui.py
 """
 RAG Benchmark UI - Admin tab for viewing LLM responses with RAG context.
-Includes test interface to manually query and see RAG context.
+Includes test interface to manually query and compare RAG engines.
 """
 
 import streamlit as st
@@ -12,7 +12,10 @@ from typing import Optional, Dict, Any, List
 from modules.rag_bench.rag_bench_core import (
     get_captured_interactions,
     clear_captured_interactions,
-    get_stats
+    get_stats,
+    capture_rag_context_for_comparison,
+    get_captured_comparison_contexts,
+    clear_comparison_contexts
 )
 from shared.common import llm_conversation_generate, get_current_llm_info
 
@@ -25,24 +28,31 @@ def inject_ui_admin_tab():
 
     def render():
         st.header("🔬 RAG Benchmark")
-        st.caption("Test RAG context and view captured interactions")
+        st.caption("Test and compare RAG engines side by side")
 
         # Create tabs for different views
-        tab1, tab2 = st.tabs(["🧪 Test RAG Query", "📊 Captured Interactions"])
+        tab1, tab2, tab3 = st.tabs([
+            "🧪 Test LLM with RAG",
+            "🔍 Compare RAG Engines",
+            "📊 Captured Interactions"
+        ])
 
         with tab1:
             render_test_interface()
 
         with tab2:
+            render_rag_comparison_interface()
+
+        with tab3:
             render_captured_interactions()
 
     return ("RAG Benchmark", render)
 
 
 def render_test_interface():
-    """Render the test query interface."""
-    st.subheader("Test RAG Query")
-    st.caption("Ask a question and see what RAG context is retrieved")
+    """Render the test query interface (original functionality)."""
+    st.subheader("Test RAG Query with LLM")
+    st.caption("Ask a question and see what RAG context is retrieved by the selected engine")
 
     # Check if user is logged in
     if 'current_user' not in st.session_state or not st.session_state.current_user:
@@ -57,6 +67,15 @@ def render_test_interface():
     if current_llm:
         st.info(f"**Current LLM:** {current_llm.get('name', 'Unknown')} ({current_llm.get('model', 'Unknown')})")
 
+    # Get available RAG engines
+    rag_manager = _get_rag_manager()
+    available_engines = rag_manager.get_available_engines()
+    engine_options = [e['type'] for e in available_engines if e['available']]
+
+    if not engine_options:
+        st.warning("No RAG engines available")
+        return
+
     # Test query form
     with st.form(key="rag_test_form"):
         question = st.text_area(
@@ -66,10 +85,19 @@ def render_test_interface():
             help="Ask a question to see what RAG context is retrieved and the LLM's response"
         )
 
-        col1, col2 = st.columns([1, 4])
+        col1, col2, col3 = st.columns([2, 2, 4])
         with col1:
-            submitted = st.form_submit_button("🚀 Ask", use_container_width=True)
+            selected_engine = st.selectbox(
+                "RAG Engine",
+                options=engine_options,
+                index=0,
+                help="Select which RAG engine to use for context retrieval"
+            )
+
         with col2:
+            submitted = st.form_submit_button("🚀 Ask", width='stretch')
+
+        with col3:
             show_context_only = st.checkbox(
                 "Show context only (skip LLM call)",
                 help="If checked, only show the retrieved RAG context without calling the LLM"
@@ -77,19 +105,26 @@ def render_test_interface():
 
     # Handle form submission
     if submitted and question:
-        with st.spinner("Processing..."):
+        with st.spinner(f"Processing with {selected_engine} engine..."):
             # Clear previous test results
             if "rag_test_response" in st.session_state:
                 del st.session_state.rag_test_response
             if "rag_test_context" in st.session_state:
                 del st.session_state.rag_test_context
+            if "rag_test_engine" in st.session_state:
+                del st.session_state.rag_test_engine
 
             # Run the test
-            asyncio.run(run_rag_test(question, user_id, show_context_only))
+            asyncio.run(run_rag_test(question, user_id, selected_engine, show_context_only))
 
     # Display results if available
     if "rag_test_response" in st.session_state or "rag_test_context" in st.session_state:
         st.divider()
+
+        # Show which engine was used
+        if "rag_test_engine" in st.session_state:
+            st.info(f"**Engine used:** {st.session_state.rag_test_engine}")
+
         st.subheader("Results")
 
         col_left, col_right = st.columns(2)
@@ -134,17 +169,263 @@ def render_test_interface():
                 st.info("No context captured")
 
         # Clear test button
-        if st.button("🧹 Clear Results", use_container_width=True):
-            keys_to_clear = ["rag_test_response", "rag_test_context", "rag_test_tokens", "rag_test_show_context_only"]
+        if st.button("🧹 Clear Results", width='stretch'):
+            keys_to_clear = ["rag_test_response", "rag_test_context", "rag_test_tokens",
+                           "rag_test_show_context_only", "rag_test_engine"]
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
 
 
-async def run_rag_test(question: str, user_id: str, show_context_only: bool = False):
-    """Run a test RAG query and capture context."""
+def render_rag_comparison_interface():
+    """New interface to compare contexts from all RAG engines."""
+    st.subheader("Compare RAG Engines Side by Side")
+    st.caption("See what context each RAG engine would retrieve for your query")
+
+    # Check if user is logged in
+    if 'current_user' not in st.session_state or not st.session_state.current_user:
+        st.warning("You must be logged in to compare RAG engines")
+        return
+
+    current_user = st.session_state.current_user
+    user_id = current_user.get('id', 'unknown')
+
+    # Get available RAG engines
+    rag_manager = _get_rag_manager()
+    available_engines = rag_manager.get_available_engines()
+
+    # Filter only available engines
+    engine_options = [{
+        'type': e['type'],
+        'description': e.get('description', ''),
+        'default': e.get('default', False)
+    } for e in available_engines if e['available']]
+
+    if not engine_options:
+        st.warning("No RAG engines available")
+        return
+
+    # Debug toggle
+    with st.expander("🔧 Debug Options", expanded=False):
+        debug_mode = st.checkbox("Enable debug logging", value=False, key="rag_bench_debug_mode")
+        if debug_mode:
+            st.info("Debug mode enabled - logs will be captured and displayed")
+
+    # Show engine status
+    with st.expander("ℹ️ Available Engines", expanded=False):
+        for engine in engine_options:
+            default_marker = "⭐ " if engine['default'] else ""
+            st.write(f"{default_marker}**{engine['type']}**: {engine['description']}")
+
+    # Query input
+    query = st.text_area(
+        "Enter your query:",
+        height=100,
+        placeholder="What would you like to search for?",
+        key="rag_comparison_query_input"
+    )
+
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        limit = st.number_input(
+            "Results per engine",
+            min_value=1,
+            max_value=10,
+            value=3,
+            key="rag_comparison_limit_input"
+        )
+
+    with col2:
+        st.write("")  # Spacing
+        st.write("")
+        compare_button = st.button("🔍 Compare All Engines", type="primary", width='stretch')  # Fixed: width='stretch' -> width='stretch'
+
+    # Handle comparison
+    if compare_button and query:
+        # Store query info
+        st.session_state["_rag_comparison_query"] = query
+        st.session_state["_rag_comparison_limit"] = limit
+        st.session_state["_rag_comparison_timestamp"] = datetime.now().isoformat()
+
+        # Clear previous results
+        clear_comparison_contexts()
+
+        # Start log capture if debug mode is enabled
+        if debug_mode:
+            from core.logging import capture_log_start, capture_log_end
+            capture_log_start("DEBUG", max_messages=1000)
+            st.session_state["_rag_comparison_debug_mode"] = True
+
+        # Run comparison for all engines
+        with st.spinner(f"Retrieving context from {len(engine_options)} engines..."):
+            for engine_info in engine_options:
+                engine_type = engine_info['type']
+                try:
+                    # Log the attempt
+                    from core.logging import log
+                    log("debug", f"[RAG Compare] Testing engine: {engine_type} with query: {query}")
+
+                    # Get context directly from RAG manager
+                    context = rag_manager.get_rag_context(
+                        user_id=user_id,
+                        query=query,
+                        engine_type=engine_type
+                    )
+
+                    log("debug", f"[RAG Compare] Engine {engine_type} returned context length: {len(context) if context else 0}")
+
+                    # Also get detailed search results
+                    search_results = rag_manager.search(
+                        user_id=user_id,
+                        query=query,
+                        engine_type=engine_type,
+                        limit=limit
+                    )
+
+                    engine_results = search_results.get(engine_type, []) if search_results else []
+                    log("debug", f"[RAG Compare] Engine {engine_type} returned {len(engine_results)} search results")
+
+                    # Store for display
+                    capture_rag_context_for_comparison(
+                        engine_type=engine_type,
+                        query=query,
+                        context_text=context,
+                        results=engine_results
+                    )
+                except Exception as e:
+                    log("error", f"[RAG Compare] Error with {engine_type}: {str(e)}", stacktrace=True)
+                    st.error(f"Error with {engine_type}: {str(e)}")
+
+            st.rerun()
+
+    # Display comparison results if they exist
+    if "_rag_comparison_query" in st.session_state:
+        st.divider()
+
+        # Query info
+        st.info(f"**Query:** {st.session_state['_rag_comparison_query']}")
+        if "_rag_comparison_timestamp" in st.session_state:
+            st.caption(f"Retrieved at: {st.session_state['_rag_comparison_timestamp']}")
+
+        # Get all captured contexts
+        comparison_contexts = get_captured_comparison_contexts()
+
+        if not comparison_contexts:
+            st.warning("No comparison results yet. Click 'Compare All Engines' to retrieve contexts.")
+            return
+
+        # Show summary of which engines returned results
+        engines_with_results = [ctx for ctx in comparison_contexts if ctx.get('results')]
+        engines_without_results = [ctx for ctx in comparison_contexts if not ctx.get('results')]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.success(f"✅ Engines with results: {len(engines_with_results)}")
+        with col2:
+            if engines_without_results:
+                st.warning(f"❌ Engines with no results: {len(engines_without_results)}")
+
+        # Create tabs for each engine
+        engine_tabs = st.tabs([f"⚙️ {ctx['engine_type'].upper()}" for ctx in comparison_contexts])
+
+        for tab, ctx in zip(engine_tabs, comparison_contexts):
+            with tab:
+                engine_type = ctx['engine_type']
+
+                # Show if this is the default engine
+                is_default = any(e['default'] and e['type'] == engine_type for e in engine_options)
+                if is_default:
+                    st.caption("⭐ Default Engine")
+
+                # Display context
+                st.markdown("### 📚 Retrieved Context")
+
+                if ctx.get('results'):
+                    st.success(f"Found {len(ctx['results'])} results")
+                    for i, result in enumerate(ctx['results']):
+                        with st.expander(f"📄 {result.get('filename', f'Result {i+1}')} (score: {result.get('score', 0):.4f})", expanded=i==0):
+                            st.markdown(result.get('content', 'No content'))
+
+                            # Show metadata
+                            metadata = {k: v for k, v in result.items()
+                                      if k not in ['content', 'filename', 'score']}
+                            if metadata:
+                                st.caption("Metadata:")
+                                st.json(metadata)
+                else:
+                    st.error("❌ No results retrieved by this engine")
+
+                    # Show why there might be no results
+                    st.info("Possible reasons:")
+                    st.markdown("""
+                    - No documents indexed for this engine
+                    - Documents exist but don't match the query
+                    - Similarity threshold too high
+                    - Engine configuration issue
+                    """)
+
+                # Show raw context text if available
+                if ctx.get('context_text') and not ctx.get('results'):
+                    st.text_area("Raw context", ctx['context_text'], height=200, key=f"raw_context_{engine_type}")
+
+        # Summary statistics
+        st.divider()
+        st.subheader("📊 Comparison Summary")
+
+        summary_data = []
+        for ctx in comparison_contexts:
+            result_count = len(ctx.get('results', []))
+            avg_score = 0
+            if result_count > 0:
+                avg_score = sum(r.get('score', 0) for r in ctx['results']) / result_count
+
+            summary_data.append({
+                "Engine": ctx['engine_type'],
+                "Results": result_count,
+                "Avg Score": f"{avg_score:.4f}" if result_count > 0 else "N/A",
+                "Has Context": "✅" if ctx.get('context_text') else "❌"
+            })
+
+        if summary_data:
+            st.dataframe(summary_data, width='stretch')
+
+        # Show debug logs if they were captured
+        if st.session_state.get("_rag_comparison_debug_mode", False):
+            st.divider()
+            st.subheader("🔧 Debug Logs")
+
+            from core.logging import capture_log_end
+            logs = capture_log_end()
+
+            if logs:
+                with st.expander(f"View {len(logs)} captured log messages", expanded=True):
+                    for log_msg in logs[-50:]:  # Show last 50 logs
+                        st.code(log_msg)
+            else:
+                st.info("No logs captured")
+
+            # Clear debug mode flag
+            del st.session_state["_rag_comparison_debug_mode"]
+
+        # Clear button
+        if st.button("🧹 Clear Comparison Results", width='stretch'):  # Fixed: width='stretch' -> width='stretch'
+            clear_comparison_contexts()
+            # Clear the stored session state variables
+            keys_to_clear = ["_rag_comparison_query", "_rag_comparison_timestamp",
+                           "_rag_comparison_limit"]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
+
+
+async def run_rag_test(question: str, user_id: str, engine_type: str, show_context_only: bool = False):
+    """Run a test RAG query and capture context using specified engine."""
     try:
+        # Get RAG manager
+        rag_manager = _get_rag_manager()
+
         # Clear previous context capture
         if "rag_test_captured_context" in st.session_state:
             del st.session_state.rag_test_captured_context
@@ -152,28 +433,51 @@ async def run_rag_test(question: str, user_id: str, show_context_only: bool = Fa
         # Set a flag to indicate we're in test mode
         st.session_state.rag_test_mode = True
         st.session_state.rag_test_show_context_only = show_context_only
+        st.session_state.rag_test_engine = engine_type
 
-        if not show_context_only:
-            # Make the LLM call - this will trigger context callbacks
-            response = await llm_conversation_generate(
-                message=question,
-                user_id=user_id
-            )
+        # Temporarily set the default engine to the selected one
+        original_default = rag_manager.default_engine
+        rag_manager.default_engine = engine_type
 
-            # Store the response
-            st.session_state.rag_test_response = response
+        try:
+            if not show_context_only:
+                # Make the LLM call - this will trigger context callbacks
+                response = await llm_conversation_generate(
+                    message=question,
+                    user_id=user_id
+                )
 
-            # Look for the context in the most recent interaction
-            # The context should have been captured by capture_rag_context
-            if "rag_test_captured_context" in st.session_state:
-                st.session_state.rag_test_context = st.session_state.rag_test_captured_context
-        else:
-            st.session_state.rag_test_response = None
-            st.session_state.rag_test_show_context_only = True
+                # Store the response
+                st.session_state.rag_test_response = response
 
-            # In context-only mode, we need to trigger context retrieval without LLM call
-            # This depends on how your RAG module works - you might need to call a specific function
-            st.info("Context-only mode: Please implement RAG context retrieval")
+                # Look for the context in the most recent interaction
+                if "rag_test_captured_context" in st.session_state:
+                    st.session_state.rag_test_context = st.session_state.rag_test_captured_context
+            else:
+                # Context-only mode: get context directly
+                context = rag_manager.get_rag_context(
+                    user_id=user_id,
+                    query=question,
+                    engine_type=engine_type
+                )
+
+                # Also get detailed search results
+                search_results = rag_manager.search(
+                    user_id=user_id,
+                    query=question,
+                    engine_type=engine_type,
+                    limit=3
+                )
+
+                engine_results = search_results.get(engine_type, []) if search_results else []
+
+                st.session_state.rag_test_response = None
+                st.session_state.rag_test_context = engine_results
+                st.session_state.rag_test_show_context_only = True
+
+        finally:
+            # Restore original default engine
+            rag_manager.default_engine = original_default
 
     except Exception as e:
         st.error(f"Error during test: {str(e)}")
@@ -184,7 +488,7 @@ async def run_rag_test(question: str, user_id: str, show_context_only: bool = Fa
 
 
 def render_captured_interactions():
-    """Render the captured interactions view."""
+    """Render the captured interactions view (unchanged)."""
     stats = get_stats()
 
     # Stats row
@@ -210,11 +514,11 @@ def render_captured_interactions():
     col1, col2, col3 = st.columns([1, 1, 4])
 
     with col1:
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", width='stretch'):
             st.rerun()
 
     with col2:
-        if st.button("🗑️ Clear All", use_container_width=True, type="secondary"):
+        if st.button("🗑️ Clear All", width='stretch', type="secondary"):
             count = clear_captured_interactions()
             st.success(f"Cleared {count} interactions")
             st.rerun()
@@ -262,8 +566,7 @@ def render_captured_interactions():
 
 
 def _render_interaction_card(interaction: Dict[str, Any], index: int):
-    """Render a single interaction as an expandable card."""
-
+    """Render a single interaction as an expandable card (unchanged)."""
     timestamp = interaction.get("timestamp", "Unknown")
     try:
         # Format timestamp nicely
@@ -384,3 +687,9 @@ def _render_interaction_card(interaction: Dict[str, Any], index: int):
             if len(display_data.get("response", "")) > 500:
                 display_data["response"] = display_data["response"][:500] + "... [truncated]"
             st.json(display_data)
+
+
+def _get_rag_manager():
+    """Helper to get RAG manager instance."""
+    from modules.rag_manager.rag_factory import get_rag_manager
+    return get_rag_manager()
