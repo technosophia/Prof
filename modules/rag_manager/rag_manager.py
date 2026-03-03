@@ -565,6 +565,13 @@ class RAGManager:
         search_results = self.search(user_id, query, engine_type, limit=3)
         engine_results = search_results.get(engine_type, []) if search_results else []
 
+        if not engine_results and engine_type == "classic" and self.is_engine_enabled("simple"):
+            fallback_results = self.search(user_id, query, "simple", limit=5)
+            simple_results = fallback_results.get("simple", []) if fallback_results else []
+            if simple_results:
+                log("warning", f"No RAG (classic) results for query {query!r}; falling back to simple engine context")
+                engine_results = simple_results
+
         if not engine_results:
             log("warning", f"No RAG ({engine_type}) results found for query: {query!r}")
             return f"No result found for : '{query}'"
