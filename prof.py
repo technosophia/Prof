@@ -219,24 +219,24 @@ def main():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("💬 Chat", use_container_width=True):
+            if st.button("💬 Chat", width='stretch'):
                 st.session_state.current_page = "chat"
                 st.rerun()
 
         with col2:
-            if st.button("⚙️ Settings", use_container_width=True):
+            if st.button("⚙️ Settings", width='stretch'):
                 st.session_state.current_page = "settings"
                 st.rerun()
 
         with col3:
             # Only show Admin button for users who can access it
             if can_access_admin(current_user):
-                if st.button("🔧 Admin", use_container_width=True):
+                if st.button("🔧 Admin", width='stretch'):
                     st.session_state.current_page = "admin"
                     st.rerun()
             else:
                 # Disabled button for normal users
-                st.button("🔧 Admin", use_container_width=True, disabled=True,
+                st.button("🔧 Admin", width='stretch', disabled=True,
                          help="Admin access requires Master or Admin role")
 
         # INJECTION POINT 2: Sidebar Content from UI Modules

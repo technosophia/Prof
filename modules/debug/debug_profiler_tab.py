@@ -202,7 +202,7 @@ def show_profiler_tab():
 
     with col1:
         if not st.session_state.profiling_active:
-            if st.button("▶️ Start Profiling", type="primary", use_container_width=True):
+            if st.button("▶️ Start Profiling", type="primary", width='stretch'):
                 profiler.start()
                 st.session_state.profiling_active = True
                 st.session_state.profile_result = None
@@ -211,7 +211,7 @@ def show_profiler_tab():
 
     with col2:
         if st.session_state.profiling_active:
-            if st.button("⏹️ Stop Profiling", type="secondary", use_container_width=True):
+            if st.button("⏹️ Stop Profiling", type="secondary", width='stretch'):
                 profile_file = profiler.stop()
                 if profile_file:
                     st.session_state.profiling_active = False
@@ -299,7 +299,7 @@ def show_profiler_tab():
             )
 
         # Clear button
-        if st.button("🔄 Clear Results", use_container_width=True):
+        if st.button("🔄 Clear Results", width='stretch'):
             # Clean up file
             if os.path.exists(profile_file):
                 try:
@@ -325,7 +325,7 @@ def show_profiler_tab():
         col_test1, col_test2 = st.columns(2)
 
         with col_test1:
-            if st.button("Test Database Query Performance", use_container_width=True):
+            if st.button("Test Database Query Performance", width='stretch'):
                 try:
                     from st_shared.cached import get_user_manager
                     start = time.time()
@@ -336,7 +336,7 @@ def show_profiler_tab():
                     st.error(f"❌ Error: {e}")
 
         with col_test2:
-            if st.button("Test Session State Size", use_container_width=True):
+            if st.button("Test Session State Size", width='stretch'):
                 try:
                     size, count = get_session_state_size()
                     st.info(f"📊 Session state: ~{size/1024:.1f} KB ({count} keys)")

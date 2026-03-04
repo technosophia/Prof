@@ -238,7 +238,7 @@ def render_rag_comparison_interface():
     with col2:
         st.write("")  # Spacing
         st.write("")
-        compare_button = st.button("🔍 Compare All Engines", type="primary", use_container_width=True)
+        compare_button = st.button("🔍 Compare All Engines", type="primary", width='stretch')
 
     # Handle comparison
     if compare_button and query:
@@ -451,7 +451,7 @@ def render_rag_comparison_interface():
             })
 
         if summary_data:
-            st.dataframe(summary_data, use_container_width=True)
+            st.dataframe(summary_data, width='stretch')
 
         # Show debug logs if they were captured
         if st.session_state.get("_rag_comparison_debug_mode", False):
@@ -480,7 +480,7 @@ def render_rag_comparison_interface():
             del st.session_state["_rag_comparison_debug_mode"]
 
         # Clear button
-        if st.button("🧹 Clear Comparison Results", use_container_width=True):
+        if st.button("🧹 Clear Comparison Results", width='stretch'):
             clear_comparison_contexts()
             # Clear the stored session state variables
             keys_to_clear = ["_rag_comparison_query", "_rag_comparison_timestamp",

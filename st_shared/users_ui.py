@@ -158,9 +158,9 @@ def render_login_form(form_key="login_form"):
 
         col1, col2 = st.columns(2)
         with col1:
-            login_submit = st.form_submit_button("Login", type="primary", use_container_width=True)
+            login_submit = st.form_submit_button("Login", type="primary", width='stretch')
         with col2:
-            reset_request = st.form_submit_button("Forgot Password?", use_container_width=True)
+            reset_request = st.form_submit_button("Forgot Password?", width='stretch')
 
         if login_submit:
             if username and password:
@@ -198,9 +198,9 @@ def render_reset_password_form(form_key="reset_form"):
 
         col1, col2 = st.columns(2)
         with col1:
-            reset_submit = st.form_submit_button("Reset Password", type="primary", use_container_width=True)
+            reset_submit = st.form_submit_button("Reset Password", type="primary", width='stretch')
         with col2:
-            back_to_login = st.form_submit_button("Back to Login", use_container_width=True)
+            back_to_login = st.form_submit_button("Back to Login", width='stretch')
 
         if reset_submit:
             if not username or not new_password:
@@ -354,7 +354,7 @@ def inject_ui_sidebar():
     if production_mode:
         # Production mode - show login if no user
         if not st.session_state.current_user:
-            if st.button("🔐 Login", type="primary", use_container_width=True):
+            if st.button("🔐 Login", type="primary", width='stretch'):
                 st.session_state.show_login_form = True
                 st.rerun()
             return True
@@ -373,7 +373,7 @@ def inject_ui_sidebar():
             col2.caption(f"Parent: {current_user['parent_name']}")
 
         # Logout button
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("🚪 Logout", width='stretch'):
             user_manager = get_user_manager()
             user_manager.log_user_action(
                 user_id=current_user['id'],
@@ -410,7 +410,7 @@ def inject_ui_sidebar():
                 )
 
                 if selected_user != "Select a user..." and selected_user:
-                    if st.button("Login as User", use_container_width=True):
+                    if st.button("Login as User", width='stretch'):
                         st.session_state.user_manually_logged_out = False
                         st.session_state.current_user = all_users[selected_user]
                         apply_user_preferences(st.session_state.current_user)
@@ -552,9 +552,9 @@ def render_user_form():
 
         col1, col2 = st.columns(2)
         with col1:
-            submit = st.form_submit_button("💾 Save", type="primary", use_container_width=True)
+            submit = st.form_submit_button("💾 Save", type="primary", width='stretch')
         with col2:
-            cancel = st.form_submit_button("❌ Cancel", use_container_width=True)
+            cancel = st.form_submit_button("❌ Cancel", width='stretch')
 
         if submit:
             if not name.strip():
@@ -681,16 +681,16 @@ def inject_ui_main_header():
 
         col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
-            if st.button("👤 Profile", key="profile_header_btn", use_container_width=True):
+            if st.button("👤 Profile", key="profile_header_btn", width='stretch'):
                 st.session_state.edit_user_id = current_user['id']
                 st.session_state.show_user_form = True
                 st.rerun()
         with col2:
-            if st.button("⚙️ Settings", key="settings_header_btn", use_container_width=True):
+            if st.button("⚙️ Settings", key="settings_header_btn", width='stretch'):
                 st.session_state.current_page = "settings"
                 st.rerun()
         with col3:
-            if st.button("🚪 Logout", key="logout_header_btn", use_container_width=True):
+            if st.button("🚪 Logout", key="logout_header_btn", width='stretch'):
                 user_manager = get_user_manager()
                 user_manager.log_user_action(
                     user_id=current_user['id'],

@@ -97,7 +97,7 @@ def inject_ui_settings_tab():
             # Single conversation export (if there's a current conversation)
             if st.session_state.get("current_conversation_id"):
                 st.write("**Current Conversation**")
-                if st.button("Export Current Conversation", use_container_width=True):
+                if st.button("Export Current Conversation", width='stretch'):
                     st.session_state.show_export_dialog = True
                     st.rerun()
 
@@ -105,7 +105,7 @@ def inject_ui_settings_tab():
             st.write("**All Conversations**")
             st.caption("Export all your conversations to a single YAML file")
 
-            if st.button("📦 Export All Conversations", type="secondary", use_container_width=True):
+            if st.button("📦 Export All Conversations", type="secondary", width='stretch'):
                 # Create temporary file
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp:
                     file_path = tmp.name

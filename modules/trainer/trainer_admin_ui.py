@@ -310,7 +310,7 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
     # Save button
     col1, col2 = st.columns([1, 3])
     with col1:
-        if st.button("Save Training Program", type="primary", use_container_width=True):
+        if st.button("Save Training Program", type="primary", width='stretch'):
             if trainer_manager.set_training_program(trainer_id, new_program):
                 st.success("Training program saved successfully!")
                 st.rerun()
@@ -318,7 +318,7 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
                 st.error("Failed to save training program. Please try again.")
 
     with col2:
-        if st.button("Reset to Default", use_container_width=True):
+        if st.button("Reset to Default", width='stretch'):
             if trainer_manager.reset_training_program_to_default(trainer_id):
                 st.success("Reset to default training program!")
                 st.rerun()

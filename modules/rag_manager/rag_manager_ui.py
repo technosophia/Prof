@@ -132,7 +132,7 @@ def inject_ui_sidebar():
                 log("info", f"[RAG UI] RAG DISABLED via UI toggle for engine {rag_manager.default_engine}")
                 st.sidebar.info("RAG context injection disabled")
 
-        if st.button("Apply Changes", type="secondary", use_container_width=True):
+        if st.button("Apply Changes", type="secondary", width='stretch'):
             changes_made = False
 
             # Handle engine change

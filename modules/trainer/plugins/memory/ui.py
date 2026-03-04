@@ -51,7 +51,7 @@ class MemoryPluginUI(TrainerPluginUI):
             with col1:
                 if st.button("🔄 Refresh with LLM",
                              key=f"refresh_memory_{student_id}",
-                             use_container_width=True):
+                             width='stretch'):
                     log("info", f"Refresh button clicked (plugin={self._core.id}, trainer={trainer_id}, student={student_id})")
                     with st.spinner("Analyzing conversations..."):
                         # DATA: calls data method
@@ -68,7 +68,7 @@ class MemoryPluginUI(TrainerPluginUI):
             with col2:
                 if st.button("✏️ Edit Manually",
                              key=f"edit_memory_{student_id}",
-                             use_container_width=True):
+                             width='stretch'):
                     st.session_state[f"editing_memory_{student_id}"] = True
 
             if st.session_state.get(f"editing_memory_{student_id}", False):
@@ -104,7 +104,7 @@ class MemoryPluginUI(TrainerPluginUI):
 
             if st.button("🔄 Refresh All Memories",
                          key=f"{self._core.id}_refresh_all_memories",
-                         use_container_width=True):
+                         width='stretch'):
                 with st.spinner("Refreshing all memories..."):
                     st.info("This would refresh all memories asynchronously in production")
 

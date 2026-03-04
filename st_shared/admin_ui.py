@@ -167,14 +167,14 @@ def show_system_admin_content():
             if is_active:
                 if st.button("Disable", key=f"disable_{module_name}",
                            help=f"Disable {module_name} module",
-                           use_container_width=True):
+                           width='stretch'):
                     if module_handler.toggle_module(module_name, False):
                         st.success(f"Module '{module_name}' disabled")
                         st.rerun()
             else:
                 if st.button("Enable", key=f"enable_{module_name}",
                            help=f"Enable {module_name} module",
-                           use_container_width=True):
+                           width='stretch'):
                     if module_handler.toggle_module(module_name, True):
                         st.success(f"Module '{module_name}' enabled")
                         st.rerun()

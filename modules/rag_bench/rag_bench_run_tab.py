@@ -442,7 +442,7 @@ def render_benchmark_run_tab():
 
     col_run, col_info = st.columns([1, 3])
     with col_run:
-        run_btn = st.button("▶️ Run", type="primary", use_container_width=True)
+        run_btn = st.button("▶️ Run", type="primary", width='stretch')
     with col_info:
         st.caption(f"{len(filtered)} cases × {len(selected_engines)} engines = **{len(filtered)*len(selected_engines)} executions**")
         if n_llm:

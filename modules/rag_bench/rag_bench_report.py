@@ -274,7 +274,7 @@ def render_step_export(
                 data=report.encode("utf-8"),
                 file_name=fname,
                 mime="text/markdown",
-                use_container_width=True,
+                width='stretch',
                 key=f"dl_step_{case_id}_{id(report)}",
             )
         with col_hint:
@@ -618,7 +618,7 @@ def render_export_section(results, cases_lookup, engines, threshold_override, ru
             data=report.encode("utf-8"),
             file_name=fname,
             mime="text/markdown",
-            use_container_width=True,
+            width='stretch',
         )
         st.caption("Prompt suggéré :")
         st.code(
