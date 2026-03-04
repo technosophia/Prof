@@ -44,12 +44,19 @@ def render() -> None:
         key="mem_bench_memory_backend",
     )
 
+    st.warning(
+        "MemBench will wipe all conversations for this dedicated benchmark student before each run. "
+        "Use only a special bench_mem_ user for tests."
+    )
+    trace_enabled = st.checkbox("Enable trace monitoring", value=False, key="mem_bench_trace_enabled")
+
     if st.button(_t("run_button"), key="mem_bench_run"):
         with st.spinner(_t("running")):
             st.session_state["mem_bench_last_result"] = runner.run(
                 scenario_path=selected_scenario,
                 memory_backend_option=selected_memory_backend,
             )
+            st.session_state["mem_bench_trace_requested"] = trace_enabled
             history = st.session_state.setdefault("mem_bench_history", [])
             history.insert(0, st.session_state["mem_bench_last_result"])
 
@@ -62,6 +69,7 @@ def render() -> None:
         st.success(_t("result_success"))
     else:
         st.error(f"{_t('result_error')}: {result.error or 'Unknown error'}")
+    st.caption(f"Cleared conversations before run: {result.cleared_conversation_count}")
 
     st.subheader(_t("memory_output"))
     st.text_area("", value=result.memory_content, height=220, key="mem_bench_memory_output")
@@ -75,3 +83,7 @@ def render() -> None:
     if history:
         st.subheader(_t("history"))
         st.caption(" | ".join(f"{item.scenario_name}@{item.memory_backend}" for item in history[:5]))
+
+    if st.session_state.get("mem_bench_trace_requested"):
+        with st.expander(f"Trace logs ({len(result.trace_logs)} lines)", expanded=False):
+            st.text("\n".join(result.trace_logs[-500:]) if result.trace_logs else "No logs captured")

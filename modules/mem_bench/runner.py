@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from core.logging import log
+from core.logging import log, capture_log_start, capture_log_end
 from shared.common import Message, _get_service, get_conversation_manager, get_driver, get_user_manager
 
 
@@ -32,6 +32,8 @@ class MemBenchResult:
     error: Optional[str]
     expected_contains: List[str]
     checks: List[MemBenchCheck]
+    trace_logs: List[str]
+    cleared_conversation_count: int
 
 
 class MemBenchRunner:
@@ -46,6 +48,7 @@ class MemBenchRunner:
 
     def run(self, scenario_path: str, memory_backend_option: str) -> MemBenchResult:
         """Execute one scenario and return memory-check output."""
+        capture_log_start("INFO", max_messages=1000)
         scenario = self._load_scenario(scenario_path)
         scenario_name = scenario.get("yamlmeta", {}).get("name", os.path.basename(scenario_path))
         setup = dict(scenario.get("setup") or {})
@@ -61,27 +64,56 @@ class MemBenchRunner:
                 error="Scenario setup IDs must start with 'bench_mem_'.",
                 expected_contains=self._expected_terms(scenario),
                 checks=[],
+                trace_logs=self._consume_logs(),
+                cleared_conversation_count=0,
             )
 
         created_users: List[str] = []
+        cleared_conversation_count = 0
         try:
-            created_users = self._ensure_test_users(setup)
+            users = self._ensure_test_users(setup)
+            created_users = users["created_user_ids"]
+            student_id = users["student_id"]
+            trainer_id = users["trainer_id"]
+            cleared_conversation_count = self._delete_user_conversations(student_id)
+
+            log(
+                "info",
+                (
+                    "mem_bench: running scenario=%s backend=%s trainer_name=%s student_name=%s "
+                    "trainer_id=%s student_id=%s cleared_conversations=%s"
+                )
+                % (
+                    scenario_name,
+                    memory_backend_option,
+                    trainer_name,
+                    student_name,
+                    trainer_id,
+                    student_id,
+                    cleared_conversation_count,
+                ),
+            )
+
             conversation_id = get_conversation_manager().create_conversation(
-                user_id=self._require_user_id(student_name),
+                user_id=student_id,
                 title=f"MemBench {scenario_name}",
                 metadata={"created_via": "mem_bench"},
             )
+            log("info", f"mem_bench: created conversation {conversation_id}")
 
             self.driver.set_context(
-                student_id=student_name,
-                trainer_id=trainer_name,
+                student_id=student_id,
+                trainer_id=trainer_id,
                 conversation_id=conversation_id,
             )
+            log("info", "mem_bench: context set in driver")
             self.driver.switch_option("memory_backend", memory_backend_option)
+            log("info", f"mem_bench: memory backend switched to '{memory_backend_option}'")
 
             training_program = str(setup.get("training_program") or "").strip()
             if training_program:
                 self.driver.do_action("set_training_program", content=training_program)
+                log("info", "mem_bench: training program updated")
 
             for turn in scenario.get("conversation", []):
                 role = str(turn.get("role") or "").strip()
@@ -98,8 +130,10 @@ class MemBenchRunner:
                         metadata={"created_via": "mem_bench", "replayed": True},
                     ),
                 )
+                log("info", f"mem_bench: injected turn role={role} chars={len(content)}")
 
             action_result = self.driver.do_action("trigger_memory_analysis")
+            log("info", f"mem_bench: trigger_memory_analysis result={action_result}")
             memory_content = self._extract_memory_content(action_result)
             checks = self._build_checks(memory_content, self._expected_terms(scenario))
             success = bool(action_result.get("success") and memory_content.strip())
@@ -112,8 +146,11 @@ class MemBenchRunner:
                 error=None if success else "Memory analysis did not return content.",
                 expected_contains=self._expected_terms(scenario),
                 checks=checks,
+                trace_logs=self._consume_logs(),
+                cleared_conversation_count=cleared_conversation_count,
             )
         except Exception as exc:
+            log("error", f"mem_bench: run failed: {exc}", stacktrace=True)
             return MemBenchResult(
                 scenario_name=scenario_name,
                 memory_backend=memory_backend_option,
@@ -122,6 +159,8 @@ class MemBenchRunner:
                 error=str(exc),
                 expected_contains=self._expected_terms(scenario),
                 checks=[],
+                trace_logs=self._consume_logs(),
+                cleared_conversation_count=cleared_conversation_count,
             )
         finally:
             if self.config.get("cleanup_after_run", False):
@@ -175,15 +214,8 @@ class MemBenchRunner:
         return ""
 
     @staticmethod
-    def _require_user_id(user_name: str) -> str:
-        user = get_user_manager().get_user_by_name(user_name)
-        if not user:
-            raise ValueError(f"User not found: {user_name}")
-        return user["id"]
-
-    @staticmethod
-    def _ensure_test_users(setup: Dict) -> List[str]:
-        created = []
+    def _ensure_test_users(setup: Dict) -> Dict[str, object]:
+        created_user_ids: List[str] = []
         user_manager = get_user_manager()
 
         trainer_name = setup.get("trainer_id")
@@ -192,17 +224,50 @@ class MemBenchRunner:
         trainer = user_manager.get_user_by_name(trainer_name) if trainer_name else None
         if trainer is None and trainer_name:
             trainer_id, _ = user_manager.create_user(name=trainer_name, role="master")
-            created.append(trainer_id)
+            created_user_ids.append(trainer_id)
             trainer = user_manager.get_user(trainer_id)
             log("info", f"mem_bench: created trainer {trainer_name}")
 
         student = user_manager.get_user_by_name(student_name) if student_name else None
         if student is None and student_name and trainer:
             student_id, _ = user_manager.create_user(name=student_name, role="normal", parent_id=trainer["id"])
-            created.append(student_id)
+            created_user_ids.append(student_id)
             log("info", f"mem_bench: created student {student_name}")
 
-        return created
+        if not trainer or not student:
+            raise ValueError("mem_bench: failed to provision trainer/student test users")
+
+        return {
+            "created_user_ids": created_user_ids,
+            "trainer_id": trainer["id"],
+            "student_id": student["id"],
+        }
+
+    @staticmethod
+    def _delete_user_conversations(user_id: str) -> int:
+        manager = get_conversation_manager()
+        conversations = manager.get_user_conversations(user_id, include_inactive=True)
+        cleared = 0
+        for conversation in conversations:
+            conversation_id = conversation.get("id")
+            if conversation_id and manager.delete_conversation(conversation_id):
+                cleared += 1
+        log("info", f"mem_bench: deleted {cleared} existing conversation(s) for user_id={user_id}")
+        return cleared
+
+    @staticmethod
+    def _consume_logs() -> List[str]:
+        logs = capture_log_end()
+        if not logs:
+            return []
+
+        flat_logs: List[str] = []
+        for entry in logs:
+            if isinstance(entry, list):
+                flat_logs.extend(str(item) for item in entry)
+            else:
+                flat_logs.append(str(entry))
+        return flat_logs
 
     @staticmethod
     def _cleanup_users(user_ids: List[str]) -> None:
