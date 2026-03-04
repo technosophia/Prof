@@ -19,32 +19,30 @@ from modules.rag_bench.rag_bench_core import (
 )
 from shared.common import llm_conversation_generate, get_current_llm_info
 from core.logging import log, capture_log_start, capture_log_end
+from modules.rag_bench.rag_bench_run_tab import get_benchmark_run_tab
 
 def inject_ui_admin_tab():
-    """
-    Render the RAG Benchmark admin tab.
-    Returns (tab_name, render_function) for the admin interface.
-    """
-
     def render():
         st.header("🔬 RAG Benchmark")
         st.caption("Test and compare RAG engines side by side")
 
-        # Create tabs for different views
-        tab1, tab2, tab3 = st.tabs([
+        bench_tab_name, bench_render = get_benchmark_run_tab()
+
+        tab1, tab2, tab3, tab4 = st.tabs([
             "🧪 Test LLM with RAG",
             "🔍 Compare RAG Engines",
-            "📊 Captured Interactions"
+            "📊 Captured Interactions",
+            bench_tab_name,           # 🏁 Benchmark
         ])
 
         with tab1:
             render_test_interface()
-
         with tab2:
             render_rag_comparison_interface()
-
         with tab3:
             render_captured_interactions()
+        with tab4:
+            bench_render()
 
     return ("RAG Benchmark", render)
 
