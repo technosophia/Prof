@@ -6,6 +6,7 @@ mysql_config.json
 .env
 .pytest_cache
 data
+material
 tests/debug
 tests/logs
 tests/test.db
