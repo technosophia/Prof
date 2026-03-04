@@ -95,7 +95,8 @@
       "name": "Ollama Small",
       "enabled": true,
       "description": "Local Qwen model via Ollama",
-      "requires_api_key": false
+      "requires_api_key": false,
+      "no_thinking": true
     },
     "gemini": {
       "type": "gemini",

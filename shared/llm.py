@@ -678,12 +678,18 @@ class LLMManager:
             log("warning", error_msg)
             return error_msg
 
+        # Read no_thinking from per-LLM config (defaults to False)
+        no_thinking: bool = bool(llm_config.get("no_thinking", False))
+        if no_thinking:
+            log("debug", f"no_thinking=True for LLM '{llm_id}'")
+
         try:
             response = await engine.generate(
                 model_name,
                 filtered_messages,
                 stream_callback,
-                response_format,   # forwarded to every engine unchanged
+                response_format,
+                no_thinking,
             )
 
             # Soft dependency: record LLM usage in driver when available.

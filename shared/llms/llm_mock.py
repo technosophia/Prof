@@ -45,6 +45,7 @@ class MockEngine(LLMEngine):
         messages: List[Dict[str, str]],
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
+        no_thinking: bool = False,
     ) -> str:
         """Generate mock response.
 

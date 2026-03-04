@@ -20,6 +20,7 @@ class LLMEngine(ABC):
         messages: List[Dict[str, str]],
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
+        no_thinking: bool = False,
     ) -> str:
         """Generate response from the LLM.
 
@@ -31,6 +32,10 @@ class LLMEngine(ABC):
                 request a structured JSON response. Each engine translates this
                 to its own native API parameter. Defaults to ``None`` (plain
                 text), preserving backward-compatible behaviour.
+            no_thinking: If True, instruct the model to skip its chain-of-thought
+                reasoning and strip any residual <think> tags from the output.
+                Only meaningful for models that support thinking mode (e.g. Ollama
+                with qwen3). Ignored silently by engines that do not support it.
         """
         pass
 

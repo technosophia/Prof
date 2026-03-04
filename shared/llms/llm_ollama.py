@@ -67,6 +67,7 @@ class OllamaEngine(LLMEngine):
         messages: List[Dict[str, str]],
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
+        no_thinking: bool = False,
     ) -> str:
         """Generate response from Ollama.
 
@@ -75,10 +76,13 @@ class OllamaEngine(LLMEngine):
             messages: Conversation messages.
             stream_callback: Optional streaming callback.
             response_format: Pass ``"json"`` to enable Ollama native JSON mode
-                (sets ``format: "json"`` in the request payload). This instructs
-                the model to always return valid JSON. Defaults to ``None``.
+                (sets ``format: "json"`` in the request payload).
+            no_thinking: If True, appends ``/no_think`` to the last user message
+                to instruct thinking-capable models (e.g. qwen3) to skip their
+                chain-of-thought pass. The response is always stripped of any
+                residual ``<think>`` blocks regardless of this flag.
         """
-        log("debug", f"Generating Ollama response with model: {model}")
+        log("debug", f"Generating Ollama response with model: {model}, no_thinking={no_thinking}")
 
         try:
             formatted_messages = [
@@ -93,6 +97,21 @@ class OllamaEngine(LLMEngine):
                     "content": "Please respond to the conversation",
                 })
 
+            # Inject /no_think directive into the last user message so that
+            # thinking-capable Ollama models (qwen3, deepseek-r1, …) skip their
+            # chain-of-thought pass entirely. This is Ollama's supported way to
+            # disable thinking at the per-request level.
+            if no_thinking and formatted_messages:
+                last_idx = len(formatted_messages) - 1
+                # Walk backwards to find the last user turn
+                for i in range(last_idx, -1, -1):
+                    if formatted_messages[i]["role"] == "user":
+                        formatted_messages[i] = dict(formatted_messages[i])  # copy
+                        content = formatted_messages[i]["content"]
+                        if "/no_think" not in content:
+                            formatted_messages[i]["content"] = f"{content} /no_think"
+                        break
+
             ollama_url = f"{self.base_url}/api/chat"
 
             payload: Dict[str, Any] = {
@@ -105,11 +124,18 @@ class OllamaEngine(LLMEngine):
                 },
             }
 
-            # Enable native Ollama JSON mode when requested.
-            # Ollama uses a top-level "format" key (not nested in "options").
             if response_format == "json":
                 payload["format"] = "json"
                 log("debug", "Ollama JSON mode enabled")
+
+            # Helper: always strip think-tags unless we are in raw JSON mode
+            # (stripping there could corrupt the JSON structure if the model
+            # somehow emits tags inside the JSON body, which should not happen
+            # with /no_think but is a safe guard).
+            def _maybe_clean(text: str) -> str:
+                if response_format == "json":
+                    return text.strip()
+                return self._clean_response(text)
 
             if stream_callback:
                 log("debug", "Using streaming mode for Ollama")
@@ -140,12 +166,7 @@ class OllamaEngine(LLMEngine):
                             log("error", f"Error parsing Ollama stream: {e}")
                             continue
 
-                # Skip think-tag cleanup in JSON mode to avoid corrupting output.
-                if response_format == "json":
-                    cleaned = full_response.strip()
-                else:
-                    cleaned = self._clean_response(full_response)
-
+                cleaned = _maybe_clean(full_response)
                 log("debug", f"Ollama response length: {len(cleaned)}")
                 return cleaned or "No response generated"
 
@@ -154,12 +175,7 @@ class OllamaEngine(LLMEngine):
                 response = requests.post(ollama_url, json=payload, timeout=120)
                 if response.status_code == 200:
                     response_text = response.json()["message"]["content"]
-
-                    if response_format == "json":
-                        cleaned = response_text.strip()
-                    else:
-                        cleaned = self._clean_response(response_text)
-
+                    cleaned = _maybe_clean(response_text)
                     log("debug", f"Ollama response length: {len(cleaned)}")
                     return cleaned or "No response generated"
                 else:
