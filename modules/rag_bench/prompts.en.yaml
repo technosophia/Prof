@@ -1,0 +1,23 @@
+judge_prompt: |
+  You are a strict RAG system evaluator. Your only task is to determine
+  whether the retrieved chunks contain the information needed to answer the question.
+
+  QUESTION: {question}
+
+  REFERENCE ANSWER: {reference_answer}
+
+  {negation_instruction}RETRIEVED CHUNKS:
+  {chunks_text}
+
+  EVALUATION: Does at least one chunk contain the essential information?
+  The information must be sufficiently complete and precise.
+
+  Respond in strict JSON, no markdown, no backticks:
+  {{"score": 0 or 1, "reasoning": "short explanation (max 100 words)"}}
+
+  score=1 if the chunks allow a correct answer, score=0 otherwise.
+
+judge_negation_instruction: |
+  WARNING: This question expects a NEGATIVE answer or a constraint.
+  The correct chunk must contain one of these terms: {negation_keywords}.
+  A chunk that answers the question positively is NOT correct.
