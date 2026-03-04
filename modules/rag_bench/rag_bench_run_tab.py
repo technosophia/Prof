@@ -17,74 +17,14 @@ from dataclasses import dataclass, field
 from core.logging import log
 from st_shared.cached import get_config
 from shared.prompt_manager import get_prompt
+from modules.rag_bench.rag_bench_models import (
+    TestCase, CaseResult, LevelSummary, aggregate_results,
+    LEVEL_LABELS, FIXABLE_LEVELS, PARTIAL_LEVELS, ENGINE_LEVELS,
+)
+from modules.rag_bench.rag_bench_report import render_export_section, render_step_export
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DATA CLASSES
-# ─────────────────────────────────────────────────────────────────────────────
 
-@dataclass
-class TestCase:
-    id: str
-    level: int
-    question: str
-    reference_answer: str
-    expected_keywords: List[str] = field(default_factory=list)
-    expected_sources: List[str] = field(default_factory=list)
-    all_required_sources: List[str] = field(default_factory=list)
-    negation_keywords: List[str] = field(default_factory=list)
-    distractor_source: Optional[str] = None
-    distractor_description: Optional[str] = None
-    min_score_threshold: float = 0.65
-    required_rank: Optional[int] = None
-    scoring_method: str = "deterministic"
-    notes: str = ""
-
-
-@dataclass
-class CaseResult:
-    case_id: str
-    level: int
-    engine: str
-    question: str
-    gauge: float          # 0.0 – 1.0 continuous score
-    threshold: float      # effective threshold used (after override)
-    score_details: Dict[str, Any]
-    retrieved_chunks: List[Dict]
-    error: Optional[str] = None
-    judge_reasoning: str = ""
-
-    @property
-    def passed(self) -> bool:
-        return self.gauge >= self.threshold
-
-    @property
-    def delta(self) -> float:
-        """How far above/below threshold. Positive = passing."""
-        return self.gauge - self.threshold
-
-
-@dataclass
-class LevelSummary:
-    level: int
-    engine: str
-    total: int
-    gauge_sum: float = 0.0
-
-    @property
-    def avg_gauge(self) -> float:
-        return self.gauge_sum / self.total if self.total > 0 else 0.0
-
-    @property
-    def passed(self) -> int:
-        return self._passed
-
-    @passed.setter
-    def passed(self, v):
-        self._passed = v
-
-    def __post_init__(self):
-        self._passed = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -398,34 +338,8 @@ async def run_benchmark(cases, engine_types, user_id, top_k,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AGGREGATION
-# ─────────────────────────────────────────────────────────────────────────────
-
-def aggregate_results(results: List[CaseResult], engines: List[str]) -> Dict[int, Dict[str, LevelSummary]]:
-    agg: Dict[int, Dict[str, LevelSummary]] = {}
-    for r in results:
-        agg.setdefault(r.level, {})
-        if r.engine not in agg[r.level]:
-            s = LevelSummary(level=r.level, engine=r.engine, total=0)
-            agg[r.level][r.engine] = s
-        s = agg[r.level][r.engine]
-        s.total += 1
-        s.gauge_sum += r.gauge
-        if r.passed:
-            s.passed += 1
-    return agg
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # UI — MAIN
 # ─────────────────────────────────────────────────────────────────────────────
-
-LEVEL_LABELS = {
-    1: "Direct Keyword Match", 2: "Keyword in Dense Context", 3: "Temporal/Sequential",
-    4: "Adversarial Distractor", 5: "Semantic Paraphrase", 6: "Negation/Absence",
-    7: "Numerical/Comparative", 8: "Multi-Chunk Synthesis", 9: "Sparse Signal",
-    10: "Cross-Document", 11: "Ambiguous/Broad",
-}
 
 
 def render_benchmark_run_tab():
@@ -571,6 +485,14 @@ def render_benchmark_run_tab():
     for lvl in levels_in_results:
         _render_level_block(lvl, agg[lvl], engines, rlookup, clookup)
 
+    render_export_section(
+        results=bench_results,
+        cases_lookup=clookup,
+        engines=engines,
+        threshold_override=st.session_state.get("rb_threshold_slider") if st.session_state.get("rb_override_toggle") else None,
+        run_timestamp=st.session_state.get("rb_timestamp", "unknown"),
+    )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI — SUMMARY HEATMAP
@@ -693,6 +615,14 @@ def _render_level_block(lvl, level_agg, engines, rlookup, clookup):
                                     st.markdown(f"**{j+1}. {src}** ({score:.3f})")
                                     st.caption(content)
                                     if j < 2: st.divider()
+
+                # Per-step export — all engines for this case in one shot
+                render_step_export(
+                    case_id=cid,
+                    tc=tc,
+                    case_results=case_results,
+                    engines=engines,
+                )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
