@@ -3,11 +3,12 @@
     "benchmarker",
     "debug",
     "llm_monitor",
+    "mem_bench",
     "rag_bench",
     "rag_manager",
     "semantic_calibrator",
     "test",
     "trainer"
   ],
-  "total_modules": 8
+  "total_modules": 9
 }
