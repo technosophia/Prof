@@ -6,6 +6,7 @@ RAG Benchmark Runner Tab
 - Per-test best-engine trophy icon
 - Global threshold override slider in UX
 - Judge prompt via prompt_manager (rag_bench.judge_prompt)
+- Enhanced error logging with raw response capture
 """
 
 import streamlit as st
@@ -25,6 +26,61 @@ from modules.rag_bench.rag_bench_report import render_export_section, render_ste
 
 
 GAUGE_WIDTH=130
+
+# Global error log for the current benchmark session
+BENCH_ERROR_LOG: List[Dict[str, Any]] = []
+
+def log_bench_error(error_type: str, case_id: str, engine: str, details: Dict[str, Any]):
+    """Log an error during benchmark execution with full context."""
+    BENCH_ERROR_LOG.append({
+        "timestamp": datetime.now().isoformat(),
+        "type": error_type,
+        "case_id": case_id,
+        "engine": engine,
+        **details
+    })
+
+def clear_bench_error_log():
+    """Clear the error log for a new benchmark session."""
+    global BENCH_ERROR_LOG
+    BENCH_ERROR_LOG = []
+
+def render_error_log():
+    """Display the error log in the UI if there are errors."""
+    if not BENCH_ERROR_LOG:
+        return
+
+    with st.expander(f"⚠️ Benchmark Errors ({len(BENCH_ERROR_LOG)})", expanded=True):
+        for i, err in enumerate(BENCH_ERROR_LOG):
+            with st.container():
+                st.markdown(f"**Error {i+1}**: `{err['type']}` at {err['timestamp']}")
+                st.markdown(f"**Case**: `{err['case_id']}` | **Engine**: `{err['engine']}`")
+
+                if err['type'] == 'judge_json_parse':
+                    st.error("JSON Parse Error - Raw Response:")
+                    st.code(err.get('raw_response', 'No raw response'), language='text')
+                    if 'stripped_response' in err:
+                        st.info("Stripped Response (after <think> removal):")
+                        st.code(err['stripped_response'], language='text')
+                    if 'exception' in err:
+                        st.caption(f"Exception: {err['exception']}")
+
+                elif err['type'] == 'judge_http_error':
+                    st.error(f"HTTP Error: {err.get('status_code', 'N/A')}")
+                    st.code(err.get('response_text', 'No response'), language='text')
+
+                elif err['type'] == 'judge_timeout':
+                    st.error(f"Timeout after {err.get('timeout', 60)}s")
+
+                elif err['type'] == 'search_error':
+                    st.error(f"Search Error: {err.get('exception', 'Unknown')}")
+
+                elif err['type'] == 'unexpected_error':
+                    st.error(f"Unexpected Error: {err.get('exception', 'Unknown')}")
+                    if 'stacktrace' in err:
+                        st.code(err['stacktrace'], language='text')
+
+                st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -244,28 +300,127 @@ def _build_judge_prompt(case: TestCase, results: List[Dict]) -> str:
     )
 
 
-async def _call_ollama(prompt: str, model: str, base_url: str) -> Tuple[int, str]:
+async def _call_ollama(prompt: str, model: str, base_url: str, case_id: str, engine: str) -> Tuple[int, str]:
     url = f"{base_url.rstrip('/')}/api/generate"
-    payload = {"model": model, "prompt": prompt, "stream": False,
-               "options": {"temperature": 0.0, "num_predict": 256}}
+
+    # Add no_thinking parameter to prevent thinking tags
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.0,
+            "num_predict": -1,  # -1 means no truncation, return full response
+            "no_thinking": True  # Prevent thinking tags in response
+        }
+    }
+
+    raw_response = ""
+
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
-            raw = resp.json().get("response", "")
-        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-        parsed = json.loads(raw)
-        return int(parsed.get("score", 0)), parsed.get("reasoning", "")
-    except json.JSONDecodeError:
-        return (1, raw[:200]) if ('"score": 1' in raw or '"score":1' in raw) else (0, f"JSON error: {raw[:200]}")
+            raw_response = resp.json().get("response", "")
+
+        # Still strip thinking tags as a fallback (in case no_thinking doesn't work)
+        stripped_response = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL).strip()
+
+        # Try multiple JSON extraction strategies
+        parsed = None
+        parse_error = None
+
+        # Strategy 1: Try to parse the stripped response directly
+        try:
+            parsed = json.loads(stripped_response)
+        except json.JSONDecodeError as e:
+            parse_error = e
+            # Strategy 2: Look for JSON in code blocks
+            code_block = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', stripped_response)
+            if code_block:
+                try:
+                    parsed = json.loads(code_block.group(1))
+                except json.JSONDecodeError:
+                    pass
+            # Strategy 3: Try to find any JSON object in the response
+            if not parsed:
+                json_match = re.search(r'(\{.*\})', stripped_response, re.DOTALL)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group(1))
+                    except json.JSONDecodeError:
+                        pass
+
+        if parsed is not None:
+            return int(parsed.get("score", 0)), parsed.get("reasoning", "")
+
+        # If we get here, all parsing strategies failed
+        log_bench_error(
+            error_type="judge_json_parse",
+            case_id=case_id,
+            engine=engine,
+            details={
+                "raw_response": raw_response,
+                "stripped_response": stripped_response,
+                "exception": str(parse_error) if parse_error else "Unknown parse error",
+                "model": model,
+                "prompt_preview": prompt[:500] + "..."
+            }
+        )
+
+        # Fallback: try to extract score from raw response
+        if '"score": 1' in raw_response or '"score":1' in raw_response:
+            return 1, f"JSON parse error but score=1 detected"
+        elif '"score": 0' in raw_response or '"score":0' in raw_response:
+            return 0, f"JSON parse error but score=0 detected"
+
+        return 0, f"JSON parse error: {raw_response[:200]}"
+
+    except httpx.TimeoutException as e:
+        log_bench_error(
+            error_type="judge_timeout",
+            case_id=case_id,
+            engine=engine,
+            details={
+                "exception": str(e),
+                "model": model,
+                "timeout": 60
+            }
+        )
+        return 0, f"Judge timeout: {e}"
+
+    except httpx.HTTPStatusError as e:
+        log_bench_error(
+            error_type="judge_http_error",
+            case_id=case_id,
+            engine=engine,
+            details={
+                "status_code": e.response.status_code,
+                "response_text": e.response.text[:500] if hasattr(e.response, 'text') else str(e),
+                "model": model,
+                "url": url
+            }
+        )
+        return 0, f"Judge HTTP error: {e}"
+
     except Exception as e:
+        log_bench_error(
+            error_type="judge_unexpected",
+            case_id=case_id,
+            engine=engine,
+            details={
+                "exception": str(e),
+                "model": model,
+                "raw_response": raw_response[:500] if raw_response else "No response"
+            }
+        )
         return 0, f"Judge error: {e}"
 
 
-async def score_llm_judge(case: TestCase, results: List[Dict]) -> Tuple[float, Dict]:
+async def score_llm_judge(case: TestCase, results: List[Dict], case_id: str, engine: str) -> Tuple[float, Dict]:
     model, base_url = _get_judge_config()
     prompt = _build_judge_prompt(case, results)
-    llm_score, reasoning = await _call_ollama(prompt, model, base_url)
+    llm_score, reasoning = await _call_ollama(prompt, model, base_url, case_id, engine)
     top = max((r.get("score", 0.0) for r in results), default=0.0)
     details = {"llm_score": llm_score, "judge_reasoning": reasoning,
                "judge_model": model, "top_score": top}
@@ -275,9 +430,9 @@ async def score_llm_judge(case: TestCase, results: List[Dict]) -> Tuple[float, D
     return round(min(gauge, 1.0), 4), details
 
 
-async def score_hybrid(case: TestCase, results: List[Dict]) -> Tuple[float, Dict]:
+async def score_hybrid(case: TestCase, results: List[Dict], case_id: str, engine: str) -> Tuple[float, Dict]:
     det_gauge, det_details = score_deterministic(case, results)
-    llm_gauge, llm_details = await score_llm_judge(case, results)
+    llm_gauge, llm_details = await score_llm_judge(case, results, case_id, engine)
     details = {**det_details, **llm_details,
                "deterministic_gauge": det_gauge, "llm_gauge": llm_gauge}
     reasoning = details.pop("judge_reasoning", "")
@@ -295,6 +450,9 @@ async def run_benchmark(cases, engine_types, user_id, top_k,
     rag_mgr = get_rag_manager()
     results, done, total = [], 0, len(cases) * len(engine_types)
 
+    # Clear error log for new benchmark session
+    clear_bench_error_log()
+
     for case in cases:
         effective_threshold = threshold_override if threshold_override is not None else case.min_score_threshold
         for engine in engine_types:
@@ -306,15 +464,29 @@ async def run_benchmark(cases, engine_types, user_id, top_k,
                 chunks = search.get(engine, [])
 
                 m = case.scoring_method
-                if m == "deterministic":
-                    gauge, details = score_deterministic(case, chunks)
-                    reasoning = ""
-                elif m == "llm_judge":
-                    gauge, details = await score_llm_judge(case, chunks)
-                    reasoning = details.pop("judge_reasoning", "")
-                else:
-                    gauge, details = await score_hybrid(case, chunks)
-                    reasoning = details.pop("judge_reasoning", "")
+                try:
+                    if m == "deterministic":
+                        gauge, details = score_deterministic(case, chunks)
+                        reasoning = ""
+                    elif m == "llm_judge":
+                        gauge, details = await score_llm_judge(case, chunks, case.id, engine)
+                        reasoning = details.pop("judge_reasoning", "")
+                    else:
+                        gauge, details = await score_hybrid(case, chunks, case.id, engine)
+                        reasoning = details.pop("judge_reasoning", "")
+                except Exception as e:
+                    log_bench_error(
+                        error_type="scoring_error",
+                        case_id=case.id,
+                        engine=engine,
+                        details={
+                            "exception": str(e),
+                            "scoring_method": m,
+                            "stacktrace": __import__('traceback').format_exc()
+                        }
+                    )
+                    # Continue with default values
+                    gauge, details, reasoning = 0.0, {}, f"Scoring error: {e}"
 
                 results.append(CaseResult(
                     case_id=case.id, level=case.level, engine=engine,
@@ -324,12 +496,22 @@ async def run_benchmark(cases, engine_types, user_id, top_k,
                     judge_reasoning=reasoning,
                 ))
             except Exception as e:
+                error_msg = str(e)
+                log_bench_error(
+                    error_type="search_error",
+                    case_id=case.id,
+                    engine=engine,
+                    details={
+                        "exception": error_msg,
+                        "stacktrace": __import__('traceback').format_exc()
+                    }
+                )
                 log("error", f"rag_bench_run: {case.id}/{engine}: {e}", stacktrace=True)
                 results.append(CaseResult(
                     case_id=case.id, level=case.level, engine=engine,
                     question=case.question, gauge=0.0,
                     threshold=effective_threshold,
-                    score_details={}, retrieved_chunks=[], error=str(e),
+                    score_details={}, retrieved_chunks=[], error=error_msg,
                 ))
             done += 1
 
@@ -462,6 +644,9 @@ def render_benchmark_run_tab():
         st.session_state["rb_engines"]   = selected_engines
         st.session_state["rb_timestamp"] = datetime.now().strftime("%H:%M:%S")
         st.rerun()
+
+    # ── Display error log if any errors occurred ─────────────────────────────
+    render_error_log()
 
     # ── Results ───────────────────────────────────────────────────────────────
     if "rb_results" not in st.session_state:
