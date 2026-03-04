@@ -7,6 +7,8 @@ class RAGEngine(ABC):
     def __init__(self, engine_type: str):
         self.engine_type = engine_type
         self.description = ""
+        self.model_name = "all-MiniLM-L6-v2"  # Default model
+        self.dimension = 384  # Default dimension
 
     @abstractmethod
     def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:

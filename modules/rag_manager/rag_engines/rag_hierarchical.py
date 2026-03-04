@@ -5,6 +5,7 @@ No Streamlit dependency. Config is injected at construction time.
 """
 
 import os
+import json
 import numpy as np
 import faiss
 import pickle
@@ -36,11 +37,14 @@ class FaissHierarchicalRAGEngine(RAGEngine):
 
         self.similarity_threshold = config.get("similarity_threshold", 0.5)
 
-        log("debug", f"Hierarchical RAG config: index_path={self.index_path}")
+        # Add model name to track which model was used for embeddings
+        self.model_name = config.get("model_name", "all-MiniLM-L6-v2")
+
+        log("debug", f"Hierarchical RAG config: index_path={self.index_path}, model={self.model_name}")
 
         try:
             self.dimension = len(get_embedding(""))
-            log("info", f"Initialized embeddings via LLM manager (dim: {self.dimension})")
+            log("info", f"Initialized embeddings via LLM manager (dim: {self.dimension}, model: {self.model_name})")
         except Exception as e:
             log("error", f"Failed to initialize embeddings: {str(e)}")
             self.dimension = None
@@ -50,29 +54,75 @@ class FaissHierarchicalRAGEngine(RAGEngine):
 
         self._load_indices()
 
+    # ------------------------------------------------------------------
+    # Persistence with Model Metadata
+    # ------------------------------------------------------------------
+
     def _load_indices(self):
+        """Load indices with dimension validation."""
         for index_file in self.index_path.glob("*_faiss_hier.index"):
             user_id = index_file.stem.replace("_faiss_hier", "")
+
+            # Check model metadata first
+            model_meta_file = self.index_path / f"{user_id}_faiss_hier_model_meta.json"
+
+            # Verify model compatibility
+            if model_meta_file.exists():
+                try:
+                    with open(model_meta_file, 'r') as f:
+                        model_meta = json.load(f)
+
+                    if model_meta.get('dimension') != self.dimension:
+                        log("warning",
+                            f"Index for user {user_id} uses different model "
+                            f"({model_meta.get('model_name')}, dim={model_meta.get('dimension')}). "
+                            f"Current model: {self.model_name}, dim={self.dimension}. Skipping load.")
+                        continue
+                except Exception as e:
+                    log("error", f"Failed to read model metadata for {user_id}: {str(e)}")
+                    continue
+
             try:
                 index = faiss.read_index(str(index_file))
+
+                # Verify index dimension matches
+                if index.d != self.dimension:
+                    log("warning",
+                        f"Index for user {user_id} has dimension {index.d}, "
+                        f"but hierarchical model expects {self.dimension}. Skipping load.")
+                    continue
+
                 self.indices[user_id] = index
+
                 meta_file = self.index_path / f"{user_id}_faiss_hier_meta.pkl"
                 if meta_file.exists():
                     with open(meta_file, 'rb') as f:
                         self.metadata[user_id] = pickle.load(f)
+
                 log("info", f"Loaded hierarchical FAISS index for user {user_id} ({index.ntotal} vectors)")
             except Exception as e:
                 log("error", f"Failed to load hierarchical FAISS index for {user_id}: {str(e)}")
 
     def _save_user_index(self, user_id: str):
+        """Save index with model metadata."""
         index_file = self.index_path / f"{user_id}_faiss_hier.index"
         meta_file = self.index_path / f"{user_id}_faiss_hier_meta.pkl"
+        model_meta_file = self.index_path / f"{user_id}_faiss_hier_model_meta.json"
 
         if user_id in self.indices and self.indices[user_id].ntotal > 0:
             try:
                 faiss.write_index(self.indices[user_id], str(index_file))
                 with open(meta_file, 'wb') as f:
                     pickle.dump(self.metadata[user_id], f)
+
+                # Save model metadata
+                with open(model_meta_file, 'w') as f:
+                    json.dump({
+                        'model_name': self.model_name,
+                        'dimension': self.dimension,
+                        'created_at': datetime.now().isoformat()
+                    }, f)
+
             except Exception as e:
                 log("error", f"Failed to save hierarchical FAISS index for {user_id}: {str(e)}")
         else:
@@ -80,8 +130,63 @@ class FaissHierarchicalRAGEngine(RAGEngine):
                 index_file.unlink()
             if meta_file.exists():
                 meta_file.unlink()
+            if model_meta_file.exists():
+                model_meta_file.unlink()
             self.indices.pop(user_id, None)
             self.metadata.pop(user_id, None)
+
+    # ------------------------------------------------------------------
+    # Force Rebuild Methods
+    # ------------------------------------------------------------------
+
+    def force_rebuild_index(self, user_id: str) -> bool:
+        """
+        Force rebuild of index by clearing memory and deleting files.
+        Use this when changing embedding models.
+        """
+        try:
+            # Clear from memory
+            self.indices.pop(user_id, None)
+            self.metadata.pop(user_id, None)
+
+            # Delete physical files
+            index_file = self.index_path / f"{user_id}_faiss_hier.index"
+            meta_file = self.index_path / f"{user_id}_faiss_hier_meta.pkl"
+            model_meta_file = self.index_path / f"{user_id}_faiss_hier_model_meta.json"
+
+            for file in [index_file, meta_file, model_meta_file]:
+                if file.exists():
+                    file.unlink()
+
+            log("info", f"Hierarchical: force rebuilt index for user {user_id}")
+            return True
+        except Exception as e:
+            log("error", f"Hierarchical: failed to force rebuild index: {str(e)}")
+            return False
+
+    def reset_all_indices(self) -> bool:
+        """
+        Completely reset all indices for all users.
+        Use this when changing embedding models globally.
+        """
+        try:
+            # Clear all memory
+            self.indices.clear()
+            self.metadata.clear()
+
+            # Delete all files in index directory
+            for file in self.index_path.glob("*"):
+                file.unlink()
+
+            log("info", "Hierarchical: reset all indices successfully")
+            return True
+        except Exception as e:
+            log("error", f"Hierarchical: failed to reset all indices: {str(e)}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Document Processing
+    # ------------------------------------------------------------------
 
     def _extract_hierarchical_chunks(self, content: str) -> List[Dict[str, str]]:
         lines = content.splitlines()
@@ -175,6 +280,10 @@ class FaissHierarchicalRAGEngine(RAGEngine):
         norms[norms == 0] = 1.0
         return embeddings / norms
 
+    # ------------------------------------------------------------------
+    # Index management
+    # ------------------------------------------------------------------
+
     def index_document(self, user_id: str, filename: str, file_path: str, content: Optional[str] = None) -> bool:
         if self.dimension is None:
             return False
@@ -190,9 +299,21 @@ class FaissHierarchicalRAGEngine(RAGEngine):
             embeddings = self._encode_texts([c['embed_text'] for c in chunks_data])
             file_size = os.path.getsize(file_path)
 
+            # Check if we need to create a new index or use existing
             if user_id not in self.indices:
                 self.indices[user_id] = faiss.IndexFlatIP(self.dimension)
                 self.metadata[user_id] = []
+            else:
+                # Validate existing index dimension
+                existing_dim = self.indices[user_id].d
+                if existing_dim != self.dimension:
+                    log("warning",
+                        f"Dimension mismatch for user {user_id}: "
+                        f"index has {existing_dim}, model expects {self.dimension}. "
+                        f"Rebuilding index automatically.")
+                    # Create new index with correct dimension
+                    self.indices[user_id] = faiss.IndexFlatIP(self.dimension)
+                    self.metadata[user_id] = []
 
             self.indices[user_id].add(embeddings)
             for chunk in chunks_data:
@@ -208,6 +329,7 @@ class FaissHierarchicalRAGEngine(RAGEngine):
                 })
 
             self._save_user_index(user_id)
+            log("info", f"Hierarchical: indexed {filename} for user {user_id} ({len(chunks_data)} chunks)")
             return True
         except Exception as e:
             log("error", f"Failed to index document {filename}: {str(e)}")
@@ -237,9 +359,30 @@ class FaissHierarchicalRAGEngine(RAGEngine):
             log("error", f"Failed to delete document {filename}: {str(e)}")
             return False
 
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
     def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         if self.dimension is None or user_id not in self.indices or self.indices[user_id].ntotal == 0:
             return []
+
+        # Validate dimension before search
+        index_dim = self.indices[user_id].d
+        if index_dim != self.dimension:
+            log("error",
+                f"Dimension mismatch in search: index has {index_dim}, "
+                f"model expects {self.dimension}. Please rebuild index.")
+            return [{
+                'filename': None,
+                'score': 0,
+                'content': '',
+                'threshold_used': self.similarity_threshold,
+                'max_score_reached': 0,
+                'no_results': True,
+                'error': f'Dimension mismatch: index={index_dim}, model={self.dimension}'
+            }]
+
         try:
             query_emb = self._encode_texts([query])
             D, I = self.indices[user_id].search(query_emb, limit * 3)
@@ -290,6 +433,10 @@ class FaissHierarchicalRAGEngine(RAGEngine):
             log("error", f"Hierarchical FAISS search failed: {str(e)}")
             return []
 
+    # ------------------------------------------------------------------
+    # Stats / metadata
+    # ------------------------------------------------------------------
+
     def get_indexed_documents(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         documents = []
         for uid in ([user_id] if user_id else self.metadata.keys()):
@@ -321,6 +468,8 @@ class FaissHierarchicalRAGEngine(RAGEngine):
                 'documents_indexed': len({m['filename'] for m in self.metadata.get(user_id, [])}),
                 'total_chunks': len(self.metadata.get(user_id, [])),
                 'engine_type': self.engine_type,
+                'model_name': self.model_name,
+                'dimension': self.dimension,
             }
         total_docs = sum(len({m['filename'] for m in chunks}) for chunks in self.metadata.values())
         total_chunks = sum(len(chunks) for chunks in self.metadata.values())
@@ -329,4 +478,6 @@ class FaissHierarchicalRAGEngine(RAGEngine):
             'total_chunks': total_chunks,
             'users_with_index': len(self.metadata),
             'engine_type': self.engine_type,
+            'model_name': self.model_name,
+            'dimension': self.dimension,
         }

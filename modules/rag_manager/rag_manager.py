@@ -895,3 +895,204 @@ class RAGManager:
 
         except Exception as e:
             log("error", f"Auto-import failed for user {user_id}: {str(e)}", stacktrace=True)
+
+    def reindex_all_documents(self, target_engines: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Re-index all documents across all users and specified engines.
+
+        Args:
+            target_engines: List of engine types to re-index. If None, uses all available engines.
+
+        Returns:
+            Dictionary with re-indexing statistics
+        """
+        log("info", "========== STARTING FULL RE-INDEX ==========")
+
+        stats = {
+            "total_documents": 0,
+            "total_users": 0,
+            "engines_processed": {},
+            "successful": 0,
+            "failed": 0,
+            "skipped": 0,
+            "errors": []
+        }
+
+        # Determine which engines to use
+        if target_engines is None:
+            target_engines = list(self.engines.keys())
+
+        # Filter to available engines
+        available_engines = [e for e in target_engines if e in self.engines and self.engines[e].is_available()]
+
+        if not available_engines:
+            log("warning", "No available engines found for re-indexing")
+            stats["errors"].append("No available engines found")
+            return stats
+
+        log("info", f"Re-indexing with engines: {available_engines}")
+
+        # Group documents by user
+        documents_by_user: Dict[str, List[Tuple[str, Dict]]] = {}
+
+        for filename, doc_info in self.documents.items():
+            user_id = doc_info.get('uploaded_by')
+            if not user_id:
+                log("warning", f"Document {filename} has no owner, skipping")
+                stats["skipped"] += 1
+                continue
+
+            if user_id not in documents_by_user:
+                documents_by_user[user_id] = []
+            documents_by_user[user_id].append((filename, doc_info))
+
+        stats["total_users"] = len(documents_by_user)
+        stats["total_documents"] = sum(len(docs) for docs in documents_by_user.values())
+
+        log("info", f"Found {stats['total_documents']} documents across {stats['total_users']} users")
+
+        # Initialize engine stats
+        for engine_type in available_engines:
+            stats["engines_processed"][engine_type] = {
+                "successful": 0,
+                "failed": 0,
+                "skipped": 0
+            }
+
+        # Re-index each document for each engine
+        for user_id, documents in documents_by_user.items():
+            log("debug", f"Processing user: {user_id} ({len(documents)} documents)")
+
+            for filename, doc_info in documents:
+                file_path = doc_info.get('file_path')
+
+                # Verify file still exists
+                if not file_path or not os.path.exists(file_path):
+                    log("warning", f"File not found for {filename}, skipping")
+                    stats["skipped"] += 1
+                    for engine_type in available_engines:
+                        stats["engines_processed"][engine_type]["skipped"] += 1
+                    stats["errors"].append(f"File not found: {filename}")
+                    continue
+
+                # Try to read content (for engines that need it)
+                content = None
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    log("warning", f"Could not read file {filename}: {str(e)}")
+                    # Continue anyway - engine might handle it
+
+                # Index in each target engine
+                for engine_type in available_engines:
+                    engine = self.engines[engine_type]
+
+                    try:
+                        # Delete existing index first (optional - ensures clean state)
+                        try:
+                            engine.delete_document(user_id, filename)
+                        except:
+                            pass  # Ignore if document wasn't indexed
+
+                        # Index the document
+                        success = engine.index_document(
+                            user_id,
+                            filename,
+                            file_path,
+                            content
+                        )
+
+                        if success:
+                            stats["successful"] += 1
+                            stats["engines_processed"][engine_type]["successful"] += 1
+
+                            # Update metadata
+                            if 'indexed_in' not in doc_info:
+                                doc_info['indexed_in'] = {}
+                            doc_info['indexed_in'][engine_type] = datetime.now().isoformat()
+
+                            log("debug", f"Successfully re-indexed {filename} with {engine_type}")
+                        else:
+                            stats["failed"] += 1
+                            stats["engines_processed"][engine_type]["failed"] += 1
+                            stats["errors"].append(f"Failed to index {filename} with {engine_type}")
+
+                    except Exception as e:
+                        stats["failed"] += 1
+                        stats["engines_processed"][engine_type]["failed"] += 1
+                        error_msg = f"Error indexing {filename} with {engine_type}: {str(e)}"
+                        stats["errors"].append(error_msg)
+                        log("error", error_msg)
+
+        # Save updated metadata
+        self._save_metadata()
+
+        log("info", "========== RE-INDEX COMPLETE ==========")
+        log("info", f"Successfully re-indexed: {stats['successful']} documents")
+        log("info", f"Failed: {stats['failed']} documents")
+        log("info", f"Skipped: {stats['skipped']} documents")
+
+        return stats
+
+
+    def clear_all_engine_indices(self) -> Dict[str, Any]:
+        """
+        Clear all indices across all engines for all users.
+        Use this before re-indexing with a new embedding model.
+
+        Returns:
+            Dictionary with clearing statistics
+        """
+        log("info", "========== CLEARING ALL ENGINE INDICES ==========")
+
+        stats = {
+            "engines_cleared": [],
+            "engines_failed": [],
+            "documents_updated": 0
+        }
+
+        # Clear each engine's indices
+        for engine_type, engine in self.engines.items():
+            try:
+                # Get all users that have indices in this engine
+                users_with_indices = []
+
+                # Different engines store users differently
+                if hasattr(engine, 'indices'):
+                    users_with_indices = list(engine.indices.keys())
+                elif hasattr(engine, 'metadata'):
+                    users_with_indices = list(engine.metadata.keys())
+                elif hasattr(engine, '_indices'):
+                    users_with_indices = list(engine._indices.keys())
+
+                # Clear each user's index
+                cleared_count = 0
+                for user_id in users_with_indices:
+                    if engine.clear_user_index(user_id):
+                        cleared_count += 1
+
+                stats["engines_cleared"].append({
+                    "engine": engine_type,
+                    "users_cleared": cleared_count
+                })
+
+                log("info", f"Cleared {engine_type} indices for {cleared_count} users")
+
+            except Exception as e:
+                stats["engines_failed"].append(engine_type)
+                log("error", f"Failed to clear {engine_type} indices: {str(e)}")
+
+        # Update document metadata to reflect cleared indices
+        for filename, doc_info in self.documents.items():
+            if 'indexed_in' in doc_info:
+                # Clear all engine entries
+                doc_info['indexed_in'] = {}
+                stats["documents_updated"] += 1
+
+        self._save_metadata()
+
+        log("info", f"Cleared indices for {len(stats['engines_cleared'])} engines")
+        log("info", f"Updated metadata for {stats['documents_updated']} documents")
+
+        return stats

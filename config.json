@@ -77,8 +77,8 @@
     }
   },
   "embedding": {
-    "model_name": "all-MiniLM-L6-v2",
-    "vector_dimension": 384
+    "model_name": "paraphrase-multilingual-mpnet-base-v2",
+    "vector_dimension": 768
   },
   "llms": {
     "mock": {

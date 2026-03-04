@@ -54,7 +54,7 @@ def show_rag_admin_content():
 
 def _show_cache_tab():
     """Show cache management tab."""
-    st.header("🔄 Cache Management")
+    st.header("🔄 Cache & Model Management")
 
     # Check if cache management is available
     if not hasattr(_get_rag_manager(), 'get_cache_info'):
@@ -90,7 +90,7 @@ def _show_cache_tab():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔄 Clear Cache", type="primary", width='stretch',
+        if st.button("🔄 Clear Cache", type="primary", use_container_width=True,
                    help="Clear all cached model weights. Models will reload on next use."):
             with st.spinner("Clearing cache..."):
                 if _get_rag_manager().clear_model_cache():
@@ -100,16 +100,176 @@ def _show_cache_tab():
                     st.error("Failed to clear cache")
 
     with col2:
-        if st.button("📊 Refresh Cache Info", width='stretch'):
+        if st.button("📊 Refresh Cache Info", use_container_width=True):
             st.rerun()
 
     with col3:
-        if st.button("⚙️ Reload Config", width='stretch',
+        if st.button("⚙️ Reload Config", use_container_width=True,
                    help="Reload RAG configuration from config file"):
             with st.spinner("Reloading config..."):
                 _get_rag_manager().refresh_config()
                 st.success("Configuration reloaded!")
                 st.rerun()
+
+    # ===== NEW: Model Change & Re-indexing Section =====
+    st.divider()
+    st.subheader("🔄 Model Change & Re-indexing")
+
+    st.warning("""
+    **Important:** When changing embedding models, you must re-index all documents.
+    Different embedding models produce vectors of different dimensions, which are incompatible.
+    """)
+
+    # Get current model info from engines
+    current_models = {}
+    engines = _get_rag_manager().get_available_engines()
+
+    for engine_info in engines:
+        if engine_info['available']:
+            engine = _get_rag_manager().get_engine(engine_info['type'])
+            if hasattr(engine, 'model_name'):
+                current_models[engine_info['type']] = engine.model_name
+
+    if current_models:
+        st.write("**Current Embedding Models:**")
+        for engine_type, model_name in current_models.items():
+            st.caption(f"- {engine_type}: `{model_name}`")
+
+    # Re-indexing options
+    st.markdown("### Re-indexing Options")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Step 1: Clear Existing Indices**")
+        st.caption("Clear all indices before re-indexing with new model")
+
+        if st.button("🗑️ Clear All Indices", type="secondary", use_container_width=True,
+                    help="Clear all indices from all engines. Required before re-indexing with new model."):
+
+            with st.spinner("Clearing all engine indices..."):
+                # Double confirmation
+                if st.session_state.get("confirm_clear_all_indices", False):
+                    clear_stats = _get_rag_manager().clear_all_engine_indices()
+
+                    if clear_stats:
+                        st.success(f"Cleared indices for {len(clear_stats['engines_cleared'])} engines")
+                        st.info(f"Updated metadata for {clear_stats['documents_updated']} documents")
+
+                        if clear_stats['engines_failed']:
+                            st.error(f"Failed to clear: {', '.join(clear_stats['engines_failed'])}")
+
+                        # Reset confirmation
+                        st.session_state["confirm_clear_all_indices"] = False
+                        st.rerun()
+                    else:
+                        st.error("Failed to clear indices")
+                else:
+                    st.session_state["confirm_clear_all_indices"] = True
+                    st.warning("⚠️ Are you absolutely sure? This will remove all indexed data from all engines. You will need to re-index all documents.")
+
+    with col2:
+        st.markdown("**Step 2: Re-index All Documents**")
+        st.caption("Re-index all documents with current model")
+
+        # Engine selection for re-indexing
+        available_engines = [e['type'] for e in engines if e['available']]
+        selected_engines = st.multiselect(
+            "Select engines to re-index",
+            options=available_engines,
+            default=available_engines,
+            help="Choose which engines to re-index"
+        )
+
+        if st.button("🔄 Re-index All Documents", type="primary", use_container_width=True,
+                    help="Re-index all documents across selected engines"):
+
+            if not selected_engines:
+                st.error("Please select at least one engine")
+            else:
+                with st.spinner(f"Re-indexing all documents with {len(selected_engines)} engine(s)... This may take a while."):
+
+                    # Get document count for progress indication
+                    docs = _get_rag_manager().get_user_documents(st.session_state.current_user['id'])
+                    total_docs = len(docs)
+
+                    if total_docs == 0:
+                        st.info("No documents to re-index")
+                    else:
+                        # Create progress bar
+                        progress_bar = st.progress(0, text=f"Re-indexing 0/{total_docs} documents...")
+
+                        # Run re-indexing
+                        reindex_stats = _get_rag_manager().reindex_all_documents(selected_engines)
+
+                        progress_bar.empty()
+
+                        # Show results
+                        if reindex_stats['successful'] > 0:
+                            st.success(f"✅ Successfully re-indexed: {reindex_stats['successful']} documents")
+
+                        if reindex_stats['failed'] > 0:
+                            st.error(f"❌ Failed: {reindex_stats['failed']} documents")
+
+                            # Show errors in expander
+                            with st.expander("View Errors"):
+                                for error in reindex_stats['errors'][:10]:  # Show first 10
+                                    st.caption(f"- {error}")
+                                if len(reindex_stats['errors']) > 10:
+                                    st.caption(f"... and {len(reindex_stats['errors']) - 10} more errors")
+
+                        if reindex_stats['skipped'] > 0:
+                            st.warning(f"⚠️ Skipped: {reindex_stats['skipped']} documents")
+
+                        # Show per-engine stats
+                        st.markdown("**Per-Engine Results:**")
+                        for engine_type, stats in reindex_stats['engines_processed'].items():
+                            st.caption(
+                                f"- {engine_type}: {stats['successful']} successful, "
+                                f"{stats['failed']} failed, {stats['skipped']} skipped"
+                            )
+
+    # Complete workflow button
+    st.divider()
+    st.markdown("### 🚀 Complete Workflow")
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🔄 Clear & Re-index (All-in-One)", type="secondary", use_container_width=True):
+
+            if st.session_state.get("confirm_complete_reindex", False):
+                with st.spinner("Step 1: Clearing all indices..."):
+                    _get_rag_manager().clear_all_engine_indices()
+
+                with st.spinner("Step 2: Re-indexing all documents..."):
+                    reindex_stats = _get_rag_manager().reindex_all_documents(available_engines)
+
+                st.success(f"✅ Complete! Re-indexed {reindex_stats['successful']} documents")
+
+                if reindex_stats['failed'] > 0:
+                    st.error(f"❌ Failed: {reindex_stats['failed']} documents")
+
+                st.session_state["confirm_complete_reindex"] = False
+                st.rerun()
+            else:
+                st.session_state["confirm_complete_reindex"] = True
+                st.warning("⚠️ This will clear ALL indices and re-index ALL documents. This action cannot be undone. Are you sure?")
+
+    # Model change instructions
+    with st.expander("ℹ️ How to Change Embedding Models", expanded=False):
+        st.markdown("""
+        **Steps to change embedding models:**
+
+        1. **Update configuration**: Change `model_name` and `vector_dimension` in your config file
+        2. **Clear cache**: Click "Clear Cache" above to remove old model weights
+        3. **Clear indices**: Click "Clear All Indices" to remove incompatible vector data
+        4. **Re-index**: Click "Re-index All Documents" to rebuild indices with new model
+
+        **Why this is necessary:**
+        - Different embedding models produce vectors of different dimensions
+        - FAISS indexes are hard-coded to a specific dimension
+        - Mixing dimensions causes errors and corrupts indexes
+        """)
 
     # Cache details
     st.subheader("Cache Details")
@@ -155,56 +315,6 @@ def _show_cache_tab():
         - Cache is cleared when configuration changes
         - Cache can be manually cleared when needed
         """)
-
-    # Advanced cache management
-    st.subheader("Advanced Cache Management")
-
-    with st.expander("🔧 Advanced Options", expanded=False):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Pre-load specific model
-            popular_models = [
-                "sentence-transformers/all-mpnet-base-v2"
-            ]
-
-            model_to_preload = st.selectbox(
-                "Pre-load model",
-                options=popular_models,
-                index=0,
-                help="Select a model to pre-load into cache"
-            )
-
-        with col2:
-            # Cache size adjustment
-            cache_size = st.slider(
-                "Max cache entries",
-                min_value=1,
-                max_value=10,
-                value=3,
-                help="Maximum number of models to keep in cache"
-            )
-
-            if st.button("Update Cache Size", width='stretch'):
-                st.info(f"Cache size set to {cache_size} entries")
-                # Note: This would require updating @st.cache_resource decorator
-
-        # Cache debugging
-        st.divider()
-        st.write("**Debug Information:**")
-        st.code(json.dumps(cache_info, indent=2), language="json")
-
-    # Cache statistics over time (placeholder for future implementation)
-    st.subheader("Cache Performance")
-
-    # Placeholder for cache hit/miss statistics
-    st.info("""
-    **Future enhancements:**
-    - Cache hit/miss statistics
-    - Memory usage tracking
-    - Performance comparison graphs
-    - Automatic cache optimization
-    """)
 
 
 def _show_documents_tab():
