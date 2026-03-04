@@ -1,0 +1,28 @@
+yamlmeta:
+  name: "example_basic"
+  description: "Student struggles with list comprehensions in Python"
+
+setup:
+  student_id: "bench_mem_student_01"
+  trainer_id: "bench_mem_trainer_01"
+  training_program: |
+    Python programming course, intermediate level.
+
+conversation:
+  - role: user
+    content: "I don't understand list comprehensions at all."
+  - role: assistant
+    content: "List comprehensions are a concise way to create lists. For example, [x*2 for x in range(5)] gives [0,2,4,6,8]. Does that help?"
+  - role: user
+    content: "I think I see but what's the difference with a for loop?"
+  - role: assistant
+    content: "A for loop is more explicit. Both do the same thing but list comprehensions are shorter. The key insight is that you're building a list in one expression."
+  - role: user
+    content: "Ok so for simple things I use list comprehensions but for complex logic a for loop is clearer?"
+  - role: assistant
+    content: "Exactly! You've got it. When the logic gets complex or has side effects, stick to the for loop."
+
+expected_memory_contains:
+  - "list comprehensions"
+  - "for loop"
+  - "understood the tradeoff"

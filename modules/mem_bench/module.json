@@ -1,0 +1,12 @@
+{
+  "id": "mem_bench",
+  "name": "Memory Bench",
+  "version": "1.0.0",
+  "description": "Replay scripted conversations and benchmark memory analysis quality.",
+  "enabled_by_default": false,
+  "category": "core_tools",
+  "inject_points": {
+    "admin_tab": "mem_bench_admin_ui.inject_ui_admin_tab"
+  },
+  "ui_files": ["mem_bench_admin_ui.py", "ui.py"]
+}

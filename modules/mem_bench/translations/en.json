@@ -1,0 +1,18 @@
+{
+  "mem_bench": {
+    "title": "Memory Benchmark",
+    "scenario": "Scenario",
+    "memory_backend": "Memory backend",
+    "run_button": "▶ Run",
+    "running": "Running memory benchmark...",
+    "no_scenarios": "No scenario files found.",
+    "no_memory_options": "No memory backend options are registered in the driver.",
+    "result_status": "Status",
+    "result_success": "Success",
+    "result_error": "Error",
+    "memory_output": "Memory content",
+    "expected_checks": "Expected terms",
+    "history": "Run history",
+    "scenario_copy_created": "Copied example scenarios to {path}"
+  }
+}
