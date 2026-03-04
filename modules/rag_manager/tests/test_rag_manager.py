@@ -373,8 +373,10 @@ def test_search_all_flag_queries_all_engines(temp_rag_manager):
     }]):
         simple_engine = Mock()
         simple_engine.search.return_value = []
+        simple_engine.get_indexed_documents.return_value = []
         classic_engine = Mock()
         classic_engine.search.return_value = []
+        classic_engine.get_indexed_documents.return_value = []
 
         with patch.object(temp_rag_manager, 'engines', {'simple': simple_engine, 'classic': classic_engine}):
             with patch.object(temp_rag_manager, 'get_engine', side_effect=lambda et: {'simple': simple_engine, 'classic': classic_engine}.get(et)):
