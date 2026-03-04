@@ -34,6 +34,7 @@ class MemBenchResult:
     checks: List[MemBenchCheck]
     trace_logs: List[str]
     cleared_conversation_count: int
+    scenario_path: str = ""
 
 
 class MemBenchRunner:
@@ -66,6 +67,7 @@ class MemBenchRunner:
                 checks=[],
                 trace_logs=self._consume_logs(),
                 cleared_conversation_count=0,
+                scenario_path=scenario_path,
             )
 
         created_users: List[str] = []
@@ -148,6 +150,7 @@ class MemBenchRunner:
                 checks=checks,
                 trace_logs=self._consume_logs(),
                 cleared_conversation_count=cleared_conversation_count,
+                scenario_path=scenario_path,
             )
         except Exception as exc:
             log("error", f"mem_bench: run failed: {exc}", stacktrace=True)
@@ -161,10 +164,22 @@ class MemBenchRunner:
                 checks=[],
                 trace_logs=self._consume_logs(),
                 cleared_conversation_count=cleared_conversation_count,
+                scenario_path=scenario_path,
             )
         finally:
             if self.config.get("cleanup_after_run", False):
                 self._cleanup_users(created_users)
+
+    def run_matrix(self, scenario_paths: List[str], backends: List[str]) -> List[MemBenchResult]:
+        """Run all scenario/backend combinations sequentially."""
+        matrix_results: List[MemBenchResult] = []
+        for scenario_path in scenario_paths:
+            for backend in backends:
+                log("info", f"mem_bench: matrix run scenario={scenario_path} backend={backend}")
+                run_result = self.run(scenario_path=scenario_path, memory_backend_option=backend)
+                run_result.scenario_path = scenario_path
+                matrix_results.append(run_result)
+        return matrix_results
 
     def ensure_default_scenarios(self) -> None:
         """Copy bundled scenarios to configured scenarios directory if missing."""

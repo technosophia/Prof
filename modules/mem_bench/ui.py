@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+from typing import Dict, List
 
 import streamlit as st
 
-from modules.mem_bench.runner import MemBenchRunner
+from modules.mem_bench.runner import MemBenchResult, MemBenchRunner
 from st_shared.cached import _
 from shared.common import get_driver
 
@@ -15,25 +16,52 @@ def _t(key: str) -> str:
     return _(f"mem_bench.{key}")
 
 
-def render() -> None:
-    """Render memory benchmark admin UI."""
-    st.header(_t("title"))
-    runner = MemBenchRunner()
-    runner.ensure_default_scenarios()
+def _load_scenario(path: str) -> Dict:
+    return MemBenchRunner._load_scenario(path)
 
-    scenario_files = runner.list_scenario_files()
-    if not scenario_files:
-        st.info(_t("no_scenarios"))
-        return
 
-    options = get_driver().list_options().get("memory_backend", [])
-    if not options:
-        st.warning(_t("no_memory_options"))
-        return
+def _scenario_label(path: str) -> str:
+    data = _load_scenario(path)
+    meta = data.get("meta", {}) or data.get("yamlmeta", {})
+    name = str(meta.get("name") or "").strip()
+    return f"{name} ({os.path.basename(path)})" if name else os.path.basename(path)
 
-    scenario_labels = [os.path.basename(path) for path in scenario_files]
+
+def _ratio_style(passed: int, total: int) -> str:
+    if total <= 0:
+        return "⚪ 0/0"
+    ratio = passed / total
+    icon = "✅" if ratio >= 0.75 else "⚠️" if ratio >= 0.5 else "❌"
+    return f"{passed}/{total} {icon}"
+
+
+def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: List[Dict]) -> None:
+    scenario_labels = [_scenario_label(path) for path in scenario_files]
     selected_label = st.selectbox(_t("scenario"), scenario_labels, key="mem_bench_scenario")
     selected_scenario = scenario_files[scenario_labels.index(selected_label)]
+    selected_data = _load_scenario(selected_scenario)
+
+    with st.expander("📋 Scenario details", expanded=False):
+        meta = selected_data.get("meta", {}) or selected_data.get("yamlmeta", {})
+        setup = selected_data.get("setup", {}) or {}
+        st.markdown(f"**Name:** {meta.get('name', '-')}")
+        st.markdown(f"**Description:** {meta.get('description', '-')}")
+        st.markdown("**Setup**")
+        st.markdown(f"- student_id: `{setup.get('student_id', '-')}`")
+        st.markdown(f"- trainer_id: `{setup.get('trainer_id', '-')}`")
+        if setup.get("training_program"):
+            st.markdown("- training_program:")
+            st.code(str(setup.get("training_program")), language="text")
+
+        st.markdown("**Conversation**")
+        for turn in selected_data.get("conversation", []):
+            role = str(turn.get("role") or "")
+            prefix = "👤" if role == "user" else "🤖" if role == "assistant" else "⚙️"
+            st.markdown(f"{prefix} **{role}**: {turn.get('content', '')}")
+
+        st.markdown("**Expected memory contains**")
+        for term in selected_data.get("expected_memory_contains", []):
+            st.markdown(f"- [ ] {term}")
 
     option_labels = [item["name"] for item in options]
     active_idx = next((i for i, item in enumerate(options) if item.get("active")), 0)
@@ -87,3 +115,120 @@ def render() -> None:
     if st.session_state.get("mem_bench_trace_requested"):
         with st.expander(f"Trace logs ({len(result.trace_logs)} lines)", expanded=False):
             st.text("\n".join(result.trace_logs[-500:]) if result.trace_logs else "No logs captured")
+
+
+def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], options: List[Dict]) -> None:
+    scenario_labels = [_scenario_label(path) for path in scenario_files]
+    selected_scenarios = st.multiselect(
+        "Scenarios",
+        options=scenario_labels,
+        default=scenario_labels[:1],
+        key="mem_bench_compare_scenarios",
+    )
+    label_to_path = dict(zip(scenario_labels, scenario_files))
+    selected_paths = [label_to_path[label] for label in selected_scenarios]
+
+    backend_names = [item["name"] for item in options]
+    selected_backends = st.multiselect(
+        "Memory backends",
+        options=backend_names,
+        default=backend_names[: min(2, len(backend_names))],
+        key="mem_bench_compare_backends",
+    )
+
+    run_button = st.button("▶ Run comparison", key="mem_bench_compare_run")
+    if run_button:
+        if not selected_paths or not selected_backends:
+            st.warning("Select at least one scenario and one backend.")
+        else:
+            total = len(selected_paths) * len(selected_backends)
+            progress = st.progress(0, text=f"Running 0/{total}")
+            runs: List[MemBenchResult] = []
+            completed = 0
+            for scenario_path in selected_paths:
+                for backend in selected_backends:
+                    one = runner.run_matrix([scenario_path], [backend])
+                    runs.extend(one)
+                    completed += 1
+                    progress.progress(completed / total, text=f"Running {completed}/{total}")
+            st.session_state["mem_bench_matrix"] = runs
+            progress.empty()
+
+    matrix_runs: List[MemBenchResult] = st.session_state.get("mem_bench_matrix", [])
+    if not matrix_runs:
+        return
+
+    st.subheader("Comparison matrix")
+
+    path_to_name = {}
+    for run in matrix_runs:
+        if run.scenario_path not in path_to_name:
+            data = _load_scenario(run.scenario_path)
+            meta = data.get("meta", {}) or data.get("yamlmeta", {})
+            path_to_name[run.scenario_path] = str(meta.get("name") or os.path.basename(run.scenario_path))
+
+    scenario_order = list(dict.fromkeys(run.scenario_path for run in matrix_runs))
+    backend_order = list(dict.fromkeys(run.memory_backend for run in matrix_runs))
+
+    header = "| Scenario | " + " | ".join(backend_order) + " |"
+    sep = "|---" * (len(backend_order) + 1) + "|"
+    lines = [header, sep]
+
+    for scenario_path in scenario_order:
+        cells = []
+        for backend in backend_order:
+            match = next(
+                (
+                    run for run in matrix_runs
+                    if run.scenario_path == scenario_path and run.memory_backend == backend
+                ),
+                None,
+            )
+            if match is None:
+                cells.append("-")
+                continue
+            total = len(match.checks)
+            passed = sum(1 for item in match.checks if item.found)
+            cells.append(_ratio_style(passed, total))
+        lines.append(f"| {path_to_name[scenario_path]} | " + " | ".join(cells) + " |")
+
+    st.markdown("\n".join(lines))
+
+    for run in matrix_runs:
+        total = len(run.checks)
+        passed = sum(1 for item in run.checks if item.found)
+        title = f"{path_to_name.get(run.scenario_path, run.scenario_path)} × {run.memory_backend} — {_ratio_style(passed, total)}"
+        with st.expander(title, expanded=False):
+            if run.success:
+                st.success("Run succeeded")
+            else:
+                st.error(run.error or "Run failed")
+            st.markdown("**Memory output**")
+            st.markdown(run.memory_content or "_")
+            st.markdown("**Checks**")
+            for check in run.checks:
+                icon = "✅" if check.found else "❌"
+                st.write(f"{icon} {check.term}")
+
+
+def render() -> None:
+    """Render memory benchmark admin UI."""
+    st.header(_t("title"))
+    runner = MemBenchRunner()
+    runner.ensure_default_scenarios()
+
+    scenario_files = runner.list_scenario_files()
+    if not scenario_files:
+        st.info(_t("no_scenarios"))
+        return
+
+    options = get_driver().list_options().get("memory_backend", [])
+    if not options:
+        st.warning(_t("no_memory_options"))
+        return
+
+    tab_run, tab_compare = st.tabs(["▶ Run", "⚡ Compare"])
+    with tab_run:
+        _render_run_tab(runner, scenario_files, options)
+    with tab_compare:
+        _render_compare_tab(runner, scenario_files, options)
