@@ -779,3 +779,6 @@ def render_diff_tab() -> None:
 
     # ── Evaluations (scoring runs) ───────────────────────────────────────────
     _render_evaluations_section(session_a_path, session_b_path, ref_steps)
+
+def inject_ui_main_footer():
+    pass

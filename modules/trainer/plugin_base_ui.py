@@ -27,3 +27,6 @@ class TrainerPluginUI(ABC):
 
     def render_student_widgets(self, trainer_id: str, student: Dict) -> List[Callable]:
         return []
+
+def inject_ui_main_footer():
+    pass
