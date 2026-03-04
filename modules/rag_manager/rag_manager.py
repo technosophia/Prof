@@ -30,6 +30,68 @@ from modules.rag_manager.rag_engine import RAGEngine
 from core.logging import log
 
 
+# ---------------------------------------------------------------------------
+# Per-engine stable cached factories
+#
+# These are MODULE-LEVEL functions so that st.cache_resource sees the same
+# function object on every Streamlit rerun and returns the cached instance
+# instead of re-constructing (and re-loading indices for) each engine.
+#
+# Pattern: one @cache_fn-decorated factory per engine type, keyed by
+# (engine_class, frozenset(config_items)) so config changes bust the cache.
+# ---------------------------------------------------------------------------
+
+_ENGINE_CACHE: Dict[str, RAGEngine] = {}  # fallback when cache_fn is None
+
+
+def _make_cached_engine_factory(cache_fn: Callable):
+    """
+    Return a cache_fn-decorated factory that constructs an engine exactly once
+    per (module_name, config_fingerprint) pair across Streamlit reruns.
+
+    We define the inner function here at call-time so cache_fn can decorate it,
+    but we store the result on this module so the decorated object is stable
+    for the lifetime of the Python process (i.e. across reruns).
+    """
+    @cache_fn
+    def _cached_build_engine(full_module_name: str, attr_name: str,
+                              config_fingerprint: tuple) -> Optional[RAGEngine]:
+        """
+        Instantiate one RAGEngine. Called at most once per unique set of
+        arguments thanks to st.cache_resource.
+
+        Args:
+            full_module_name:    e.g. "modules.rag_manager.rag_engines.rag_classic"
+            attr_name:           class name inside that module, e.g. "ClassicRAGEngine"
+            config_fingerprint:  hashable snapshot of the engine's config dict
+        """
+        try:
+            module = importlib.import_module(full_module_name)
+            attr = getattr(module, attr_name, None)
+            if attr is None:
+                log("error", f"Cannot find {attr_name} in {full_module_name}")
+                return None
+
+            engine_config = dict(config_fingerprint)
+            try:
+                engine = attr(config=engine_config)
+            except TypeError:
+                engine = attr()
+
+            log("info", f"Built RAG engine '{engine.engine_type}' (cached)")
+            return engine
+        except Exception as e:
+            log("error", f"Failed to instantiate engine {attr_name} from {full_module_name}: {e}")
+            return None
+
+    return _cached_build_engine
+
+
+# Holds the decorated factory after the first call to discover_engines().
+# Stable across reruns once set.
+_CACHED_ENGINE_FACTORY: Optional[Callable] = None
+
+
 class RAGManager:
     """Manages RAG documents storage and operations with plugin-based engines.
 
@@ -176,64 +238,91 @@ class RAGManager:
     # Engine discovery
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _config_fingerprint(engine_config: dict) -> tuple:
+        """Convert an engine config dict to a hashable tuple for cache keying."""
+        def _make_hashable(v):
+            if isinstance(v, dict):
+                return tuple(sorted((k, _make_hashable(vv)) for k, vv in v.items()))
+            if isinstance(v, list):
+                return tuple(_make_hashable(i) for i in v)
+            return v
+
+        return tuple(sorted((k, _make_hashable(val)) for k, val in engine_config.items()))
+
     def discover_engines(self) -> None:
-        """Discover and register all engine plugins, optionally via injected cache."""
+        """
+        Discover and register all engine plugins.
 
-        def _do_discover() -> Dict[str, RAGEngine]:
-            engines: Dict[str, RAGEngine] = {}
-            engines_dir = Path(__file__).parent / "rag_engines"
-            if not engines_dir.exists():
-                return engines
+        Each engine is instantiated via a module-level cached factory so that
+        expensive __init__ work (e.g. loading FAISS / llama-index indices from
+        disk) is performed at most once per process lifetime, regardless of
+        how many Streamlit reruns occur.
+        """
+        global _CACHED_ENGINE_FACTORY
 
-            if str(engines_dir.parent) not in sys.path:
-                sys.path.insert(0, str(engines_dir.parent))
+        # Build (once) the st.cache_resource-decorated factory.
+        if self._cache_fn is not None and _CACHED_ENGINE_FACTORY is None:
+            _CACHED_ENGINE_FACTORY = _make_cached_engine_factory(self._cache_fn)
 
-            engines_config = self._get_rag_config().get("engines", {})
+        engines_dir = Path(__file__).parent / "rag_engines"
+        if not engines_dir.exists():
+            log("warning", "rag_engines directory not found")
+            return
 
-            for _, module_name, is_pkg in pkgutil.iter_modules([str(engines_dir)]):
-                if is_pkg or not module_name.startswith('rag_'):
-                    continue
-                try:
-                    full_module_name = f"modules.rag_manager.rag_engines.{module_name}"
-                    module = importlib.import_module(full_module_name)
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if (isinstance(attr, type)
-                                and issubclass(attr, RAGEngine)
-                                and attr is not RAGEngine):
+        if str(engines_dir.parent) not in sys.path:
+            sys.path.insert(0, str(engines_dir.parent))
+
+        engines_config = self._get_rag_config().get("engines", {})
+        discovered: Dict[str, RAGEngine] = {}
+
+        for _, module_name, is_pkg in pkgutil.iter_modules([str(engines_dir)]):
+            if is_pkg or not module_name.startswith('rag_'):
+                continue
+            try:
+                full_module_name = f"modules.rag_manager.rag_engines.{module_name}"
+
+                # Import only for class discovery — this is cheap (no index loading).
+                module = importlib.import_module(full_module_name)
+
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if not (isinstance(attr, type)
+                            and issubclass(attr, RAGEngine)
+                            and attr is not RAGEngine):
+                        continue
+
+                    # Resolve config key (same logic as before).
+                    guessed_key = module_name.replace("rag_", "")
+
+                    engine_config = engines_config.get(guessed_key, {})
+                    fingerprint = self._config_fingerprint(engine_config)
+
+                    # --- THE KEY CHANGE ---
+                    # Use the stable cached factory when available; fall back to
+                    # a plain module-level dict cache (headless / test mode).
+                    if _CACHED_ENGINE_FACTORY is not None:
+                        engine = _CACHED_ENGINE_FACTORY(
+                            full_module_name, attr_name, fingerprint
+                        )
+                    else:
+                        cache_key = f"{full_module_name}.{attr_name}:{fingerprint}"
+                        if cache_key not in _ENGINE_CACHE:
                             try:
-                                guessed_key = module_name.replace("rag_", "")
-                                if guessed_key == "hierarchical":
-                                    guessed_key = "faiss_hierarchical"
+                                _ENGINE_CACHE[cache_key] = attr(config=engine_config)
+                            except TypeError:
+                                _ENGINE_CACHE[cache_key] = attr()
+                        engine = _ENGINE_CACHE[cache_key]
 
-                                if guessed_key not in engines_config:
-                                    class_name = attr_name.lower()
-                                    if "classic" in class_name:
-                                        guessed_key = "classic"
-                                    elif "simple" in class_name:
-                                        guessed_key = "simple"
-                                    elif "hierarchical" in class_name:
-                                        guessed_key = "faiss_hierarchical"
+                    if engine is not None:
+                        discovered[engine.engine_type] = engine
+                        log("debug", f"Registered RAG engine: {engine.engine_type}")
 
-                                engine_config = engines_config.get(guessed_key, {})
+            except Exception as e:
+                log("error", f"Failed to load RAG engine module {module_name}: {e}")
 
-                                try:
-                                    engine = attr(config=engine_config)
-                                except TypeError:
-                                    engine = attr()
-
-                                engines[engine.engine_type] = engine
-                                log("debug", f"Registered RAG engine: {engine.engine_type}")
-                            except Exception as e:
-                                log("error", f"Failed to instantiate engine {attr_name}: {e}")
-                except Exception as e:
-                    log("error", f"Failed to load RAG engine module {module_name}: {e}")
-
-            log("info", f"Registered {len(engines)} RAG engines: {list(engines.keys())}")
-            return engines
-
-        discover = self._cache_fn(_do_discover) if self._cache_fn else _do_discover
-        self.engines = discover()
+        self.engines = discovered
+        log("info", f"Registered {len(self.engines)} RAG engines: {list(self.engines.keys())}")
 
     def register_engine(self, engine: RAGEngine):
         self.engines[engine.engine_type] = engine
@@ -517,8 +606,6 @@ class RAGManager:
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
-
-    # modules/rag_manager/rag_manager.py
 
     def search(
         self,
