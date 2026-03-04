@@ -22,7 +22,3 @@ AGENTS.md is the entry point. It should have those sections or explain where to 
 - SPECS : explain the model for the agents. The goal is to help them understand the intent.
 - SKILLS : here the goal is to explain how to modify the codebase.
 - META : how to update the documentation
-
-# embeddings
-    "model_name": "all-MiniLM-L6-v2",
-    "model_name": "paraphrase-multilingual-mpnet-base-v2",
