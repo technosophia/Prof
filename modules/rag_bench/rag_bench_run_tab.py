@@ -515,7 +515,13 @@ def _render_summary_heatmap(agg, levels, engines):
     # Find best overall engine
     best_overall = max(overall_scores.items(), key=lambda x: x[1])[0] if overall_scores else None
 
-    # Header with overall scores
+    # Engine names header
+    cols = st.columns([1] + [2] * len(engines))
+    cols[0].markdown("")  # Empty cell for alignment
+    for i, e in enumerate(engines):
+        cols[i+1].markdown(f"**{e}**")
+
+    # Overall scores row
     cols = st.columns([1] + [2] * len(engines))
     cols[0].markdown("**Overall**")
     for i, e in enumerate(engines):
@@ -540,11 +546,10 @@ def _render_summary_heatmap(agg, levels, engines):
                 continue
             is_best = s.avg_gauge == best_avg and len(engines) > 1
             cols[i+1].markdown(
-                f"{_gauge_html(s.avg_gauge, thr, width=GAUGE_WIDTH, show_trophy=is_best)} "
+                f"{_gauge_html(s.avg_gauge, thr, width=140, show_trophy=is_best)} "
                 f"<small>({s.passed}/{s.total})</small>",
                 unsafe_allow_html=True
             )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI — LEVEL DETAIL
