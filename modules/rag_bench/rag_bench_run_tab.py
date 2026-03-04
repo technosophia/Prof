@@ -24,7 +24,7 @@ from modules.rag_bench.rag_bench_models import (
 from modules.rag_bench.rag_bench_report import render_export_section, render_step_export
 
 
-
+GAUGE_WIDTH=130
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ def _gauge_color(gauge: float, threshold: float) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _gauge_html(gauge: float, threshold: float, width: int = 160) -> str:
+def _gauge_html(gauge: float, threshold: float, width: int = GAUGE_WIDTH, show_trophy: bool = False) -> str:
     """Render an inline HTML progress bar with threshold marker and color gradient."""
     pct       = int(gauge * 100)
     thr_pct   = int(threshold * 100)
@@ -114,6 +114,7 @@ def _gauge_html(gauge: float, threshold: float, width: int = 160) -> str:
     delta     = gauge - threshold
     sign      = "+" if delta >= 0 else ""
     label     = f"{pct}% ({sign}{delta*100:.1f}%)"
+    trophy    = "🏆 " if show_trophy else ""
 
     return f"""
 <div style="width:{width}px;display:inline-block;vertical-align:middle;">
@@ -121,7 +122,7 @@ def _gauge_html(gauge: float, threshold: float, width: int = 160) -> str:
     <div style="width:{pct}%;height:100%;background:{color};border-radius:7px;transition:width 0.3s;"></div>
     <div style="position:absolute;top:0;left:{thr_pct}%;width:2px;height:100%;background:#fff;opacity:0.8;"></div>
   </div>
-  <div style="font-size:11px;color:{color};margin-top:2px;">{label}</div>
+  <div style="font-size:11px;color:{color};margin-top:2px;">{trophy}{label}</div>
 </div>"""
 
 
@@ -333,7 +334,7 @@ async def run_benchmark(cases, engine_types, user_id, top_k,
             done += 1
 
     if progress_cb:
-        progress_cb(1.0, "Terminé !")
+        progress_cb(1.0, "Done!")
     return results
 
 
@@ -344,7 +345,7 @@ async def run_benchmark(cases, engine_types, user_id, top_k,
 
 def render_benchmark_run_tab():
     st.header("🏁 Benchmark Runner")
-    st.caption("Exécute les datasets YAML contre tous les moteurs RAG disponibles.")
+    st.caption("Run YAML datasets against all available RAG engines.")
 
     cfg = get_config()
     bench_dir = cfg.get("modules.rag_bench.dataset_dir", "data/rag_bench")
@@ -353,17 +354,17 @@ def render_benchmark_run_tab():
     with st.expander("⚙️ Configuration", expanded=False):
         col1, col2, col3 = st.columns(3)
         with col1:
-            bench_dir = st.text_input("Répertoire dataset", value=bench_dir, key="rb_dir_widget")
+            bench_dir = st.text_input("Dataset directory", value=bench_dir, key="rb_dir_widget")
         with col2:
             top_k = st.number_input("Top-K chunks", min_value=1, max_value=20, value=5, key="rb_topk_widget")
         with col3:
             judge_model = st.text_input(
-                "Modèle juge (Ollama)",
+                "Judge model (Ollama)",
                 value=cfg.get("modules.rag_bench.judge_model", "qwen3:4b"),
                 key="rb_judge_widget"
             )
         st.text_input(
-            "URL Ollama",
+            "Ollama URL",
             value=cfg.get("modules.rag_bench.ollama_base_url", "http://localhost:11434"),
             key="rb_ollama_widget"
         )
@@ -376,38 +377,38 @@ def render_benchmark_run_tab():
         st.warning(f"⚠️ {err}")
 
     if not cases:
-        st.error(f"Aucun cas de test trouvé dans `{bench_dir}`.")
+        st.error(f"No test cases found in `{bench_dir}`.")
         return
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Fichiers", scan_stats["files"])
-    col2.metric("Cas total", len(cases))
+    col1.metric("Files", scan_stats["files"])
+    col2.metric("Total cases", len(cases))
     levels_present = sorted(scan_stats["cases_per_level"].keys())
-    col3.metric("Niveaux", f"{min(levels_present)}–{max(levels_present)}")
-    col4.metric("Niveaux couverts", len(levels_present))
+    col3.metric("Levels", f"{min(levels_present)}–{max(levels_present)}")
+    col4.metric("Levels covered", len(levels_present))
 
-    with st.expander("📋 Fichiers chargés", expanded=False):
+    with st.expander("📋 Loaded files", expanded=False):
         for f in scan_stats["files_loaded"]:
             st.caption(f"✅ {f}")
 
     # ── Threshold override ────────────────────────────────────────────────────
-    st.subheader("🎯 Calibration du seuil")
+    st.subheader("🎯 Threshold calibration")
     col_tog, col_sld = st.columns([1, 3])
     with col_tog:
-        use_override = st.toggle("Seuil global override", value=False, key="rb_override_toggle")
+        use_override = st.toggle("Global threshold override", value=False, key="rb_override_toggle")
     with col_sld:
         threshold_override = None
         if use_override:
             threshold_override = st.slider(
-                "Seuil global (remplace les seuils YAML)",
+                "Global threshold (overrides YAML thresholds)",
                 min_value=0.0, max_value=1.0, value=0.70, step=0.01,
                 key="rb_threshold_slider",
-                help="Faites glisser pour voir comment les résultats changent. "
-                     "Les jauges se recalculent à la prochaine exécution."
+                help="Slide to see how results change. "
+                     "Gauges will recalculate on next run."
             )
-            st.caption(f"Seuil actif : **{threshold_override:.2f}** (remplace tous les min_score_threshold YAML)")
+            st.caption(f"Active threshold: **{threshold_override:.2f}** (overrides all YAML min_score_threshold)")
         else:
-            st.caption("Seuils individuels YAML utilisés par test.")
+            st.caption("Individual YAML thresholds used per test.")
 
     # ── Engine + level selection ───────────────────────────────────────────────
     from modules.rag_manager.rag_factory import get_rag_manager
@@ -415,24 +416,24 @@ def render_benchmark_run_tab():
     available_engines = [e["type"] for e in rag_mgr.get_available_engines() if e["available"]]
 
     if not available_engines:
-        st.error("Aucun moteur RAG disponible.")
+        st.error("No RAG engines available.")
         return
 
     col_e, col_l = st.columns(2)
     with col_e:
         selected_engines = st.multiselect(
-            "Moteurs RAG", options=available_engines,
+            "RAG engines", options=available_engines,
             default=available_engines, key="rb_engines_widget"
         )
     with col_l:
         selected_levels = st.multiselect(
-            "Niveaux (vide = tous)", options=levels_present,
+            "Levels (empty = all)", options=levels_present,
             default=[], key="rb_levels_widget",
-            format_func=lambda l: f"Niv.{l} — {LEVEL_LABELS.get(l, '')}"
+            format_func=lambda l: f"Level {l} — {LEVEL_LABELS.get(l, '')}"
         )
 
     if not selected_engines:
-        st.warning("Sélectionnez au moins un moteur.")
+        st.warning("Select at least one engine.")
         return
 
     filtered = [c for c in cases if not selected_levels or c.level in selected_levels]
@@ -441,11 +442,11 @@ def render_benchmark_run_tab():
 
     col_run, col_info = st.columns([1, 3])
     with col_run:
-        run_btn = st.button("▶️ Lancer", type="primary", use_container_width=True)
+        run_btn = st.button("▶️ Run", type="primary", use_container_width=True)
     with col_info:
-        st.caption(f"{len(filtered)} cas × {len(selected_engines)} moteurs = **{len(filtered)*len(selected_engines)} exécutions**")
+        st.caption(f"{len(filtered)} cases × {len(selected_engines)} engines = **{len(filtered)*len(selected_engines)} executions**")
         if n_llm:
-            st.caption(f"⚠️ {n_llm} cas utilisent le juge LLM — peut être lent.")
+            st.caption(f"⚠️ {n_llm} cases use LLM judge — may be slow.")
 
     if run_btn:
         pb = st.progress(0.0)
@@ -464,7 +465,7 @@ def render_benchmark_run_tab():
 
     # ── Results ───────────────────────────────────────────────────────────────
     if "rb_results" not in st.session_state:
-        st.info("Lancez le benchmark pour voir les résultats.")
+        st.info("Run the benchmark to see results.")
         return
 
     bench_results: List[CaseResult] = st.session_state["rb_results"]
@@ -473,11 +474,11 @@ def render_benchmark_run_tab():
     levels_in_results = sorted(agg.keys())
 
     st.divider()
-    st.subheader(f"📊 Résultats — {st.session_state.get('rb_timestamp', '')}")
+    st.subheader(f"📊 Results — {st.session_state.get('rb_timestamp', '')}")
 
     _render_summary_heatmap(agg, levels_in_results, engines)
     st.divider()
-    st.markdown("### Détail par niveau")
+    st.markdown("### Detail by level")
 
     rlookup  = {(r.case_id, r.engine): r for r in bench_results}
     clookup  = {c.id: c for c in cases}
@@ -499,28 +500,47 @@ def render_benchmark_run_tab():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _render_summary_heatmap(agg, levels, engines):
-    # Header
-    cols = st.columns([1] + [2] * len(engines))
-    cols[0].markdown("**Niveau**")
-    for i, e in enumerate(engines):
-        cols[i+1].markdown(f"**{e}**")
+    # Calculate overall scores per engine (sum of gauges across all levels)
+    overall_scores = {}
+    for engine in engines:
+        total_gauge_sum = 0
+        total_cases = 0
+        for lvl in levels:
+            if engine in agg[lvl]:
+                # Use avg_gauge * total to get the sum of gauges for this level
+                total_gauge_sum += agg[lvl][engine].avg_gauge * agg[lvl][engine].total
+                total_cases += agg[lvl][engine].total
+        overall_scores[engine] = total_gauge_sum / total_cases if total_cases > 0 else 0
 
+    # Find best overall engine
+    best_overall = max(overall_scores.items(), key=lambda x: x[1])[0] if overall_scores else None
+
+    # Header with overall scores
+    cols = st.columns([1] + [2] * len(engines))
+    cols[0].markdown("**Overall**")
+    for i, e in enumerate(engines):
+        is_best = e == best_overall and len(engines) > 1
+        cols[i+1].markdown(
+            _gauge_html(overall_scores[e], 0.70, width=140, show_trophy=is_best),
+            unsafe_allow_html=True
+        )
+
+    # Per-level rows
     for lvl in levels:
         ld = agg.get(lvl, {})
         best_avg = max((ld[e].avg_gauge for e in engines if e in ld), default=0)
         thr = 0.70  # display threshold for heatmap (informational)
 
         cols = st.columns([1] + [2] * len(engines))
-        cols[0].markdown(f"Niv.**{lvl}**")
+        cols[0].markdown(f"Level **{lvl}**")
         for i, e in enumerate(engines):
             s = ld.get(e)
             if s is None:
                 cols[i+1].caption("–")
                 continue
             is_best = s.avg_gauge == best_avg and len(engines) > 1
-            badge   = "🏆 " if is_best else ""
             cols[i+1].markdown(
-                f"{badge}{_gauge_html(s.avg_gauge, thr, width=140)} "
+                f"{_gauge_html(s.avg_gauge, thr, width=GAUGE_WIDTH, show_trophy=is_best)} "
                 f"<small>({s.passed}/{s.total})</small>",
                 unsafe_allow_html=True
             )
@@ -531,12 +551,12 @@ def _render_summary_heatmap(agg, levels, engines):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _render_level_block(lvl, level_agg, engines, rlookup, clookup):
-    label    = LEVEL_LABELS.get(lvl, f"Niveau {lvl}")
+    label    = LEVEL_LABELS.get(lvl, f"Level {lvl}")
     avgs     = [level_agg[e].avg_gauge for e in engines if e in level_agg]
     avg_rate = sum(avgs) / len(avgs) if avgs else 0
     emoji    = "🟢" if avg_rate >= 0.85 else "🟡" if avg_rate >= 0.65 else "🟠" if avg_rate >= 0.45 else "🔴"
 
-    with st.expander(f"{emoji} Niveau {lvl} — {label}  (moy. {avg_rate*100:.0f}%)", expanded=(avg_rate < 0.65)):
+    with st.expander(f"{emoji} Level {lvl} — {label}  (avg {avg_rate*100:.0f}%)", expanded=(avg_rate < 0.65)):
 
         # Per-engine summary bar
         best_avg = max((level_agg[e].avg_gauge for e in engines if e in level_agg), default=0)
@@ -548,7 +568,7 @@ def _render_level_block(lvl, level_agg, engines, rlookup, clookup):
             badge   = "🏆 " if is_best else ""
             scols[i].markdown(
                 f"{badge}**{e}**  \n" +
-                _gauge_html(s.avg_gauge, 0.70, width=160) +
+                _gauge_html(s.avg_gauge, 0.70, width=GAUGE_WIDTH, show_trophy=is_best) +
                 f"<br><small>({s.passed}/{s.total} pass)</small>",
                 unsafe_allow_html=True
             )
@@ -573,7 +593,7 @@ def _render_level_block(lvl, level_agg, engines, rlookup, clookup):
             with st.expander(f"{row_icon} `{cid}` — {tc.question[:80]}", expanded=any_fail):
                 if tc.notes:
                     st.caption(f"_{tc.notes}_")
-                st.caption(f"Méthode : `{tc.scoring_method}` | Seuil YAML : `{tc.min_score_threshold}`")
+                st.caption(f"Method: `{tc.scoring_method}` | YAML threshold: `{tc.min_score_threshold}`")
 
                 ecols = st.columns(len(engines))
                 for i, e in enumerate(engines):
@@ -581,28 +601,28 @@ def _render_level_block(lvl, level_agg, engines, rlookup, clookup):
                     with ecols[i]:
                         st.markdown(f"**{e}**")
                         if r is None:
-                            st.caption("Non exécuté"); continue
+                            st.caption("Not executed"); continue
                         if r.error:
-                            st.error(f"Erreur: {r.error}"); continue
+                            st.error(f"Error: {r.error}"); continue
 
                         # Trophy on best engine for this test
                         is_best = r.gauge == best_gauge and len(engines) > 1
                         trophy  = "🏆 " if is_best else ""
 
                         st.markdown(
-                            f"{trophy}" + _gauge_html(r.gauge, r.threshold, width=170),
+                            f"{trophy}" + _gauge_html(r.gauge, r.threshold, width=GAUGE_WIDTH, show_trophy=is_best),
                             unsafe_allow_html=True
                         )
 
                         d = r.score_details
                         if d.get("top_score") is not None:
-                            st.caption(f"Sim: `{d['top_score']:.3f}` / seuil `{r.threshold:.2f}`")
+                            st.caption(f"Sim: `{d['top_score']:.3f}` / threshold `{r.threshold:.2f}`")
                         if d.get("keywords_found"):
                             st.caption(f"✓ {', '.join(d['keywords_found'][:3])}")
                         if d.get("keywords_missing"):
                             st.caption(f"✗ {', '.join(d['keywords_missing'][:3])}")
                         if d.get("llm_score") is not None:
-                            st.caption(f"Juge: {'✅' if d['llm_score']==1 else '❌'}")
+                            st.caption(f"Judge: {'✅' if d['llm_score']==1 else '❌'}")
                         if r.judge_reasoning:
                             st.caption(f"💬 _{r.judge_reasoning[:120]}_")
 

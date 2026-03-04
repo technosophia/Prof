@@ -78,6 +78,19 @@ class FaissHierarchicalV2RAGEngine(RAGEngine):
         self.bm25_weight = config.get("bm25_weight", 0.5)
         self.dense_weight = config.get("dense_weight", 0.5)
 
+        # RRF level boosts — summary and section chunks are boosted relative to paragraphs
+        # to prevent the higher volume of paragraph chunks from drowning them out.
+        self.level_boost: Dict[str, float] = config.get("level_boost", {
+            LEVEL_SUMMARY:   1.6,
+            LEVEL_SECTION:   1.2,
+            LEVEL_PARAGRAPH: 1.0,
+        })
+
+        # How many result slots to reserve for summary chunks in pass 1.
+        # e.g. with limit=5 and summary_slots=1: up to 4 content/paragraph + 1 summary.
+        # Set to 0 to disable reserved slots.
+        self.summary_slots = config.get("summary_slots", 1)
+
         # Alias for compatibility with benchmark tooling
         self.similarity_threshold = self.high_threshold
 
@@ -455,10 +468,13 @@ class FaissHierarchicalV2RAGEngine(RAGEngine):
 
         1. Dense FAISS search  → ranked list (score, meta_idx)
         2. BM25 search         → ranked list (score, meta_idx)
-        3. RRF fusion          → single merged ranked list
-        4. Double-threshold:
-             Pass 1 — return chunks with dense_score >= high_threshold (up to limit)
-             Pass 2 — fallback: best RRF chunk if dense_score >= low_threshold
+        3. Boosted RRF fusion  → summary/section chunks are weighted higher than
+                                 paragraphs to prevent volume dilution
+        4. Double-threshold with reserved summary slot:
+             Pass 1 — split limit into (limit - summary_slots) non-summary slots
+                      + summary_slots slots reserved for the best summary chunk.
+                      All candidates must pass dense_score >= high_threshold.
+             Pass 2 — fallback: best RRF candidate if dense_score >= low_threshold
 
         Each result exposes score (dense), rrf_score, bm25_score, level, retrieval_pass.
         """
@@ -499,12 +515,16 @@ class FaissHierarchicalV2RAGEngine(RAGEngine):
                     bm25_ranked.append((idx, score))
                     bm25_scores[idx] = score
 
-            # --- RRF fusion ---
+            # --- Boosted RRF fusion ---
+            # Summary and section chunks receive a multiplier on their RRF contribution
+            # so they can compete against the larger volume of paragraph chunks.
             rrf_scores: Dict[int, float] = defaultdict(float)
             for rank, (idx, _) in enumerate(dense_ranked):
-                rrf_scores[idx] += self.dense_weight / (RRF_K + rank + 1)
+                boost = self.level_boost.get(all_meta[idx]["level"], 1.0)
+                rrf_scores[idx] += self.dense_weight * boost / (RRF_K + rank + 1)
             for rank, (idx, _) in enumerate(bm25_ranked):
-                rrf_scores[idx] += self.bm25_weight / (RRF_K + rank + 1)
+                boost = self.level_boost.get(all_meta[idx]["level"], 1.0)
+                rrf_scores[idx] += self.bm25_weight * boost / (RRF_K + rank + 1)
 
             fused = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
@@ -525,18 +545,44 @@ class FaissHierarchicalV2RAGEngine(RAGEngine):
                     "retrieval_pass": pass_num,
                 }
 
-            # Pass 1: RRF-ordered results where dense score passes high threshold
-            results = [
-                build_result(idx, rrf, 1)
-                for idx, rrf in fused
+            # --- Pass 1: high threshold, with reserved summary slot ---
+            #
+            # Strategy: fill (limit - summary_slots) slots with the best non-summary
+            # chunks, then fill summary_slots with the best summary chunk(s).
+            # This guarantees that a relevant chapter summary is never crowded out
+            # by the sheer volume of paragraph chunks.
+            #
+            # If summary_slots == 0, this degenerates to the plain top-limit behavior.
+
+            above = [
+                (idx, rrf) for idx, rrf in fused
                 if dense_scores.get(idx, 0.0) >= self.high_threshold
-            ][:limit]
+            ]
 
-            if results:
-                log("debug", f"HierV2 pass 1: {len(results)} results above high threshold")
-                return results
+            if above:
+                non_summary_limit = max(limit - self.summary_slots, 1)
 
-            # Pass 2: fallback — best RRF candidate above low threshold
+                non_summary = [
+                    (idx, rrf) for idx, rrf in above
+                    if all_meta[idx]["level"] != LEVEL_SUMMARY
+                ][:non_summary_limit]
+
+                summary_candidates = [
+                    (idx, rrf) for idx, rrf in above
+                    if all_meta[idx]["level"] == LEVEL_SUMMARY
+                ][:self.summary_slots]
+
+                # Merge: summary first so it's visible to the LLM, then content
+                merged = summary_candidates + non_summary
+
+                if merged:
+                    results = [build_result(idx, rrf, 1) for idx, rrf in merged]
+                    log("debug",
+                        f"HierV2 pass 1: {len(results)} results "
+                        f"({len(summary_candidates)} summary + {len(non_summary)} content)")
+                    return results
+
+            # --- Pass 2: fallback — best RRF candidate above low threshold ---
             for idx, rrf in fused:
                 if dense_scores.get(idx, 0.0) >= self.low_threshold:
                     log("debug", f"HierV2 pass 2 fallback: dense={dense_scores.get(idx, 0.0):.4f}")

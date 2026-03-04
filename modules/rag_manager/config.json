@@ -23,6 +23,18 @@
         "description": "FAISS vector store with hierarchical markdown parsing",
         "index_path": "data/hierarchical_indexes",
         "similarity_threshold": 0.3
+      },
+      "faiss_hierarchical_v2": {
+        "enabled": true,
+        "description": "FAISS V2 vector store with hierarchical markdown parsing Enhanced",
+        "index_path": "data/hierarchical_indexes_v2",
+        "similarity_threshold": 0.3,
+        "level_boost": {
+          "summary": 1.6,
+          "section": 1.2,
+          "paragraph": 1.0
+        },
+        "summary_slots": 1
       }
     }
   }
