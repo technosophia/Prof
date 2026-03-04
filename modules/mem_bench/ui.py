@@ -72,7 +72,7 @@ def render() -> None:
     st.caption(f"Cleared conversations before run: {result.cleared_conversation_count}")
 
     st.subheader(_t("memory_output"))
-    st.text_area("", value=result.memory_content, height=220, key="mem_bench_memory_output")
+    st.markdown(result.memory_content or "_")
 
     st.subheader(_t("expected_checks"))
     for check in result.checks:
