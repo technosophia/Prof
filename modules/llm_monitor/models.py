@@ -41,7 +41,20 @@ class LLMCallTable(Base):
     # Message data (stored as JSON for flexibility)
     messages = Column(JSON, nullable=False)  # Full message history sent to LLM
     context_messages = Column(JSON, nullable=True)  # Additional context added by callbacks
+
+    # Cleaned response (think tags stripped for no_thinking models)
     response = Column(Text, nullable=False)
+
+    # Raw unmodified engine output.
+    # For most engines this equals response.
+    # For Ollama with no_thinking=True this may contain <think>…</think> blocks
+    # that were stripped from response. Used for:
+    #   - accurate token cost accounting (model billed for raw output)
+    #   - auditing whether the model actually thought despite /no_think
+    raw_response = Column(Text, nullable=True)
+
+    # no_thinking flag that was active for this call
+    no_thinking = Column(Integer, default=0)  # 1 if no_thinking=True was requested
 
     # Metadata (renamed from 'metadata' to avoid SQLAlchemy conflict)
     call_metadata = Column(JSON, nullable=True)  # Additional metadata

@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta
 from typing import Dict, List, Any, Optional, Callable, Tuple
 import tiktoken  # For token estimation
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, text
 
 from core.logging import log
 
@@ -41,7 +41,7 @@ class LLMMonitor:
         log("info", "LLMMonitor initialized with injected dependencies")
 
     def _ensure_tables_exist(self):
-        """Ensure monitoring tables exist."""
+        """Ensure monitoring tables exist, including safe column migrations."""
         if not self.db.is_initialized():
             return False
 
@@ -50,11 +50,56 @@ class LLMMonitor:
             UserLLMStatsTable.__table__.create(bind=self.db._engine, checkfirst=True)
             RateLimitUsageTable.__table__.create(bind=self.db._engine, checkfirst=True)
             DailyCostSummaryTable.__table__.create(bind=self.db._engine, checkfirst=True)
+
+            # Safe migration: add new columns to existing tables if they are absent.
+            # SQLite does not support ADD COLUMN IF NOT EXISTS, so we inspect first.
+            self._migrate_add_column_if_missing(
+                table="llm_calls",
+                column="raw_response",
+                column_def="TEXT NULL",
+            )
+            self._migrate_add_column_if_missing(
+                table="llm_calls",
+                column="no_thinking",
+                column_def="INTEGER NOT NULL DEFAULT 0",
+            )
+
             log("debug", "LLM monitor tables ensured")
             return True
         except Exception as e:
             log("error", f"Failed to create LLM monitor tables: {e}")
             return False
+
+    def _migrate_add_column_if_missing(self, table: str, column: str, column_def: str):
+        """Add a column to an existing table when it does not already exist.
+
+        Works for both SQLite and MySQL/Postgres (PRAGMA vs information_schema).
+        Silently skips if the column is already present.
+        """
+        try:
+            with self.db._engine.connect() as conn:
+                dialect = self.db._engine.dialect.name
+
+                if dialect == "sqlite":
+                    result = conn.execute(text(f"PRAGMA table_info({table})"))
+                    existing_columns = {row[1] for row in result}
+                else:
+                    # MySQL / Postgres
+                    result = conn.execute(text(
+                        "SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name = '{table}'"
+                    ))
+                    existing_columns = {row[0] for row in result}
+
+                if column not in existing_columns:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}"))
+                    conn.commit()
+                    log("info", f"Migration: added column '{column}' to table '{table}'")
+                else:
+                    log("debug", f"Migration: column '{column}' already exists in '{table}', skipping")
+
+        except Exception as e:
+            log("warning", f"Migration warning for {table}.{column}: {e}")
 
     def _get_token_encoder(self, model: str):
         """Get token encoder for a model."""
@@ -352,7 +397,17 @@ class LLMMonitor:
         return [msg.copy() for msg in messages if msg.get("role") in ["user", "assistant"]]
 
     def log_llm_call(self, data: Dict[str, Any]):
-        """Log an LLM call to the database."""
+        """Log an LLM call to the database.
+
+        Expected keys in data (from monitor callback):
+            llm_id, llm_type, model, engine_type, messages, response,
+            raw_response, no_thinking, timestamp, success, error, user_id,
+            conversation_id (optional), response_format (optional).
+
+        Token accounting uses raw_response when available so that thinking
+        content (which the model generated and the API billed for) is counted,
+        not the stripped version shown to the user.
+        """
         if not self.enabled or not self.auto_collect:
             return
 
@@ -361,15 +416,23 @@ class LLMMonitor:
                 user_id = data.get("user_id")
                 conversation_id = data.get("conversation_id")
 
-                # Estimate tokens
+                # ----------------------------------------------------------------
+                # Token estimation
+                # For output tokens we always use raw_response when present.
+                # This ensures thinking content is accounted for in cost
+                # calculations — the model generated those tokens and the
+                # provider billed for them regardless of whether we strip them.
+                # ----------------------------------------------------------------
                 input_tokens = data.get("input_tokens")
                 output_tokens = data.get("output_tokens")
 
                 if input_tokens is None:
                     input_tokens = self.estimate_message_tokens(data["messages"], data["model"])
 
-                if output_tokens is None and "response" in data:
-                    output_tokens = self.estimate_tokens(data["response"], data["model"])
+                if output_tokens is None:
+                    # Prefer raw_response for accurate billing; fall back to response.
+                    text_for_output_count = data.get("raw_response") or data.get("response", "")
+                    output_tokens = self.estimate_tokens(text_for_output_count, data["model"])
 
                 total_tokens = (input_tokens or 0) + (output_tokens or 0)
 
@@ -380,6 +443,15 @@ class LLMMonitor:
                 all_messages = data["messages"]
                 context_messages = self.extract_context_messages(all_messages)
                 display_messages = self.extract_user_assistant_messages(all_messages)
+
+                # raw_response — None when it equals response (saves storage for
+                # engines that do no post-processing, e.g. Groq/Gemini/xAI/Mock).
+                raw_response = data.get("raw_response")
+                response = data.get("response", "")
+                if raw_response == response:
+                    raw_response = None  # identical → no need to store twice
+
+                no_thinking_flag = 1 if data.get("no_thinking", False) else 0
 
                 # Create LLM call record
                 llm_call = LLMCallTable(
@@ -399,7 +471,9 @@ class LLMMonitor:
                     total_cost=costs["total_cost"],
                     messages=display_messages,
                     context_messages=context_messages,
-                    response=data["response"],
+                    response=response,
+                    raw_response=raw_response,
+                    no_thinking=no_thinking_flag,
                     success=data.get("success", 1),
                     error_message=data.get("error"),
                     call_metadata=data.get("metadata", {}),
@@ -626,6 +700,12 @@ class LLMMonitor:
 
                 result = []
                 for call in calls:
+                    # Reconstruct the effective raw_response for callers.
+                    # We store NULL when raw == response to save space; restore
+                    # the full value here so display code never has to care.
+                    stored_raw = call.raw_response
+                    effective_raw = stored_raw if stored_raw is not None else call.response
+
                     result.append({
                         "id": call.id,
                         "user_id": call.user_id,
@@ -645,6 +725,13 @@ class LLMMonitor:
                         "context_messages": call.context_messages,
                         "response_preview": call.response[:100] + "..." if len(call.response) > 100 else call.response,
                         "response": call.response,
+                        # raw_response is always populated here (never None).
+                        # For engines without post-processing it equals response.
+                        "raw_response": effective_raw,
+                        # True when no_thinking was requested for this call.
+                        "no_thinking": bool(call.no_thinking),
+                        # True when the model thought despite no_thinking=True.
+                        "thinking_detected": bool(call.no_thinking) and stored_raw is not None,
                         "success": bool(call.success),
                         "error_message": call.error_message,
                         "metadata": call.call_metadata or {},
