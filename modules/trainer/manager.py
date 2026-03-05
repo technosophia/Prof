@@ -8,10 +8,7 @@ The factory (manager_factory.py) is the only place that bridges st_shared.cached
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import yaml
-import json
-import re
-from shared.common import get_prompt
+from modules.trainer.material_loader import MaterialLoader
 
 from core.logging import log
 
@@ -93,7 +90,7 @@ class TrainerManager:
             return {}
 
         # Get trainer-specific training program
-        training_program = self.get_training_program(trainer_id)
+        training_program = self.get_program(trainer_id)
 
         contexts = {
             'Training Program': {
@@ -200,91 +197,70 @@ class TrainerManager:
                 return {
                     'id': config.id,
                     'trainer_id': config.trainer_id,
-                    'training_program': config.training_program,
+                    'formation_dir': config.formation_dir,
                     'config': config.config,
                     'updated_at': config.updated_at
                 }
             return None
 
 
-    def get_training_program(self, trainer_id: str) -> str:
-        """
-        Get the training program for a specific trainer.
-        Falls back to default from prompts if not set in database.
-
-        Args:
-            trainer_id: The trainer's user ID
-
-        Returns:
-            Training program content as string
-        """
+    def get_formation_dir(self, trainer_id: str) -> Optional[str]:
+        """Get the configured formation directory for a trainer."""
         from .models import TrainerConfig
-        from shared.common import get_prompt
 
         with self.db.get_session() as session:
-            config = session.query(TrainerConfig).filter_by(
-                trainer_id=trainer_id
-            ).first()
+            config = session.query(TrainerConfig).filter_by(trainer_id=trainer_id).first()
+            return config.formation_dir if config else None
 
-            if config and config.training_program:
-                return config.training_program
-
-            # Fall back to default from prompts
-            return get_prompt('trainer.teacher.training_program')
-
-
-    def set_training_program(self, trainer_id: str, program_content: str) -> bool:
-        """
-        Set the training program for a specific trainer.
-
-        Args:
-            trainer_id: The trainer's user ID
-            program_content: The training program content
-
-        Returns:
-            True if successful, False otherwise
-        """
+    def set_formation_dir(self, trainer_id: str, formation_dir: str) -> bool:
+        """Set the formation directory for a trainer (upsert)."""
         from .models import TrainerConfig
 
         try:
             with self.db.get_session() as session:
-                config = session.query(TrainerConfig).filter_by(
-                    trainer_id=trainer_id
-                ).first()
-
+                config = session.query(TrainerConfig).filter_by(trainer_id=trainer_id).first()
                 if config:
-                    config.training_program = program_content
+                    config.formation_dir = formation_dir
                     config.updated_at = datetime.utcnow()
                 else:
-                    config = TrainerConfig(
-                        trainer_id=trainer_id,
-                        training_program=program_content
-                    )
+                    config = TrainerConfig(trainer_id=trainer_id, formation_dir=formation_dir)
                     session.add(config)
-
                 session.commit()
-                log("info", f"Training program updated for trainer {trainer_id}")
+                log("info", f"Formation dir set to '{formation_dir}' for trainer {trainer_id}")
                 return True
-
         except Exception as e:
-            log("error", f"Failed to set training program for trainer {trainer_id}: {e}", stacktrace=True)
+            log("error", f"Failed to set formation_dir for trainer {trainer_id}: {e}", stacktrace=True)
             return False
 
-
-    def reset_training_program_to_default(self, trainer_id: str) -> bool:
+    def get_program(self, trainer_id: str) -> str:
         """
-        Reset a trainer's training program to the default from prompts.
-
-        Args:
-            trainer_id: The trainer's user ID
-
-        Returns:
-            True if successful, False otherwise
+        Get the training program markdown for a trainer.
+        Returns empty string if no formation is configured or file not found.
         """
-        from shared.common import get_prompt
+        formation_dir = self.get_formation_dir(trainer_id)
+        if not formation_dir:
+            log("warning", f"No formation_dir configured for trainer {trainer_id}")
+            return ""
+        try:
+            return MaterialLoader().get_program(formation_dir)
+        except Exception as e:
+            log("warning", str(e))
+            return ""
 
-        default_program = get_prompt('trainer.teacher.training_program')
-        return self.set_training_program(trainer_id, default_program)
+    def get_rubrics(self, trainer_id: str) -> Dict[str, Any]:
+        """
+        Get the rubrics dict for a trainer.
+        Returns empty dict if no formation is configured or file not found.
+        """
+        formation_dir = self.get_formation_dir(trainer_id)
+        if not formation_dir:
+            log("warning", f"No formation_dir configured for trainer {trainer_id}")
+            return {}
+        try:
+            return MaterialLoader().get_rubrics(formation_dir)
+        except Exception as e:
+            log("warning", str(e))
+            return {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

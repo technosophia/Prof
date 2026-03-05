@@ -5,7 +5,6 @@ Must be in a file ending with _ui.py with inject_ui_admin_tab() function.
 """
 
 import streamlit as st
-import yaml
 from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
 
@@ -16,30 +15,6 @@ from modules.trainer.plugin_base import get_plugin_manager
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _
-def set_training_program(trainer_id: str, program_content: str):
-    """Save training program using prompt manager."""
-    from shared.common import save_prompt
-    from st_shared.cached import get_prompt_manager
-
-    try:
-        # Save using the full prompt key
-        success = save_prompt('trainer.teacher.training_program', program_content, language='en')
-
-        if success:
-            log("info", f"Training program saved successfully for trainer {trainer_id}")
-
-            # Reload prompts to ensure all components see the update
-            pm = get_prompt_manager()
-            pm.reload_prompts()
-
-            return True
-        else:
-            log("error", f"Failed to save training program for trainer {trainer_id}")
-            return False
-
-    except Exception as e:
-        log("error", f"Error saving training program: {str(e)}")
-        return False
 
 def inject_ui_admin_tab():
     """
@@ -286,44 +261,54 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
             widget()
 
 def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
-    """Render the configuration tab with trainer-specific training program."""
+    """Render the configuration tab — formation directory selection."""
+    from modules.trainer.material_loader import MaterialLoader
 
     st.subheader("System Prompt")
-
     current_prompt = get_prompt('trainer.teacher.system_prompt')
     st.info(current_prompt)
 
     st.divider()
-    st.subheader("Training Program")
+    st.subheader("Formation")
 
-    # Get current training program for this trainer
-    current_program = trainer_manager.get_training_program(trainer_id)
+    loader = MaterialLoader()
+    formations = loader.list_formations()
+    current_dir = trainer_manager.get_formation_dir(trainer_id)
 
-    # Editable text area for training program
-    new_program = st.text_area(
-        "Training Program Content",
-        value=current_program,
-        height=200,
-        help="This program defines your training approach and will be available to all plugins"
-    )
+    if not formations:
+        st.warning("No formations found in material/. Add a subdirectory with program.md and rubrics.yaml.")
+    else:
+        options = ["— none —"] + formations
+        current_index = (formations.index(current_dir) + 1) if current_dir in formations else 0
 
-    # Save button
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("Save Training Program", type="primary", width='stretch'):
-            if trainer_manager.set_training_program(trainer_id, new_program):
-                st.success("Training program saved successfully!")
+        selected = st.selectbox(
+            "Active formation",
+            options=options,
+            index=current_index,
+            key="formation_dir_select"
+        )
+
+        if selected != "— none —" and selected != current_dir:
+            if trainer_manager.set_formation_dir(trainer_id, selected):
+                st.success(f"Formation set to '{selected}'")
                 st.rerun()
-            else:
-                st.error("Failed to save training program. Please try again.")
 
-    with col2:
-        if st.button("Reset to Default", width='stretch'):
-            if trainer_manager.reset_training_program_to_default(trainer_id):
-                st.success("Reset to default training program!")
-                st.rerun()
-            else:
-                st.error("Failed to reset training program.")
+        active_dir = selected if selected != "— none —" else current_dir
+
+        if active_dir and loader.formation_exists(active_dir):
+            with st.expander("Preview program.md", expanded=False):
+                try:
+                    st.markdown(loader.get_program(active_dir))
+                except FileNotFoundError as e:
+                    st.error(str(e))
+
+            with st.expander("Preview rubrics.yaml", expanded=False):
+                try:
+                    import yaml
+                    rubrics = loader.get_rubrics(active_dir)
+                    st.code(yaml.dump(rubrics, allow_unicode=True, default_flow_style=False), language="yaml")
+                except FileNotFoundError as e:
+                    st.error(str(e))
 
     st.divider()
     st.subheader("Student Context Preview")

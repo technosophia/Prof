@@ -222,21 +222,33 @@ class MemoryPluginCore(TrainerPluginCore):
         new_messages.sort(key=lambda x: x.get('timestamp', ''))
         return new_messages
 
-    async def _analyze_with_llm(self, trainer_id: str, student_id: str,
-                                 old_memory: str, new_messages: List[Dict]) -> Optional[Tuple[str, str]]:
+    async def _analyze_with_llm(
+        self,
+        trainer_id: str,
+        student_id: str,
+        old_memory: str,
+        new_messages: List[Dict],
+        program: str = "",
+        rubrics: Dict = None,
+    ) -> Optional[Tuple[str, str]]:
         """Use LLM to analyze conversations and update memory."""
-        training_program = get_prompt('trainer.teacher.training_program')
+        import yaml as _yaml
 
         conversations_text = ""
         for msg in new_messages:
             role_symbol = "👤 Student" if msg['role'] == 'user' else "🤖 Assistant"
             conversations_text += f"{role_symbol} ({msg['timestamp']}): {msg['content']}\n\n"
 
+        rubrics_text = ""
+        if rubrics:
+            rubrics_text = _yaml.dump(rubrics, allow_unicode=True, default_flow_style=False)
+
         system_prompt = get_prompt('trainer.plugins.memory.analysis_system')
         user_prompt = get_prompt('trainer.plugins.memory.analysis_user').format(
-            training_program=training_program,
+            training_program=program or get_prompt('trainer.plugins.memory.empty_program'),
+            rubrics=rubrics_text or get_prompt('trainer.plugins.memory.empty_rubrics'),
             old_memory=old_memory or get_prompt('trainer.plugins.memory.empty_memory'),
-            conversations=conversations_text
+            conversations=conversations_text,
         )
 
         try:
@@ -287,8 +299,24 @@ class MemoryPluginCore(TrainerPluginCore):
         old_memory = self._get_current_memory(student_id, trainer_id)
         log("info", f"Memory refresh old_memory_present={bool(old_memory)}")
 
+        # Fetch formation material for this trainer
+        program = ""
+        rubrics = {}
+        if self.trainer_manager is None:
+            log("warning", "Memory plugin: trainer_manager is None; using empty formation material")
+        else:
+            try:
+                program = self.trainer_manager.get_program(trainer_id)
+                rubrics = self.trainer_manager.get_rubrics(trainer_id)
+            except Exception as e:
+                log("warning", f"Memory plugin: could not load formation material: {e}")
+
         log("info", "Memory refresh calling _analyze_with_llm")
-        result = await self._analyze_with_llm(trainer_id, student_id, old_memory, new_messages)
+        result = await self._analyze_with_llm(
+            trainer_id, student_id, old_memory, new_messages,
+            program=program,
+            rubrics=rubrics,
+        )
 
         if result:
             new_memory, source = result
