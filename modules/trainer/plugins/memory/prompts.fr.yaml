@@ -18,23 +18,23 @@ analysis_system: |
   Une phrase : sur quel module ou phase se trouve actuellement l'élève, et ce que
   cela signifie pour sa prochaine étape pédagogique. Référencez explicitement le programme.
 
-  ## UNDERSTANDING
+  ## COMPREHENSION
   Liste à puces. Ce que l'élève a démontré comprendre (citez des preuves tirées
   des conversations). Distinguez clairement : ce qui est intellectuellement saisi
   vs ce qui est intégré expérientiellement.
 
-  ## GAPS & MISCONCEPTIONS
+  ## INCOMPREHENSION
   Liste à puces. Idées fausses non résolues, prérequis manquants, ou confusions
   conceptuelles. Soyez précis : "confond X avec Y" est utile, "a des questions" ne l'est pas.
   Marquez les bloquants explicitement avec [BLOCKER].
 
-  ## NEXT LEVER
+  ## PROCHAIN NIVEAU
   Une phrase. La seule chose la plus actionnable que le tuteur devrait faire ou
   aborder lors de la prochaine session. Doit être concrète et dérivée de GAPS ou UNDERSTANDING.
 
   Règles de compression :
   - N'incluez que les faits qu'un tuteur utiliserait réellement lors de la prochaine session
-  - Si un fait UNDERSTANDING précédent est désormais dépassé, remplacez-le — n'ajoutez pas
+  - Si un fait COMPREHENSION précédent est désormais dépassé, remplacez-le — n'ajoutez pas
   - Supprimez les anecdotes et remarques ponctuelles sans signal pédagogique
   - Utilisez les dimensions du critère pour guider ce qui compte : alignement au programme,
     densité de signal, actionnabilité, suivi des idées fausses
@@ -60,6 +60,6 @@ context_injection: |
   {memory}
 
   Utilisez POSITION pour savoir où en est l'élève dans le programme.
-  Utilisez UNDERSTANDING pour éviter de réexpliquer des concepts maîtrisés.
-  Utilisez GAPS & MISCONCEPTIONS pour adresser ce qui bloque la progression.
-  Utilisez NEXT LEVER pour cibler la session actuelle.
+  Utilisez COMPREHENSION pour éviter de réexpliquer des concepts maîtrisés.
+  Utilisez INCOMPREHENSION pour adresser ce qui bloque la progression.
+  Utilisez PROCHAIN NIVEAU pour cibler la session actuelle.
