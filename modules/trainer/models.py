@@ -6,7 +6,7 @@ Defines tables for plugin data and trainer configurations.
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Index, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, JSON, String
 
 from core.database import Base
 from core.logging import log
@@ -20,7 +20,7 @@ class TrainerConfig(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     trainer_id = Column(String(36), nullable=False, unique=True, index=True)
-    training_program = Column(Text, nullable=True)
+    formation_dir = Column(String(255), nullable=True)  # migrated: replaced training_program with formation_dir
     config = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
