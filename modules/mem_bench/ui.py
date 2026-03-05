@@ -20,11 +20,21 @@ def _load_scenario(path: str) -> Dict:
     return MemBenchRunner._load_scenario(path)
 
 
-def _scenario_label(path: str) -> str:
+def _scenario_label(runner: MemBenchRunner, path: str) -> str:
+    """
+    Generate a human-readable label for a scenario file using the runner's
+    scenarios directory for relative path calculation.
+    """
     data = _load_scenario(path)
     meta = data.get("meta", {}) or data.get("yamlmeta", {})
     name = str(meta.get("name") or "").strip()
-    return f"{name} ({os.path.basename(path)})" if name else os.path.basename(path)
+
+    # Use the runner's method to get relative path
+    rel_path = runner.get_relative_scenario_path(path)
+
+    if name:
+        return f"{name} ({rel_path})"
+    return f"{os.path.basename(path)} ({rel_path})"
 
 
 def _ratio_style(passed: int, total: int) -> str:
@@ -36,7 +46,13 @@ def _ratio_style(passed: int, total: int) -> str:
 
 
 def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: List[Dict]) -> None:
-    scenario_labels = [_scenario_label(path) for path in scenario_files]
+    """Render the single run tab."""
+    if not scenario_files:
+        st.warning("No valid scenario files found in the scenarios directory.")
+        return
+
+    # Pass runner to _scenario_label to use its scenarios_dir
+    scenario_labels = [_scenario_label(runner, path) for path in scenario_files]
     selected_label = st.selectbox(_t("scenario"), scenario_labels, key="mem_bench_scenario")
     selected_scenario = scenario_files[scenario_labels.index(selected_label)]
     selected_data = _load_scenario(selected_scenario)
@@ -46,6 +62,8 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
         setup = selected_data.get("setup", {}) or {}
         st.markdown(f"**Name:** {meta.get('name', '-')}")
         st.markdown(f"**Description:** {meta.get('description', '-')}")
+        st.markdown(f"**File:** `{selected_scenario}`")
+        st.markdown(f"**Relative path:** `{runner.get_relative_scenario_path(selected_scenario)}`")
         st.markdown("**Setup**")
         st.markdown(f"- student_id: `{setup.get('student_id', '-')}`")
         st.markdown(f"- trainer_id: `{setup.get('trainer_id', '-')}`")
@@ -118,11 +136,17 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
 
 
 def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], options: List[Dict]) -> None:
-    scenario_labels = [_scenario_label(path) for path in scenario_files]
+    """Render the comparison matrix tab."""
+    if not scenario_files:
+        st.warning("No valid scenario files found in the scenarios directory.")
+        return
+
+    # Pass runner to _scenario_label to use its scenarios_dir
+    scenario_labels = [_scenario_label(runner, path) for path in scenario_files]
     selected_scenarios = st.multiselect(
         "Scenarios",
         options=scenario_labels,
-        default=scenario_labels[:1],
+        default=scenario_labels[: min(3, len(scenario_labels))],
         key="mem_bench_compare_scenarios",
     )
     label_to_path = dict(zip(scenario_labels, scenario_files))
@@ -217,15 +241,25 @@ def render() -> None:
     runner = MemBenchRunner()
     runner.ensure_default_scenarios()
 
-    scenario_files = runner.list_scenario_files()
+    with st.spinner("Scanning for valid scenario files..."):
+        scenario_files = runner.list_scenario_files()
+
     if not scenario_files:
-        st.info(_t("no_scenarios"))
+        st.info(
+            f"No valid scenario files found in {runner.scenarios_directory} or its subdirectories.\n\n"
+            "Valid scenarios must be YAML files containing:\n"
+            "- 'setup' section with student_id and trainer_id\n"
+            "- 'conversation' section with at least one message\n"
+            "- 'expected_memory_contains' list with at least one term"
+        )
         return
 
     options = get_driver().list_options().get("memory_backend", [])
     if not options:
         st.warning(_t("no_memory_options"))
         return
+
+    st.caption(f"Found {len(scenario_files)} valid scenario file(s) in recursive scan of {runner.scenarios_directory}")
 
     tab_run, tab_compare = st.tabs(["▶ Run", "⚡ Compare"])
     with tab_run:

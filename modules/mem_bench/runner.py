@@ -40,12 +40,27 @@ class MemBenchResult:
 class MemBenchRunner:
     """Replay scripted conversations and trigger memory analysis."""
 
+    # Required sections for a valid scenario file
+    REQUIRED_SCENARIO_SECTIONS = {"setup", "conversation", "expected_memory_contains"}
+
+    # Optional but recommended sections
+    RECOMMENDED_SCENARIO_SECTIONS = {"meta", "yamlmeta"}
+
     def __init__(self, driver=None, config=None):
         self.driver = driver or get_driver()
         app_config = config or _get_service("config")
         if app_config is None:
             raise RuntimeError("mem_bench: 'config' service not available")
-        self.config = app_config.get("mem_bench", {})
+        self.config = app_config.get("modules.mem_bench", {})
+
+        # Calculate scenario directory once during initialization
+        self.scenarios_dir = self.config.get("scenarios_dir", "data/mem_bench/scenarios")
+        log("info", f"mem_bench: scenarios_dir={self.scenarios_dir}")
+
+    @property
+    def scenarios_directory(self) -> str:
+        """Get the configured scenarios directory."""
+        return self.scenarios_dir
 
     def run(self, scenario_path: str, memory_backend_option: str) -> MemBenchResult:
         """Execute one scenario and return memory-check output."""
@@ -183,27 +198,103 @@ class MemBenchRunner:
 
     def ensure_default_scenarios(self) -> None:
         """Copy bundled scenarios to configured scenarios directory if missing."""
-        target_dir = self.config.get("scenarios_dir", "data/mem_bench/scenarios")
-        os.makedirs(target_dir, exist_ok=True)
+        os.makedirs(self.scenarios_dir, exist_ok=True)
         source_dir = os.path.join(os.path.dirname(__file__), "scenarios")
         for file_name in os.listdir(source_dir):
             if not file_name.endswith(".yaml"):
                 continue
             src = os.path.join(source_dir, file_name)
-            dst = os.path.join(target_dir, file_name)
+            dst = os.path.join(self.scenarios_dir, file_name)
             if not os.path.exists(dst):
                 shutil.copyfile(src, dst)
 
+    def is_valid_scenario(self, file_path: str) -> bool:
+        """
+        Check if a YAML file is a valid mem_bench scenario.
+
+        Args:
+            file_path: Path to the YAML file to check
+
+        Returns:
+            True if the file contains all required sections for a mem_bench scenario
+        """
+        if not os.path.isfile(file_path):
+            return False
+
+        if not (file_path.endswith('.yaml') or file_path.endswith('.yml')):
+            return False
+
+        try:
+            data = self._load_scenario(file_path)
+            if not isinstance(data, dict):
+                return False
+
+            # Check for all required sections
+            has_required = all(section in data for section in self.REQUIRED_SCENARIO_SECTIONS)
+
+            if not has_required:
+                return False
+
+            # Additional validation for conversation structure
+            conversation = data.get('conversation', [])
+            if not isinstance(conversation, list) or len(conversation) == 0:
+                return False
+
+            # Check each turn has required fields
+            for turn in conversation:
+                if not isinstance(turn, dict):
+                    return False
+                if 'role' not in turn or 'content' not in turn:
+                    return False
+                if turn['role'] not in {'user', 'assistant', 'system'}:
+                    return False
+
+            # Check expected_memory_contains is a non-empty list
+            expected_terms = data.get('expected_memory_contains', [])
+            if not isinstance(expected_terms, list) or len(expected_terms) == 0:
+                return False
+
+            return True
+
+        except (yaml.YAMLError, Exception):
+            return False
+
     def list_scenario_files(self) -> List[str]:
-        """List available scenario YAML files from configured scenarios directory."""
-        scenarios_dir = self.config.get("scenarios_dir", "data/mem_bench/scenarios")
-        if not os.path.isdir(scenarios_dir):
+        """
+        Recursively list valid scenario YAML files from configured scenarios directory.
+
+        Returns:
+            Sorted list of paths to valid scenario files
+        """
+        if not os.path.isdir(self.scenarios_dir):
             return []
-        return sorted(
-            os.path.join(scenarios_dir, name)
-            for name in os.listdir(scenarios_dir)
-            if name.endswith(".yaml") or name.endswith(".yml")
-        )
+
+        valid_scenarios = []
+
+        # Walk through directory recursively
+        for root, dirs, files in os.walk(self.scenarios_dir):
+            for file in files:
+                if file.endswith(('.yaml', '.yml')):
+                    file_path = os.path.join(root, file)
+                    if self.is_valid_scenario(file_path):
+                        valid_scenarios.append(file_path)
+
+        return sorted(valid_scenarios)
+
+    def get_relative_scenario_path(self, absolute_path: str) -> str:
+        """
+        Get the path relative to the scenarios directory.
+
+        Args:
+            absolute_path: Absolute path to a scenario file
+
+        Returns:
+            Path relative to scenarios directory, or just the basename if path is outside
+        """
+        try:
+            return os.path.relpath(absolute_path, self.scenarios_dir)
+        except ValueError:
+            return os.path.basename(absolute_path)
 
     @staticmethod
     def _load_scenario(scenario_path: str) -> Dict:
