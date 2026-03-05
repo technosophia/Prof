@@ -66,22 +66,6 @@ class PedagogicalAnalysisLog(Base):
     facts_discarded = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
-def _run_async(coro):
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        return asyncio.run(coro)
-
-
 class PedagogicalMemoryPluginCore(TrainerPluginCore):
 
     def __init__(self, plugin_id: str = None):
@@ -713,7 +697,9 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
     def _action_trigger_analysis(self, context, **params) -> Dict:
         from shared.common import record_plugin_event
 
-        result = _run_async(self.refresh_memory(context.trainer_id, context.student_id))
+        result = asyncio.run(
+            self.refresh_memory(context.trainer_id, context.student_id)
+        )
 
         event_data = {
             "success": True,
