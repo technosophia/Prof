@@ -1,0 +1,52 @@
+yamlmeta:
+  name: "cumulative_attention_example"
+  description: "Student progresses from confusion to mastery across 3 meditation sessions"
+
+setup:
+  student_id: "bench_mem_student_01"
+  trainer_id: "bench_mem_trainer_01"
+  training_program: |
+    Meditation coaching program focused on sustained attention, breath anchoring,
+    and reframing distraction as normal attention training data.
+
+rounds:
+  - round: 1
+    description: "First session — attention feels unstable"
+    conversation:
+      - role: user
+        content: "Every time I get distracted, I feel like I failed meditation."
+      - role: assistant
+        content: "Distraction is expected. The skill is noticing and returning to the breath."
+    expected_memory_contains:
+      - "treats distraction as failure"
+      - "struggles to return attention to breath"
+    expected_memory_excludes:
+      - "stable sustained attention"
+
+  - round: 2
+    description: "Second session — learner begins reframing distraction"
+    conversation:
+      - role: user
+        content: "I can catch distractions sooner now, but I still judge myself."
+      - role: assistant
+        content: "Great progress. Keep practicing gentle return and non-judgment."
+    expected_memory_contains:
+      - "notices distraction sooner"
+      - "practicing gentle return to breath"
+    expected_memory_excludes:
+      - "cannot detect distraction"
+
+  - round: 3
+    description: "Final session — learner demonstrates mastery"
+    conversation:
+      - role: user
+        content: "Now I notice wandering quickly and return without frustration."
+      - role: assistant
+        content: "Excellent. That is mature attentional stability and acceptance."
+    expected_memory_contains:
+      - "stable attention with quick recovery"
+      - "distraction is normal signal not failure"
+      - "breath remains primary anchor"
+    expected_memory_excludes:
+      - "treats distraction as failure"
+    is_final: true
