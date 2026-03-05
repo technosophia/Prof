@@ -67,4 +67,8 @@ class MaterialLoader:
             )
         log("info", f"MaterialLoader: reading rubrics from {path}")
         with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+            try:
+                return yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                log("warning", f"MaterialLoader: could not parse {path}, returning empty rubrics. Error: {e}")
+                return {}
