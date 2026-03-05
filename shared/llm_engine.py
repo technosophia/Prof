@@ -3,7 +3,27 @@ Base LLM Engine Interface
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
+
+
+@dataclass
+class GenerateResult:
+    """Result from an LLM engine generate() call.
+
+    Attributes:
+        response:     The final, cleaned text to surface to the caller.
+                      For engines that support no_thinking, <think> blocks
+                      have already been stripped.
+        raw_response: The unmodified text exactly as returned by the engine /
+                      API.  Identical to ``response`` for engines that do not
+                      perform any post-processing (Groq, Gemini, xAI, Mock).
+                      For Ollama with no_thinking=True, this will contain the
+                      full <think>…</think> block when the model thought despite
+                      the /no_think directive, letting callers audit compliance.
+    """
+    response: str
+    raw_response: str
 
 
 class LLMEngine(ABC):
@@ -21,7 +41,7 @@ class LLMEngine(ABC):
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
         no_thinking: bool = False,
-    ) -> str:
+    ) -> GenerateResult:
         """Generate response from the LLM.
 
         Args:
@@ -36,6 +56,10 @@ class LLMEngine(ABC):
                 reasoning and strip any residual <think> tags from the output.
                 Only meaningful for models that support thinking mode (e.g. Ollama
                 with qwen3). Ignored silently by engines that do not support it.
+
+        Returns:
+            GenerateResult with ``response`` (cleaned) and ``raw_response``
+            (unmodified engine output).
         """
         pass
 

@@ -6,7 +6,7 @@ import asyncio
 import json
 import random
 from typing import List, Dict, Any, Optional, Callable
-from shared.llm_engine import LLMEngine
+from shared.llm_engine import LLMEngine, GenerateResult
 
 
 from core.logging import log, set_log_module_level
@@ -46,7 +46,7 @@ class MockEngine(LLMEngine):
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
         no_thinking: bool = False,
-    ) -> str:
+    ) -> GenerateResult:
         """Generate mock response.
 
         Args:
@@ -54,9 +54,12 @@ class MockEngine(LLMEngine):
             messages: Conversation messages.
             stream_callback: Optional streaming callback.
             response_format: Pass ``"json"`` to receive a minimal valid JSON
-                object instead of a plain-text mock response. Useful for
-                testing code paths that parse the LLM output. Defaults to
-                ``None`` (plain text).
+                object instead of a plain-text mock response.
+            no_thinking: Accepted for interface compatibility; ignored because
+                the mock engine never produces thinking blocks.
+
+        Returns:
+            GenerateResult where response == raw_response (no post-processing).
         """
         log("debug", f"Generating mock response with model: {model}")
 
@@ -66,8 +69,7 @@ class MockEngine(LLMEngine):
         last_message = user_messages[-1] if user_messages else "Hello"
 
         if response_format == "json":
-            # Return a minimal but valid JSON payload so callers can parse it.
-            response = json.dumps({
+            text = json.dumps({
                 "mock": True,
                 "model": model,
                 "user_input": last_message[:50],
@@ -75,13 +77,14 @@ class MockEngine(LLMEngine):
             })
         else:
             base_response = random.choice(self.responses)
-            response = f"{base_response}\n\nUser said: '{last_message[:50]}...'"
+            text = f"{base_response}\n\nUser said: '{last_message[:50]}...'"
 
         if stream_callback:
             log("debug", "Using streaming mode for Mock")
-            for char in response:
+            for char in text:
                 stream_callback(char)
                 await asyncio.sleep(0.01)
 
-        log("debug", f"Mock response length: {len(response)}")
-        return response
+        log("debug", f"Mock response length: {len(text)}")
+        # raw_response == response: mock never mutates its output
+        return GenerateResult(response=text, raw_response=text)

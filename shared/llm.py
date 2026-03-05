@@ -111,7 +111,7 @@ from typing import Dict, Any, List, Optional, Callable, Tuple, Union
 import asyncio
 from enum import Enum
 from core.logging import log, set_log_module_level
-from shared.llm_engine import LLMEngine
+from shared.llm_engine import LLMEngine, GenerateResult
 
 
 class ContextPosition(Enum):
@@ -592,6 +592,8 @@ class LLMManager:
 
         This method is intended for interactive chat. For internal LLM calls
         (e.g. from plugins), use :meth:`internal_response` directly.
+
+        Returns the cleaned response string (backward compatible).
         """
         messages = []
 
@@ -629,20 +631,22 @@ class LLMManager:
             stream_callback: Optional callable receiving incremental text chunks.
             response_format: Optional output format hint forwarded verbatim to
                 the engine. Pass ``"json"`` to request structured JSON output.
-                Each engine translates this to its own native API parameter.
-                Defaults to ``None`` (plain text), preserving full backward
-                compatibility for existing callers.
+            user_id: Optional user identifier (forwarded to monitor callbacks).
+
+        Returns:
+            The cleaned response string.  Use monitor callbacks to access the
+            full ``raw_response`` when needed (e.g. to audit thinking content).
         """
         # Check for FORCE_LLM environment variable to override llm_id
         force_llm = os.getenv("FORCE_LLM")
         if force_llm:
-            # Validate that the forced LLM exists in config
             if force_llm in self.config.get("llms", {}):
                 original_llm_id = llm_id
                 llm_id = force_llm
                 log("debug", f"FORCE_LLM environment variable overrides LLM choice: {original_llm_id} -> {llm_id}")
             else:
                 log("warning", f"FORCE_LLM environment variable set to '{force_llm}' but this LLM is not configured. Using original: {llm_id}")
+
         log("debug", f"Generating response with LLM: {llm_id}")
         log("debug", f"Messages: {len(messages)} messages, response_format={response_format!r}")
 
@@ -659,6 +663,11 @@ class LLMManager:
 
         llm_type = llm_config.get("type")
         model_name = llm_config.get("model")
+
+        # Read no_thinking from per-LLM config (opt-in, defaults to False)
+        no_thinking: bool = bool(llm_config.get("no_thinking", False))
+        if no_thinking:
+            log("debug", f"no_thinking=True configured for LLM '{llm_id}'")
 
         engine = self.get_engine(llm_type)
         if not engine:
@@ -678,13 +687,8 @@ class LLMManager:
             log("warning", error_msg)
             return error_msg
 
-        # Read no_thinking from per-LLM config (defaults to False)
-        no_thinking: bool = bool(llm_config.get("no_thinking", False))
-        if no_thinking:
-            log("debug", f"no_thinking=True for LLM '{llm_id}'")
-
         try:
-            response = await engine.generate(
+            result: GenerateResult = await engine.generate(
                 model_name,
                 filtered_messages,
                 stream_callback,
@@ -696,7 +700,7 @@ class LLMManager:
             try:
                 from shared.driver import get_driver
                 prompt_tokens = sum(len((msg.get("content") or "").split()) for msg in filtered_messages)
-                completion_tokens = len((response or "").split())
+                completion_tokens = len((result.response or "").split())
                 get_driver().record_llm_call(llm_id, prompt_tokens, completion_tokens)
             except Exception:
                 pass
@@ -708,8 +712,14 @@ class LLMManager:
                         "llm_type": llm_type,
                         "model": model_name,
                         "messages": filtered_messages,
-                        "response": response,
+                        # Cleaned, post-processed response (same as return value)
+                        "response": result.response,
+                        # Unmodified engine output — may contain <think> blocks
+                        # for Ollama models when no_thinking=True was requested
+                        # but the model thought anyway.
+                        "raw_response": result.raw_response,
                         "response_format": response_format,
+                        "no_thinking": no_thinking,
                         "user_id": user_id,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "engine_type": engine.engine_type,
@@ -720,7 +730,8 @@ class LLMManager:
                 except Exception as e:
                     log("error", f"Error notifying monitor callbacks: {str(e)}", stacktrace=True)
 
-            return response
+            # Return only the cleaned response string — full backward compat.
+            return result.response
 
         except Exception as e:
             error_msg = f"Error generating response from {llm_id}: {str(e)}"

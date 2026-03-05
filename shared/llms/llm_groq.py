@@ -4,7 +4,7 @@ Groq LLM Engine
 
 import os
 from typing import List, Dict, Any, Optional, Callable
-from shared.llm_engine import LLMEngine
+from shared.llm_engine import LLMEngine, GenerateResult
 
 
 from core.logging import log, set_log_module_level
@@ -138,7 +138,7 @@ class GroqEngine(LLMEngine):
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
         no_thinking: bool = False,
-    ) -> str:
+    ) -> GenerateResult:
         """Generate response from Groq.
 
         Args:
@@ -146,11 +146,12 @@ class GroqEngine(LLMEngine):
             messages: Conversation messages.
             stream_callback: Optional streaming callback.
             response_format: Pass ``"json"`` to set ``response_format`` to
-                ``{"type": "json_object"}`` in the API request (OpenAI-compatible
-                JSON mode). The model will always return valid JSON. Note: JSON
-                mode is incompatible with streaming on Groq; if both are
-                requested, streaming takes precedence and JSON mode is skipped
-                with a warning. Defaults to ``None`` (plain text).
+                ``{"type": "json_object"}`` in the API request.
+            no_thinking: Accepted for interface compatibility; ignored because
+                Groq models do not have a thinking mode.
+
+        Returns:
+            GenerateResult where response == raw_response (no post-processing).
         """
         log("debug", f"Generating Groq response with model: {model}")
 
@@ -159,7 +160,8 @@ class GroqEngine(LLMEngine):
 
             formatted_messages = self._format_messages(messages)
             if not formatted_messages:
-                return "No valid messages provided"
+                err = "No valid messages provided"
+                return GenerateResult(response=err, raw_response=err)
 
             common_params: Dict[str, Any] = {
                 "model": model,
@@ -168,8 +170,6 @@ class GroqEngine(LLMEngine):
                 "max_tokens": self.DEFAULT_MAX_TOKENS,
             }
 
-            # Groq uses the OpenAI-compatible response_format field.
-            # JSON mode is not supported with streaming; skip it with a warning.
             if response_format == "json":
                 if stream_callback:
                     log("warning", "Groq JSON mode is not supported with streaming; ignoring response_format")
@@ -180,19 +180,21 @@ class GroqEngine(LLMEngine):
             if stream_callback:
                 log("debug", "Using streaming mode for Groq")
                 stream = self.client.chat.completions.create(**common_params, stream=True)
-                full_response = self._handle_streaming_response(stream, stream_callback)
+                text = self._handle_streaming_response(stream, stream_callback)
             else:
                 log("debug", "Using non-streaming mode for Groq")
                 completion = self.client.chat.completions.create(**common_params)
-                full_response = self._handle_non_streaming_response(completion)
+                text = self._handle_non_streaming_response(completion)
 
-            full_response = full_response or "No response generated"
-            log("debug", f"Groq response length: {len(full_response)}")
-            return full_response
+            text = text or "No response generated"
+            log("debug", f"Groq response length: {len(text)}")
+            # Groq does no post-processing: raw == response
+            return GenerateResult(response=text, raw_response=text)
 
         except RuntimeError as e:
-            return str(e)
+            err = str(e)
+            return GenerateResult(response=err, raw_response=err)
         except Exception as e:
             error_msg = f"Groq error: {str(e)}"
             log("error", error_msg)
-            return error_msg
+            return GenerateResult(response=error_msg, raw_response=error_msg)
