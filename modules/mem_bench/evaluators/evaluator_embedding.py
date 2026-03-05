@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from statistics import mean
+import re
 from typing import List
 
 import numpy as np
@@ -21,7 +22,7 @@ class EmbeddingEvaluator(MemEvaluator):
         threshold = float(scenario.get("semantic_threshold") or 0.55)
         contains = [str(x) for x in (scenario.get("expected_memory_contains") or [])]
         excludes = [str(x) for x in (scenario.get("expected_memory_excludes") or [])]
-        chunks = self._chunk_text(memory_content)
+        chunks = self._chunk_memory(memory_content)
 
         checks: List[EvalCheck] = []
         if not chunks:
@@ -32,7 +33,7 @@ class EmbeddingEvaluator(MemEvaluator):
             return EvalResult(evaluator_id=self.id, passed=all(c.passed for c in checks), score=mean([c.score for c in checks] or [0.0]), checks=checks)
 
         for term in contains:
-            max_sim = self._max_similarity(term, chunks)
+            max_sim, best_chunk_idx = self._max_similarity(term, chunks)
             term_passed = max_sim >= threshold
             checks.append(
                 EvalCheck(
@@ -40,12 +41,12 @@ class EmbeddingEvaluator(MemEvaluator):
                     passed=term_passed,
                     score=max(0.0, min(1.0, max_sim)),
                     method="embedding",
-                    note=f"max_similarity={max_sim:.3f} threshold>={threshold:.2f}",
+                    note=f"max_similarity={max_sim:.3f} threshold>={threshold:.2f} | best_chunk={best_chunk_idx}",
                 )
             )
 
         for term in excludes:
-            max_sim = self._max_similarity(term, chunks)
+            max_sim, best_chunk_idx = self._max_similarity(term, chunks)
             term_passed = max_sim < threshold
             checks.append(
                 EvalCheck(
@@ -53,7 +54,7 @@ class EmbeddingEvaluator(MemEvaluator):
                     passed=term_passed,
                     score=max(0.0, min(1.0, 1.0 - max_sim)),
                     method="embedding",
-                    note=f"max_similarity={max_sim:.3f} threshold<{threshold:.2f}",
+                    note=f"max_similarity={max_sim:.3f} threshold<{threshold:.2f} | best_chunk={best_chunk_idx}",
                 )
             )
 
@@ -66,11 +67,22 @@ class EmbeddingEvaluator(MemEvaluator):
         )
 
     @staticmethod
-    def _chunk_text(text: str, chunk_size: int = 350) -> List[str]:
-        cleaned = (text or "").strip()
+    def _chunk_memory(memory: str) -> List[str]:
+        """Split memory into meaningful chunks for per-chunk similarity scoring."""
+        cleaned = (memory or "").strip()
         if not cleaned:
             return []
-        return [cleaned[i : i + chunk_size] for i in range(0, len(cleaned), chunk_size)]
+
+        normalized = re.sub(r"\n(#{2,3}\s)", r"\n\n\1", cleaned)
+        coarse_parts = [part.strip() for part in normalized.split("\n\n") if part.strip()]
+
+        chunks: List[str] = []
+        for part in coarse_parts:
+            if len(part) > 300:
+                chunks.extend([line.strip() for line in part.split("\n") if line.strip()])
+            else:
+                chunks.append(part)
+        return chunks
 
     @staticmethod
     def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -79,15 +91,21 @@ class EmbeddingEvaluator(MemEvaluator):
             return 0.0
         return float(np.dot(vec_a, vec_b) / denom)
 
-    def _max_similarity(self, term: str, chunks: List[str]) -> float:
-        texts = [term] + chunks
-        vectors = get_embeddings(texts)
-        if not vectors or len(vectors) < 2:
-            return 0.0
-        term_vec = np.array(vectors[0], dtype=float)
+    def _max_similarity(self, term: str, chunks: List[str]) -> tuple[float, int]:
+        if not chunks:
+            return 0.0, -1
+
+        term_vectors = get_embeddings([term])
+        chunk_vectors = get_embeddings(chunks)
+        if not term_vectors or not chunk_vectors:
+            return 0.0, -1
+
+        term_vec = np.array(term_vectors[0], dtype=float)
         max_score = 0.0
-        for chunk_vec in vectors[1:]:
+        best_chunk_idx = 0
+        for idx, chunk_vec in enumerate(chunk_vectors):
             score = self._cosine_similarity(term_vec, np.array(chunk_vec, dtype=float))
-            if score > max_score:
+            if idx == 0 or score > max_score:
                 max_score = score
-        return max_score
+                best_chunk_idx = idx
+        return max_score, best_chunk_idx

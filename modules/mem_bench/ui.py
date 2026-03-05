@@ -268,8 +268,36 @@ def _render_results_tab() -> None:
     for idx, backend in enumerate(backend_order, start=1):
         cols[idx].markdown(f"**{backend}**")
 
+    row_layout = [2] + [3] * len(backend_order)
+
+    evaluator_ids = sorted({ev_id for run in matrix_runs for ev_id in run.eval_results.keys()})
+    summary_row = st.columns(row_layout)
+    summary_row[0].markdown("**Overall (mean)**")
+    for col_idx, backend in enumerate(backend_order, start=1):
+        backend_runs = [run for run in matrix_runs if run.memory_backend == backend]
+        if not backend_runs or not evaluator_ids:
+            summary_row[col_idx].write("-")
+            continue
+
+        summary_lines = []
+        for evaluator_id in evaluator_ids:
+            scores = [
+                run.eval_results[evaluator_id].score
+                for run in backend_runs
+                if evaluator_id in run.eval_results
+            ]
+            if not scores:
+                continue
+            avg_score = round(sum(scores) / len(scores), 2)
+            indicator = "🟢" if avg_score >= 0.8 else ("🟠" if avg_score >= 0.5 else "🔴")
+            summary_lines.append(f"{indicator} {evaluator_id}={avg_score:.2f}")
+
+        summary_row[col_idx].markdown("<br>".join(summary_lines) if summary_lines else "-", unsafe_allow_html=True)
+
+    st.divider()
+
     for row_idx, scenario_path in enumerate(scenario_order):
-        row = st.columns([2] + [3] * len(backend_order))
+        row = st.columns(row_layout)
         row[0].markdown(f"`{os.path.basename(scenario_path)}`")
 
         row_results: List[MemBenchResult] = []
