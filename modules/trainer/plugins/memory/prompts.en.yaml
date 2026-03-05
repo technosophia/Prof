@@ -28,7 +28,7 @@ analysis_system: |
   confusions. Be specific: "confuses X with Y" is useful, "has questions" is not.
   Mark blockers explicitly with [BLOCKER].
 
-  ## NEXT LEVER
+  ## NEXT LEVEL
   One sentence. The single most actionable thing the tutor should do or address
   in the next session. Must be concrete and derived from GAPS or UNDERSTANDING.
 
