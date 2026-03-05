@@ -75,8 +75,15 @@ class MemBenchRunner:
     def scenarios_directory(self) -> str:
         return self.scenarios_dir
 
-    def run(self, scenario_path: str, memory_backend_option: str, rubric_path: Optional[str] = None) -> MemBenchResult:
-        capture_log_start("INFO", max_messages=1000)
+    def run(
+        self,
+        scenario_path: str,
+        memory_backend_option: str,
+        rubric_path: Optional[str] = None,
+        capture_trace: bool = False,
+    ) -> MemBenchResult:
+        if capture_trace:
+            capture_log_start("INFO", max_messages=1000)
         scenario = self._load_scenario(scenario_path)
         scenario_name = scenario.get("yamlmeta", {}).get("name", os.path.basename(scenario_path))
         setup = dict(scenario.get("setup") or {})
@@ -93,7 +100,7 @@ class MemBenchRunner:
                 error="Scenario setup IDs must start with 'bench_mem_'.",
                 expected_contains=self._expected_terms(scenario),
                 checks=[],
-                trace_logs=self._consume_logs(),
+                trace_logs=self._consume_logs() if capture_trace else [],
                 cleared_conversation_count=0,
                 scenario_path=scenario_path,
                 rubric_path=rubric_path,
@@ -153,7 +160,7 @@ class MemBenchRunner:
                 error=None if success else "Memory analysis did not return content.",
                 expected_contains=self._expected_terms(scenario_for_eval),
                 checks=top_checks,
-                trace_logs=self._consume_logs(),
+                trace_logs=self._consume_logs() if capture_trace else [],
                 cleared_conversation_count=cleared_conversation_count,
                 scenario_path=scenario_path,
                 rounds=round_results if is_cumulative else [],
@@ -171,7 +178,7 @@ class MemBenchRunner:
                 error=str(exc),
                 expected_contains=self._expected_terms(scenario),
                 checks=[],
-                trace_logs=self._consume_logs(),
+                trace_logs=self._consume_logs() if capture_trace else [],
                 cleared_conversation_count=cleared_conversation_count,
                 scenario_path=scenario_path,
                 rounds=round_results if scenario.get("rounds") else [],
@@ -245,11 +252,22 @@ class MemBenchRunner:
                 log("error", f"mem_bench evaluator '{evaluator.id}' failed: {exc}", stacktrace=True)
         return results
 
-    def run_matrix(self, scenario_paths: List[str], backends: List[str], rubric_path: Optional[str] = None) -> List[MemBenchResult]:
+    def run_matrix(
+        self,
+        scenario_paths: List[str],
+        backends: List[str],
+        rubric_path: Optional[str] = None,
+        capture_trace: bool = False,
+    ) -> List[MemBenchResult]:
         matrix_results: List[MemBenchResult] = []
         for scenario_path in scenario_paths:
             for backend in backends:
-                run_result = self.run(scenario_path=scenario_path, memory_backend_option=backend, rubric_path=rubric_path)
+                run_result = self.run(
+                    scenario_path=scenario_path,
+                    memory_backend_option=backend,
+                    rubric_path=rubric_path,
+                    capture_trace=capture_trace,
+                )
                 run_result.scenario_path = scenario_path
                 matrix_results.append(run_result)
         return matrix_results

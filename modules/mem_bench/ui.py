@@ -9,7 +9,7 @@ import streamlit as st
 
 from modules.mem_bench.exporter import build_export_dict, to_yaml_str
 from modules.mem_bench.runner import MemBenchResult, MemBenchRunner
-from modules.mem_bench.rubric_loader import find_rubrics
+from modules.mem_bench.rubric_loader import find_rubrics, load_rubric
 from st_shared.cached import _
 from shared.common import get_driver
 
@@ -40,6 +40,22 @@ def _rubric_overall(result: MemBenchResult) -> str:
     if not rub or rub.details.get("status") == "skipped":
         return "-"
     return f"{rub.score * 4:.1f}/4"
+
+
+def _render_rubric_summary(rubric_path: str | None) -> None:
+    if not rubric_path:
+        return
+    rubric = load_rubric(rubric_path)
+    if not rubric:
+        st.warning("Selected rubric could not be loaded.")
+        return
+    dimensions = rubric.get("dimensions") or []
+    weights = [float(dim.get("weight", 1.0)) for dim in dimensions]
+    st.caption(
+        f"Rubric: {rubric.get('name', os.path.basename(rubric_path))} — "
+        f"{len(dimensions)} dimensions, total weight={sum(weights):.1f}. "
+        f"{str(rubric.get('description') or '').strip()[:180]}"
+    )
 
 
 def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: List[Dict]) -> None:
@@ -77,13 +93,6 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
                 prefix = "👤" if role == "user" else "🤖" if role == "assistant" else "⚙️"
                 st.markdown(f"{prefix} **{role}**: {turn.get('content', '')}")
 
-        st.markdown("**Expected memory contains**")
-        expected_contains = selected_data.get("expected_memory_contains", [])
-        if not expected_contains and selected_data.get("rounds"):
-            expected_contains = (selected_data.get("rounds")[-1] or {}).get("expected_memory_contains", [])
-        for term in expected_contains:
-            st.markdown(f"- [ ] {term}")
-
     option_labels = [item["name"] for item in options]
     active_idx = next((i for i, item in enumerate(options) if item.get("active")), 0)
     selected_memory_backend = st.selectbox(_t("memory_backend"), option_labels, index=active_idx, key="mem_bench_memory_backend")
@@ -92,6 +101,9 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
     rubric_labels = ["None (skip rubric eval)"] + list(rubrics.keys())
     rubric_choice = st.selectbox("Rubric", rubric_labels, key="mem_bench_rubric_select")
     rubric_path = rubrics.get(rubric_choice)
+    _render_rubric_summary(rubric_path)
+
+    trace_enabled = st.checkbox("Capture trace logs", value=False, key="mem_bench_trace_single")
 
     if st.button(_t("run_button"), key="mem_bench_run"):
         with st.spinner(_t("running")):
@@ -99,6 +111,7 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
                 scenario_path=selected_scenario,
                 memory_backend_option=selected_memory_backend,
                 rubric_path=rubric_path,
+                capture_trace=trace_enabled,
             )
             st.session_state["mem_bench_last_result"] = result
             st.session_state.setdefault("mem_bench_history", []).insert(0, result)
@@ -124,13 +137,7 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
         for dim_id, data in (rub.details.get("rubric_scores") or {}).items():
             score = float(data.get("score", 0))
             weight = float(data.get("weight", 1))
-            table_rows.append(
-                {
-                    "dimension": dim_id,
-                    "score": f"{score:.0f}/4",
-                    "weighted": f"{(score/4.0)*weight:.2f}",
-                }
-            )
+            table_rows.append({"dimension": dim_id, "score": f"{score:.0f}/4", "weighted": f"{(score/4.0)*weight:.2f}"})
         if table_rows:
             st.table(table_rows)
             for dim_id, data in (rub.details.get("rubric_scores") or {}).items():
@@ -140,13 +147,9 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
     st.subheader("Export")
     export_dict = build_export_dict(result, selected_data)
     export_yaml = to_yaml_str(export_dict)
-    st.download_button(
-        label="Download YAML",
-        data=export_yaml,
-        file_name=f"mem_bench_{result.scenario_name}_{result.memory_backend}.yaml",
-        mime="text/yaml",
-    )
+    st.download_button("Download YAML", data=export_yaml, file_name=f"mem_bench_{result.scenario_name}_{result.memory_backend}.yaml", mime="text/yaml")
     st.code(export_yaml, language="yaml")
+
 
 
 def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], options: List[Dict]) -> None:
@@ -162,17 +165,40 @@ def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], optio
     rubric_labels = ["None (skip rubric eval)"] + list(rubrics.keys())
     rubric_choice = st.selectbox("Rubric (compare)", rubric_labels, key="mem_bench_rubric_compare")
     rubric_path = rubrics.get(rubric_choice)
+    _render_rubric_summary(rubric_path)
 
-    if st.button("▶ Run comparison", key="mem_bench_compare_run") and selected_paths and selected_backends:
-        st.session_state["mem_bench_matrix"] = runner.run_matrix(selected_paths, selected_backends, rubric_path=rubric_path)
+    trace_enabled = st.checkbox("Capture trace logs for comparison runs", value=False, key="mem_bench_trace_compare")
+
+    if st.button("▶ Run comparison", key="mem_bench_compare_run"):
+        if not selected_paths or not selected_backends:
+            st.warning("Select at least one scenario and one backend.")
+        else:
+            total = len(selected_paths) * len(selected_backends)
+            progress = st.progress(0, text=f"Running 0/{total}")
+            runs: List[MemBenchResult] = []
+            done = 0
+            for scenario_path in selected_paths:
+                for backend in selected_backends:
+                    runs.extend(
+                        runner.run_matrix(
+                            [scenario_path],
+                            [backend],
+                            rubric_path=rubric_path,
+                            capture_trace=trace_enabled,
+                        )
+                    )
+                    done += 1
+                    progress.progress(done / total, text=f"Running {done}/{total}")
+            progress.empty()
+            st.session_state["mem_bench_matrix"] = runs
 
     matrix_runs: List[MemBenchResult] = st.session_state.get("mem_bench_matrix", [])
     if not matrix_runs:
         return
 
+    st.subheader("Quick comparison view")
     scenario_order = list(dict.fromkeys(run.scenario_path for run in matrix_runs))
     backend_order = list(dict.fromkeys(run.memory_backend for run in matrix_runs))
-
     header = "| Scenario | " + " | ".join(backend_order) + " |"
     sep = "|---" * (len(backend_order) + 1) + "|"
     lines = [header, sep]
@@ -180,113 +206,64 @@ def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], optio
         row = [os.path.basename(scenario_path)]
         for backend in backend_order:
             match = next((r for r in matrix_runs if r.scenario_path == scenario_path and r.memory_backend == backend), None)
-            if not match:
-                row.append("-")
-                continue
-            icon = "✅" if match.success else "❌"
-            row.append(f"{icon} emb={_embedding_score(match):.2f} rub={_rubric_overall(match)}")
+            row.append("-" if not match else f"{'✅' if match.success else '❌'} emb={_embedding_score(match):.2f} rub={_rubric_overall(match)}")
         lines.append("| " + " | ".join(row) + " |")
     st.markdown("\n".join(lines))
 
-    for run in matrix_runs:
-        title = f"{os.path.basename(run.scenario_path)} × {run.memory_backend}"
-        with st.expander(title):
-            st.markdown(f"**Memory**\n\n{run.memory_content or '_'}")
-            st.markdown("**Checks**")
-            for check in run.checks:
-                st.write(f"{'✅' if check.found else '❌'} [{check.check_type}] {check.term}")
-            rub = run.eval_results.get("rubric")
-            if rub and rub.details.get("rubric_scores"):
-                st.markdown("**Rubric breakdown**")
-                st.json(rub.details.get("rubric_scores"))
-            if run.is_cumulative and run.rounds:
-                emb = run.eval_results.get("embedding")
-                per_round = [
-                    f"R{r.round_index}: {sum(1 for c in r.checks if c.found) / max(len(r.checks), 1):.1f}"
-                    for r in run.rounds
-                ]
-                st.caption(" → ".join(per_round) + (f" (overall emb={emb.score:.2f})" if emb else ""))
-
 
 def _render_results_tab() -> None:
-    history: List[MemBenchResult] = st.session_state.get("mem_bench_history", [])
     matrix_runs: List[MemBenchResult] = st.session_state.get("mem_bench_matrix", [])
-
-    if matrix_runs:
-        st.subheader("Comparison results")
-        scenario_order = list(dict.fromkeys(run.scenario_path for run in matrix_runs))
-        backend_order = list(dict.fromkeys(run.memory_backend for run in matrix_runs))
-
-        header = "| Scenario | " + " | ".join(backend_order) + " |"
-        sep = "|---" * (len(backend_order) + 1) + "|"
-        lines = [header, sep]
-        for scenario_path in scenario_order:
-            row = [os.path.basename(scenario_path)]
-            for backend in backend_order:
-                match = next((r for r in matrix_runs if r.scenario_path == scenario_path and r.memory_backend == backend), None)
-                if not match:
-                    row.append("-")
-                    continue
-                row.append(
-                    f"{'✅' if match.success else '❌'} "
-                    f"emb={_embedding_score(match):.2f} "
-                    f"rub={_rubric_overall(match)}"
-                )
-            lines.append("| " + " | ".join(row) + " |")
-        st.markdown("\n".join(lines))
-
-        for idx, result in enumerate(matrix_runs):
-            title = (
-                f"{os.path.basename(result.scenario_path)} | {result.memory_backend} | "
-                f"emb={_embedding_score(result):.2f} | rub={_rubric_overall(result)}"
-            )
-            with st.expander(title, expanded=False):
-                st.markdown("**Memory output**")
-                st.write(result.memory_content or "_")
-                st.markdown("**Checks**")
-                for check in result.checks:
-                    st.write(f"{'✅' if check.found else '❌'} [{check.check_type}] {check.term}")
-
-                for evaluator_id, eval_result in result.eval_results.items():
-                    st.markdown(f"**Evaluator: {evaluator_id}**")
-                    st.write(f"passed={eval_result.passed} | score={eval_result.score:.3f}")
-                    for one_check in eval_result.checks:
-                        st.write(
-                            f"- {'✅' if one_check.passed else '❌'} {one_check.term} "
-                            f"({one_check.method}, {one_check.score:.2f}) — {one_check.note}"
-                        )
-
-                scenario_data = _load_scenario(result.scenario_path) if result.scenario_path else {"setup": {}, "conversation": []}
-                exported = to_yaml_str(build_export_dict(result, scenario_data))
-                st.download_button(
-                    label="Download comparison export",
-                    data=exported,
-                    file_name=f"mem_bench_compare_{idx}.yaml",
-                    mime="text/yaml",
-                    key=f"mem_bench_compare_dl_{idx}",
-                )
-
-    st.subheader("Run history")
-    if not history:
-        st.info("No single-run history yet.")
+    if not matrix_runs:
+        st.info("No comparison results yet. Run a comparison first.")
         return
-    for idx, result in enumerate(history):
-        title = (
-            f"{result.scenario_name} | {result.memory_backend} | "
-            f"emb={_embedding_score(result):.2f} | rub={_rubric_overall(result)}"
+
+    st.subheader("Results matrix")
+    scenario_order = list(dict.fromkeys(run.scenario_path for run in matrix_runs))
+    backend_order = list(dict.fromkeys(run.memory_backend for run in matrix_runs))
+
+    cols = st.columns(len(backend_order) + 1)
+    cols[0].markdown("**Scenario**")
+    for idx, backend in enumerate(backend_order, start=1):
+        cols[idx].markdown(f"**{backend}**")
+
+    for row_idx, scenario_path in enumerate(scenario_order):
+        row = st.columns(len(backend_order) + 1)
+        row[0].markdown(f"`{os.path.basename(scenario_path)}`")
+
+        row_results: List[MemBenchResult] = []
+        for col_idx, backend in enumerate(backend_order, start=1):
+            match = next((r for r in matrix_runs if r.scenario_path == scenario_path and r.memory_backend == backend), None)
+            if not match:
+                row[col_idx].write("-")
+                continue
+            row_results.append(match)
+            row[col_idx].write(f"score={_embedding_score(match):.2f} | rub={_rubric_overall(match)}")
+            with row[col_idx].expander("Details"):
+                row[col_idx].write(match.memory_content or "_")
+                for check in match.checks:
+                    row[col_idx].write(f"{'✅' if check.found else '❌'} {check.term}")
+                scenario_data = _load_scenario(match.scenario_path)
+                one_export = to_yaml_str(build_export_dict(match, scenario_data))
+                row[col_idx].download_button(
+                    "Export cell",
+                    data=one_export,
+                    file_name=f"mem_bench_cell_{row_idx}_{col_idx}.yaml",
+                    mime="text/yaml",
+                    key=f"mem_bench_export_cell_{row_idx}_{col_idx}",
+                )
+
+        row_export = {
+            "scenario_path": scenario_path,
+            "results": [build_export_dict(item, _load_scenario(item.scenario_path)) for item in row_results],
+        }
+        row_yaml = to_yaml_str(row_export)
+        st.download_button(
+            label=f"Export full row: {os.path.basename(scenario_path)}",
+            data=row_yaml,
+            file_name=f"mem_bench_row_{row_idx}.yaml",
+            mime="text/yaml",
+            key=f"mem_bench_row_export_{row_idx}",
         )
-        with st.expander(title, expanded=False):
-            st.write(f"success: {result.success}")
-            st.write(result.memory_content)
-            dummy_scenario = {"setup": {}, "conversation": []}
-            exported = to_yaml_str(build_export_dict(result, dummy_scenario))
-            st.download_button(
-                label="Download export",
-                data=exported,
-                file_name=f"mem_bench_history_{idx}.yaml",
-                mime="text/yaml",
-                key=f"mem_bench_hist_dl_{idx}",
-            )
 
 
 def render() -> None:

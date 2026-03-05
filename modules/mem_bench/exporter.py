@@ -63,6 +63,7 @@ def build_export_dict(result: MemBenchResult, scenario: dict) -> dict:
         "rounds": out_rounds,
         "evaluations": evaluations,
         "rubric_scores": rubric_scores,
+        "trace_logs": result.trace_logs,
         "summary": {
             "overall_passed": result.success,
             "mean_evaluator_score": mean_score,
