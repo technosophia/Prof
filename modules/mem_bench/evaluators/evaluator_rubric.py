@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Dict
+from typing import Dict, Any
 
 from core.logging import log
 from shared.common import get_llm_manager
@@ -42,7 +42,10 @@ class RubricEvaluator(MemEvaluator):
             llm_id = getattr(manager, "current_llm", "")
             prompt = self._build_prompt(memory_content=memory_content, scenario=scenario, context=context, dimensions=dimensions)
             response_text = self._run_internal_response(manager, llm_id, prompt)
-            parsed = json.loads(response_text)
+
+            # Parse and validate JSON response
+            parsed = self._parse_and_validate_response(response_text, dimensions)
+
         except Exception as exc:
             log("error", f"mem_bench.rubric_evaluator failed: {exc}", stacktrace=True)
             return EvalResult(
@@ -50,26 +53,42 @@ class RubricEvaluator(MemEvaluator):
                 passed=False,
                 score=0.0,
                 checks=[],
-                details={"status": "error", "error": str(exc)},
+                details={"status": "error", "error": str(exc), "raw_response": response_text if 'response_text' in locals() else None},
             )
 
         checks = []
         weighted_sum = 0.0
         weight_total = 0.0
         rubric_scores: Dict = {}
+
         for dim in dimensions:
             dim_id = str(dim.get("id") or "")
             if not dim_id:
                 continue
-            raw = parsed.get(dim_id, {}) if isinstance(parsed, dict) else {}
-            score = int(raw.get("score", 0)) if str(raw.get("score", "")).isdigit() else 0
+
+            # Safely get dimension data with fallback
+            dim_data = parsed.get(dim_id, {}) if isinstance(parsed, dict) else {}
+
+            # Handle case where dim_data might be a string or other type
+            if not isinstance(dim_data, dict):
+                dim_data = {"score": 0, "reasoning": f"Invalid response format for {dim_id}"}
+
+            # Safely extract score
+            score_value = dim_data.get("score", 0)
+            try:
+                score = int(score_value) if str(score_value).isdigit() else 0
+            except (ValueError, TypeError):
+                score = 0
+
             score = max(0, min(4, score))
             normalized = score / 4.0
-            reasoning = str(raw.get("reasoning") or "")
+            reasoning = str(dim_data.get("reasoning") or "")
             weight = float(dim.get("weight", 1.0))
+
             weighted_sum += normalized * weight
             weight_total += weight
             rubric_scores[dim_id] = {"score": score, "reasoning": reasoning, "weight": weight}
+
             checks.append(
                 EvalCheck(
                     term=dim_id,
@@ -88,6 +107,94 @@ class RubricEvaluator(MemEvaluator):
             checks=checks,
             details={"rubric_scores": rubric_scores, "raw": parsed},
         )
+
+    def _parse_and_validate_response(self, response_text: str, dimensions: list) -> dict:
+        """Parse and validate the LLM response, with fallbacks for invalid responses."""
+
+        # Clean the response text
+        response_text = response_text.strip()
+
+        # Try to extract JSON if it's wrapped in markdown code blocks
+        if "```json" in response_text:
+            # Extract content between ```json and ```
+            parts = response_text.split("```json")
+            if len(parts) > 1:
+                response_text = parts[1].split("```")[0].strip()
+        elif "```" in response_text:
+            # Try generic code block
+            parts = response_text.split("```")
+            if len(parts) > 1:
+                response_text = parts[1].split("```")[0].strip()
+
+        # Attempt to parse JSON
+        try:
+            parsed = json.loads(response_text)
+        except json.JSONDecodeError:
+            # If JSON parsing fails, try to find JSON-like structure
+            log("warning", f"mem_bench.rubric_evaluator: Invalid JSON response, attempting fallback parsing")
+
+            # Create a fallback structure
+            parsed = {}
+
+            # Try to extract scores using regex or simple parsing
+            import re
+            for dim in dimensions:
+                dim_id = dim.get("id", "")
+                # Look for patterns like "dimension_id": 3 or "score": 3
+                score_patterns = [
+                    rf'"{dim_id}"\s*:\s*(\d)',
+                    rf'{dim_id}.*?(\d)/4',
+                    rf'score["\']?\s*:\s*(\d)'
+                ]
+                for pattern in score_patterns:
+                    match = re.search(pattern, response_text, re.IGNORECASE)
+                    if match:
+                        try:
+                            score = int(match.group(1))
+                            parsed[dim_id] = {"score": score, "reasoning": "Extracted from text response"}
+                            break
+                        except (ValueError, IndexError):
+                            pass
+
+                # If no score found, add default
+                if dim_id not in parsed:
+                    parsed[dim_id] = {"score": 0, "reasoning": "Could not parse score from response"}
+
+        # Ensure the parsed result is a dictionary
+        if not isinstance(parsed, dict):
+            log("warning", f"mem_bench.rubric_evaluator: Response is not a dictionary (type: {type(parsed)}), creating fallback")
+            parsed = {}
+
+        # Validate each dimension has proper structure
+        for dim in dimensions:
+            dim_id = dim.get("id", "")
+            if dim_id not in parsed:
+                parsed[dim_id] = {"score": 0, "reasoning": "Missing in response"}
+            elif not isinstance(parsed[dim_id], dict):
+                # Convert string/number to dict
+                if isinstance(parsed[dim_id], (int, float, str)):
+                    try:
+                        score = int(parsed[dim_id]) if str(parsed[dim_id]).isdigit() else 0
+                        parsed[dim_id] = {"score": score, "reasoning": "Simplified score format"}
+                    except (ValueError, TypeError):
+                        parsed[dim_id] = {"score": 0, "reasoning": f"Invalid format: {parsed[dim_id]}"}
+                else:
+                    parsed[dim_id] = {"score": 0, "reasoning": "Invalid format"}
+
+            # Ensure score exists and is valid
+            if "score" not in parsed[dim_id]:
+                parsed[dim_id]["score"] = 0
+            else:
+                try:
+                    parsed[dim_id]["score"] = int(parsed[dim_id]["score"])
+                except (ValueError, TypeError):
+                    parsed[dim_id]["score"] = 0
+
+            # Ensure reasoning exists
+            if "reasoning" not in parsed[dim_id]:
+                parsed[dim_id]["reasoning"] = ""
+
+        return parsed
 
     @staticmethod
     def _run_internal_response(manager, llm_id: str, prompt: str) -> str:
