@@ -80,8 +80,10 @@ class MemBenchRunner:
         scenario_path: str,
         memory_backend_option: str,
         rubric_path: Optional[str] = None,
+        formation_dir: Optional[str] = None,
         capture_trace: bool = False,
     ) -> MemBenchResult:
+        log("info", f"mem_bench.run: received formation_dir='{formation_dir}'")
         if capture_trace:
             capture_log_start("INFO", max_messages=1000)
         scenario = self._load_scenario(scenario_path)
@@ -115,10 +117,22 @@ class MemBenchRunner:
             created_users = users["created_user_ids"]
             student_id = users["student_id"]
             trainer_id = users["trainer_id"]
+
+            # IMPORTANT: Configure the trainer with formation BEFORE any plugin operations
+            if formation_dir:
+                log("info", f"mem_bench: Configuring trainer {trainer_id} with formation dir {formation_dir}")
+                self._configure_trainer_with_formation(trainer_id, formation_dir)
+                self._refresh_plugin_trainer_managers(trainer_id)
+            else:
+                log("warning", "mem_bench: No formation_dir provided")
+
+            # Now set the driver context and proceed
             cleared_conversation_count = self._delete_user_conversations(student_id)
 
             self.driver.set_context(student_id=student_id, trainer_id=trainer_id)
             self.driver.switch_option("memory_backend", memory_backend_option)
+
+            # If training program is specified in the scenario, use it
             if training_program:
                 self.driver.do_action("set_training_program", content=training_program)
 
@@ -252,11 +266,62 @@ class MemBenchRunner:
                 log("error", f"mem_bench evaluator '{evaluator.id}' failed: {exc}", stacktrace=True)
         return results
 
+    def _refresh_plugin_trainer_managers(self, trainer_id: str) -> None:
+        """Force all plugins to refresh their trainer manager reference."""
+        try:
+            from modules.trainer.plugin_base import get_plugin_manager
+            plugin_manager = get_plugin_manager()
+
+            # Get the trainer manager
+            from modules.trainer.manager import get_trainer_manager
+            trainer_manager = get_trainer_manager()
+
+            # Set the trainer manager on the plugin manager
+            plugin_manager.set_trainer_manager(trainer_manager)
+
+            log("info", f"mem_bench: Refreshed plugin manager with trainer manager for trainer {trainer_id}")
+        except Exception as e:
+            log("warning", f"mem_bench: Failed to refresh plugin trainer managers: {e}")
+
+    def _configure_trainer_with_formation(self, trainer_id: str, formation_dir: str) -> None:
+        """Configure a trainer with the selected formation directory."""
+        try:
+            # Get the trainer manager
+            from modules.trainer.manager import get_trainer_manager
+            trainer_manager = get_trainer_manager()
+
+            log("info", f"mem_bench: Configuring trainer {trainer_id} with formation_dir: {formation_dir}")
+
+            # Check if this is already a relative path (just the formation name)
+            # The MaterialLoader will add the 'material/' prefix automatically
+            if '/' not in formation_dir and '\\' not in formation_dir:
+                # This is likely just a formation name like "attention"
+                log("info", f"mem_bench: Using relative formation name: {formation_dir}")
+
+                # Verify the formation exists by checking if we can get the program
+                try:
+                    program = trainer_manager.get_program(trainer_id)
+                    if program:
+                        log("info", f"mem_bench: Successfully verified formation {formation_dir}")
+                except Exception as e:
+                    log("warning", f"mem_bench: Could not verify formation {formation_dir}: {e}")
+
+            # Set the formation directory for the trainer
+            success = trainer_manager.set_formation_dir(trainer_id, formation_dir)
+            if success:
+                log("info", f"mem_bench: SUCCESS - configured trainer {trainer_id} with formation dir {formation_dir}")
+            else:
+                log("warning", f"mem_bench: FAILED - could not set formation dir for trainer {trainer_id}")
+
+        except Exception as e:
+            log("warning", f"mem_bench: failed to configure trainer with formation: {e}", stacktrace=True)
+
     def run_matrix(
         self,
         scenario_paths: List[str],
         backends: List[str],
         rubric_path: Optional[str] = None,
+        formation_dir: Optional[str] = None,  # This will be the scenario directory
         capture_trace: bool = False,
     ) -> List[MemBenchResult]:
         matrix_results: List[MemBenchResult] = []
@@ -266,6 +331,7 @@ class MemBenchRunner:
                     scenario_path=scenario_path,
                     memory_backend_option=backend,
                     rubric_path=rubric_path,
+                    formation_dir=formation_dir,  # Pass the scenario directory
                     capture_trace=capture_trace,
                 )
                 run_result.scenario_path = scenario_path
@@ -404,21 +470,50 @@ class MemBenchRunner:
         trainer_name = setup.get("trainer_id")
         student_name = setup.get("student_id")
 
-        trainer = user_manager.get_user_by_name(trainer_name) if trainer_name else None
-        if trainer is None and trainer_name:
-            trainer_id, _ = user_manager.create_user(name=trainer_name, role="master")
-            created_user_ids.append(trainer_id)
-            trainer = user_manager.get_user(trainer_id)
+        trainer = None
+        student = None
 
-        student = user_manager.get_user_by_name(student_name) if student_name else None
-        if student is None and student_name and trainer:
-            student_id, _ = user_manager.create_user(name=student_name, role="normal", parent_id=trainer["id"])
-            created_user_ids.append(student_id)
+        # Handle trainer creation/retrieval
+        if trainer_name:
+            trainer = user_manager.get_user_by_name(trainer_name)
+            if trainer is None:
+                trainer_id, _ = user_manager.create_user(name=trainer_name, role="master")
+                created_user_ids.append(trainer_id)
+                trainer = user_manager.get_user(trainer_id)
+            else:
+                # NEW: Clear any existing formation_dir for this test trainer
+                try:
+                    from modules.trainer.manager import get_trainer_manager
+                    trainer_manager = get_trainer_manager()
+                    # Set to empty string to clear any previous formation
+                    trainer_manager.set_formation_dir(trainer["id"], "")
+                    log("info", f"mem_bench: Cleared existing formation_dir for trainer {trainer_name}")
+                except Exception as e:
+                    log("warning", f"mem_bench: Could not clear trainer formation_dir: {e}")
 
+        # Handle student creation/retrieval
+        if student_name and trainer:
+            student = user_manager.get_user_by_name(student_name)
+            if student is None:
+                student_id, _ = user_manager.create_user(name=student_name, role="normal", parent_id=trainer["id"])
+                created_user_ids.append(student_id)
+                student = user_manager.get_user(student_id)
+
+        # Verify both users exist
         if not trainer or not student:
-            raise ValueError("mem_bench: failed to provision trainer/student test users")
+            # Log what went wrong for debugging
+            missing = []
+            if trainer_name and not trainer:
+                missing.append(f"trainer '{trainer_name}'")
+            if student_name and not student:
+                missing.append(f"student '{student_name}'")
+            raise ValueError(f"mem_bench: failed to provision test users - missing: {', '.join(missing)}")
 
-        return {"created_user_ids": created_user_ids, "trainer_id": trainer["id"], "student_id": student["id"]}
+        return {
+            "created_user_ids": created_user_ids,
+            "trainer_id": trainer["id"],
+            "student_id": student["id"]
+        }
 
     @staticmethod
     def _delete_user_conversations(user_id: str) -> int:

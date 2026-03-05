@@ -12,7 +12,28 @@ from modules.mem_bench.runner import MemBenchResult, MemBenchRunner
 from modules.mem_bench.rubric_loader import find_rubrics, load_rubric
 from st_shared.cached import _
 from shared.common import get_driver
+from core.logging import log
 
+def _get_formation_name_from_scenario(scenario_path: str) -> str:
+    """
+    Extract the formation name from a scenario file path.
+    Expected path format: .../data/mem_bench/scenarios/<formation_name>/<file>.yaml
+    Returns the <formation_name>.
+    """
+    # Normalize path separators
+    path = os.path.normpath(scenario_path)
+    parts = path.split(os.sep)
+
+    # Find the 'scenarios' directory and take the next part
+    try:
+        scenarios_idx = parts.index("scenarios")
+        if scenarios_idx + 1 < len(parts):
+            return parts[scenarios_idx + 1]
+    except ValueError:
+        pass
+
+    # Fallback: use the immediate parent directory name
+    return os.path.basename(os.path.dirname(scenario_path))
 
 def _t(key: str) -> str:
     return _(f"mem_bench.{key}")
@@ -101,16 +122,27 @@ def _render_run_tab(runner: MemBenchRunner, scenario_files: List[str], options: 
     rubric_labels = ["None (skip rubric eval)"] + list(rubrics.keys())
     rubric_choice = st.selectbox("Rubric", rubric_labels, key="mem_bench_rubric_select")
     rubric_path = rubrics.get(rubric_choice)
+
+    # NEW: Get the formation directory from the rubric's parent directory
+    formation_dir = None
+    if rubric_path:
+        formation_dir = os.path.dirname(rubric_path)
+        st.caption(f"📁 Using formation from: `{formation_dir}`")
+
     _render_rubric_summary(rubric_path)
 
     trace_enabled = st.checkbox("Capture trace logs", value=False, key="mem_bench_trace_single")
 
     if st.button(_t("run_button"), key="mem_bench_run"):
         with st.spinner(_t("running")):
+            # Extract JUST the formation name (e.g., "attention", not "material/attention")
+            formation_name = _get_formation_name_from_scenario(selected_scenario)
+
             result = runner.run(
                 scenario_path=selected_scenario,
                 memory_backend_option=selected_memory_backend,
                 rubric_path=rubric_path,
+                formation_dir=formation_name,  # Pass JUST the name
                 capture_trace=trace_enabled,
             )
             st.session_state["mem_bench_last_result"] = result
@@ -177,18 +209,27 @@ def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], optio
             progress = st.progress(0, text=f"Running 0/{total}")
             runs: List[MemBenchResult] = []
             done = 0
+
+            # For each selected scenario
             for scenario_path in selected_paths:
+                # Extract JUST the formation name (e.g., "attention", not "material/attention")
+                formation_name = _get_formation_name_from_scenario(scenario_path)
+
+                # For each selected backend
                 for backend in selected_backends:
+                    # Run matrix for this single scenario and backend
                     runs.extend(
                         runner.run_matrix(
-                            [scenario_path],
-                            [backend],
+                            [scenario_path],  # Single scenario
+                            [backend],        # Single backend
                             rubric_path=rubric_path,
+                            formation_dir=formation_name,  # Pass JUST the name
                             capture_trace=trace_enabled,
                         )
                     )
                     done += 1
                     progress.progress(done / total, text=f"Running {done}/{total}")
+
             progress.empty()
             st.session_state["mem_bench_matrix"] = runs
 
@@ -196,6 +237,7 @@ def _render_compare_tab(runner: MemBenchRunner, scenario_files: List[str], optio
     if not matrix_runs:
         return
 
+    # Rest of the function remains exactly the same
     st.subheader("Quick comparison view")
     scenario_order = list(dict.fromkeys(run.scenario_path for run in matrix_runs))
     backend_order = list(dict.fromkeys(run.memory_backend for run in matrix_runs))
