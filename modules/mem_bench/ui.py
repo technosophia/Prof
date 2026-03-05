@@ -221,13 +221,13 @@ def _render_results_tab() -> None:
     scenario_order = list(dict.fromkeys(run.scenario_path for run in matrix_runs))
     backend_order = list(dict.fromkeys(run.memory_backend for run in matrix_runs))
 
-    cols = st.columns(len(backend_order) + 1)
+    cols = st.columns([1] + [3] * len(backend_order))
     cols[0].markdown("**Scenario**")
     for idx, backend in enumerate(backend_order, start=1):
         cols[idx].markdown(f"**{backend}**")
 
     for row_idx, scenario_path in enumerate(scenario_order):
-        row = st.columns(len(backend_order) + 1)
+        row = st.columns([1] + [3] * len(backend_order))
         row[0].markdown(f"`{os.path.basename(scenario_path)}`")
 
         row_results: List[MemBenchResult] = []
@@ -239,18 +239,19 @@ def _render_results_tab() -> None:
             row_results.append(match)
             row[col_idx].write(f"score={_embedding_score(match):.2f} | rub={_rubric_overall(match)}")
             with row[col_idx].expander("Details"):
-                row[col_idx].write(match.memory_content or "_")
+                st.write(match.memory_content or "_")
                 for check in match.checks:
-                    row[col_idx].write(f"{'✅' if check.found else '❌'} {check.term}")
+                    st.write(f"{'✅' if check.found else '❌'} {check.term}")
                 scenario_data = _load_scenario(match.scenario_path)
                 one_export = to_yaml_str(build_export_dict(match, scenario_data))
-                row[col_idx].download_button(
+                st.download_button(
                     "Export cell",
                     data=one_export,
                     file_name=f"mem_bench_cell_{row_idx}_{col_idx}.yaml",
                     mime="text/yaml",
                     key=f"mem_bench_export_cell_{row_idx}_{col_idx}",
                 )
+                st.code(one_export, language="yaml")
 
         row_export = {
             "scenario_path": scenario_path,
@@ -264,6 +265,8 @@ def _render_results_tab() -> None:
             mime="text/yaml",
             key=f"mem_bench_row_export_{row_idx}",
         )
+        with st.expander(f"Copy export row: {os.path.basename(scenario_path)}", expanded=False):
+            st.code(row_yaml, language="yaml")
 
 
 def render() -> None:
