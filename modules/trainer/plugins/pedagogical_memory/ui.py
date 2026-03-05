@@ -15,6 +15,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
             cfg = self._get_plugin_config()
             fact_types = cfg["fact_types"]
             type_colors = cfg["fact_type_colors"]
+            embedding_dim = self._get_embedding_dimension()
 
             st.markdown("### 🧠 Pedagogical Memory")
 
@@ -72,7 +73,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
                                     if db_fact:
                                         db_fact.content = new_content
                                         db_fact.embedding = self._serialize_embedding(get_embedding(new_content))
-                                        db_fact.embedding_dim = EMBEDDING_DIMENSION
+                                        db_fact.embedding_dim = embedding_dim
                                         db_fact.updated_at = datetime.utcnow()
                                         db_fact.fact_metadata = {**(db_fact.fact_metadata or {}), "source": "manual_edit"}
                                         session.commit()
@@ -116,7 +117,7 @@ class PedagogicalMemoryPluginUI(TrainerPluginUI):
                                         fact_type=new_type,
                                         content=content,
                                         embedding=self._serialize_embedding(get_embedding(content)),
-                                        embedding_dim=EMBEDDING_DIMENSION,
+                                        embedding_dim=embedding_dim,
                                         confidence=1.0,
                                         is_active=1,
                                         source_version=self._get_next_analysis_version(trainer_id, student_id),

@@ -10,6 +10,7 @@ Migration status: COMPLETE
   - All render methods call self.<data_method>() only — no db/cache access inline
   - When splitting into two classes: replace self.xxx() with self._logic.xxx()
     in every render method. No logic rewrite needed.
+  - Fixed embedding dimensions to use actual model dimensions from LLM manager
 """
 
 from typing import List, Dict, Any, Optional, Callable, Tuple
@@ -21,14 +22,14 @@ import asyncio
 import numpy as np
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Float, LargeBinary, desc
 
-from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id, get_embedding
+from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id, get_embedding, get_llm_manager
 from modules.trainer.plugin_base import PluginManifest
 from modules.trainer.plugin_base_core import TrainerPluginCore
 
 from core.logging import log
 from core.database import Base
 
-EMBEDDING_DIMENSION = 384
+# No longer hardcoding embedding dimension
 
 
 class PedagogicalFact(Base):
@@ -41,7 +42,7 @@ class PedagogicalFact(Base):
     fact_type = Column(String(64), nullable=False)
     content = Column(Text, default="")
     embedding = Column(LargeBinary, nullable=False)
-    embedding_dim = Column(Integer, default=EMBEDDING_DIMENSION)
+    embedding_dim = Column(Integer, nullable=False)  # No default - must be set
     confidence = Column(Float, default=1.0)
     is_active = Column(Integer, default=1)
     source_version = Column(Integer, nullable=False, default=1)
@@ -81,8 +82,46 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-
 class PedagogicalMemoryPluginCore(TrainerPluginCore):
+
+    def __init__(self, plugin_id: str = None):
+        super().__init__(plugin_id)
+        self._embedding_dimension = None  # Will be set in initialize
+
+    def _get_embedding_dimension(self) -> int:
+        """Get the actual embedding dimension from the LLM manager."""
+        if self._embedding_dimension is not None:
+            return self._embedding_dimension
+
+        try:
+            if self.llm_manager:
+                # Try to get the model and its dimension
+                model = self.llm_manager._get_embedding_model()
+                self._embedding_dimension = model.get_sentence_embedding_dimension()
+                log("info", f"Detected embedding dimension: {self._embedding_dimension}")
+                return self._embedding_dimension
+        except Exception as e:
+            log("warning", f"Could not get embedding dimension from model: {e}")
+
+        # Fallback to config
+        cfg = self._get_plugin_config()
+        config_dim = cfg.get("embedding_dimension")
+        if config_dim:
+            self._embedding_dimension = config_dim
+            log("info", f"Using embedding dimension from config: {self._embedding_dimension}")
+            return self._embedding_dimension
+
+        # Last resort fallback - try to determine from a test embedding
+        try:
+            test_embedding = get_embedding("test")
+            self._embedding_dimension = len(test_embedding)
+            log("warning", f"Detected embedding dimension from test: {self._embedding_dimension}")
+            return self._embedding_dimension
+        except:
+            # Ultimate fallback - should never happen
+            log("error", "Could not determine embedding dimension, using 768 as fallback")
+            self._embedding_dimension = 768
+            return self._embedding_dimension
 
     def initialize(self, services=None) -> bool:
         """
@@ -104,6 +143,9 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 except ImportError:
                     log("warning", "PedagogicalMemoryPlugin: no config available, using defaults")
                     self.config = {}
+
+            # Pre-cache embedding dimension
+            self._get_embedding_dimension()
 
             if self.db and self.db.is_initialized() and not self.db._in_memory:
                 Base.metadata.create_all(
@@ -138,15 +180,20 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             "decay_days": int(config.get("decay_days", 30)),
             "decay_factor": float(config.get("decay_factor", 0.85)),
             "decay_min_confidence": float(config.get("decay_min_confidence", 0.1)),
+            "embedding_dimension": int(config.get("embedding_dimension", 768)),  # Default to 768 if not specified
         }
 
     def _serialize_embedding(self, embedding: List[float]) -> bytes:
         return np.asarray(embedding, dtype=np.float32).tobytes()
 
-    def _deserialize_embedding(self, embedding_bytes: bytes, dim: int) -> np.ndarray:
+    def _deserialize_embedding(self, embedding_bytes: bytes, expected_dim: int) -> np.ndarray:
         vector = np.frombuffer(embedding_bytes, dtype=np.float32)
-        if dim and vector.shape[0] != dim:
-            log("warning", f"Embedding dimension mismatch: expected {dim}, got {vector.shape[0]}")
+        actual_dim = vector.shape[0]
+
+        if actual_dim != expected_dim:
+            log("warning", f"Embedding dimension mismatch: expected {expected_dim}, got {actual_dim}. This may cause issues.")
+            # Attempt to fix by truncating or padding? Better to log and let it fail.
+
         return vector
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
@@ -279,16 +326,22 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         top_n: int = 3,
     ) -> List[Tuple[PedagogicalFact, float]]:
         try:
+            embedding_dim = self._get_embedding_dimension()
             existing = (
                 session.query(PedagogicalFact)
                 .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1, fact_type=candidate_type)
+                .filter(PedagogicalFact.embedding_dim == embedding_dim)  # Only compare same dimension embeddings
                 .all()
             )
             scored = []
             for fact in existing:
                 vector = self._deserialize_embedding(fact.embedding, fact.embedding_dim)
-                score = self._cosine_similarity(candidate_embedding, vector)
-                scored.append((fact, score))
+                # Only compare if dimensions match
+                if len(vector) == len(candidate_embedding):
+                    score = self._cosine_similarity(candidate_embedding, vector)
+                    scored.append((fact, score))
+                else:
+                    log("debug", f"Skipping fact {fact.id} due to dimension mismatch")
             scored.sort(key=lambda x: x[1], reverse=True)
             return scored[:top_n]
         except Exception as e:
@@ -327,12 +380,21 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         top_n: int = 3,
     ) -> List[Tuple[Dict[str, Any], float]]:
         scored = []
+        embedding_dim = self._get_embedding_dimension()
+
         for fact in facts:
             if fact.get("fact_type") != candidate_type or int(fact.get("is_active", 0)) != 1:
                 continue
+            # Only compare facts with matching dimension
+            if fact.get("embedding_dim") != embedding_dim:
+                continue
+
             vector = self._deserialize_embedding(fact.get("embedding", b""), int(fact.get("embedding_dim", 0)))
-            score = self._cosine_similarity(candidate_embedding, vector)
-            scored.append((fact, score))
+            # Double-check dimensions match
+            if len(vector) == len(candidate_embedding):
+                score = self._cosine_similarity(candidate_embedding, vector)
+                scored.append((fact, score))
+
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_n]
 
@@ -358,6 +420,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         stats = {"created": 0, "updated": 0, "reinforced": 0, "discarded": 0, "messages_analyzed": 0}
         cfg = self._get_plugin_config()
         fact_types = cfg["fact_types"]
+        embedding_dim = self._get_embedding_dimension()
 
         if not fact_types:
             log("warning", "No fact taxonomy configured for pedagogical_memory")
@@ -374,11 +437,12 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         candidates = await self._extract_candidate_facts(trainer_id, student_id, messages, fact_types)
 
         try:
-            # FIX: Create snapshot INSIDE the session context
+            # Create snapshot INSIDE the session context
             with self.db.get_session() as session:
                 current_facts = (
                     session.query(PedagogicalFact)
                     .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
+                    .filter(PedagogicalFact.embedding_dim == embedding_dim)  # Only use current dimension facts
                     .all()
                 )
 
@@ -402,6 +466,13 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
 
             for candidate in candidates:
                 candidate_vector = np.asarray(get_embedding(candidate["content"]), dtype=np.float32)
+
+                # Verify candidate vector dimension
+                if len(candidate_vector) != embedding_dim:
+                    log("error", f"Candidate embedding dimension {len(candidate_vector)} doesn't match expected {embedding_dim}. Skipping.")
+                    stats["discarded"] += 1
+                    continue
+
                 similar = self._find_similar_facts_in_memory(
                     fact_snapshot,
                     candidate["fact_type"],
@@ -423,7 +494,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                         "fact_type": candidate["fact_type"],
                         "content": candidate["content"],
                         "embedding": self._serialize_embedding(candidate_vector.tolist()),
-                        "embedding_dim": EMBEDDING_DIMENSION,
+                        "embedding_dim": embedding_dim,
                         "confidence": 1.0,
                         "is_active": 1,
                         "fact_metadata": {"source": "llm", "reconciliation": "CREATE"},
@@ -446,7 +517,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     })
                     best_fact["content"] = candidate["content"]
                     best_fact["embedding"] = self._serialize_embedding(candidate_vector.tolist())
-                    best_fact["embedding_dim"] = EMBEDDING_DIMENSION
+                    best_fact["embedding_dim"] = embedding_dim
                     best_fact["fact_metadata"] = {
                         **(best_fact.get("fact_metadata") or {}),
                         "source": "llm",
@@ -475,7 +546,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                                 fact_type=operation["fact_type"],
                                 content=operation["content"],
                                 embedding=self._serialize_embedding(operation["vector"].tolist()),
-                                embedding_dim=EMBEDDING_DIMENSION,
+                                embedding_dim=embedding_dim,
                                 confidence=1.0,
                                 is_active=1,
                                 source_version=version,
@@ -491,7 +562,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     if operation["action"] == "UPDATE":
                         db_fact.content = operation["content"]
                         db_fact.embedding = self._serialize_embedding(operation["vector"].tolist())
-                        db_fact.embedding_dim = EMBEDDING_DIMENSION
+                        db_fact.embedding_dim = embedding_dim
                         db_fact.updated_at = datetime.utcnow()
                         db_fact.source_version = version
                         db_fact.fact_metadata = {
@@ -530,10 +601,12 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
 
     def _get_active_facts(self, trainer_id: str, student_id: str) -> List[Dict[str, Any]]:
         try:
+            embedding_dim = self._get_embedding_dimension()
             with self.db.get_session() as session:
                 rows = (
                     session.query(PedagogicalFact)
                     .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
+                    .filter(PedagogicalFact.embedding_dim == embedding_dim)  # Only return current dimension facts
                     .order_by(desc(PedagogicalFact.updated_at))
                     .all()
                 )
@@ -571,6 +644,8 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
 
             trainer_id = user["parent_id"]
             cfg = self._get_plugin_config()
+            embedding_dim = self._get_embedding_dimension()
+
             active_facts = self._get_active_facts(trainer_id, user_id)
             if not active_facts:
                 return None
@@ -585,9 +660,20 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 return None
 
             query_vector = np.asarray(get_embedding(last_user_message), dtype=np.float32)
+
+            # Verify query vector dimension
+            if len(query_vector) != embedding_dim:
+                log("error", f"Query embedding dimension {len(query_vector)} doesn't match expected {embedding_dim}")
+                return None
+
             scored = []
             for fact in active_facts:
                 fact_vector = self._deserialize_embedding(fact["embedding"], fact["embedding_dim"])
+                # Verify fact vector dimension
+                if len(fact_vector) != embedding_dim:
+                    log("debug", f"Skipping fact {fact['id']} due to dimension mismatch")
+                    continue
+
                 similarity = self._cosine_similarity(query_vector, fact_vector)
                 score = similarity * float(fact["confidence"])
                 scored.append((fact, score))

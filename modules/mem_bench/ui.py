@@ -227,7 +227,7 @@ def _render_results_tab() -> None:
         cols[idx].markdown(f"**{backend}**")
 
     for row_idx, scenario_path in enumerate(scenario_order):
-        row = st.columns([1] + [3] * len(backend_order))
+        row = st.columns([2] + [3] * len(backend_order))
         row[0].markdown(f"`{os.path.basename(scenario_path)}`")
 
         row_results: List[MemBenchResult] = []
@@ -251,7 +251,8 @@ def _render_results_tab() -> None:
                     mime="text/yaml",
                     key=f"mem_bench_export_cell_{row_idx}_{col_idx}",
                 )
-                st.code(one_export, language="yaml")
+                with st.expander("Export cell YAML"):
+                    st.code(one_export, language="yaml")
 
         row_export = {
             "scenario_path": scenario_path,
