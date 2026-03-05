@@ -1,9 +1,5 @@
 {
-  "modules": {
-    "rag_bench": {
-      "dataset_dir": "data/rag_bench",
-      "judge_model": "qwen3:4b",
-      "ollama_base_url": "http://localhost:11434"
-    }
-  }
+  "dataset_dir": "material/rag_bench",
+  "judge_model": "qwen3.5",
+  "ollama_base_url": "http://localhost:11434"
 }

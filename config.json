@@ -43,7 +43,7 @@
   },
   "app": {
     "name": "Professor",
-    "default_llm": "groq",
+    "default_llm": "ollama_qwen",
     "version": "1.0.0",
     "auto_login": true,
     "auto_login_user": "master2",
@@ -91,7 +91,7 @@
     },
     "ollama_qwen": {
       "type": "ollama",
-      "model": "qwen3.5",
+      "model": "qwen3:8b",
       "name": "Ollama Small",
       "enabled": true,
       "description": "Local Qwen model via Ollama",

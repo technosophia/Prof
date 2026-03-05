@@ -374,6 +374,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         candidates = await self._extract_candidate_facts(trainer_id, student_id, messages, fact_types)
 
         try:
+            # FIX: Create snapshot INSIDE the session context
             with self.db.get_session() as session:
                 current_facts = (
                     session.query(PedagogicalFact)
@@ -381,19 +382,20 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     .all()
                 )
 
-            fact_snapshot: List[Dict[str, Any]] = [
-                {
-                    "id": fact.id,
-                    "fact_type": fact.fact_type,
-                    "content": fact.content,
-                    "embedding": fact.embedding,
-                    "embedding_dim": fact.embedding_dim,
-                    "confidence": float(fact.confidence or 0.0),
-                    "is_active": int(fact.is_active or 0),
-                    "fact_metadata": fact.fact_metadata or {},
-                }
-                for fact in current_facts
-            ]
+                fact_snapshot: List[Dict[str, Any]] = [
+                    {
+                        "id": fact.id,
+                        "fact_type": fact.fact_type,
+                        "content": fact.content,
+                        "embedding": fact.embedding,
+                        "embedding_dim": fact.embedding_dim,
+                        "confidence": float(fact.confidence or 0.0),
+                        "is_active": int(fact.is_active or 0),
+                        "fact_metadata": fact.fact_metadata or {},
+                    }
+                    for fact in current_facts
+                ]
+            # Session is now closed, but we have plain dictionaries in fact_snapshot
 
             operations: List[Dict[str, Any]] = []
             pending_id = 0
