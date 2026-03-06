@@ -282,6 +282,19 @@ def show_prompt_admin_content():
                 with st.expander("All files → keys", expanded=False):
                     st.json(keys_by_file)
 
+        # Handle scalar prompt values safely
+        if not isinstance(module_prompts, dict):
+            st.info("Selected prompt is a scalar value (not a nested dictionary).")
+            format_prompt_for_display(
+                module_prompts,
+                "",
+                full_module_path=selected_module,
+                language=selected_language,
+                editable=True,
+                instance_id="scalar_prompt",
+            )
+            return
+
         # Create tabs for different views
         tab1, tab2, tab3 = st.tabs(["📄 Tree View", "📋 List View", "📊 Statistics"])
 
@@ -293,7 +306,7 @@ def show_prompt_admin_content():
                 if not data:
                     return
 
-                for key, value in data.items():
+                for key, value in (data.items() if isinstance(data, dict) else []):
                     current_path = f"{path}.{key}" if path else key
                     indent = "&nbsp;" * (depth * 4)
 
@@ -321,7 +334,7 @@ def show_prompt_admin_content():
 
             def flatten_prompts(data: dict, prefix: str = ""):
                 flat = {}
-                for key, value in data.items():
+                for key, value in (data.items() if isinstance(data, dict) else []):
                     full_key = f"{prefix}.{key}" if prefix else key
                     if isinstance(value, dict):
                         flat.update(flatten_prompts(value, full_key))
@@ -355,7 +368,7 @@ def show_prompt_admin_content():
                 leaf_count = 0
                 total_count = 0
 
-                for value in data.values():
+                for value in (data.values() if isinstance(data, dict) else []):
                     total_count += 1
                     if isinstance(value, dict):
                         sub_leaves, sub_total = count_prompts(value)
@@ -382,7 +395,7 @@ def show_prompt_admin_content():
 
                 def analyze_types(data: dict):
                     types = {}
-                    for value in data.values():
+                    for value in (data.values() if isinstance(data, dict) else []):
                         if isinstance(value, dict):
                             sub_types = analyze_types(value)
                             for type_name, count in sub_types.items():
@@ -463,7 +476,7 @@ def show_prompt_admin_content():
                     if module_data:
                         def count_leaves(data: dict):
                             count = 0
-                            for value in data.values():
+                            for value in (data.values() if isinstance(data, dict) else []):
                                 if isinstance(value, dict):
                                     count += count_leaves(value)
                                 else:
@@ -479,7 +492,7 @@ def show_prompt_admin_content():
                 if module_data:
                     def count_leaves(data: dict):
                         count = 0
-                        for value in data.values():
+                        for value in (data.values() if isinstance(data, dict) else []):
                             if isinstance(value, dict):
                                 count += count_leaves(value)
                             else:
@@ -498,7 +511,7 @@ def show_prompt_admin_content():
                 example_module = get_module_prompts(modules[0])
                 if example_module:
                     def find_example(data: dict):
-                        for key, value in data.items():
+                        for key, value in (data.items() if isinstance(data, dict) else []):
                             if isinstance(value, dict):
                                 result = find_example(value)
                                 if result:

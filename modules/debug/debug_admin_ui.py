@@ -254,7 +254,7 @@ def show_config_tab():
                 rows = [
                     {
                         "key": key,
-                        "value": config.get(key),
+                        "value": str(config.get(key)),
                     }
                     for key in file_keys
                 ]
