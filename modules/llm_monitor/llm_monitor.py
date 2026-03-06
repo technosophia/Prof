@@ -30,7 +30,7 @@ class LLMMonitor:
         self._ensure_tables_exist()
 
         # Get LLM configurations from the config
-        module_config = config.get("modules.llm_monitor", {})
+        module_config = config.get("llm_monitor", {})
         self.llm_configs = module_config.get("llms", {})
 
         self.enabled = module_config.get("enabled", True)

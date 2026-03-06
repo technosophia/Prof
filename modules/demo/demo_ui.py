@@ -200,6 +200,7 @@ def inject_ui_main_footer() -> None:
     """
     test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
     if not test_mode:
+        st.caption("")
         return
     with st.expander(_("demo.section_title"), expanded=False):
         st.caption(_("demo.section_description"))

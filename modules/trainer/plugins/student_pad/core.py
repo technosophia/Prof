@@ -215,7 +215,7 @@ class StudentPadPluginCore(TrainerPluginCore):
         if not student_notes:
             return None
 
-        context_prompt = get_prompt('trainer.plugins.student_pad.student_notes_context',
+        context_prompt = get_prompt('student_notes_context',
                                    "Student's personal notes:\n{student_notes}")
         context = context_prompt.format(student_notes=student_notes)
 
@@ -236,7 +236,7 @@ class StudentPadPluginCore(TrainerPluginCore):
         if not teacher_notes:
             return None
 
-        context_prompt = get_prompt('trainer.plugins.student_pad.teacher_notes_context',
+        context_prompt = get_prompt('teacher_notes_context',
                                    "Teacher's private notes about this student (use this to guide your teaching approach):\n{teacher_notes}")
         context = context_prompt.format(teacher_notes=teacher_notes)
 

@@ -195,7 +195,7 @@ def show_config_tab():
     config = get_config()
 
     # Check for debug module configuration
-    debug_config = config.get("modules.debug", {})
+    debug_config = config.get("debug", {})
 
     if not debug_config:
         st.warning("⚠️ Debug configuration not found! The 'debug' section is missing from the configuration.")
@@ -228,100 +228,44 @@ def show_config_tab():
 
     st.divider()
 
-    # Display all configuration sections
-    st.subheader("📋 All Configuration Sections")
+    # File-centric config registry display
+    st.subheader("📁 Config registry by file")
 
-    # Get all top-level keys in configuration
-    config_dict = config._config if hasattr(config, '_config') else {}
+    if hasattr(config, 'list_source_files') and hasattr(config, 'list_keys_by_source_file'):
+        source_files = config.list_source_files()
+        keys_by_file = config.list_keys_by_source_file()
 
-    if config_dict:
-        # Create tabs for each main section
-        section_names = list(config_dict.keys())
-        config_tabs = st.tabs(section_names)
-
-        for i, section_name in enumerate(section_names):
-            with config_tabs[i]:
-                section_data = config_dict.get(section_name, {})
-
-                if section_name == "debug":
-                    st.info("🔄 This is the debug module configuration")
-
-                # Display as JSON
-                st.json(section_data)
-
-                # Show metadata if available
-                if hasattr(config, '_modules'):
-                    for module_name, module_config in config._modules.items():
-                        if section_name in module_config:
-                            st.caption(f"📍 Source: Module '{module_name}'")
-
-                # Show raw value count
-                def count_values(obj):
-                    if isinstance(obj, dict):
-                        total = 0
-                        for key, value in obj.items():
-                            total += count_values(value)
-                        return total
-                    else:
-                        return 1
-
-                value_count = count_values(section_data)
-                st.caption(f"Contains {value_count} configuration values")
-    else:
-        st.warning("No configuration data found!")
-
-    st.divider()
-
-    # Show loaded configuration files
-    st.subheader("📁 Loaded Configuration Files")
-
-    if hasattr(config, '_loaded_files'):
-        loaded_files = config._loaded_files
-
-        if loaded_files:
-            st.write(f"**Total files loaded:** {len(loaded_files)}")
-
-            for filepath, timestamp in loaded_files.items():
-                col_file, col_time = st.columns([3, 1])
-                with col_file:
-                    st.code(filepath)
-                with col_time:
-                    st.caption(timestamp.strftime("%H:%M:%S"))
+        if not source_files:
+            st.info("No configuration files have been loaded yet.")
         else:
-            st.info("No configuration files have been loaded yet")
+            st.caption(f"Loaded config files: {len(source_files)}")
+
+            selected_file = st.selectbox(
+                "Select a config file",
+                options=source_files,
+                key="debug_config_file_selector",
+            )
+
+            file_keys = keys_by_file.get(selected_file, [])
+            st.code(selected_file)
+            st.caption(f"Keys in file: {len(file_keys)}")
+
+            if file_keys:
+                rows = [
+                    {
+                        "key": key,
+                        "value": str(config.get(key)),
+                    }
+                    for key in file_keys
+                ]
+                st.dataframe(rows, width='stretch', hide_index=True)
+            else:
+                st.info("No leaf keys tracked for this file.")
+
+            with st.expander("🗂️ All files → keys", expanded=False):
+                st.json(keys_by_file)
     else:
-        st.warning("Loaded files tracking not available")
-
-    # Show module configurations
-    st.divider()
-    st.subheader("🧩 Module Configurations")
-
-    if hasattr(config, '_modules'):
-        modules = config._modules
-
-        if modules:
-            st.write(f"**Modules with config:** {len(modules)}")
-
-            for module_name, module_config in modules.items():
-                with st.expander(f"📦 {module_name}", expanded=False):
-                    st.json(module_config)
-
-                    # Count keys in this module
-                    def count_keys(obj):
-                        if isinstance(obj, dict):
-                            count = 0
-                            for key, value in obj.items():
-                                count += 1  # Count this key
-                                count += count_keys(value)  # Count nested keys
-                            return count
-                        return 0
-
-                    key_count = count_keys(module_config)
-                    st.caption(f"Contains {key_count} configuration keys")
-        else:
-            st.info("No module configurations have been injected")
-    else:
-        st.warning("Module configuration tracking not available")
+        st.warning("Config source registry APIs are not available.")
 
 
 def show_ui_registry_tab():

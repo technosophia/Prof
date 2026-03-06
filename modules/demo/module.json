@@ -1,0 +1,9 @@
+{
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "Demo module for SKILL",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "system",
+  "dependencies": []
+}

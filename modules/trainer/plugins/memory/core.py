@@ -243,11 +243,11 @@ class MemoryPluginCore(TrainerPluginCore):
         if rubrics:
             rubrics_text = _yaml.dump(rubrics, allow_unicode=True, default_flow_style=False)
 
-        system_prompt = get_prompt('trainer.plugins.memory.analysis_system')
-        user_prompt = get_prompt('trainer.plugins.memory.analysis_user').format(
-            training_program=program or get_prompt('trainer.plugins.memory.empty_program'),
-            rubrics=rubrics_text or get_prompt('trainer.plugins.memory.empty_rubrics'),
-            old_memory=old_memory or get_prompt('trainer.plugins.memory.empty_memory'),
+        system_prompt = get_prompt('memory.analysis_system')
+        user_prompt = get_prompt('memory.analysis_user').format(
+            training_program=program or get_prompt('memory.empty_program'),
+            rubrics=rubrics_text or get_prompt('memory.empty_rubrics'),
+            old_memory=old_memory or get_prompt('memory.empty_memory'),
             conversations=conversations_text,
         )
 
@@ -357,7 +357,7 @@ class MemoryPluginCore(TrainerPluginCore):
         if not memory:
             return None
 
-        context_prompt = get_prompt('trainer.plugins.memory.context_injection')
+        context_prompt = get_prompt('memory.context_injection')
         context = context_prompt.format(memory=memory)
         return (context, "system", "top")
 

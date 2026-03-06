@@ -38,7 +38,7 @@ def _get_module_config() -> dict:
     try:
         from st_shared.cached import get_config
         cfg = get_config()
-        return cfg.get("modules.semantic_calibrator", {})
+        return cfg.get("semantic_calibrator", {})
     except Exception:
         return {}
 

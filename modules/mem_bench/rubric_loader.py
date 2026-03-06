@@ -13,7 +13,7 @@ from shared.common import _get_service
 def find_rubrics(material_base_dir: Optional[str] = None) -> Dict[str, str]:
     if material_base_dir is None:
         config = _get_service("config")
-        material_base_dir = (config.get("modules.mem_bench.scenarios_dir") if config else None) or "material/mem_bench"
+        material_base_dir = (config.get("mem_bench.scenarios_dir") if config else None) or "material/mem_bench"
 
     found: Dict[str, str] = {}
     if not os.path.isdir(material_base_dir):

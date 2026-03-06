@@ -67,7 +67,7 @@ class MemBenchRunner:
         app_config = config or _get_service("config")
         if app_config is None:
             raise RuntimeError("mem_bench: 'config' service not available")
-        self.config = app_config.get("modules.mem_bench", {})
+        self.config = app_config.get("mem_bench", {})
         self.scenarios_dir = self.config.get("scenarios_dir", "data/mem_bench/scenarios")
         log("info", f"mem_bench: scenarios_dir={self.scenarios_dir}")
 

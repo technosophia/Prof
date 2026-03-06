@@ -27,16 +27,18 @@ def test_prompt_manager():
 
         # Create prompts.yaml for test_module1
         module1_prompts = {
-            "ui": {
-                "title": "📚 Test Module 1",
-                "stats": {
-                    "total_items": "Total Items",
-                    "total_size": "Total Size"
+            "test_module1": {
+                "ui": {
+                    "title": "📚 Test Module 1",
+                    "stats": {
+                        "total_items": "Total Items",
+                        "total_size": "Total Size"
+                    }
+                },
+                "context": {
+                    "header": "CONTEXT FROM MODULE 1:",
+                    "instructions": "Use this context from module 1"
                 }
-            },
-            "context": {
-                "header": "CONTEXT FROM MODULE 1:",
-                "instructions": "Use this context from module 1"
             }
         }
 
@@ -48,11 +50,13 @@ def test_prompt_manager():
         module2_dir.mkdir()
 
         module2_prompts = {
-            "greeting": "Hello, {name}!",
-            "farewell": "Goodbye!",
-            "nested": {
-                "level1": {
-                    "level2": "Deeply nested value"
+            "test_module2": {
+                "greeting": "Hello, {name}!",
+                "farewell": "Goodbye!",
+                "nested": {
+                    "level1": {
+                        "level2": "Deeply nested value"
+                    }
                 }
             }
         }
@@ -65,12 +69,14 @@ def test_prompt_manager():
         shared_dir.mkdir()
 
         shared_prompts = {
-            "common": {
-                "loading": "Loading...",
-                "error": "An error occurred"
-            },
-            "system": {
-                "welcome": "Welcome to the system"
+            "shared": {
+                "common": {
+                    "loading": "Loading...",
+                    "error": "An error occurred"
+                },
+                "system": {
+                    "welcome": "Welcome to the system"
+                }
             }
         }
 

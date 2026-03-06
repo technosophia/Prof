@@ -8,9 +8,9 @@ Supports both legacy and multilingual prompt formats.
 
 import streamlit as st
 import yaml
-from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages  # FIXED: Import the correct function
+from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages
 from st_shared.cached import get_prompt_manager
-
+from shared.prompt_manager import get_prompt_source_file, list_prompt_source_files, list_prompt_keys_by_source_file
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _
@@ -245,14 +245,55 @@ def show_prompt_admin_content():
         lang_suffix = f" ({selected_language})" if multilingual and selected_language else ""
         st.header(f"Module: {selected_module}{lang_suffix}")
 
-        # Source file info
+        # File-centric prompt registry display
         prompt_manager = get_prompt_manager()
         source_file = prompt_manager.get_source_file(
             selected_module,
             selected_language if multilingual else None
         )
         if source_file:
-            st.caption(f"📁 Source: `{source_file}`")
+            st.caption(f"📁 Module source: `{source_file}`")
+
+        keys_by_file = list_prompt_keys_by_source_file(selected_language if multilingual else None)
+        source_files = list_prompt_source_files(selected_language if multilingual else None)
+
+        with st.expander("🗂️ Prompt registry by file", expanded=False):
+            if not source_files:
+                st.info("No prompt files tracked.")
+            else:
+                selected_file = st.selectbox(
+                    "Select a prompt file",
+                    options=source_files,
+                    key=f"prompt_file_selector_{selected_language or 'default'}",
+                )
+                file_keys = keys_by_file.get(selected_file, [])
+                st.code(selected_file)
+                st.caption(f"Keys in file: {len(file_keys)}")
+
+                rows = []
+                for key in file_keys:
+                    key_source = get_prompt_source_file(key, selected_language if multilingual else None)
+                    rows.append({"key": key, "source": key_source or "<unknown>"})
+                if rows:
+                    st.dataframe(rows, width='stretch', hide_index=True)
+                else:
+                    st.info("No keys tracked for this file.")
+
+                with st.expander("All files → keys", expanded=False):
+                    st.json(keys_by_file)
+
+        # Handle scalar prompt values safely
+        if not isinstance(module_prompts, dict):
+            st.info("Selected prompt is a scalar value (not a nested dictionary).")
+            format_prompt_for_display(
+                module_prompts,
+                "",
+                full_module_path=selected_module,
+                language=selected_language,
+                editable=True,
+                instance_id="scalar_prompt",
+            )
+            return
 
         # Create tabs for different views
         tab1, tab2, tab3 = st.tabs(["📄 Tree View", "📋 List View", "📊 Statistics"])
@@ -265,7 +306,7 @@ def show_prompt_admin_content():
                 if not data:
                     return
 
-                for key, value in data.items():
+                for key, value in (data.items() if isinstance(data, dict) else []):
                     current_path = f"{path}.{key}" if path else key
                     indent = "&nbsp;" * (depth * 4)
 
@@ -293,7 +334,7 @@ def show_prompt_admin_content():
 
             def flatten_prompts(data: dict, prefix: str = ""):
                 flat = {}
-                for key, value in data.items():
+                for key, value in (data.items() if isinstance(data, dict) else []):
                     full_key = f"{prefix}.{key}" if prefix else key
                     if isinstance(value, dict):
                         flat.update(flatten_prompts(value, full_key))
@@ -327,7 +368,7 @@ def show_prompt_admin_content():
                 leaf_count = 0
                 total_count = 0
 
-                for value in data.values():
+                for value in (data.values() if isinstance(data, dict) else []):
                     total_count += 1
                     if isinstance(value, dict):
                         sub_leaves, sub_total = count_prompts(value)
@@ -354,7 +395,7 @@ def show_prompt_admin_content():
 
                 def analyze_types(data: dict):
                     types = {}
-                    for value in data.values():
+                    for value in (data.values() if isinstance(data, dict) else []):
                         if isinstance(value, dict):
                             sub_types = analyze_types(value)
                             for type_name, count in sub_types.items():
@@ -435,7 +476,7 @@ def show_prompt_admin_content():
                     if module_data:
                         def count_leaves(data: dict):
                             count = 0
-                            for value in data.values():
+                            for value in (data.values() if isinstance(data, dict) else []):
                                 if isinstance(value, dict):
                                     count += count_leaves(value)
                                 else:
@@ -451,7 +492,7 @@ def show_prompt_admin_content():
                 if module_data:
                     def count_leaves(data: dict):
                         count = 0
-                        for value in data.values():
+                        for value in (data.values() if isinstance(data, dict) else []):
                             if isinstance(value, dict):
                                 count += count_leaves(value)
                             else:
@@ -470,7 +511,7 @@ def show_prompt_admin_content():
                 example_module = get_module_prompts(modules[0])
                 if example_module:
                     def find_example(data: dict):
-                        for key, value in data.items():
+                        for key, value in (data.items() if isinstance(data, dict) else []):
                             if isinstance(value, dict):
                                 result = find_example(value)
                                 if result:
@@ -483,6 +524,8 @@ def show_prompt_admin_content():
                     if example:
                         st.metric("Example Prompt", example[0])
                         st.caption(example[1])
+
+    st.caption(f"Loaded prompt files: {len(list_prompt_source_files(selected_language if multilingual else None))}")
 
 
 

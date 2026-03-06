@@ -51,7 +51,7 @@ class MaterialLoader:
                 f"MaterialLoader: program.md not found at {path}. "
                 f"Check that formation_dir '{formation_dir}' is correct."
             )
-        log("info", f"MaterialLoader: reading program from {path}")
+        log("debug", f"MaterialLoader: reading program from {path}")
         return path.read_text(encoding="utf-8")
 
     def get_rubrics(self, formation_dir: str) -> Dict:
@@ -65,7 +65,7 @@ class MaterialLoader:
                 f"MaterialLoader: rubrics.yaml not found at {path}. "
                 f"Check that formation_dir '{formation_dir}' is correct."
             )
-        log("info", f"MaterialLoader: reading rubrics from {path}")
+        log("debug", f"MaterialLoader: reading rubrics from {path}")
         with open(path, "r", encoding="utf-8") as f:
             try:
                 return yaml.safe_load(f) or {}

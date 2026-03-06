@@ -41,7 +41,7 @@ mock_user_manager.db.is_initialized = Mock(return_value=True)
 def _make_test_config(data_dir: Path) -> dict:
     """Return a plain dict config — no Streamlit caching."""
     cfg = {
-        "modules.rag_manager": {
+        "rag_manager": {
             "data_directory": str(data_dir),
             "allowed_extensions": [".txt", ".md"],
             "max_file_size_mb": 10,
@@ -353,7 +353,7 @@ def test_search_returns_empty_when_rag_disabled(temp_rag_manager, test_user_id):
         assert filename is not None
         assert temp_rag_manager.index_document(filename, "simple", test_user_id) is True
 
-        temp_rag_manager._config._data["modules.rag_manager"]["enabled"] = False
+        temp_rag_manager._config._data["rag_manager"]["enabled"] = False
 
         results = temp_rag_manager.search(test_user_id, "Kevin", engine_type="simple")
         assert results == {}
@@ -363,7 +363,7 @@ def test_search_returns_empty_when_rag_disabled(temp_rag_manager, test_user_id):
     finally:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
-        temp_rag_manager._config._data["modules.rag_manager"].pop("enabled", None)
+        temp_rag_manager._config._data["rag_manager"].pop("enabled", None)
 
 
 def test_search_all_flag_queries_all_engines(temp_rag_manager):
@@ -408,7 +408,7 @@ def test_get_rag_context_returns_query_when_no_result(temp_rag_manager, test_use
 
 
 def test_search_returns_no_results_when_rag_disabled_in_config(temp_rag_manager, test_user_id):
-    """RAG search must be disabled when modules.rag_manager.enabled is false."""
+    """RAG search must be disabled when rag_manager.enabled is false."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write("Kevin lives at 1 place du Louvre, Paris")
         temp_path = f.name
@@ -419,7 +419,7 @@ def test_search_returns_no_results_when_rag_disabled_in_config(temp_rag_manager,
         assert temp_rag_manager.index_document(filename, "simple", test_user_id) is True
 
         # Disable RAG globally by modifying the underlying config data
-        temp_rag_manager._config._data["modules.rag_manager"]["enabled"] = False
+        temp_rag_manager._config._data["rag_manager"]["enabled"] = False
 
         results = temp_rag_manager.search(test_user_id, "Where does Kevin live?", engine_type="simple")
         assert results == {}
@@ -430,7 +430,7 @@ def test_search_returns_no_results_when_rag_disabled_in_config(temp_rag_manager,
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         # Restore config (remove the 'enabled' key we added)
-        temp_rag_manager._config._data["modules.rag_manager"].pop("enabled", None)
+        temp_rag_manager._config._data["rag_manager"].pop("enabled", None)
 
 
 def test_get_rag_context_returns_empty_when_engine_disabled_in_config(temp_rag_manager, test_user_id):
@@ -445,7 +445,7 @@ def test_get_rag_context_returns_empty_when_engine_disabled_in_config(temp_rag_m
         assert temp_rag_manager.index_document(filename, "simple", test_user_id) is True
 
         # Disable the 'simple' engine in the underlying config data
-        temp_rag_manager._config._data["modules.rag_manager"]["engines"]["simple"]["enabled"] = False
+        temp_rag_manager._config._data["rag_manager"]["engines"]["simple"]["enabled"] = False
 
         context = temp_rag_manager.get_rag_context(test_user_id, "Where does Kevin live?", engine_type="simple")
         assert context == ""
@@ -453,4 +453,4 @@ def test_get_rag_context_returns_empty_when_engine_disabled_in_config(temp_rag_m
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         # Restore engine enabled state (remove the key we set)
-        temp_rag_manager._config._data["modules.rag_manager"]["engines"]["simple"].pop("enabled", None)
+        temp_rag_manager._config._data["rag_manager"]["engines"]["simple"].pop("enabled", None)

@@ -316,13 +316,13 @@ class TestRealRAG:
             logger.info("  ✓ Original state restored")
 
     def test_rag_callback_with_rag_disabled_in_config(self, rag_test_setup):
-        """Test that RAG is disabled when modules.rag_manager.enabled = false."""
+        """Test that RAG is disabled when rag_manager.enabled = false."""
         rag_manager = rag_test_setup["rag_manager"]
         user_id = "admin"
 
         # Get the original config value
         original_config = get_config()
-        original_enabled = original_config.get("modules.rag_manager.enabled", True)
+        original_enabled = original_config.get("rag_manager.enabled", True)
 
         try:
             # Disable RAG in config

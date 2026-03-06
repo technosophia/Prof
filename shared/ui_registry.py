@@ -25,6 +25,7 @@ from core.logging import log
 
 def _discover_ui_modules(
     active_modules_tuple: Tuple[str, ...],
+    module_entries: Tuple[Tuple[str, str, str], ...],
     shared_ui_dir: str | None = None,
 ) -> Tuple[Dict[str, Dict], Set[str]]:
     """Cached discovery of all UI modules and their render functions."""
@@ -36,24 +37,26 @@ def _discover_ui_modules(
     project_root = os.path.dirname(current_dir)
     shared_dir = shared_ui_dir or current_dir
 
-    def _recursive_discover(directory: str, is_shared: bool, base_name: str):
+    def _recursive_discover(directory: str, is_shared: bool, base_name: str, import_path: str):
         if not os.path.exists(directory):
             return
 
+        base_dir = os.path.abspath(directory)
+
         for root, dirs, files in os.walk(directory):
             dirs[:] = [d for d in dirs if d != '__pycache__']
+
+            # Do not recurse into nested modules from parent module traversal.
+            if os.path.abspath(root) != base_dir and os.path.exists(os.path.join(root, 'module.json')):
+                dirs[:] = []
+                continue
 
             for file_name in files:
                 if file_name.endswith('_ui.py') and file_name != 'ui_registry.py':
                     file_path = os.path.join(root, file_name)
 
-                    if is_shared:
-                        rel_path = os.path.relpath(file_path, directory)
-                        module_key = rel_path[:-3].replace(os.path.sep, '_')
-                    else:
-                        rel_path = os.path.relpath(file_path, directory)
-                        path_part = rel_path[:-3].replace(os.path.sep, '_')
-                        module_key = f"{base_name}_{path_part}" if path_part else base_name
+                    rel_path = os.path.relpath(file_path, project_root)
+                    module_key = rel_path[:-3].replace(os.path.sep, '_')
 
                     try:
                         spec = importlib.util.spec_from_file_location(module_key, file_path)
@@ -84,7 +87,8 @@ def _discover_ui_modules(
                                 'path': file_path,
                                 'is_shared': is_shared,
                                 'base_name': base_name,
-                                'module': module,  # Store module reference for lazy loading
+                                'import_path': import_path,
+                                'module': module,
                             }
                             log("info", f"Registered UI module: {module_key} with {len(render_functions)} functions: {list(render_functions.keys())}")
                         else:
@@ -93,22 +97,17 @@ def _discover_ui_modules(
                     except Exception as e:
                         log("error", f"Failed to register UI module {module_key}: {str(e)}", stacktrace=True)
 
-    _recursive_discover(shared_dir, is_shared=True, base_name="shared")
+    _recursive_discover(shared_dir, is_shared=True, base_name="shared", import_path="shared")
 
-    modules_dir = os.path.join(project_root, "modules")
-    if os.path.exists(modules_dir):
-        for module_name in os.listdir(modules_dir):
-            module_path = os.path.join(modules_dir, module_name)
-            if os.path.isdir(module_path):
-                if module_name in active_modules:
-                    log("info", f"Module '{module_name}' is ACTIVE, discovering UI files")
-                    _recursive_discover(module_path, is_shared=False, base_name=module_name)
-                else:
-                    log("info", f"Module '{module_name}' is INACTIVE, skipping")
-    else:
-        log("warning", f"Modules directory not found: {modules_dir}")
+    for module_name, module_path, module_import_path in module_entries:
+        if module_name in active_modules:
+            log("info", f"Module '{module_name}' is ACTIVE, discovering UI files")
+            _recursive_discover(module_path, is_shared=False, base_name=module_name, import_path=module_import_path)
+        else:
+            log("info", f"Module '{module_name}' is INACTIVE, skipping")
 
     return modules, injection_points
+
 
 
 class UIRegistry:
@@ -156,9 +155,24 @@ class UIRegistry:
 
         active_modules = self.module_handler.get_active_modules()
         current_hash = tuple(sorted(active_modules))
+        module_entries = tuple(
+            sorted(
+                (
+                    module_name,
+                    module_info.get('path', ''),
+                    module_info.get('import_path', f"modules.{module_name}"),
+                )
+                for module_name, module_info in self.module_handler.get_all_modules().items()
+                if module_info.get('path')
+            )
+        )
 
         if current_hash != self.last_active_hash:
-            self.modules, self.injection_points = _discover_ui_modules(current_hash, self.shared_ui_dir)
+            self.modules, self.injection_points = _discover_ui_modules(
+                current_hash,
+                module_entries,
+                self.shared_ui_dir,
+            )
             self.last_active_hash = current_hash
             # Clear tab cache when modules change
             self._tab_cache.clear()

@@ -75,7 +75,7 @@ def register_trainer_driver_bindings(driver, plugin_manager, trainer_manager, se
         if not content.strip():
             log("warning", "set_training_program: empty content")
             return {"saved": False, "reason": "empty_content"}
-        set_prompt_fn("trainer.teacher.training_program", content)
+        set_prompt_fn("teacher.training_program", content)
         return {"saved": True}
 
     def _action_add_student_note(context: DriverContext, **params) -> Dict:

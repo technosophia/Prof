@@ -144,7 +144,7 @@ class ScorerPlugin(BaseScorerPlugin):
         Falls back to a hardcoded English prompt if the key is not found,
         so the scorer remains functional even before prompts are loaded.
         """
-        template = get_prompt("benchmarker.context_relevance_prompt")
+        template = get_prompt("context_relevance_prompt")
         return template.format(
             user_message=user_message,
             source=source,

@@ -5,7 +5,7 @@ RAG Benchmark Runner Tab
 - Gauge scoring (0.0–1.0) instead of binary pass/fail
 - Per-test best-engine trophy icon
 - Global threshold override slider in UX
-- Judge prompt via prompt_manager (rag_bench.judge_prompt)
+- Judge prompt via prompt_manager (judge_prompt)
 - Enhanced error logging with raw response capture
 """
 
@@ -88,7 +88,7 @@ def render_error_log():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_bench_dir() -> str:
-    return get_config().get("modules.rag_bench.dataset_dir", "data/rag_bench")
+    return get_config().get("dataset_dir", "data/rag_bench")
 
 
 def load_yaml_datasets(bench_dir: str) -> Tuple[List[TestCase], Dict]:
@@ -271,8 +271,8 @@ def score_deterministic(case: TestCase, results: List[Dict]) -> Tuple[float, Dic
 def _get_judge_config() -> Tuple[str, str]:
     cfg = get_config()
     return (
-        cfg.get("modules.rag_bench.judge_model", "qwen3:4b"),
-        cfg.get("modules.rag_bench.ollama_base_url", "http://localhost:11434"),
+        cfg.get("judge_model", "qwen3:4b"),
+        cfg.get("ollama_base_url", "http://localhost:11434"),
     )
 
 
@@ -286,12 +286,12 @@ def _build_judge_prompt(case: TestCase, results: List[Dict]) -> str:
 
     negation_instruction = ""
     if case.negation_keywords:
-        neg_template = get_prompt("rag_bench.judge_negation_instruction")
+        neg_template = get_prompt("judge_negation_instruction")
         negation_instruction = neg_template.format(
             negation_keywords=", ".join(case.negation_keywords)
         )
 
-    template = get_prompt("rag_bench.judge_prompt")
+    template = get_prompt("judge_prompt")
     return template.format(
         question=case.question,
         reference_answer=case.reference_answer,
@@ -530,7 +530,7 @@ def render_benchmark_run_tab():
     st.caption("Run YAML datasets against all available RAG engines.")
 
     cfg = get_config()
-    bench_dir = cfg.get("modules.rag_bench.dataset_dir", "data/rag_bench")
+    bench_dir = cfg.get("dataset_dir", "data/rag_bench")
 
     # ── Config ────────────────────────────────────────────────────────────────
     with st.expander("⚙️ Configuration", expanded=False):
@@ -542,12 +542,12 @@ def render_benchmark_run_tab():
         with col3:
             judge_model = st.text_input(
                 "Judge model (Ollama)",
-                value=cfg.get("modules.rag_bench.judge_model", "qwen3:4b"),
+                value=cfg.get("judge_model", "qwen3:4b"),
                 key="rb_judge_widget"
             )
         st.text_input(
             "Ollama URL",
-            value=cfg.get("modules.rag_bench.ollama_base_url", "http://localhost:11434"),
+            value=cfg.get("ollama_base_url", "http://localhost:11434"),
             key="rb_ollama_widget"
         )
 

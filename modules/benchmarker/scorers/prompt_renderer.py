@@ -58,8 +58,8 @@ class JudgePromptRenderer:
         dimension_lines = "\n".join([f"      {d['id']}: <1-{d.get('scale', 5)}>" for d in rubric.get("dimensions", [])])
         max_scale = max([int(d.get("scale", 5)) for d in rubric.get("dimensions", [])] or [5])
 
-        template = get_prompt("benchmarker.judge_prompt_template", "{scenario_name}\n{evidence_block}\n")
-        response_format_block = get_prompt("benchmarker.judge_response_format", "scores:\n  dimensions:\n{dimension_lines}")
+        template = get_prompt("judge_prompt_template", "{scenario_name}\n{evidence_block}\n")
+        response_format_block = get_prompt("judge_response_format", "scores:\n  dimensions:\n{dimension_lines}")
 
         scenario_meta = session.get("meta", {})
         scenario_name = scenario_meta.get("scenario", "unknown")

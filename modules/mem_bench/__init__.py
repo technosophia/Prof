@@ -12,8 +12,8 @@ def on_module_activated(services) -> None:
     """Initialize mem_bench module services."""
     required = check_services(["config", "driver", "user_manager", "conversation_manager"], services=services, module_name="mem_bench")
     config = required["config"]
-    scenarios_dir = config.get("modules.mem_bench.scenarios_dir", "data/mem_bench/scenarios")
-    output_dir = config.get("modules.mem_bench.output_dir", "data/mem_bench/output")
+    scenarios_dir = config.get("mem_bench.scenarios_dir", "data/mem_bench/scenarios")
+    output_dir = config.get("mem_bench.output_dir", "data/mem_bench/output")
     os.makedirs(scenarios_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
     log("info", "mem_bench: activated")

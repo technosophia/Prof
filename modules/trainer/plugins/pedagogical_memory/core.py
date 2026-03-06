@@ -154,7 +154,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
     def _get_plugin_config(self) -> Dict[str, Any]:
         """Get plugin runtime configuration from injected config."""
         # self.config is guaranteed to be a dict (or dict-like) after initialize()
-        root_config = self.config.get("modules.trainer.plugins.pedagogical_memory", {}) if self.config else {}
+        root_config = self.config.get("pedagogical_memory", {}) if self.config else {}
         config = root_config.get("pedagogical_memory", root_config)
         return {
             "fact_types": config.get("fact_types", {}),
@@ -250,17 +250,17 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         self, trainer_id: str, student_id: str, new_messages: List[Dict[str, Any]], fact_types: Dict[str, str]
     ) -> List[Dict[str, str]]:
         try:
-            training_program = get_prompt("trainer.teacher.training_program")
+            training_program = get_prompt("teacher.training_program")
             conversations_text = ""
             for msg in new_messages:
                 role_symbol = "👤 Student" if msg["role"] == "user" else "🤖 Assistant"
                 conversations_text += f"{role_symbol} ({msg['timestamp']}): {msg['content']}\n\n"
 
-            system_prompt = get_prompt("trainer.plugins.pedagogical_memory.extraction_system").format(
+            system_prompt = get_prompt("pedagogical_memory.extraction_system").format(
                 training_program=training_program,
                 fact_types=self._format_fact_types(fact_types),
             )
-            user_prompt = get_prompt("trainer.plugins.pedagogical_memory.extraction_user").format(
+            user_prompt = get_prompt("pedagogical_memory.extraction_user").format(
                 conversations=conversations_text
             )
 
@@ -335,8 +335,8 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
     async def _decide_reconciliation(self, fact_type: str, existing_content: str, candidate_content: str) -> str:
         try:
             llm_id = get_current_llm_id()
-            system_prompt = get_prompt("trainer.plugins.pedagogical_memory.reconciliation_system")
-            user_prompt = get_prompt("trainer.plugins.pedagogical_memory.reconciliation_user").format(
+            system_prompt = get_prompt("pedagogical_memory.reconciliation_system")
+            user_prompt = get_prompt("pedagogical_memory.reconciliation_user").format(
                 fact_type=fact_type,
                 existing_content=existing_content,
                 candidate_content=candidate_content,
@@ -673,7 +673,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     for fact, _ in top_facts
                 ]
             )
-            context_prompt = get_prompt("trainer.plugins.pedagogical_memory.context_injection")
+            context_prompt = get_prompt("pedagogical_memory.context_injection")
             context = context_prompt.format(facts=facts_text)
             return (context, "system", "top")
         except Exception as e:

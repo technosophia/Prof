@@ -54,7 +54,7 @@ class _DictConfig:
 
 def _make_test_config(data_dir: Path) -> _DictConfig:
     return _DictConfig({
-        "modules.rag_manager": {
+        "rag_manager": {
             "data_directory": str(data_dir),
             "allowed_extensions": [".txt", ".md"],
             "max_file_size_mb": 10,
