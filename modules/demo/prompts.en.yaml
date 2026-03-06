@@ -1,0 +1,8 @@
+# modules/demo/prompt.en.yml
+# Prompts are nested under the module name.
+# Access: get_prompt("demo.system", default, language)
+# The value here is deliberately distinct from the code default so you can
+# see visually whether the prompt file was loaded correctly.
+
+system: "✅ System prompt loaded from prompt.en.yml — You are a helpful demo assistant."
+welcome: "Welcome, {username}! This prompt is loaded from prompt.en.yml."
