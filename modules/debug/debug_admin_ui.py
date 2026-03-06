@@ -275,53 +275,45 @@ def show_config_tab():
     # Show loaded configuration files
     st.subheader("📁 Loaded Configuration Files")
 
-    if hasattr(config, '_loaded_files'):
-        loaded_files = config._loaded_files
-
+    if hasattr(config, 'list_source_files'):
+        loaded_files = config.list_source_files()
         if loaded_files:
             st.write(f"**Total files loaded:** {len(loaded_files)}")
-
-            for filepath, timestamp in loaded_files.items():
-                col_file, col_time = st.columns([3, 1])
-                with col_file:
-                    st.code(filepath)
-                with col_time:
-                    st.caption(timestamp.strftime("%H:%M:%S"))
+            for filepath in loaded_files:
+                st.code(filepath)
         else:
             st.info("No configuration files have been loaded yet")
     else:
         st.warning("Loaded files tracking not available")
 
-    # Show module configurations
+    # Show key → file mapping for debug section
     st.divider()
-    st.subheader("🧩 Module Configurations")
+    st.subheader("🧭 Debug key source mapping")
 
-    if hasattr(config, '_modules'):
-        modules = config._modules
+    if hasattr(config, 'get_key_source_file'):
+        rows = []
 
-        if modules:
-            st.write(f"**Modules with config:** {len(modules)}")
+        def collect_debug_paths(data, prefix="debug"):
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    current = f"{prefix}.{k}" if prefix else k
+                    if isinstance(v, dict):
+                        collect_debug_paths(v, current)
+                    else:
+                        rows.append({
+                            "key": current,
+                            "source": config.get_key_source_file(current) or "<unknown>",
+                            "value": v,
+                        })
 
-            for module_name, module_config in modules.items():
-                with st.expander(f"📦 {module_name}", expanded=False):
-                    st.json(module_config)
+        collect_debug_paths(debug_config if isinstance(debug_config, dict) else {})
 
-                    # Count keys in this module
-                    def count_keys(obj):
-                        if isinstance(obj, dict):
-                            count = 0
-                            for key, value in obj.items():
-                                count += 1  # Count this key
-                                count += count_keys(value)  # Count nested keys
-                            return count
-                        return 0
-
-                    key_count = count_keys(module_config)
-                    st.caption(f"Contains {key_count} configuration keys")
+        if rows:
+            st.dataframe(rows, width='stretch', hide_index=True)
         else:
-            st.info("No module configurations have been injected")
+            st.info("No debug keys found to map.")
     else:
-        st.warning("Module configuration tracking not available")
+        st.warning("Key source mapping not available on config.")
 
 
 def show_ui_registry_tab():

@@ -8,9 +8,9 @@ Supports both legacy and multilingual prompt formats.
 
 import streamlit as st
 import yaml
-from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages  # FIXED: Import the correct function
+from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages
 from st_shared.cached import get_prompt_manager
-
+from shared.prompt_manager import get_prompt_source_file, list_prompt_source_files
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _
@@ -252,7 +252,30 @@ def show_prompt_admin_content():
             selected_language if multilingual else None
         )
         if source_file:
-            st.caption(f"📁 Source: `{source_file}`")
+            st.caption(f"📁 Module source: `{source_file}`")
+
+        # Show source file for each leaf prompt key
+        with st.expander("📂 Prompt key → source file", expanded=False):
+            def _collect_leaf_keys(data: dict, prefix: str = ""):
+                leaves = []
+                for key, value in data.items():
+                    current = f"{prefix}.{key}" if prefix else key
+                    if isinstance(value, dict):
+                        leaves.extend(_collect_leaf_keys(value, current))
+                    else:
+                        leaves.append(current)
+                return leaves
+
+            leaf_keys = _collect_leaf_keys(module_prompts)
+            if not leaf_keys:
+                st.info("No leaf prompt keys found.")
+            else:
+                rows = []
+                for leaf_key in leaf_keys:
+                    full_key = f"{selected_module}.{leaf_key}" if selected_module else leaf_key
+                    key_source = get_prompt_source_file(full_key, selected_language if multilingual else None)
+                    rows.append({"key": full_key, "source": key_source or "<unknown>"})
+                st.dataframe(rows, width='stretch', hide_index=True)
 
         # Create tabs for different views
         tab1, tab2, tab3 = st.tabs(["📄 Tree View", "📋 List View", "📊 Statistics"])
@@ -483,6 +506,8 @@ def show_prompt_admin_content():
                     if example:
                         st.metric("Example Prompt", example[0])
                         st.caption(example[1])
+
+    st.caption(f"Loaded prompt files: {len(list_prompt_source_files(selected_language if multilingual else None))}")
 
 
 

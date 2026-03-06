@@ -34,6 +34,8 @@ class PromptManager:
         self._default_language: str = 'en'
         self._is_multilingual: bool = False
         self._missing_keys_warned: Set[str] = set()
+        self._prompt_key_source_files: Dict[str, str] = {}
+        self._loaded_files: Set[str] = set()
 
     def _deep_merge(self, target: Dict, source: Dict):
         """Deep merge two dictionaries."""
@@ -42,6 +44,27 @@ class PromptManager:
                 self._deep_merge(target[key], value)
             else:
                 target[key] = value
+
+    def _flatten_leaf_keys(self, data: Any, prefix: str = "") -> List[str]:
+        """Return dot-notation leaf keys for nested prompt dictionaries."""
+        if isinstance(data, dict):
+            keys: List[str] = []
+            for key, value in data.items():
+                current = f"{prefix}.{key}" if prefix else key
+                keys.extend(self._flatten_leaf_keys(value, current))
+            return keys
+        return [prefix] if prefix else []
+
+    def _track_prompt_sources(self, prompts: Dict[str, Any], file_path: str, language: Optional[str] = None):
+        """Track source files for prompt leaf keys and warn on duplicates."""
+        self._loaded_files.add(file_path)
+        for leaf_key in self._flatten_leaf_keys(prompts):
+            lookup_key = f"{language}:{leaf_key}" if language else leaf_key
+            previous_file = self._prompt_key_source_files.get(lookup_key)
+            if previous_file and previous_file != file_path:
+                lang_part = f" for language '{language}'" if language else ""
+                log("warning", f"Duplicate prompt key '{leaf_key}'{lang_part} loaded from {file_path}; previous source: {previous_file}")
+            self._prompt_key_source_files[lookup_key] = file_path
 
     def _detect_prompt_files(self, dirpath: str, recursive: bool = True) -> Dict[str, str]:
         """
@@ -166,6 +189,7 @@ class PromptManager:
                         self._deep_merge(self._prompts, prompts)
                         for top_level_key in prompts.keys():
                             self._source_files[top_level_key] = file_path
+                        self._track_prompt_sources(prompts, file_path)
 
                         log("debug", f"Loaded legacy prompts from {file_path} (flat merge)")
 
@@ -181,6 +205,7 @@ class PromptManager:
                         for top_level_key in prompts.keys():
                             source_key = f"{top_level_key}:{lang_code}"
                             self._source_files[source_key] = file_path
+                        self._track_prompt_sources(prompts, file_path, language=lang_code)
 
                         log("debug", f"Loaded {lang_code} prompts from {file_path} (flat merge)")
 
@@ -429,6 +454,8 @@ class PromptManager:
         self._source_files.clear()
         self._available_languages.clear()
         self._missing_keys_warned.clear()
+        self._prompt_key_source_files.clear()
+        self._loaded_files.clear()
 
         # Determine project root
         shared_dir = os.path.dirname(os.path.abspath(__file__))
@@ -532,6 +559,25 @@ class PromptManager:
 
         source_key = f"{module_prefix}:{language}" if module_prefix else f"root:{language}"
         return self._source_files.get(source_key)
+
+    def get_prompt_source_file(self, key: str, language: Optional[str] = None) -> Optional[str]:
+        """Get source file path for a specific prompt key."""
+        if self._is_multilingual:
+            lang = language or self._default_language
+            return self._prompt_key_source_files.get(f"{lang}:{key}")
+        return self._prompt_key_source_files.get(key)
+
+    def list_prompt_source_files(self, language: Optional[str] = None) -> List[str]:
+        """List all loaded prompt source files, optionally filtered by language."""
+        if language is None or not self._is_multilingual:
+            return sorted(self._loaded_files)
+
+        files = set()
+        suffix = f":{language}"
+        for source_key, file_path in self._source_files.items():
+            if source_key.endswith(suffix):
+                files.add(file_path)
+        return sorted(files)
 
     def list_modules(self, language: Optional[str] = None) -> List[str]:
         """List all module prefixes with prompts."""
@@ -662,6 +708,16 @@ def get_module_prompts(module_prefix: str = "", language: Optional[str] = None) 
 def list_modules_with_prompts(language: Optional[str] = None) -> List[str]:
     """List all module prefixes with prompts."""
     return get_prompt_manager().list_modules(language)
+
+
+def get_prompt_source_file(key: str, language: Optional[str] = None) -> Optional[str]:
+    """Get source file for a specific prompt key."""
+    return get_prompt_manager().get_prompt_source_file(key, language)
+
+
+def list_prompt_source_files(language: Optional[str] = None) -> List[str]:
+    """List loaded prompt source files, optionally by language."""
+    return get_prompt_manager().list_prompt_source_files(language)
 
 def get_available_languages() -> List[str]:
     """Get list of dynamic available languages."""

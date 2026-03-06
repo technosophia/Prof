@@ -15,7 +15,7 @@ Key changes:
 import json
 import sys
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from .logging import log
 
 # Constants for config file suffixes
@@ -26,6 +26,8 @@ class Config:
         self._config: dict[str, Any] = {}
         self._source_files: dict[tuple[str, ...], str] = {}
         self._missing_keys_warned: set[str] = set()
+        self._key_source_files: dict[str, str] = {}
+        self._loaded_files: Set[str] = set()
 
         # Optional built-in defaults (kept from your original code)
         defaults = {
@@ -52,6 +54,25 @@ class Config:
             else:
                 target[key] = value
 
+    def _flatten_leaf_keys(self, data: Any, prefix: str = "") -> list[str]:
+        """Return dot-notation leaf keys for a nested dictionary."""
+        if isinstance(data, dict):
+            keys: list[str] = []
+            for key, value in data.items():
+                current = f"{prefix}.{key}" if prefix else key
+                keys.extend(self._flatten_leaf_keys(value, current))
+            return keys
+        return [prefix] if prefix else []
+
+    def _is_override_file(self, file_path: str) -> bool:
+        """Whether this file is an explicit override config file."""
+        normalized = file_path.replace("\\", "/")
+        return (
+            normalized.endswith("/local_config.json")
+            or normalized.endswith("/test_config.json")
+            or normalized.endswith("/tests/test_config.json")
+        )
+
     def load_file(self, file_path: str):
         """Load a single JSON file and merge directly at root level."""
         try:
@@ -62,8 +83,17 @@ class Config:
             # Wrapped module keys are preserved because they are part of file content.
             self._deep_merge(self._config, data)
 
+            self._loaded_files.add(file_path)
+            is_override = self._is_override_file(file_path)
+
             for top_level_key in data.keys():
                 self._source_files[(top_level_key,)] = file_path
+
+            for leaf_key in self._flatten_leaf_keys(data):
+                previous_file = self._key_source_files.get(leaf_key)
+                if previous_file and previous_file != file_path and not is_override:
+                    log("warning", f"Duplicate config key '{leaf_key}' loaded from {file_path}; previous source: {previous_file}")
+                self._key_source_files[leaf_key] = file_path
 
             log("debug", f"Loaded config from {file_path} (flat merge)")
         except Exception as e:
@@ -123,6 +153,14 @@ class Config:
     def values(self):
         """config.values() → top-level values"""
         return self._config.values()
+
+    def get_key_source_file(self, key: str) -> Optional[str]:
+        """Get the source file path for a specific dot-notation config key."""
+        return self._key_source_files.get(key)
+
+    def list_source_files(self) -> list[str]:
+        """List all loaded config file paths."""
+        return sorted(self._loaded_files)
 
     def get_section(self, prefix: str = "") -> dict:
         """Return a copy of an entire section (e.g., prefix='modules.rag')."""
