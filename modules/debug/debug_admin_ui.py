@@ -228,89 +228,44 @@ def show_config_tab():
 
     st.divider()
 
-    # Display all configuration sections
-    st.subheader("📋 All Configuration Sections")
+    # File-centric config registry display
+    st.subheader("📁 Config registry by file")
 
-    # Get all top-level keys in configuration
-    config_dict = config._config if hasattr(config, '_config') else {}
+    if hasattr(config, 'list_source_files') and hasattr(config, 'list_keys_by_source_file'):
+        source_files = config.list_source_files()
+        keys_by_file = config.list_keys_by_source_file()
 
-    if config_dict:
-        # Create tabs for each main section
-        section_names = list(config_dict.keys())
-        config_tabs = st.tabs(section_names)
-
-        for i, section_name in enumerate(section_names):
-            with config_tabs[i]:
-                section_data = config_dict.get(section_name, {})
-
-                if section_name == "debug":
-                    st.info("🔄 This is the debug module configuration")
-
-                # Display as JSON
-                st.json(section_data)
-
-                # Show metadata if available
-                if hasattr(config, '_modules'):
-                    for module_name, module_config in config._modules.items():
-                        if section_name in module_config:
-                            st.caption(f"📍 Source: Module '{module_name}'")
-
-                # Show raw value count
-                def count_values(obj):
-                    if isinstance(obj, dict):
-                        total = 0
-                        for key, value in obj.items():
-                            total += count_values(value)
-                        return total
-                    else:
-                        return 1
-
-                value_count = count_values(section_data)
-                st.caption(f"Contains {value_count} configuration values")
-    else:
-        st.warning("No configuration data found!")
-
-    st.divider()
-
-    # Show loaded configuration files
-    st.subheader("📁 Loaded Configuration Files")
-
-    if hasattr(config, 'list_source_files'):
-        loaded_files = config.list_source_files()
-        if loaded_files:
-            st.write(f"**Total files loaded:** {len(loaded_files)}")
-            for filepath in loaded_files:
-                st.code(filepath)
+        if not source_files:
+            st.info("No configuration files have been loaded yet.")
         else:
-            st.info("No configuration files have been loaded yet")
-    else:
-        st.warning("Loaded files tracking not available")
+            st.caption(f"Loaded config files: {len(source_files)}")
 
-    # Show key → file mapping for debug section
-    st.divider()
-    st.subheader("🧭 Debug key source mapping")
+            selected_file = st.selectbox(
+                "Select a config file",
+                options=source_files,
+                key="debug_config_file_selector",
+            )
 
-    if hasattr(config, 'list_keys_by_source_file'):
-        key_map = config.list_keys_by_source_file()
-        debug_rows = []
-        for file_path, keys in key_map.items():
-            for key in keys:
-                if key.startswith("debug."):
-                    debug_rows.append({
+            file_keys = keys_by_file.get(selected_file, [])
+            st.code(selected_file)
+            st.caption(f"Keys in file: {len(file_keys)}")
+
+            if file_keys:
+                rows = [
+                    {
                         "key": key,
-                        "source": file_path,
                         "value": config.get(key),
-                    })
+                    }
+                    for key in file_keys
+                ]
+                st.dataframe(rows, width='stretch', hide_index=True)
+            else:
+                st.info("No leaf keys tracked for this file.")
 
-        if debug_rows:
-            st.dataframe(debug_rows, width='stretch', hide_index=True)
-        else:
-            st.info("No debug keys found to map.")
-
-        with st.expander("📂 Config keys by file", expanded=False):
-            st.json(key_map)
+            with st.expander("🗂️ All files → keys", expanded=False):
+                st.json(keys_by_file)
     else:
-        st.warning("Key source mapping not available on config.")
+        st.warning("Config source registry APIs are not available.")
 
 
 def show_ui_registry_tab():

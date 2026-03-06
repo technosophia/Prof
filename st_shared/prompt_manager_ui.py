@@ -245,7 +245,7 @@ def show_prompt_admin_content():
         lang_suffix = f" ({selected_language})" if multilingual and selected_language else ""
         st.header(f"Module: {selected_module}{lang_suffix}")
 
-        # Source file info
+        # File-centric prompt registry display
         prompt_manager = get_prompt_manager()
         source_file = prompt_manager.get_source_file(
             selected_module,
@@ -254,31 +254,33 @@ def show_prompt_admin_content():
         if source_file:
             st.caption(f"📁 Module source: `{source_file}`")
 
-        # Show source file for each leaf prompt key
-        with st.expander("📂 Prompt key → source file", expanded=False):
-            def _collect_leaf_keys(data: dict, prefix: str = ""):
-                leaves = []
-                for key, value in data.items():
-                    current = f"{prefix}.{key}" if prefix else key
-                    if isinstance(value, dict):
-                        leaves.extend(_collect_leaf_keys(value, current))
-                    else:
-                        leaves.append(current)
-                return leaves
+        keys_by_file = list_prompt_keys_by_source_file(selected_language if multilingual else None)
+        source_files = list_prompt_source_files(selected_language if multilingual else None)
 
-            leaf_keys = _collect_leaf_keys(module_prompts)
-            if not leaf_keys:
-                st.info("No leaf prompt keys found.")
+        with st.expander("🗂️ Prompt registry by file", expanded=False):
+            if not source_files:
+                st.info("No prompt files tracked.")
             else:
-                rows = []
-                for leaf_key in leaf_keys:
-                    full_key = f"{selected_module}.{leaf_key}" if selected_module else leaf_key
-                    key_source = get_prompt_source_file(full_key, selected_language if multilingual else None)
-                    rows.append({"key": full_key, "source": key_source or "<unknown>"})
-                st.dataframe(rows, width='stretch', hide_index=True)
+                selected_file = st.selectbox(
+                    "Select a prompt file",
+                    options=source_files,
+                    key=f"prompt_file_selector_{selected_language or 'default'}",
+                )
+                file_keys = keys_by_file.get(selected_file, [])
+                st.code(selected_file)
+                st.caption(f"Keys in file: {len(file_keys)}")
 
-        with st.expander("🗂️ Prompt keys by file", expanded=False):
-            st.json(list_prompt_keys_by_source_file(selected_language if multilingual else None))
+                rows = []
+                for key in file_keys:
+                    key_source = get_prompt_source_file(key, selected_language if multilingual else None)
+                    rows.append({"key": key, "source": key_source or "<unknown>"})
+                if rows:
+                    st.dataframe(rows, width='stretch', hide_index=True)
+                else:
+                    st.info("No keys tracked for this file.")
+
+                with st.expander("All files → keys", expanded=False):
+                    st.json(keys_by_file)
 
         # Create tabs for different views
         tab1, tab2, tab3 = st.tabs(["📄 Tree View", "📋 List View", "📊 Statistics"])
