@@ -17,7 +17,7 @@ import json
 
 from st_shared.cached import get_config, get_user_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
-from debug.debug_profiler_tab import show_profiler_tab
+from modules.debug.debug_profiler_tab import show_profiler_tab
 
 
 # Try to import ui_registry for injection point debugging
