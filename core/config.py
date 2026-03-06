@@ -51,31 +51,20 @@ class Config:
             else:
                 target[key] = value
 
-    def load_file(self, file_path: str, prefix_parts: list[str]):
-        """Load a single JSON file and merge it under the given prefix."""
+    def load_file(self, file_path: str):
+        """Load a single JSON file and merge directly at root level."""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # === NEW: Optional auto-flattening for legacy wrapped module configs ===
-            # If the config is wrapped under a single key matching the last prefix part
-            # (e.g., {"rag_manager": { ... }} in modules/rag_manager/config.json),
-            # flatten it so the settings end up directly under "modules.rag_manager"
-            if prefix_parts:
-                last_part = prefix_parts[-1]
-                if len(data) == 1 and last_part in data and isinstance(data[last_part], dict):
-                    log("debug", f"Auto-flattening wrapped config: {file_path} (using inner '{last_part}')")
-                    data = data[last_part]
+            # Keep file-content namespaces as-is (no path-derived prefixing).
+            # Wrapped module keys are preserved because they are part of file content.
+            self._deep_merge(self._config, data)
 
-            current = self._config
-            for part in prefix_parts:
-                current = current.setdefault(part, {})
+            for top_level_key in data.keys():
+                self._source_files[(top_level_key,)] = file_path
 
-            self._deep_merge(current, data)
-            self._source_files[tuple(prefix_parts)] = file_path
-
-            prefix_str = ".".join(prefix_parts) if prefix_parts else "root"
-            log("debug", f"Loaded config from {file_path} (prefix: {prefix_str})")
+            log("debug", f"Loaded config from {file_path} (flat merge)")
         except Exception as e:
             print(f"Error loading config file {file_path}: {e}")
 
@@ -190,21 +179,19 @@ def load_all_configs(root_dir: str, additional_prefixes: Optional[List[str]] = N
         if "tests" in dirnames:
             dirnames.remove("tests")  # prevent recursion into tests/
         if CONFIG_FILE in filenames:
-            rel_path = os.path.relpath(dirpath, root_dir)
-            prefix_parts = rel_path.split(os.sep) if rel_path != "." else []
-            base_config_dirs.append((dirpath, prefix_parts))
+            base_config_dirs.append(dirpath)
 
             # Load base config first
             file_path = os.path.join(dirpath, CONFIG_FILE)
-            config.load_file(file_path, prefix_parts)
+            config.load_file(file_path)
 
     # Second pass: load additional prefixed config files where base config exists
     for prefix in additional_prefixes:
         config_file = f"{prefix}_{CONFIG_FILE}"
-        for dirpath, prefix_parts in base_config_dirs:
+        for dirpath in base_config_dirs:
             file_path = os.path.join(dirpath, config_file)
             if os.path.exists(file_path):
-                config.load_file(file_path, prefix_parts)
+                config.load_file(file_path)
 
     return config
 
@@ -253,7 +240,7 @@ def _load_config() -> Config:
         # Try to load root config directly
         root_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), CONFIG_FILE)
         if os.path.exists(root_config_path):
-            fallback_config.load_file(root_config_path, [])
+            fallback_config.load_file(root_config_path)
 
         log("warning", f"Using fallback configuration due to error: {e}")
         return fallback_config

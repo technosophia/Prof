@@ -22,7 +22,7 @@ def get_demo_config_value(config) -> str:
     config.json in modules/demo/ auto-loads under the prefix 'modules.demo.*'.
     Returns a recognizable sentinel if the key is absent (visual check in UI).
     """
-    return config.get("modules.demo.greeting", "⚠ CONFIG NOT LOADED")
+    return config.get("greeting", "⚠ CONFIG NOT LOADED")
 
 
 def get_demo_translation(translate_fn, key: str = "demo.section_title") -> str:
@@ -38,10 +38,10 @@ def get_demo_translation(translate_fn, key: str = "demo.section_title") -> str:
 def get_demo_prompt(prompt_manager, language: str = "en") -> str:
     """
     Read a prompt from prompt.en.yml (or .fr.yml for French).
-    Prompts are nested under the module name: demo.system, demo.welcome, etc.
+    Prompts are nested under the module name: system, demo.welcome, etc.
     Returns a recognizable sentinel if the prompt file is not loaded.
     """
-    return prompt_manager.get_prompt("demo.system", "⚠ PROMPT NOT LOADED", language)
+    return prompt_manager.get_prompt("system", "⚠ PROMPT NOT LOADED", language)
 
 
 # ─── Users ───────────────────────────────────────────────────────────────────

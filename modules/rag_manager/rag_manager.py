@@ -102,7 +102,7 @@ class RAGManager:
         """
         Args:
             config:       A dict-like config object. Must support
-                          config.get("modules.rag_manager", {}).
+                          config.get("rag_manager", {}).
             user_manager: User manager instance with get_user(), get_children(),
                           and register_before_delete_callback() methods.
             cache_fn:     Optional caching decorator (e.g. st.cache_resource).
@@ -155,7 +155,7 @@ class RAGManager:
 
     def _get_rag_config(self) -> Dict:
         """Extract the rag_manager section from config."""
-        return self._config.get("modules.rag_manager", {})
+        return self._config.get("rag_manager", {})
 
     def refresh_config(self) -> None:
         """Re-read config from the injected config object."""

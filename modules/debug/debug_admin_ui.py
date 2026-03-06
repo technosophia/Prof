@@ -17,7 +17,7 @@ import json
 
 from st_shared.cached import get_config, get_user_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
-from modules.debug.debug_profiler_tab import show_profiler_tab
+from debug.debug_profiler_tab import show_profiler_tab
 
 
 # Try to import ui_registry for injection point debugging
@@ -195,7 +195,7 @@ def show_config_tab():
     config = get_config()
 
     # Check for debug module configuration
-    debug_config = config.get("modules.debug", {})
+    debug_config = config.get("debug", {})
 
     if not debug_config:
         st.warning("⚠️ Debug configuration not found! The 'debug' section is missing from the configuration.")

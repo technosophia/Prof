@@ -83,7 +83,7 @@ def inject_ui_sidebar():
 
         from st_shared.cached import get_config
         config = get_config()
-        current_default = config.get("modules.rag_manager.default_engine", "simple")
+        current_default = config.get("rag_manager.default_engine", "simple")
 
         engine_options = [e['type'] for e in available_engines]
         current_index = engine_options.index(current_default) if current_default in engine_options else 0
@@ -153,7 +153,7 @@ def inject_ui_sidebar():
                     with open(rag_config_path, 'w', encoding='utf-8') as f:
                         json.dump(rag_config_data, f, indent=2, ensure_ascii=False)
 
-                    config.set("modules.rag_manager.default_engine", selected_engine)
+                    config.set("rag_manager.default_engine", selected_engine)
                     rag_manager.default_engine = selected_engine
                     changes_made = True
 

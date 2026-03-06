@@ -151,25 +151,6 @@ class PromptManager:
             else:
                 multilingual_detected = True
 
-            # Calculate module prefix based on full directory structure from root
-            rel_path = os.path.relpath(dirpath, root_dir)
-            if rel_path == ".":
-                prefix = ""
-            else:
-                # Split the path and create a dot-separated prefix that includes subdirectories
-                parts = rel_path.split(os.sep)
-
-                # Handle special top-level directories
-                if parts[0] == "shared":
-                    # For shared directory, use full path
-                    prefix = ".".join(parts)
-                elif parts[0] == "modules" and len(parts) > 1:
-                    # For modules, start from the module name (skip 'modules' directory)
-                    prefix = ".".join(parts[1:])  # This preserves subdirectories
-                else:
-                    # For other directories, use full path
-                    prefix = ".".join(parts)
-
             # Load prompt files
             for lang_code, file_path in prompt_files.items():
                 try:
@@ -180,42 +161,27 @@ class PromptManager:
                         continue
 
                     if lang_code == 'default':
-                        # Legacy format - load into single prompts dict
-                        if not prefix:
-                            self._deep_merge(self._prompts, prompts)
-                            self._source_files["root"] = file_path
-                        else:
-                            current = self._prompts
-                            for part in prefix.split("."):
-                                if part not in current:
-                                    current[part] = {}
-                                current = current[part]
-                            self._deep_merge(current, prompts)
-                            self._source_files[prefix] = file_path
+                        # Legacy format - merge directly at root
+                        self._deep_merge(self._prompts, prompts)
+                        for top_level_key in prompts.keys():
+                            self._source_files[top_level_key] = file_path
 
-                        log("debug", f"Loaded legacy prompts from {file_path} (prefix: '{prefix or 'root'}')")
+                        log("debug", f"Loaded legacy prompts from {file_path} (flat merge)")
 
                     else:
-                        # Multilingual format - FORCE create the language entry
+                        # Multilingual format - merge directly at language root
                         if lang_code not in self._multilingual_prompts:
                             self._multilingual_prompts[lang_code] = {}
                             self._available_languages.add(lang_code)
 
                         current = self._multilingual_prompts[lang_code]
+                        self._deep_merge(current, prompts)
 
-                        if not prefix:
-                            self._deep_merge(current, prompts)
-                        else:
-                            for part in prefix.split("."):
-                                if part not in current:
-                                    current[part] = {}
-                                current = current[part]
-                            self._deep_merge(current, prompts)
+                        for top_level_key in prompts.keys():
+                            source_key = f"{top_level_key}:{lang_code}"
+                            self._source_files[source_key] = file_path
 
-                        source_key = f"{prefix}:{lang_code}" if prefix else f"root:{lang_code}"
-                        self._source_files[source_key] = file_path
-
-                        log("debug", f"Loaded {lang_code} prompts from {file_path} (prefix: '{prefix or 'root'}')")
+                        log("debug", f"Loaded {lang_code} prompts from {file_path} (flat merge)")
 
                 except Exception as e:
                     log("error", f"Error loading prompts from {file_path}: {e}")

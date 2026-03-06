@@ -328,7 +328,7 @@ class SuggestPluginCore(TrainerPluginCore):
 
             # Prepare messages for LLM (just the user prompt, no conversation history)
             messages_for_llm = [
-                {"role": "system", "content": get_prompt('trainer.teacher.system_prompt')},
+                {"role": "system", "content": get_prompt('teacher.system_prompt')},
                 {"role": "user", "content": prompt}
             ]
 

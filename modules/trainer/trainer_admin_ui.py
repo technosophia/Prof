@@ -265,7 +265,7 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
     from modules.trainer.material_loader import MaterialLoader
 
     st.subheader("System Prompt")
-    current_prompt = get_prompt('trainer.teacher.system_prompt')
+    current_prompt = get_prompt('teacher.system_prompt')
     st.info(current_prompt)
 
     st.divider()

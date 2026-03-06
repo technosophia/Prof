@@ -98,14 +98,14 @@ class TestInfrastructure:
 
     def test_config_value_is_loaded(self):
         """
-        modules.demo.greeting must be present in config.
+        greeting must be present in config.
         If this fails, check that config.json auto-loading works for this module
         (the core/config.py walk must reach modules/demo/config.json).
         """
         cfg = get_config()
         value = get_demo_config_value(cfg)
         assert value != "⚠ CONFIG NOT LOADED", (
-            "Config key 'modules.demo.greeting' not found. "
+            "Config key 'greeting' not found. "
             "Verify config.json is in modules/demo/ and the config loader walks that path."
         )
         assert isinstance(value, str) and len(value) > 0
@@ -127,11 +127,11 @@ class TestInfrastructure:
         assert result == "[demo.nonexistent]"
 
     def test_prompt_is_loaded(self):
-        """demo.system prompt must be present in prompt.en.yml."""
+        """system prompt must be present in prompt.en.yml."""
         pm = get_prompt_manager()
         result = get_demo_prompt(pm)
         assert result != "⚠ PROMPT NOT LOADED", (
-            "Prompt 'demo.system' not found. "
+            "Prompt 'system' not found. "
             "Verify prompt.en.yml is in modules/demo/ and the prompt loader scans that path."
         )
         assert isinstance(result, str) and len(result) > 0
