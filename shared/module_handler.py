@@ -16,6 +16,7 @@ Key Features:
 - Integrates with UI registry for selective module loading
 - Auto-discovery of translations and prompts
 - Auto-discovery of injection points for UI integration with main App
+- Supports local_modules.json override for development/testing
 
 NO STREAMLIT DEPENDENCY. This module must remain importable without Streamlit.
 All Streamlit-specific logic belongs in ui_registry.py or *_ui.py files.
@@ -85,6 +86,13 @@ from core.service import ServiceLocator
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+LOCAL_MODULES_FILE = "local_modules.json"  # Local override file
+
+
+# ---------------------------------------------------------------------------
 # Module discovery helpers (no Streamlit, pure filesystem)
 # ---------------------------------------------------------------------------
 
@@ -119,8 +127,14 @@ def _compute_modules_signature() -> str:
     return ";".join(sorted(sig_parts))
 
 
-def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
-    """Cached discovery of all potential modules from disk."""
+def _load_potential_modules(_signature: str, filter_modules: Optional[Set[str]] = None) -> Dict[str, Dict]:
+    """
+    Cached discovery of all potential modules from disk.
+
+    If filter_modules is provided, only modules whose names are in the set
+    will be included. This is used when local_modules.json overrides are active
+    to limit which modules are considered available.
+    """
     modules_dir = Path("modules")
     if not modules_dir.exists():
         log("warning", f"Modules directory not found: {modules_dir}")
@@ -136,6 +150,11 @@ def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
 
         module_dir = Path(root)
         module_name = module_dir.name
+
+        # Skip if filter is active and module not in filter set
+        if filter_modules is not None and module_name not in filter_modules:
+            log("debug", f"Skipping module '{module_name}' (not in local override filter)")
+            continue
 
         if module_name in potential:
             log("warning", f"Duplicate module basename '{module_name}' detected at {module_dir}; keeping first occurrence at {potential[module_name]['path']}")
@@ -185,8 +204,40 @@ def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
             'has_new_hooks': has_new_hooks,
         }
 
-    log("info", f"Cached discovery completed: {len(potential)} potential modules found")
+    log("info", f"Cached discovery completed: {len(potential)} potential modules found" +
+                (f" (filtered by local override)" if filter_modules is not None else ""))
     return potential
+
+
+def _load_override_module_list(override_file: str) -> Optional[Set[str]]:
+    """
+    Load the list of module names from a local override file.
+
+    Returns a set of module names that should be considered available,
+    or None if the override file doesn't exist or is invalid.
+    """
+    if not os.path.exists(override_file):
+        return None
+
+    try:
+        with open(override_file, 'r') as f:
+            data = json.load(f)
+
+        # Get active_modules list from the override file
+        active_modules = data.get('active_modules', [])
+
+        # Also include any modules that might be mentioned elsewhere?
+        # For now, we'll just use the active_modules list as the definitive
+        # list of modules that should exist when override is active.
+        # This means if you remove a module from active_modules in the override,
+        # it completely disappears from the system.
+
+        module_set = set(active_modules)
+        log("info", f"Loaded override module list: {len(module_set)} modules will be available")
+        return module_set
+    except Exception as e:
+        log("error", f"Failed to parse override file {override_file}: {str(e)}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -198,12 +249,20 @@ class ModuleHandler:
     Handles module discovery, activation, and management.
 
     No Streamlit dependency. All UI concerns are delegated to ui_registry.py.
+
+    Supports local_modules.json override for development/testing purposes.
+    If local_modules.json exists alongside modules.json, it will be used
+    instead of modules.json for module activation status AND to filter
+    which modules are considered available in the system.
     """
 
     def __init__(self):
         self.modules: Dict[str, Dict] = {}
         self.active_modules: Set[str] = set()
         self.modules_file = "modules.json"
+        self.local_modules_file = LOCAL_MODULES_FILE
+        self._using_local_override = False
+        self._override_module_filter: Optional[Set[str]] = None
         self._initialized = False
         self._services: Optional[ServiceLocator] = None
 
@@ -228,58 +287,130 @@ class ModuleHandler:
     # Persistence
     # ------------------------------------------------------------------
 
+    def _get_modules_file_path(self) -> str:
+        """
+        Determine which modules file to use.
+
+        Returns the path to local_modules.json if it exists and should override,
+        otherwise returns the path to modules.json.
+        """
+        # Check if local override exists
+        if os.path.exists(self.local_modules_file):
+            log("info", f"Using local override: {self.local_modules_file}")
+            self._using_local_override = True
+            return self.local_modules_file
+
+        self._using_local_override = False
+        self._override_module_filter = None
+        return self.modules_file
+
     def _load_modules_file(self):
-        if os.path.exists(self.modules_file):
+        """Load modules from either modules.json or local_modules.json."""
+        modules_file_path = self._get_modules_file_path()
+
+        if os.path.exists(modules_file_path):
             try:
-                with open(self.modules_file, 'r') as f:
+                with open(modules_file_path, 'r') as f:
                     data = json.load(f)
                     self.active_modules = set(data.get('active_modules', []))
-                    log("debug", f"Loaded modules file: {len(self.active_modules)} active modules")
+
+                    # If using local override, also capture the module filter
+                    if self._using_local_override:
+                        # The active_modules list becomes our filter for which modules exist
+                        self._override_module_filter = set(self.active_modules)
+                        log("info", f"Local override active: module list filtered to {len(self._override_module_filter)} modules")
+
+                    log("debug", f"Loaded modules file: {len(self.active_modules)} active modules from {os.path.basename(modules_file_path)}")
             except Exception as e:
-                log("error", f"Failed to load {self.modules_file}: {str(e)}")
+                log("error", f"Failed to load {modules_file_path}: {str(e)}")
                 self.active_modules = set()
+                if self._using_local_override:
+                    self._override_module_filter = set()
         else:
             self.active_modules = set()
+            if self._using_local_override:
+                self._override_module_filter = set()
 
     def _save_modules_file(self):
+        """
+        Save modules to the appropriate file.
+
+        If using local override, save to local_modules.json to preserve the override.
+        Otherwise, save to modules.json.
+        """
+        # If we're currently using local override, save to local file
+        # This ensures that toggles made during development stay in the local file
+        target_file = self.local_modules_file if self._using_local_override else self.modules_file
+
         try:
             data = {
                 'active_modules': sorted(self.active_modules),
-                'total_modules': len(self.modules)
+                'total_modules': len(self.modules),
+                '_note': "This file overrides modules.json for development/testing" if target_file == self.local_modules_file else None
             }
-            with open(self.modules_file, 'w') as f:
+            # Remove None values
+            data = {k: v for k, v in data.items() if v is not None}
+
+            with open(target_file, 'w') as f:
                 json.dump(data, f, indent=2)
-            log("debug", f"Saved modules file: {len(self.active_modules)} active modules")
+
+            log("debug", f"Saved modules file: {len(self.active_modules)} active modules to {os.path.basename(target_file)}")
+
+            # If we just saved to local override, update the filter
+            if self._using_local_override:
+                self._override_module_filter = set(self.active_modules)
+                log("info", f"Updated local override filter: {len(self._override_module_filter)} modules now available")
+
         except Exception as e:
-            log("error", f"Failed to save {self.modules_file}: {str(e)}")
+            log("error", f"Failed to save {target_file}: {str(e)}")
+
+    def is_using_local_override(self) -> bool:
+        """Return whether local_modules.json is currently being used as override."""
+        return self._using_local_override
+
+    def get_available_modules_count(self) -> int:
+        """Return the number of modules available in the current configuration."""
+        if not self._initialized:
+            self.initialize()
+        return len(self.modules)
 
     # ------------------------------------------------------------------
     # Discovery / sync
     # ------------------------------------------------------------------
 
     def _sync_with_disk(self):
-        """Synchronize internal state with disk."""
+        """Synchronize internal state with disk, respecting local override filter."""
         signature = _compute_modules_signature()
-        potential_modules = _load_potential_modules(signature)
+
+        # Pass the override filter to module discovery
+        potential_modules = _load_potential_modules(signature, self._override_module_filter)
 
         updated = False
 
+        # Add or update modules
         for name, info in potential_modules.items():
             if name not in self.modules:
                 self.modules[name] = info
-                if info.get('enabled_by_default', True) and name not in self.active_modules:
-                    self.active_modules.add(name)
-                    log("info", f"Auto-activated new module '{name}' (enabled by default)")
-                    updated = True
+                # Only auto-activate if the module is in our active set or enabled by default
+                if name in self.active_modules:
+                    # Already active, nothing to do
+                    pass
+                elif info.get('enabled_by_default', True) and name not in self.active_modules:
+                    # Only auto-activate if not using override filter or if in override filter
+                    if self._override_module_filter is None or name in self._override_module_filter:
+                        self.active_modules.add(name)
+                        log("info", f"Auto-activated new module '{name}' (enabled by default)")
+                        updated = True
             else:
                 self.modules[name].update(info)
 
+        # Remove modules that no longer exist on disk OR are filtered out by override
         for name in list(self.modules.keys()):
             if name not in potential_modules:
                 del self.modules[name]
                 if name in self.active_modules:
                     self.active_modules.remove(name)
-                    log("info", f"Deactivated and removed deleted module '{name}'")
+                    log("info", f"Deactivated and removed module '{name}' (no longer available)")
                     updated = True
 
         if updated:
@@ -295,8 +426,9 @@ class ModuleHandler:
         """
         Initialize the module handler.
 
-        Must be called before using any other methods. Loads modules.json and
-        synchronizes with the filesystem to discover all available modules.
+        Must be called before using any other methods. Loads modules.json (or
+        local_modules.json if it exists) and synchronizes with the filesystem
+        to discover all available modules.
 
         Does NOT call any module hooks. Call activate_all() separately when
         the ServiceLocator is ready.
@@ -307,7 +439,7 @@ class ModuleHandler:
         self._load_modules_file()
         self._sync_with_disk()
         self._initialized = True
-        log("info", "Module handler fully initialized")
+        log("info", f"Module handler fully initialized (using local override: {self._using_local_override})")
 
     def activate_all(self) -> None:
         """
@@ -354,6 +486,12 @@ class ModuleHandler:
             self.initialize()
         return self.modules.get(module_name)
 
+    def module_exists(self, module_name: str) -> bool:
+        """Check if a module exists in the current configuration."""
+        if not self._initialized:
+            self.initialize()
+        return module_name in self.modules
+
     # ------------------------------------------------------------------
     # Import-cache helpers
     # ------------------------------------------------------------------
@@ -394,6 +532,10 @@ class ModuleHandler:
         called exclusively by ui_registry.py in a Streamlit context.
         """
         module_info = self.modules.get(module_name, {})
+        if not module_info:
+            log("debug", f"Module hook skipped for {module_name}: module not found")
+            return
+
         module_path = module_info.get("import_path", f"modules.{module_name}")
         try:
             package = importlib.import_module(module_path)
@@ -429,6 +571,9 @@ class ModuleHandler:
         """Refresh module cache and invoke on_module_config_changed hook."""
         if module_name not in self.modules:
             self.refresh()
+            if module_name not in self.modules:
+                log("warning", f"Cannot notify config change for module '{module_name}': not found")
+                return
 
         self._refresh_module_cache(module_name)
         self._call_module_hook(module_name, "on_module_config_changed")
@@ -447,6 +592,9 @@ class ModuleHandler:
         calling inject_ui_initialize() to set up Streamlit state.
 
         When deactivating, on_module_deactivated() is called regardless of style.
+
+        Changes are saved to the appropriate modules file (modules.json or
+        local_modules.json if override is active).
         """
         if not self._initialized:
             self.initialize()
@@ -491,7 +639,7 @@ class ModuleHandler:
             self.initialize()
 
         if module_name not in self.modules:
-            log("error", f"Cannot load UI for module '{module_name}': not found")
+            log("error", f"Cannot load module '{module_name}': not found")
             return None
 
         module_info = self.modules[module_name]
@@ -517,6 +665,71 @@ class ModuleHandler:
         except Exception as e:
             log("error", f"Failed to load UI module {module_name}: {str(e)}", stacktrace=True)
             return None
+
+    # ------------------------------------------------------------------
+    # Local override management
+    # ------------------------------------------------------------------
+
+    def create_local_override(self) -> bool:
+        """
+        Create a local_modules.json file based on current modules.json.
+
+        This allows developers to "fork" the module configuration for local
+        development without affecting the main modules.json file.
+
+        Returns True if successful, False otherwise.
+        """
+        if not os.path.exists(self.modules_file):
+            log("error", f"Cannot create local override: {self.modules_file} does not exist")
+            return False
+
+        try:
+            # Load current modules.json
+            with open(self.modules_file, 'r') as f:
+                data = json.load(f)
+
+            # Add a note about it being a local override
+            data['_note'] = "This file overrides modules.json for development/testing"
+
+            # Save as local_modules.json
+            with open(self.local_modules_file, 'w') as f:
+                json.dump(data, f, indent=2)
+
+            log("info", f"Created local override file: {self.local_modules_file}")
+
+            # Refresh to start using the local override
+            if self._initialized:
+                self._load_modules_file()
+                self._sync_with_disk()
+
+            return True
+        except Exception as e:
+            log("error", f"Failed to create local override: {str(e)}")
+            return False
+
+    def remove_local_override(self) -> bool:
+        """
+        Remove the local_modules.json override file.
+
+        Returns True if successful or file didn't exist, False on error.
+        """
+        if not os.path.exists(self.local_modules_file):
+            log("info", "No local override file to remove")
+            return True
+
+        try:
+            os.remove(self.local_modules_file)
+            log("info", f"Removed local override file: {self.local_modules_file}")
+
+            # Refresh to revert to modules.json
+            if self._initialized:
+                self._load_modules_file()
+                self._sync_with_disk()
+
+            return True
+        except Exception as e:
+            log("error", f"Failed to remove local override: {str(e)}")
+            return False
 
 
 # ---------------------------------------------------------------------------
@@ -557,3 +770,36 @@ def get_services() -> Optional[ServiceLocator]:
 def set_services(services: ServiceLocator) -> None:
     """[api] Set the ServiceLocator on the global module handler."""
     module_handler.set_services(services)
+
+
+def is_using_local_override() -> bool:
+    """Convenience function to check if local_modules.json override is active."""
+    return module_handler.is_using_local_override()
+
+
+def create_local_override() -> bool:
+    """Convenience function to create a local_modules.json override file."""
+    return module_handler.create_local_override()
+
+
+def remove_local_override() -> bool:
+    """Convenience function to remove the local_modules.json override file."""
+    return module_handler.remove_local_override()
+
+
+def load_module_ui(module_name: str) -> Optional[object]:
+    """[api] Convenience function to load a module's UI component."""
+    module_handler.initialize()
+    return module_handler.load_module_ui(module_name)
+
+
+def module_exists(module_name: str) -> bool:
+    """[api] Convenience function to check if a module exists."""
+    module_handler.initialize()
+    return module_handler.module_exists(module_name)
+
+
+def get_available_modules_count() -> int:
+    """[api] Convenience function to get the number of available modules."""
+    module_handler.initialize()
+    return module_handler.get_available_modules_count()

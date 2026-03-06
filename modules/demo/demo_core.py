@@ -10,6 +10,7 @@ Organized by the demo module's own sections, not by shared service structure.
 """
 
 import asyncio
+import os, sys
 from typing import Any, Optional
 from core.logging import log
 
@@ -251,8 +252,10 @@ def demo_on_module_activated(services) -> None:
         record_plugin_event,
     )
 
-    register_llm_context_callback(_demo_context_provider)
-    register_user_message_callback(_demo_on_user_message)
+    test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
+    if test_mode:
+        register_llm_context_callback(_demo_context_provider)
+        register_user_message_callback(_demo_on_user_message)
 
     register_option(
         group=_PLUGIN_ID,
@@ -283,6 +286,8 @@ def demo_on_module_deactivated() -> None:
         unregister_llm_context_callback,
         unregister_user_message_callback,
     )
-    unregister_llm_context_callback(_demo_context_provider)
-    unregister_user_message_callback(_demo_on_user_message)
+    test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
+    if test_mode:
+        unregister_llm_context_callback(_demo_context_provider)
+        unregister_user_message_callback(_demo_on_user_message)
     log("info", "[demo] module deactivated")

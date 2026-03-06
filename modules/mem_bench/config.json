@@ -1,5 +1,7 @@
 {
-  "scenarios_dir": "material",
-  "output_dir": "data/mem_bench/output",
-  "cleanup_user_after_run": true
+  "mem_bench": {
+    "scenarios_dir": "material",
+    "output_dir": "data/mem_bench/output",
+    "cleanup_user_after_run": true
+  }
 }

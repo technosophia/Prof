@@ -1,5 +1,5 @@
 {
   "dataset_dir": "material/rag_bench",
-  "judge_model": "qwen3.5",
+  "judge_model": "qwen2.5:7b",
   "ollama_base_url": "http://localhost:11434"
 }
