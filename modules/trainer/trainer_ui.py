@@ -12,4 +12,4 @@ def inject_ui_initialize():
 
 def inject_ui_main_footer():
     """Render trainer module footer placeholder."""
-    st.write("Trainer module content")
+    pass

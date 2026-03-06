@@ -2,6 +2,7 @@
   "active_modules": [
     "benchmarker",
     "debug",
+    "demo",
     "llm_monitor",
     "mem_bench",
     "rag_bench",
@@ -10,5 +11,5 @@
     "test",
     "trainer"
   ],
-  "total_modules": 9
+  "total_modules": 10
 }

@@ -1,0 +1,25 @@
+{
+  "demo": {
+    "section_title": "Démo",
+    "section_description": "Référence vivante pour construire des modules. Chaque onglet montre un patron.",
+    "tab_infrastructure": "Infrastructure",
+    "tab_users": "Utilisateurs",
+    "tab_conversations": "Conversations",
+    "tab_llm": "LLM",
+    "tab_services": "Services",
+    "infra_config_label": "Config (modules.demo.greeting)",
+    "infra_translation_label": "Traduction (demo.check_translation)",
+    "infra_prompt_label": "Prompt (demo.system)",
+    "check_translation": "✅ Traduction chargée depuis translations/fr.json",
+    "users_title": "Utilisateurs [FR]",
+    "conversations_title": "Conversations [FR]",
+    "conversations_no_user": "Aucun utilisateur trouvé",
+    "conversations_create": "Créer une conversation",
+    "conversations_send": "Envoyer",
+    "llm_title": "LLM [FR]",
+    "llm_send": "Générer",
+    "llm_response_label": "Réponse",
+    "services_title": "Services [FR]",
+    "services_missing": "MANQUANT"
+  }
+}

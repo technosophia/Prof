@@ -1,0 +1,3 @@
+# modules/demo/prompt.fr.yml
+system: "✅ Prompt système chargé depuis prompt.fr.yml — Tu es un assistant démo utile."
+welcome: "Bienvenue, {username} ! Ce prompt est chargé depuis prompt.fr.yml."
