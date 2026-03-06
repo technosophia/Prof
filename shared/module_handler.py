@@ -95,21 +95,28 @@ def _compute_modules_signature() -> str:
         return "no_modules_dir"
 
     sig_parts = []
-    for module_dir in sorted(modules_dir.iterdir()):
-        if module_dir.is_dir():
-            name = module_dir.name
-            mj_path = module_dir / "module.json"
-            mj_mtime = mj_path.stat().st_mtime if mj_path.exists() else 0.0
+    for root, dirs, files in os.walk(modules_dir):
+        dirs.sort()
+        files.sort()
 
-            ui_path = module_dir / f"{name}_ui.py"
-            ui_mtime = ui_path.stat().st_mtime if ui_path.exists() else 0.0
+        root_path = Path(root)
+        if "module.json" not in files:
+            continue
 
-            cfg_path = module_dir / CONFIG_FILE
-            cfg_mtime = cfg_path.stat().st_mtime if cfg_path.exists() else 0.0
+        rel_dir = root_path.relative_to(modules_dir)
+        name = root_path.name
+        mj_path = root_path / "module.json"
+        mj_mtime = mj_path.stat().st_mtime if mj_path.exists() else 0.0
 
-            sig_parts.append(f"{name}:{mj_mtime:.0f}:{ui_mtime:.0f}:{cfg_mtime:.0f}")
+        ui_path = root_path / f"{name}_ui.py"
+        ui_mtime = ui_path.stat().st_mtime if ui_path.exists() else 0.0
 
-    return ";".join(sig_parts)
+        cfg_path = root_path / CONFIG_FILE
+        cfg_mtime = cfg_path.stat().st_mtime if cfg_path.exists() else 0.0
+
+        sig_parts.append(f"{rel_dir}:{mj_mtime:.0f}:{ui_mtime:.0f}:{cfg_mtime:.0f}")
+
+    return ";".join(sorted(sig_parts))
 
 
 def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
@@ -120,52 +127,63 @@ def _load_potential_modules(_signature: str) -> Dict[str, Dict]:
         return {}
 
     potential: Dict[str, Dict] = {}
-    for module_dir in modules_dir.iterdir():
-        if module_dir.is_dir():
-            module_name = module_dir.name
-            module_json_path = module_dir / "module.json"
+    for root, dirs, files in os.walk(modules_dir):
+        dirs.sort()
+        files.sort()
 
-            if module_json_path.exists():
-                try:
-                    with open(module_json_path, "r") as f:
-                        module_config = json.load(f)
-                except Exception as e:
-                    log("error", f"Failed to load module.json for {module_name}: {str(e)}")
-                    module_config = {}
-            else:
-                module_config = {}
+        if "module.json" not in files:
+            continue
 
-            ui_file = module_dir / f"{module_name}_ui.py"
-            has_ui = ui_file.exists()
+        module_dir = Path(root)
+        module_name = module_dir.name
 
-            config_file = module_dir / CONFIG_FILE
-            has_config = config_file.exists()
+        if module_name in potential:
+            log("warning", f"Duplicate module basename '{module_name}' detected at {module_dir}; keeping first occurrence at {potential[module_name]['path']}")
+            continue
 
-            # Detect which lifecycle hooks the module package exposes
-            pkg_init = module_dir / "__init__.py"
-            has_new_hooks = False
-            if pkg_init.exists():
-                try:
-                    src = pkg_init.read_text(encoding="utf-8")
-                    has_new_hooks = "on_module_activated" in src
-                except Exception:
-                    pass
+        module_json_path = module_dir / "module.json"
+        try:
+            with open(module_json_path, "r") as f:
+                module_config = json.load(f)
+        except Exception as e:
+            log("error", f"Failed to load module.json for {module_name}: {str(e)}")
+            module_config = {}
 
-            potential[module_name] = {
-                'name': module_name,
-                'path': str(module_dir),
-                'description': module_config.get('description', ''),
-                'version': module_config.get('version', '1.0.0'),
-                'author': module_config.get('author', ''),
-                'enabled_by_default': module_config.get('enabled_by_default', True),
-                'has_ui': has_ui,
-                'ui_file': str(ui_file) if has_ui else None,
-                'config_file': str(config_file) if has_config else None,
-                'dependencies': module_config.get('dependencies', []),
-                'category': module_config.get('category', 'general'),
-                # NEW: whether this module uses the new hook protocol
-                'has_new_hooks': has_new_hooks,
-            }
+        rel_path = module_dir.relative_to(modules_dir)
+        import_path = "modules." + ".".join(rel_path.parts)
+
+        ui_file = module_dir / f"{module_name}_ui.py"
+        has_ui = ui_file.exists()
+
+        config_file = module_dir / CONFIG_FILE
+        has_config = config_file.exists()
+
+        # Detect which lifecycle hooks the module package exposes
+        pkg_init = module_dir / "__init__.py"
+        has_new_hooks = False
+        if pkg_init.exists():
+            try:
+                src = pkg_init.read_text(encoding="utf-8")
+                has_new_hooks = "on_module_activated" in src
+            except Exception:
+                pass
+
+        potential[module_name] = {
+            'name': module_name,
+            'path': str(module_dir),
+            'import_path': import_path,
+            'description': module_config.get('description', ''),
+            'version': module_config.get('version', '1.0.0'),
+            'author': module_config.get('author', ''),
+            'enabled_by_default': module_config.get('enabled_by_default', True),
+            'has_ui': has_ui,
+            'ui_file': str(ui_file) if has_ui else None,
+            'config_file': str(config_file) if has_config else None,
+            'dependencies': module_config.get('dependencies', []),
+            'category': module_config.get('category', 'general'),
+            # NEW: whether this module uses the new hook protocol
+            'has_new_hooks': has_new_hooks,
+        }
 
     log("info", f"Cached discovery completed: {len(potential)} potential modules found")
     return potential
@@ -342,11 +360,13 @@ class ModuleHandler:
 
     def _refresh_module_cache(self, module_name: str):
         """Clear Python import cache entries for a module and its UI files."""
+        module_info = self.modules.get(module_name, {})
+        import_path = module_info.get('import_path', f"modules.{module_name}")
         keys_to_remove = [
             key for key in list(sys.modules.keys())
             if key == module_name
-            or key == f"modules.{module_name}"
-            or key.startswith(f"modules.{module_name}.")
+            or key == import_path
+            or key.startswith(f"{import_path}.")
             or key == f"{module_name}_ui"
             or key.startswith(f"{module_name}_")
         ]
@@ -373,7 +393,8 @@ class ModuleHandler:
         This method is deliberately Streamlit-free. UI hooks (inject_ui_xxx) are
         called exclusively by ui_registry.py in a Streamlit context.
         """
-        module_path = f"modules.{module_name}"
+        module_info = self.modules.get(module_name, {})
+        module_path = module_info.get("import_path", f"modules.{module_name}")
         try:
             package = importlib.import_module(module_path)
         except Exception as e:
