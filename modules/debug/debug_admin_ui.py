@@ -290,28 +290,25 @@ def show_config_tab():
     st.divider()
     st.subheader("🧭 Debug key source mapping")
 
-    if hasattr(config, 'get_key_source_file'):
-        rows = []
+    if hasattr(config, 'list_keys_by_source_file'):
+        key_map = config.list_keys_by_source_file()
+        debug_rows = []
+        for file_path, keys in key_map.items():
+            for key in keys:
+                if key.startswith("debug."):
+                    debug_rows.append({
+                        "key": key,
+                        "source": file_path,
+                        "value": config.get(key),
+                    })
 
-        def collect_debug_paths(data, prefix="debug"):
-            if isinstance(data, dict):
-                for k, v in data.items():
-                    current = f"{prefix}.{k}" if prefix else k
-                    if isinstance(v, dict):
-                        collect_debug_paths(v, current)
-                    else:
-                        rows.append({
-                            "key": current,
-                            "source": config.get_key_source_file(current) or "<unknown>",
-                            "value": v,
-                        })
-
-        collect_debug_paths(debug_config if isinstance(debug_config, dict) else {})
-
-        if rows:
-            st.dataframe(rows, width='stretch', hide_index=True)
+        if debug_rows:
+            st.dataframe(debug_rows, width='stretch', hide_index=True)
         else:
             st.info("No debug keys found to map.")
+
+        with st.expander("📂 Config keys by file", expanded=False):
+            st.json(key_map)
     else:
         st.warning("Key source mapping not available on config.")
 

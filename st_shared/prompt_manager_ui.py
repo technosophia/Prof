@@ -10,7 +10,7 @@ import streamlit as st
 import yaml
 from shared.common import get_prompt, get_all_prompts, get_module_prompts, list_modules_with_prompts, is_multilingual, set_default_language, get_available_prompt_languages
 from st_shared.cached import get_prompt_manager
-from shared.prompt_manager import get_prompt_source_file, list_prompt_source_files
+from shared.prompt_manager import get_prompt_source_file, list_prompt_source_files, list_prompt_keys_by_source_file
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _
@@ -276,6 +276,9 @@ def show_prompt_admin_content():
                     key_source = get_prompt_source_file(full_key, selected_language if multilingual else None)
                     rows.append({"key": full_key, "source": key_source or "<unknown>"})
                 st.dataframe(rows, width='stretch', hide_index=True)
+
+        with st.expander("🗂️ Prompt keys by file", expanded=False):
+            st.json(list_prompt_keys_by_source_file(selected_language if multilingual else None))
 
         # Create tabs for different views
         tab1, tab2, tab3 = st.tabs(["📄 Tree View", "📋 List View", "📊 Statistics"])

@@ -27,6 +27,7 @@ class Config:
         self._source_files: dict[tuple[str, ...], str] = {}
         self._missing_keys_warned: set[str] = set()
         self._key_source_files: dict[str, str] = {}
+        self._file_to_keys: dict[str, set[str]] = {}
         self._loaded_files: Set[str] = set()
 
         # Optional built-in defaults (kept from your original code)
@@ -94,6 +95,7 @@ class Config:
                 if previous_file and previous_file != file_path and not is_override:
                     log("warning", f"Duplicate config key '{leaf_key}' loaded from {file_path}; previous source: {previous_file}")
                 self._key_source_files[leaf_key] = file_path
+                self._file_to_keys.setdefault(file_path, set()).add(leaf_key)
 
             log("debug", f"Loaded config from {file_path} (flat merge)")
         except Exception as e:
@@ -161,6 +163,10 @@ class Config:
     def list_source_files(self) -> list[str]:
         """List all loaded config file paths."""
         return sorted(self._loaded_files)
+
+    def list_keys_by_source_file(self) -> dict[str, list[str]]:
+        """Map each source config file path to sorted leaf keys loaded from it."""
+        return {file_path: sorted(keys) for file_path, keys in sorted(self._file_to_keys.items())}
 
     def get_section(self, prefix: str = "") -> dict:
         """Return a copy of an entire section (e.g., prefix='modules.rag')."""
