@@ -225,7 +225,7 @@ def render_reset_password_form(form_key="reset_form"):
 
                             # Get database path from config
                             config = get_config()
-                            db_path = config.get("database.path", "data")
+                            db_path = "./"
                             reset_code_file = os.path.join(db_path, "reset_code.txt")
 
                             # Find the admin user
@@ -322,7 +322,7 @@ def render_reset_password_form(form_key="reset_form"):
                             from st_shared.cached import get_config
 
                             config = get_config()
-                            db_path = config.get("database.path", "data")
+                            db_path = "./"
                             reset_code_file = os.path.join(db_path, "reset_code.txt")
 
                             if os.path.exists(reset_code_file):
