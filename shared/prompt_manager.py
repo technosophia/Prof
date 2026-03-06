@@ -33,6 +33,7 @@ class PromptManager:
         self._available_languages: Set[str] = set()
         self._default_language: str = 'en'
         self._is_multilingual: bool = False
+        self._missing_keys_warned: Set[str] = set()
 
     def _deep_merge(self, target: Dict, source: Dict):
         """Deep merge two dictionaries."""
@@ -232,7 +233,14 @@ class PromptManager:
         """
         # Legacy mode - single language
         if not self._is_multilingual:
-            return self._get_prompt_from_dict(self._prompts, key, default)
+            value = self._get_prompt_from_dict(self._prompts, key, None)
+            if value is not None:
+                return value
+            warn_key = f"legacy:{key}"
+            if warn_key not in self._missing_keys_warned:
+                self._missing_keys_warned.add(warn_key)
+                log("warning", f"Prompt key not found: '{key}' (legacy mode, returning default={default!r})")
+            return default
 
         # Multilingual mode
         lang = language or self._default_language
@@ -258,6 +266,10 @@ class PromptManager:
                     log("debug", f"Prompt '{key}' not in '{lang}', found in '{available_lang}'")
                     return value
 
+        warn_key = f"{lang}:{key}"
+        if warn_key not in self._missing_keys_warned:
+            self._missing_keys_warned.add(warn_key)
+            log("warning", f"Prompt key not found: '{key}' for language '{lang}' (returning default={default!r})")
         return default
 
     def set_prompt(self, key: str, value: Any, language: Optional[str] = None) -> bool:
@@ -416,6 +428,7 @@ class PromptManager:
         self._multilingual_prompts.clear()
         self._source_files.clear()
         self._available_languages.clear()
+        self._missing_keys_warned.clear()
 
         # Determine project root
         shared_dir = os.path.dirname(os.path.abspath(__file__))

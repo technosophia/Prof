@@ -25,6 +25,7 @@ class Config:
     def __init__(self):
         self._config: dict[str, Any] = {}
         self._source_files: dict[tuple[str, ...], str] = {}
+        self._missing_keys_warned: set[str] = set()
 
         # Optional built-in defaults (kept from your original code)
         defaults = {
@@ -76,6 +77,9 @@ class Config:
             if isinstance(value, dict) and k in value:
                 value = value[k]
             else:
+                if key not in self._missing_keys_warned:
+                    self._missing_keys_warned.add(key)
+                    log("warning", f"Config key not found: '{key}' (returning default={default!r})")
                 return default
         return value
 
