@@ -168,7 +168,7 @@ def render_login_form(form_key="login_form"):
             username = user_data['name']
             display_name = f"{username} ({user_data.get('role', 'user')})"
             user_options.append(display_name)
-            user_display_map[display_name] = username  # Map display name to actual username
+            user_display_map[display_name] = user_id
 
     # Sort options alphabetically
     user_options.sort()
