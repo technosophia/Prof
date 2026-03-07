@@ -155,17 +155,17 @@ class UIRegistry:
 
         active_modules = self.module_handler.get_active_modules()
         current_hash = tuple(sorted(active_modules))
-        module_entries = tuple(
-            sorted(
-                (
+
+        # FIX: Properly construct module_entries as a tuple of tuples with 3 elements
+        module_entries = []
+        for module_name, module_info in self.module_handler.get_all_modules().items():
+            if module_info.get('path'):  # Only include modules with a path
+                module_entries.append((
                     module_name,
                     module_info.get('path', ''),
-                    module_info.get('import_path', f"modules.{module_name}"),
-                )
-                for module_name, module_info in self.module_handler.get_all_modules().items()
-                if module_info.get('path')
-            )
-        )
+                    module_info.get('import_path', f"modules.{module_name}")
+                ))
+        module_entries = tuple(sorted(module_entries))
 
         if current_hash != self.last_active_hash:
             self.modules, self.injection_points = _discover_ui_modules(

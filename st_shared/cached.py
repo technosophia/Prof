@@ -224,11 +224,11 @@ def get_active_modules() -> list[str]:
 
 
 @_CACHE
-def _discover_ui_modules(active_modules_tuple: tuple[str, ...]):
+def _discover_ui_modules(active_modules_tuple: tuple[str, ...], module_entries: tuple = ()):
     """Cached proxy for shared.ui_registry._discover_ui_modules."""
     from shared.ui_registry import _discover_ui_modules as _registry_discover
     shared_ui_dir = get_config().get("ui.shared_dir", None)
-    return _registry_discover(active_modules_tuple, shared_ui_dir)
+    return _registry_discover(active_modules_tuple, module_entries, shared_ui_dir)
 
 
 @_CACHE
