@@ -152,8 +152,44 @@ def render_login_form(form_key="login_form"):
     """Render login form for production mode."""
     st.subheader("🔐 Login")
 
+    # Get all users except admin for the dropdown
+    user_manager = get_user_manager()
+    all_users = user_manager.get_all_users_dict()
+
+    # Create list of non-admin users for dropdown
+    user_options = []
+    user_id_map = {}  # Map display names to user IDs
+
+    if all_users:
+        for user_id, user_data in all_users.items():
+            # Skip admin users from dropdown
+            if user_data.get('name', '').lower() == 'admin' or user_data.get('role') == UserRole.ADMIN.value:
+                continue
+            display_name = f"{user_data['name']} ({user_data.get('role', 'user')})"
+            user_options.append(display_name)
+            user_id_map[display_name] = user_id
+
+    # Sort options alphabetically
+    user_options.sort()
+
     with st.form(key=form_key):
-        username = st.text_input("Username", key=f"{form_key}_username")
+        st.write("**Select existing user or type admin username**")
+
+        # Dropdown for non-admin users
+        selected_display = st.selectbox(
+            "Choose user",
+            options=[""] + user_options,  # Empty first option
+            format_func=lambda x: "Select a user..." if x == "" else x,
+            key=f"{form_key}_user_select"
+        )
+
+        # Text input for manual entry (for admin)
+        manual_username = st.text_input(
+            "Or type username directly",
+            key=f"{form_key}_manual_username",
+            placeholder="Enter username"
+        )
+
         password = st.text_input("Password", type="password", key=f"{form_key}_password")
 
         col1, col2 = st.columns(2)
@@ -163,8 +199,25 @@ def render_login_form(form_key="login_form"):
             reset_request = st.form_submit_button("Forgot Password?", width='stretch')
 
         if login_submit:
+            # Determine which username to use
+            username = None
+
+            # Check manual input first (for admin)
+            if manual_username and manual_username.strip():
+                username = manual_username.strip()
+                st.info(f"🔑 Attempting login with manual username: {username}")
+            # Then check dropdown selection
+            elif selected_display and selected_display != "":
+                # Get user ID from map
+                user_id = user_id_map.get(selected_display)
+                if user_id:
+                    # Get the actual username from user data
+                    user_data = all_users.get(user_id, {})
+                    username = user_data.get('name')
+                    st.info(f"🔑 Attempting login with selected user: {username}")
+
             if username and password:
-                user_manager = get_user_manager()
+                # Authenticate with username (not ID)
                 user = user_manager.authenticate_user(username, password)
 
                 if user:
@@ -179,7 +232,7 @@ def render_login_form(form_key="login_form"):
                 else:
                     st.error("❌ Invalid username or password")
             else:
-                st.warning("Please enter both username and password")
+                st.warning("Please enter both username and password (select a user or type username)")
 
         if reset_request:
             st.session_state.show_reset_password_form = True
