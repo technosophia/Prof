@@ -288,7 +288,6 @@ def render_reset_password_form(form_key="reset_form"):
                                     os.makedirs(db_path, exist_ok=True)
                                     with open(reset_code_file, 'w') as f:
                                         f.write(f"Reset Code for admin generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                                        f.write(f"Reset Code: {new_code}\n")
                                         f.write(f"Expires: {(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')}\n")
 
                                     st.success(f"✅ New reset code generated and saved to: {reset_code_file}")

@@ -1470,20 +1470,17 @@ class UserManager:
         with self.db.get_session() as session:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if not user:
-                log("warning", f"User {user_id} not found for deletion")
                 return False
+
+            # Delete action logs where user is actor or target
+            session.query(UserActionLog).filter(
+                (UserActionLog.user_id == user_id) |
+                (UserActionLog.target_user_id == user_id)
+            ).delete(synchronize_session=False)
 
             user_name = user.name
             session.delete(user)
-
-            # Log the deletion
-            self.log_user_action(
-                user_id=current_user_id or user_id,
-                action=UserAction.DELETE_USER.value,
-                target_user_id=user_id,
-                target_username=user_name,
-                success=True
-            )
+            session.commit()
 
             log("info", f"Deleted user: {user_name} (ID: {user_id})")
             return True
