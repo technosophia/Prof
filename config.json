@@ -112,6 +112,14 @@
       "enabled": true,
       "description": "Fast inference via Groq",
       "requires_api_key": true
+    },
+    "xai_grok": {
+      "type": "xai",
+      "model": "grok-4-1-fast-non-reasoning",
+      "name": "xAI Grok",
+      "enabled": true,
+      "description": "Grok models via xAI API",
+      "requires_api_key": true
     }
   }
 }
