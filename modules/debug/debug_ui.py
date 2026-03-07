@@ -21,6 +21,11 @@ def inject_ui_main_footer():
     if not st.session_state.get("show_debug", False):
         return None
 
+    config = get_config()
+    prod_mode = config.get("app.prod_mode", True)
+    if prod_mode:
+        return None
+
     with st.expander("🔧 " + _("debug_info")):
         config = get_config()
         current_llm_info = get_current_llm_info()
@@ -141,6 +146,12 @@ def inject_ui_main_footer():
 def inject_ui_sidebar():
     """Render debug toggle in sidebar."""
     log("debug", "debug_render_sidebar called")
+
+    config = get_config()
+    prod_mode = config.get("app.prod_mode", True)
+    if prod_mode:
+        return None
+
     if st.session_state.get("current_page") == "chat":
         st.divider()
         col1, col2 = st.columns([3, 1])
