@@ -158,16 +158,17 @@ def render_login_form(form_key="login_form"):
 
     # Create list of non-admin users for dropdown
     user_options = []
-    user_id_map = {}  # Map display names to user IDs
+    user_display_map = {}  # Map display names to actual usernames
 
     if all_users:
         for user_id, user_data in all_users.items():
             # Skip admin users from dropdown
             if user_data.get('name', '').lower() == 'admin' or user_data.get('role') == UserRole.ADMIN.value:
                 continue
-            display_name = f"{user_data['name']} ({user_data.get('role', 'user')})"
+            username = user_data['name']
+            display_name = f"{username} ({user_data.get('role', 'user')})"
             user_options.append(display_name)
-            user_id_map[display_name] = user_id
+            user_display_map[display_name] = username  # Map display name to actual username
 
     # Sort options alphabetically
     user_options.sort()
@@ -187,7 +188,7 @@ def render_login_form(form_key="login_form"):
         manual_username = st.text_input(
             "Or type username directly",
             key=f"{form_key}_manual_username",
-            placeholder="Enter username"
+            placeholder="Enter username (admin must be typed here)"
         )
 
         password = st.text_input("Password", type="password", key=f"{form_key}_password")
@@ -208,13 +209,13 @@ def render_login_form(form_key="login_form"):
                 st.info(f"🔑 Attempting login with manual username: {username}")
             # Then check dropdown selection
             elif selected_display and selected_display != "":
-                # Get user ID from map
-                user_id = user_id_map.get(selected_display)
-                if user_id:
-                    # Get the actual username from user data
-                    user_data = all_users.get(user_id, {})
-                    username = user_data.get('name')
+                # Get the actual username from the display map
+                username = user_display_map.get(selected_display)
+                if username:
                     st.info(f"🔑 Attempting login with selected user: {username}")
+                else:
+                    st.error("❌ Could not find username for selected option")
+                    return
 
             if username and password:
                 # Authenticate with username (not ID)
