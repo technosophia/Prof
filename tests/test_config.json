@@ -2,7 +2,7 @@
   "app": {
     "default_llm": "mock",
     "auto_login": false,
-    "local_mode": true,
+    "prod_mode": false,
     "test_mode": true,
     "debug_llm": ["ollama_qwen", "groq", "gemini"],
     "llm_delay": 500

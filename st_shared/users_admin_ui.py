@@ -22,11 +22,11 @@ from st_shared.cached import _
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""
     config = get_config()
-    local_mode = config.get("app.local_mode", False)
+    prod_mode = config.get("app.prod_mode", False)
     test_mode = config.get("app.test_mode", False) or "pytest" in str(st.__file__)
 
     # Production mode = not local and not test
-    return not (local_mode or test_mode)
+    return prod_mode and not test_mode
 
 
 def can_access_admin_tab(user: Dict[str, Any]) -> bool:
