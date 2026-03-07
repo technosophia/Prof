@@ -180,7 +180,6 @@ def get_captured_comparison_contexts(run_id: Optional[str] = None) -> List[Dict]
         run_id: If provided, return contexts with this run_id.
                 If None, return contexts with the most recent run_id.
     """
-    global _captured_comparison_contexts
 
     if not _captured_comparison_contexts:
         return []
@@ -218,7 +217,6 @@ def get_captured_comparison_contexts(run_id: Optional[str] = None) -> List[Dict]
 
 def _get_latest_by_timestamp() -> List[Dict]:
     """Fallback method: group by latest timestamp (old behavior)."""
-    global _captured_comparison_contexts
 
     if not _captured_comparison_contexts:
         return []
@@ -246,7 +244,6 @@ def clear_comparison_contexts() -> None:
 
 def get_captured_interactions(limit: int = 100, offset: int = 0) -> List[Dict]:
     """Get captured interactions with pagination."""
-    global _captured_interactions
 
     start = len(_captured_interactions) - offset - limit
     end = len(_captured_interactions) - offset
@@ -261,7 +258,6 @@ def get_captured_interactions(limit: int = 100, offset: int = 0) -> List[Dict]:
 
 def get_interaction_by_index(index: int) -> Optional[Dict]:
     """Get a specific interaction by index (from newest)."""
-    global _captured_interactions
 
     if 0 <= index < len(_captured_interactions):
         return _captured_interactions[-(index + 1)]
@@ -278,7 +274,6 @@ def clear_captured_interactions() -> int:
 
 def get_stats() -> Dict[str, Any]:
     """Get statistics about captured interactions."""
-    global _captured_interactions
 
     total = len(_captured_interactions)
     with_context = sum(1 for i in _captured_interactions if i.get("rag_context"))

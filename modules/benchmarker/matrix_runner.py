@@ -11,7 +11,7 @@ import yaml
 from core.logging import log
 from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
-from shared.common import get_available_llms, get_driver, _get_service
+from shared.common import get_available_llms, get_driver, _get_service, get_db_manager
 from modules.benchmarker.benchmarker import BenchmarkRun
 
 
@@ -332,7 +332,7 @@ class MatrixRunner:
         if not session_path:
             return
         try:
-            with self.db_manager.get_session() as session:
+            with get_db_manager().get_session() as session:
                 row = (
                     session.query(BenchmarkRun)
                     .filter(BenchmarkRun.session_file == session_path)
