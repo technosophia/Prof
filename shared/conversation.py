@@ -565,5 +565,48 @@ class ConversationManager:
             "metadata": conversation.metadata
         }
 
+
+
 def get_conversation_manager():
     return ConversationManager()
+
+def cleanup_user_conversations(user_id: str) -> bool:
+    """
+    Cleanup all conversations for a user before the user is deleted.
+    This function is designed to be registered as a before_delete callback.
+
+    Args:
+        user_id: The ID of the user being deleted
+
+    Returns:
+        bool: True if cleanup was successful, False otherwise
+    """
+    try:
+        conv_manager = get_conversation_manager()
+
+        # Get all conversations for this user
+        conversations = conv_manager.get_user_conversations(user_id, include_inactive=True)
+
+        # Delete each conversation (this will also delete associated messages due to cascade)
+        for conv in conversations:
+            conv_manager.delete_conversation(conv["id"])
+
+        log("info", f"Cleaned up {len(conversations)} conversations for user {user_id}")
+        return True
+    except Exception as e:
+        log("error", f"Failed to cleanup conversations for user {user_id}: {e}", stacktrace=True)
+        return False
+
+# Auto-register the cleanup callback when the module is imported
+def _register_cleanup_callback():
+    """Register the conversation cleanup callback with the user manager."""
+    try:
+        from shared.users import get_user_manager
+        user_manager = get_user_manager()
+        user_manager.register_before_delete_callback(cleanup_user_conversations)
+        log("debug", "Registered conversation cleanup callback with user manager")
+    except Exception as e:
+        log("warning", f"Could not register conversation cleanup callback: {e}")
+
+# Run the registration
+_register_cleanup_callback()
