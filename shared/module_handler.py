@@ -1,77 +1,3 @@
-"""Module Handler
-
-[api]
-The ModuleHandler is the core module management system. It handles:
-- Discovering modules from the modules/ directory
-- Managing module activation status via modules.json
-- Loading module metadata and UI components
-- Dependency tracking between modules
-- Integration with the UI registry system
-
-Key Features:
-- Auto-discovers modules in the modules/ directory (cached for efficiency)
-- Loads module configuration from module.json files
-- Manages activation status in modules.json
-- Provides toggle functionality for modules
-- Integrates with UI registry for selective module loading
-- Auto-discovery of translations and prompts
-- Auto-discovery of injection points for UI integration with main App
-- Supports local_modules.json override for development/testing
-
-NO STREAMLIT DEPENDENCY. This module must remain importable without Streamlit.
-All Streamlit-specific logic belongs in ui_registry.py or *_ui.py files.
-
---- Module Lifecycle Hooks ---
-
-ModuleHandler calls the following hooks on the module's Python *package*
-(i.e. modules/<name>/__init__.py) when they exist and are callable.
-
-FUNCTIONAL hooks (no Streamlit, called by ModuleHandler):
-    on_module_activated(services: ServiceLocator)
-        Called when a module is activated.
-        Receives a ServiceLocator with injected dependencies (config, user_manager, etc.)
-        Use this to register driver options, LLM callbacks, etc.
-
-    on_module_deactivated()
-        Called when a module is deactivated.
-        Use this to unregister driver options, LLM callbacks, etc.
-
-    on_module_config_changed()
-        Called when the module's config file changes.
-        Use this to refresh in-memory config state.
-
-LEGACY hook (still supported for backward compatibility):
-    inject_ui_initialize()
-        Old-style hook called from UI layer (ui_registry / Streamlit startup).
-        Kept for backward-compatible modules. New modules should use
-        on_module_activated() instead for functional setup, and
-        inject_ui_initialize() ONLY for st.session_state initialization.
-
---- Service Locator ---
-
-on_module_activated(services) receives a ServiceLocator object:
-
-    services.config          -> dict-like config object (NOT Streamlit-cached)
-    services.get(name)       -> get any registered service by name
-    services.register(name, obj) -> register a service (used by app startup)
-
-The ServiceLocator is populated by the application startup code, not by
-ModuleHandler itself. This keeps ModuleHandler dependency-free.
-
-Module JSON Structure:
-```json
-{
-    "name": "module_name",
-    "version": "1.0.0",
-    "description": "Module description",
-    "author": "Author name",
-    "enabled_by_default": true,
-    "category": "category",
-    "dependencies": []
-}
-```
-"""
-
 import os
 import json
 import importlib
@@ -82,7 +8,7 @@ from pathlib import Path
 
 from core.config import CONFIG_FILE
 from core.logging import log
-from core.service import ServiceLocator
+from core.service import ServiceLocator, get_global_services, set_global_services
 
 
 # ---------------------------------------------------------------------------
@@ -264,24 +190,6 @@ class ModuleHandler:
         self._using_local_override = False
         self._override_module_filter: Optional[Set[str]] = None
         self._initialized = False
-        self._services: Optional[ServiceLocator] = None
-
-    # ------------------------------------------------------------------
-    # Service injection (called by app startup, not by Streamlit)
-    # ------------------------------------------------------------------
-
-    def set_services(self, services: ServiceLocator) -> None:
-        """
-        Inject the ServiceLocator that will be passed to on_module_activated().
-
-        Call this from application startup before any module is activated.
-        """
-        self._services = services
-        log("debug", "ModuleHandler: ServiceLocator registered")
-
-    def get_services(self) -> Optional[ServiceLocator]:
-        """Return the current ServiceLocator, or None if not set."""
-        return self._services
 
     # ------------------------------------------------------------------
     # Persistence
@@ -445,9 +353,9 @@ class ModuleHandler:
         """
         Call on_module_activated() for every currently active module.
 
-        Should be called once at application startup, after set_services() and
-        after initialize(). This triggers functional setup (driver registration,
-        LLM callback registration, etc.) for all active modules.
+        Should be called once at application startup, after initialize().
+        This triggers functional setup (driver registration, LLM callback
+        registration, etc.) for all active modules.
 
         Safe to call multiple times — modules that were already activated are
         skipped (tracked via _activated set).
@@ -526,7 +434,7 @@ class ModuleHandler:
         """
         Import the module package and call a lifecycle hook if it exists.
 
-        For on_module_activated, passes the ServiceLocator when pass_services=True.
+        For on_module_activated, passes the global ServiceLocator when pass_services=True.
 
         This method is deliberately Streamlit-free. UI hooks (inject_ui_xxx) are
         called exclusively by ui_registry.py in a Streamlit context.
@@ -549,11 +457,11 @@ class ModuleHandler:
 
         try:
             if pass_services and hook_name == "on_module_activated":
-                # New protocol: pass ServiceLocator
+                # Pass the global ServiceLocator
                 import inspect
                 sig = inspect.signature(hook)
                 if len(sig.parameters) > 0:
-                    hook(self._services or ServiceLocator())
+                    hook(get_global_services() or ServiceLocator())
                 else:
                     # Module declares on_module_activated() with no args → call without
                     hook()
@@ -760,16 +668,6 @@ def notify_module_config_changed(module_name: str) -> None:
     """Convenience function to notify that a module configuration changed."""
     module_handler.initialize()
     module_handler.notify_module_config_changed(module_name)
-
-
-def get_services() -> Optional[ServiceLocator]:
-    """[api] Get the ServiceLocator from the global module handler."""
-    return module_handler.get_services()
-
-
-def set_services(services: ServiceLocator) -> None:
-    """[api] Set the ServiceLocator on the global module handler."""
-    module_handler.set_services(services)
 
 
 def is_using_local_override() -> bool:

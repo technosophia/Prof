@@ -42,7 +42,7 @@ Here is the list of exportable public functions from `shared/common.py`:
 - `reload_prompts()` - Reload all prompts from files
 - `get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]` - Get all loaded prompts
 - `get_module_prompts(module_prefix: str = "", language: Optional[str] = None) -> Dict[str, Any]` - Get prompts for a specific module
-- `list_modules_with_prompts(language: Optional[str] = None) -> List[str]` - List all module prefixes with prompts
+- `list_modules_with_prompts(module_prefix: str = "", language: Optional[str] = None) -> List[str]` - List all module prefixes with prompts
 - `get_available_prompt_languages() -> List[str]` - Get list of available languages for prompts
 - `is_multilingual()` - Check if multilingual mode is enabled
 - `set_default_language(language: str)` - Set the default language for prompts
@@ -68,9 +68,11 @@ from .conversation import Message as _Message
 from .conversation import UserMessageCallback
 from .prompt_manager import is_multilingual as _is_multilingual, set_default_language as _set_default_language
 from .module_handler import module_handler as _global_module_handler
+from core.service import get_global_services, check_services as core_check_services
+
 
 # ---------------------------------------------------------------------------
-# Service access via module handler
+# Service access via global service locator
 # ---------------------------------------------------------------------------
 
 def get_module_handler():
@@ -79,18 +81,16 @@ def get_module_handler():
 
 
 def _get_services():
-    """Get the ServiceLocator from the global module handler."""
-    return _global_module_handler.get_services()
+    """Get the global ServiceLocator instance."""
+    return get_global_services()
 
 
 def _get_service(service_name: str, default=None):
-    """Get a service from the module handler's service locator."""
+    """Get a service from the global service locator."""
     services = _get_services()
     if services and service_name in services:
         return services.get(service_name)
     return default
-
-
 
 
 def check_services(required_services: Optional[List[str]] = None, *, services=None, module_name: str = "") -> Dict[str, Any]:
@@ -99,15 +99,11 @@ def check_services(required_services: Optional[List[str]] = None, *, services=No
     Args:
         required_services: Optional list of service names to validate.
             Defaults to a broad standard runtime set.
-        services: Optional ServiceLocator-like object. If omitted, uses module_handler services.
+        services: Optional ServiceLocator-like object. If omitted, uses global services.
         module_name: Optional module prefix used in raised error messages.
     """
-    services = services or _get_services()
-    if services is None:
-        prefix = f"{module_name}: " if module_name else ""
-        raise RuntimeError(f"{prefix}services locator not available")
-
-    service_names = required_services or [
+    # Define default services for backward compatibility
+    default_services = [
         "config",
         "user_manager",
         "db_manager",
@@ -121,14 +117,8 @@ def check_services(required_services: Optional[List[str]] = None, *, services=No
         "cache",
     ]
 
-    resolved: Dict[str, Any] = {}
-    for service_name in service_names:
-        value = services.get(service_name) if service_name in services else None
-        if value is None:
-            prefix = f"{module_name}: " if module_name else ""
-            raise RuntimeError(f"{prefix}'{service_name}' service not available")
-        resolved[service_name] = value
-    return resolved
+    service_names = required_services or default_services
+    return core_check_services(service_names, services=services, module_name=module_name)
 
 
 def _get_service_or_raise(service_name: str):
@@ -140,7 +130,7 @@ def _get_service_or_raise(service_name: str):
             f"Service '{service_name}' not available. "
             f"Services available: {services_available}. "
             f"Make sure the application has properly initialized and "
-            f"called module_handler.set_services() with a ServiceLocator containing '{service_name}'."
+            f"called set_global_services() with a ServiceLocator containing '{service_name}'."
         )
     return service
 
@@ -155,8 +145,8 @@ def require_services(func):
     def wrapper(*args, **kwargs):
         if _get_services() is None:
             raise RuntimeError(
-                f"Cannot call {func.__name__}(): services not initialized in module handler. "
-                f"Call module_handler.set_services() first with a ServiceLocator instance."
+                f"Cannot call {func.__name__}(): services not initialized. "
+                f"Call set_global_services() first with a ServiceLocator instance."
             )
         return func(*args, **kwargs)
     return wrapper
@@ -457,7 +447,6 @@ def get_available_prompt_languages() -> List[str]:
     return manager.get_available_languages()
 
 
-
 # ---------------------------------------------------------------------------
 # User Settings
 # ---------------------------------------------------------------------------
@@ -499,8 +488,6 @@ def register_action(
     get_driver().register_action(name, handler_fn, description, required_context)
 
 
-
-
 @require_services
 def register_assertion(
     name: str,
@@ -508,6 +495,7 @@ def register_assertion(
     description: str = "",
 ) -> None:
     get_driver().register_assertion(name, handler_fn, description)
+
 
 @require_services
 def record_plugin_event(plugin_id: str, event: str, data: Optional[Dict] = None) -> None:

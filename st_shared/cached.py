@@ -61,7 +61,7 @@ ServiceLocator ("cache" key) so that:
 import os
 import streamlit as st
 
-from core.service import ServiceLocator
+from core.service import ServiceLocator, set_global_services
 from core.config import Config, _load_config
 from core.translate import get_translation
 from core.translate import LanguageService
@@ -237,27 +237,26 @@ def get_driver():
     from shared.driver import get_driver as _get_driver
     return _get_driver()
 
+
 @_CACHE
 def get_semantic_evaluator():
     """Get or create the global SemanticEvaluator instance."""
     return SemanticEvaluator(get_llm_manager())
 
+
 def register_all_services(module_handler_instance=None):
     """
-    Register all cached services with the module handler's ServiceLocator.
+    Register all cached services with the global ServiceLocator.
 
     This function should be called once at application startup (in prof.py and conftest.py)
     to set up the ServiceLocator with all available services from st_shared.cached.
 
     Args:
-        module_handler_instance: Optional module handler instance. If not provided,
-                                 uses the global module_handler.
+        module_handler_instance: Optional module handler instance (kept for backward compatibility).
 
     Returns:
         The ServiceLocator instance that was registered.
     """
-    handler = module_handler_instance or global_module_handler
-
     services = ServiceLocator()
     services.register("cache", get_cache())
     services.register("config", get_config())
@@ -271,6 +270,7 @@ def register_all_services(module_handler_instance=None):
     services.register("language_service", get_language_service())
     services.register("semantic_eval", get_semantic_evaluator())
 
-    handler.set_services(services)
+    # Set as global services
+    set_global_services(services)
 
     return services

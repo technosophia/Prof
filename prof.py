@@ -16,7 +16,8 @@ from dotenv import load_dotenv
 # Load environment variables FIRST
 from core.logging import log, set_log_module_level
 from core.database import init_database
-from shared.module_handler import ServiceLocator, module_handler
+from shared.module_handler import module_handler
+from core.service import set_global_services, get_global_services
 from st_shared.cached import _, get_available_languages, get_active_modules
 load_dotenv()
 
@@ -50,7 +51,10 @@ get_available_languages()
 db_path = get_config().get("database", {}).get("path", "data/app.db")
 init_database(use_memory=False, db_path=db_path)
 
-register_all_services()
+# Register all services and set as global
+services = register_all_services()
+# The global services are now set inside register_all_services()
+
 # Add other services as needed
 module_handler.initialize()
 # IMPORTANT: Activate all modules to trigger on_module_activated() hooks
