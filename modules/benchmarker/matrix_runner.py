@@ -13,7 +13,7 @@ from modules.benchmarker.runner import RunResult, ScenarioRunner
 from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
 from shared.common import get_available_llms, get_driver, _get_service
 from modules.benchmarker.benchmarker import BenchmarkRun
-from st_shared.cached import get_db_manager
+from core.database import Base, get_db_manager
 
 @dataclass
 class MatrixCell:

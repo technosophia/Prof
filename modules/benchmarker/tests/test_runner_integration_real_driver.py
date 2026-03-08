@@ -8,7 +8,7 @@ import pytest
 
 
 from modules.benchmarker.runner import ScenarioRunner
-from st_shared.cached import get_db_manager
+from core.database import Base, get_db_manager
 from shared.common import get_user_manager
 
 

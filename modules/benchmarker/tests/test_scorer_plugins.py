@@ -7,7 +7,7 @@ from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun, ensure_tab
 from modules.benchmarker.scoring_pipeline import ScoringPipeline, get_scoring_pipeline
 from modules.benchmarker.scorers.scorer_llm_external import ScorerPlugin as LLMExternalScorer
 from modules.benchmarker.scorers.scorer_manual import ScorerPlugin as ManualScorer
-from st_shared.cached import get_db_manager
+from core.database import Base, get_db_manager
 
 
 class FakeContainer:

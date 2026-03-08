@@ -13,7 +13,7 @@ import yaml
 from core.logging import log
 from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun
 from modules.benchmarker.scoring_pipeline import get_scoring_pipeline
-from st_shared.cached import get_db_manager
+from core.database import Base, get_db_manager
 
 
 @dataclass

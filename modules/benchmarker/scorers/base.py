@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from core.logging import log
-from st_shared.cached import get_db_manager
+from core.database import Base, get_db_manager
 from modules.benchmarker.benchmarker import ScoringRun, BenchmarkRun
 
 

@@ -6,7 +6,7 @@ from modules.benchmarker.benchmarker import BenchmarkRun, ScoringRun, ensure_tab
 from modules.benchmarker.comparer import Comparer
 
 from core.database import init_database
-from st_shared.cached import get_db_manager
+from core.database import Base, get_db_manager
 
 
 def setup_function(_):
