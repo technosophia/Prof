@@ -13,10 +13,12 @@ Migration status: COMPLETE
 
 from typing import List, Dict, Any, Optional, Callable, Tuple
 from datetime import datetime
+from types import SimpleNamespace
 import uuid
 import asyncio
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer
+from sqlalchemy.orm.attributes import flag_modified
 
 from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id
 from modules.trainer.plugin_base import PluginManifest
@@ -66,6 +68,9 @@ class MemoryPluginCore(TrainerPluginCore):
                 log("info", "StudentMemory table created/verified")
 
             register_llm_context_callback(self.get_memory_context)
+            self.conversation_manager.register_conversation_created_callback(
+                self._on_conversation_created
+            )
             return True
         except Exception as e:
             log("error", f"Failed to initialize memory plugin: {e}")
@@ -98,6 +103,97 @@ class MemoryPluginCore(TrainerPluginCore):
     def on_deactivate(self, trainer_id: str) -> None:
         """Called when the memory plugin is deactivated for a trainer."""
         log("info", f"Memory plugin deactivated for trainer {trainer_id}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Auto-analyze config (stored in PluginActivation.config per trainer)
+    # ─────────────────────────────────────────────────────────────────────
+
+    def get_auto_analyze_config(self, trainer_id: str) -> bool:
+        """Return True if auto-analyze on new conversation is enabled for this trainer."""
+        if self.trainer_manager is None:
+            return False
+        from modules.trainer.models import PluginActivation
+        with self.db.get_session() as session:
+            activation = session.query(PluginActivation).filter_by(
+                trainer_id=trainer_id,
+                plugin_id=self.id,
+            ).first()
+            if activation and activation.config:
+                return activation.config.get("auto_analyze_on_new_conversation", False)
+            return False
+
+    def set_auto_analyze_config(self, trainer_id: str, enabled: bool) -> bool:
+        """Enable or disable auto-analyze on new conversation for this trainer."""
+        from modules.trainer.models import PluginActivation
+        try:
+            with self.db.get_session() as session:
+                activation = session.query(PluginActivation).filter_by(
+                    trainer_id=trainer_id,
+                    plugin_id=self.id,
+                ).first()
+                if activation is None:
+                    activation = PluginActivation(
+                        trainer_id=trainer_id,
+                        plugin_id=self.id,
+                        is_active=True,
+                        config={}
+                    )
+                    session.add(activation)
+                cfg = dict(activation.config or {})
+                cfg["auto_analyze_on_new_conversation"] = enabled
+                activation.config = cfg
+                flag_modified(activation, "config")
+                session.commit()
+                log("info", f"Memory plugin: auto_analyze_on_new_conversation={enabled} for trainer {trainer_id}")
+                return True
+        except Exception as e:
+            log("error", f"Memory plugin: failed to save auto_analyze config: {e}", stacktrace=True)
+            return False
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Conversation-created callback
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _on_conversation_created(self, conversation_id: str, user_id: str) -> None:
+        """
+        Callback triggered when a new conversation is created.
+        Only fires analysis if:
+          - the user is a student (has a parent_id / trainer)
+          - the plugin is active for that trainer
+          - auto_analyze_on_new_conversation is enabled for that trainer
+        """
+        try:
+            user = self.user_manager.get_user(user_id)
+            if not user or not user.get("parent_id"):
+                return  # Not a student — trainers/masters creating conversations are ignored
+
+            trainer_id = user["parent_id"]
+
+            if self.trainer_manager is None:
+                return
+            if not self.trainer_manager.is_plugin_active(trainer_id, self.id):
+                return
+            if not self.get_auto_analyze_config(trainer_id):
+                return
+
+            log("info", f"Memory plugin: auto-analyze triggered on new conversation "
+                        f"(student={user_id}, trainer={trainer_id}, conv={conversation_id})")
+
+            # Build a minimal context matching what _action_trigger_analysis expects
+            context = SimpleNamespace(
+                student_id=user_id,
+                trainer_id=trainer_id,
+                conversation_id=conversation_id,
+                llm_id=None,
+            )
+            self._action_trigger_analysis(context)
+
+        except Exception as e:
+            log("error", f"Memory plugin: error in _on_conversation_created: {e}", stacktrace=True)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Data helpers
+    # ─────────────────────────────────────────────────────────────────────
 
     def _get_current_memory(self, student_id: str, trainer_id: str) -> Optional[str]:
         """Get the current memory content for a student."""
@@ -346,11 +442,11 @@ class MemoryPluginCore(TrainerPluginCore):
         DATA LAYER: uses self.user_manager and self.db only.
         Returns: (context, role, position)
         """
-        if not self._is_active:
-            return None
-
         trainer_id = self._get_student_trainer_id(user_id)
         if not trainer_id:
+            return None
+
+        if not self.trainer_manager.is_plugin_active(trainer_id, self.id):
             return None
 
         memory = self._get_current_memory(user_id, trainer_id)
@@ -379,6 +475,7 @@ class MemoryPluginCore(TrainerPluginCore):
     def _action_trigger_analysis(self, context, **params) -> Dict:
         """
         Called by the driver action 'trigger_memory_analysis'.
+        Also called internally by _on_conversation_created.
         DATA LAYER — no st.* here.
         """
         from shared.common import record_plugin_event

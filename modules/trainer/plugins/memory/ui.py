@@ -142,6 +142,20 @@ class MemoryPluginUI(TrainerPluginUI):
         def render_history_viewer():
             st.subheader("📜 Memory History")
 
+            # ── Auto-analyze on new conversation toggle ──────────────────
+            st.markdown("#### ⚙️ Automatic Analysis")
+            current = self._core.get_auto_analyze_config(trainer_id)
+            new_val = st.toggle(
+                "Automatically analyze memory when a student starts a new conversation",
+                value=current,
+                key=f"{self._core.id}_auto_analyze_toggle",
+            )
+            if new_val != current:
+                self._core.set_auto_analyze_config(trainer_id, new_val)
+                st.rerun()
+            st.divider()
+            # ─────────────────────────────────────────────────────────────
+
             if self._core.trainer_manager is None:
                 log("warning", "Memory plugin activated without trainer_manager")
                 return
