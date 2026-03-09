@@ -215,6 +215,41 @@ class Logger:
 
         return "unknown", "unknown"
 
+    def get_level(self, module: Optional[str] = None) -> str:
+        """
+        Get current log level for a module or globally.
+
+        Args:
+            module: Optional module name. If None, returns global level.
+
+        Returns:
+            str: Current log level name
+        """
+        if module:
+            level = self._module_levels.get(module, self._level)
+        else:
+            level = self._level
+        return level.name
+
+    def get_all_module_levels(self) -> Dict[str, str]:
+        """
+        Get all module-specific log levels.
+
+        Returns:
+            Dict mapping module names to their log levels
+        """
+        return {module: level.name for module, level in self._module_levels.items()}
+
+    def reset_module_level(self, module: str):
+        """
+        Reset a module's log level to use the global level.
+
+        Args:
+            module: Module name to reset
+        """
+        if module in self._module_levels:
+            del self._module_levels[module]
+
     def set_level(self, level: str, module: Optional[str] = None):
         """
         Set log level.
@@ -613,6 +648,21 @@ def set_log_module_level(level: str):
     """
     logger = get_logger()
     logger.set_log_module_level(level)
+
+def get_log_level(module: Optional[str] = None) -> str:
+    """Get current log level globally or for a specific module."""
+    logger = get_logger()
+    return logger.get_level(module)
+
+def get_all_module_levels() -> Dict[str, str]:
+    """Get all module-specific log levels."""
+    logger = get_logger()
+    return logger.get_all_module_levels()
+
+def reset_module_level(module: str):
+    """Reset a module's log level to use the global level."""
+    logger = get_logger()
+    logger.reset_module_level(module)
 
 def log_filter_out_caller(function_names: List[str]):
     """

@@ -193,55 +193,270 @@ def show_config_tab():
     st.header("⚙️ Configuration Inspection & Logging Control")
 
     # SECTION 1: Logging System Control
-    st.subheader("🔇 Logging System Control")
+    st.subheader("🔊 Logging System Control")
 
-    # Get current disengagement state
-    from core.logging import set_logging_disengaged, is_logging_disengaged
+    # Get current logging state
+    from core.logging import (
+        set_logging_disengaged, is_logging_disengaged,
+        set_level, get_log_level, get_all_module_levels, reset_module_level,
+        debug, info, warning, error
+    )
+
     current_disengaged = is_logging_disengaged()
+    current_global_level = get_log_level()
 
-    # Create columns for better layout
-    col_status, col_toggle = st.columns([2, 1])
+    # IMPORTANT: Use session state to track if we're in the middle of an update
+    # This prevents infinite loops from reruns triggering more logs
+    if 'logging_update_in_progress' not in st.session_state:
+        st.session_state.logging_update_in_progress = False
 
-    with col_status:
-        # Status display
-        if current_disengaged:
-            st.error("🔴 **Logging is DISENGAGED** - All log calls are no-ops")
-            st.caption("Performance is maximized but no logs will be written")
-        else:
-            st.success("🟢 **Logging is ENGAGED** - Normal logging operation")
-            st.caption("Logs are being written according to current configuration")
+    if 'previous_log_level' not in st.session_state:
+        st.session_state.previous_log_level = current_global_level
 
-    with col_toggle:
-        # Toggle button
-        if current_disengaged:
-            if st.button("🔊 Re-engage Logging", type="primary", width='stretch'):
-                set_logging_disengaged(False)
-                st.rerun()
-        else:
-            if st.button("🔇 Disengage Logging", type="secondary", width='stretch'):
-                set_logging_disengaged(True)
-                st.rerun()
+    # Create tabs for different logging controls
+    log_tab1, log_tab2, log_tab3 = st.tabs(["🎮 Main Control", "📦 Module Levels", "🧪 Test"])
 
-    # Test buttons
-    col_test1, col_test2 = st.columns(2)
-    with col_test1:
-        if st.button("📝 Test Logging", width='stretch'):
-            from core.logging import debug, info, warning, error
+    with log_tab1:
+        # Main control section
+        col_status, col_toggle, col_level = st.columns([2, 1, 1])
+
+        with col_status:
+            # Status display
             if current_disengaged:
-                st.info("Logging is disengaged - these messages will be IGNORED")
-                debug("Debug test - should NOT appear")
-                info("Info test - should NOT appear")
-                warning("Warning test - should NOT appear")
-                error("Error test - should NOT appear")
-                st.success("Test messages sent (they were ignored)")
+                st.error("🔴 **Logging is DISENGAGED** - All log calls are no-ops")
+                st.caption("Performance is maximized but no logs will be written")
             else:
-                st.info("Logging is engaged - check console/logs")
-                debug("Debug test - should appear")
-                info("Info test - should appear")
-                warning("Warning test - should appear")
-                error("Error test - should appear")
-                st.success("Test messages sent - check your logs")
+                st.success("🟢 **Logging is ENGAGED** - Normal logging operation")
+                st.caption(f"Global level: **{current_global_level}**")
 
+        with col_toggle:
+            # Toggle disengage button
+            if current_disengaged:
+                if st.button("🔊 Re-engage Logging", type="primary", use_container_width=True):
+                    # Set flag to prevent logging during update
+                    st.session_state.logging_update_in_progress = True
+                    set_logging_disengaged(False)
+                    st.rerun()
+            else:
+                if st.button("🔇 Disengage Logging", type="secondary", use_container_width=True):
+                    st.session_state.logging_update_in_progress = True
+                    set_logging_disengaged(True)
+                    st.rerun()
+
+        with col_level:
+            # Global level control (only if not disengaged)
+            if not current_disengaged:
+                # Use a unique key for the selectbox that doesn't change on rerun
+                level_options = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+                # Create a selectbox with a stable key
+                selected_level = st.selectbox(
+                    "Global Level",
+                    options=level_options,
+                    index=level_options.index(current_global_level) if current_global_level in level_options else 1,
+                    key="global_log_level_selectbox",  # Stable key
+                    label_visibility="collapsed"
+                )
+
+                # Only trigger update if:
+                # 1. The selected level is different from current
+                # 2. We're not already in an update
+                # 3. The selectbox was actually interacted with (using session state to track)
+                if 'last_selected_level' not in st.session_state:
+                    st.session_state.last_selected_level = selected_level
+
+                if (selected_level != current_global_level and
+                    not st.session_state.logging_update_in_progress and
+                    selected_level != st.session_state.last_selected_level):
+
+                    # Update tracking
+                    st.session_state.last_selected_level = selected_level
+                    st.session_state.logging_update_in_progress = True
+
+                    # Set the new level WITHOUT using rerun
+                    # Instead, update directly and rely on Streamlit's natural refresh
+                    set_level(selected_level)
+
+                    # Clear the flag after a short delay (handled by session state)
+                    # We'll clear it on next render
+                elif st.session_state.logging_update_in_progress:
+                    # Clear the flag now that we've rendered
+                    st.session_state.logging_update_in_progress = False
+
+        # Show current global level info
+        if not current_disengaged:
+            st.info(f"📢 **Current global log level: {current_global_level}**")
+
+            # Level descriptions
+            with st.expander("📖 Log Level Descriptions", expanded=False):
+                st.markdown("""
+                - **DEBUG**: Detailed information, typically of interest only when diagnosing problems
+                - **INFO**: Confirmation that things are working as expected
+                - **WARNING**: Indication that something unexpected happened, but the application is still working
+                - **ERROR**: Due to a more serious problem, the application couldn't perform some function
+                - **CRITICAL**: A serious error, indicating that the application itself may be unable to continue running
+                """)
+
+    with log_tab2:
+        # Module-specific level control
+        st.markdown("##### 📦 Module-Specific Log Levels")
+        st.caption("Set different log levels for specific modules (overrides global level)")
+
+        # Get all module levels
+        module_levels = get_all_module_levels()
+
+        # Input for new module level
+        col_mod1, col_mod2, col_mod3 = st.columns([2, 1, 1])
+
+        with col_mod1:
+            new_module = st.text_input(
+                "Module name",
+                placeholder="e.g., core.auth, modules.debug",
+                key="new_module_name_input"
+            )
+
+        with col_mod2:
+            new_module_level = st.selectbox(
+                "Level",
+                options=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                index=1,
+                key="new_module_level_select"
+            )
+
+        with col_mod3:
+            st.write("")  # Spacing
+            st.write("")  # Spacing
+            if st.button("➕ Add/Update", use_container_width=True, key="add_module_level_btn"):
+                if new_module:
+                    st.session_state.logging_update_in_progress = True
+                    set_level(new_module_level, new_module)
+                    st.rerun()
+                else:
+                    st.warning("Please enter a module name")
+
+        # Display current module levels
+        if module_levels:
+            st.markdown("##### Current Module Levels")
+
+            # Display as table with reset buttons
+            for module, level in sorted(module_levels.items()):
+                col_mod_disp, col_level_disp, col_reset = st.columns([3, 1, 1])
+                with col_mod_disp:
+                    st.code(module, language="")
+                with col_level_disp:
+                    # Color-code the level
+                    level_color = {
+                        "DEBUG": "🟣",
+                        "INFO": "🔵",
+                        "WARNING": "🟡",
+                        "ERROR": "🟠",
+                        "CRITICAL": "🔴"
+                    }.get(level, "⚪")
+                    st.markdown(f"{level_color} **{level}**")
+                with col_reset:
+                    if st.button("Reset", key=f"reset_module_{module}", use_container_width=True):
+                        st.session_state.logging_update_in_progress = True
+                        reset_module_level(module)
+                        st.rerun()
+        else:
+            st.info("No module-specific levels set. All modules use the global level.")
+
+        # Quick preset buttons for common modules
+        st.markdown("##### ⚡ Quick Presets")
+        col_preset1, col_preset2, col_preset3, col_preset4 = st.columns(4)
+
+        with col_preset1:
+            if st.button("🐍 All DEBUG", use_container_width=True, key="preset_all_debug"):
+                st.session_state.logging_update_in_progress = True
+                set_level("DEBUG")  # Global
+                st.rerun()
+
+        with col_preset2:
+            if st.button("ℹ️ All INFO", use_container_width=True, key="preset_all_info"):
+                st.session_state.logging_update_in_progress = True
+                set_level("INFO")  # Global
+                st.rerun()
+
+        with col_preset3:
+            if st.button("⚠️ All WARNING", use_container_width=True, key="preset_all_warning"):
+                st.session_state.logging_update_in_progress = True
+                set_level("WARNING")  # Global
+                st.rerun()
+
+        with col_preset4:
+            if st.button("🔄 Reset All", use_container_width=True, key="reset_all_modules"):
+                st.session_state.logging_update_in_progress = True
+                for module in list(module_levels.keys()):
+                    reset_module_level(module)
+                st.rerun()
+
+    with log_tab3:
+        # Test section - MODIFIED to prevent infinite loops
+        st.markdown("##### 🧪 Test Logging")
+
+        col_test1, col_test2 = st.columns(2)
+
+        with col_test1:
+            # Only show test button if we're not in an update
+            test_button_disabled = st.session_state.logging_update_in_progress
+
+            if st.button("📝 Send Test Messages", use_container_width=True,
+                        disabled=test_button_disabled, key="send_test_logs_btn"):
+
+                # Temporarily disable the update flag to prevent loops
+                original_flag = st.session_state.logging_update_in_progress
+                st.session_state.logging_update_in_progress = True
+
+                if current_disengaged:
+                    st.info("Logging is disengaged - these messages will be IGNORED")
+                    # Use a special flag to prevent these logs from triggering UI updates
+                    debug("Debug test - should NOT appear")
+                    info("Info test - should NOT appear")
+                    warning("Warning test - should NOT appear")
+                    error("Error test - should NOT appear")
+                    st.success("Test messages sent (they were ignored)")
+                else:
+                    st.info(f"Logging is engaged (level: {current_global_level}) - check console/logs")
+                    debug("🔍 DEBUG: This is a debug message from admin UI")
+                    info("ℹ️ INFO: This is an info message from admin UI")
+                    warning("⚠️ WARNING: This is a warning message from admin UI")
+                    error("❌ ERROR: This is an error message from admin UI")
+                    st.success("Test messages sent - check your logs")
+
+                # Restore flag
+                st.session_state.logging_update_in_progress = original_flag
+
+        with col_test2:
+            if st.button("🧹 Clear All Module Levels", use_container_width=True, key="clear_all_modules_btn"):
+                st.session_state.logging_update_in_progress = True
+                for module in list(module_levels.keys()):
+                    reset_module_level(module)
+                st.rerun()
+
+        # Show current configuration summary
+        with st.expander("📋 Current Logging Configuration", expanded=False):
+            st.json({
+                "disengaged": current_disengaged,
+                "global_level": current_global_level,
+                "module_levels": module_levels,
+                "update_in_progress": st.session_state.logging_update_in_progress,
+            })
+
+    # Clear the update flag at the end of the function if it was set
+    # This ensures we don't get stuck in update mode
+    if st.session_state.logging_update_in_progress:
+        # Only clear if we're not in the middle of a button action
+        # We can detect this by checking if any button was just clicked
+        button_clicked = any([
+            st.session_state.get('add_module_level_btn', False),
+            st.session_state.get('preset_all_debug', False),
+            st.session_state.get('preset_all_info', False),
+            st.session_state.get('preset_all_warning', False),
+            st.session_state.get('reset_all_modules', False),
+        ])
+
+        if not button_clicked:
+            st.session_state.logging_update_in_progress = False
 
     st.divider()
 
