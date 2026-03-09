@@ -557,17 +557,20 @@ def show_quick_tests_tab():
         st.rerun()
 
 
+# Dans debug_admin_ui.py, modifiez la fonction show_debug_admin_content:
+
 def show_debug_admin_content():
     """Main function to display the Debug Admin with tabs."""
     st.header("🔧 Debug and Testing")
 
-    # Create tabs - AJOUTE LE 5ÈME ONGLET
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Create tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📝 Text & LLM",
         "⚙️ Config",
         "🎯 UI Registry",
         "⚡ Quick Tests",
-        "⏱️ Profiler"  # Nouvel onglet
+        "⏱️ Profiler",
+        "📊 Memory"
     ])
 
     with tab1:
@@ -585,6 +588,21 @@ def show_debug_admin_content():
     with tab5:
         show_profiler_tab()
 
+    with tab6:
+        # Only load memory tab when selected
+        if 'memory_tab_loaded' not in st.session_state:
+            st.session_state.memory_tab_loaded = False
+
+        if not st.session_state.memory_tab_loaded:
+            if st.button("📊 Load Memory Analysis (may be slow)", use_container_width=True, type="primary"):
+                st.session_state.memory_tab_loaded = True
+                st.rerun()
+        else:
+            from modules.debug.debug_mem_tab import show_memory_tab
+            show_memory_tab()
+
+            if st.button("🔄 Reload", use_container_width=True):
+                st.rerun()
 
 def inject_ui_admin_tab():
     """Register the Debug admin tab using the new injection mechanism.

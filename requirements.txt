@@ -23,3 +23,6 @@ sqlalchemy-utils
 huggingface-hub
 llama-index-core
 openai
+psutil 
+pympler
+objgraph
