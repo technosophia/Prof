@@ -368,8 +368,31 @@ class Logger:
         if handler in self._handlers:
             self._handlers.remove(handler)
 
+    def set_disengaged(self, disengaged: bool):
+        """
+        Set whether logging is completely disengaged for performance.
+        When disengaged, all logging calls become no-ops for maximum performance.
+
+        Args:
+            disengaged: True to completely disable logging, False to enable
+        """
+        self._disengaged = disengaged
+
+        if disengaged:
+            # Log this once using print since logging is disabled
+            print(f"🔇 LOGGING DISENGAGED for {self.name} - All logging calls are now no-ops")
+        else:
+            print(f"🔊 LOGGING RE-ENGAGED for {self.name}")
+
+    def is_disengaged(self) -> bool:
+        """Check if logging is currently disengaged."""
+        return getattr(self, '_disengaged', False)
+
     def _log(self, level: LogLevel, level_name: str, message: str, *args: Any, include_traceback: bool = False):
-        """Internal logging method."""
+        """Internal logging method with disengagement support."""
+        # FAST PATH: If logging is disengaged, return immediately (no-op)
+        if getattr(self, '_disengaged', False):
+            return
         # Get calling module and function
         module, function = self.get_calling_info()
 
@@ -678,3 +701,19 @@ def is_log_capturing() -> bool:
     """Check if log capture is currently active."""
     logger = get_logger()
     return logger.is_capturing()
+
+def set_logging_disengaged(disengaged: bool):
+    """
+    Globally disengage or re-engage the logging system.
+    When disengaged, all logging calls become no-ops for maximum performance.
+
+    Args:
+        disengaged: True to completely disable logging, False to enable
+    """
+    logger = get_logger()
+    logger.set_disengaged(disengaged)
+
+def is_logging_disengaged() -> bool:
+    """Check if logging is globally disengaged."""
+    logger = get_logger()
+    return logger.is_disengaged()
