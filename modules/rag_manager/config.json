@@ -157,6 +157,23 @@
         "use_summaries": true,
         "contextual_chunking": false,
         "contextual_model": null
+      },
+      "hybrid_bm25_blend_no_hyde": {
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Hybrid: full BM25 blend (alpha=0.6) instead of tiebreaker",
+        "index_path": "data/hybrid_indexes/hybrid_bm25_blend",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "sentence_window",
+        "sentence_window_size": 3,
+        "hyde": false,
+        "hyde_prompt_key": "rag_manager.hyde_prompt",
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.6,
+        "bm25_rerank_only": false,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
       }
     }
   }

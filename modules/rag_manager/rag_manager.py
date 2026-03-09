@@ -388,7 +388,7 @@ class RAGManager:
                 log("error", f"RAGManager.instantiate_engines: failed to create "
                              f"'{engine_id}': {e}", stacktrace=True)
 
-        log("info", f"RAGManager: engines = {list(self.engines.keys())}")
+        log("debug", f"RAGManager: engines = {list(self.engines.keys())}")
 
 
     def register_engine(self, engine: RAGEngine):
