@@ -346,21 +346,21 @@ def show_memory_tab():
     col_gc, col_obj, col_snap, col_clear = st.columns(4)
 
     with col_gc:
-        if st.button("🧹 Run Garbage Collector", use_container_width=True):
+        if st.button("🧹 Run Garbage Collector", width='stretch'):
             freed = gc.collect()
             st.success(f"Garbage collector ran. Freed {freed} objects.")
             st.rerun()
 
     with col_obj:
-        if st.button("🔍 Analyze Objects", use_container_width=True):
+        if st.button("🔍 Analyze Objects", width='stretch'):
             st.session_state.show_obj_analysis = True
 
     with col_snap:
-        if st.button("📸 Take Memory Snapshot", use_container_width=True):
+        if st.button("📸 Take Memory Snapshot", width='stretch'):
             st.session_state.take_snapshot = True
 
     with col_clear:
-        if st.button("🗑️ Clear All Results", use_container_width=True):
+        if st.button("🗑️ Clear All Results", width='stretch'):
             for key in ["show_obj_analysis", "take_snapshot"]:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -399,7 +399,7 @@ def show_memory_tab():
                     "error": "Error",
                 },
                 hide_index=True,
-                use_container_width=True
+                width='stretch'
             )
 
             if len(session_stats["keys"]) > 10:
@@ -452,7 +452,7 @@ def show_memory_tab():
                     "Size": "Memory"
                 },
                 hide_index=True,
-                use_container_width=True
+                width='stretch'
             )
 
             # Highlight large objects
@@ -475,7 +475,7 @@ def show_memory_tab():
                 st.json(safe_info)
 
                 # Option to clear cache
-                if st.button("🗑️ Clear All Caches", use_container_width=True):
+                if st.button("🗑️ Clear All Caches", width='stretch'):
                     try:
                         if hasattr(st, '_main') and hasattr(st._main, '_cache'):
                             cache_dict = st._main._cache
@@ -519,7 +519,7 @@ def show_memory_tab():
                             "avg_mb": st.column_config.NumberColumn("Avg Size (MB)", format="%.3f"),
                         },
                         hide_index=True,
-                        use_container_width=True
+                        width='stretch'
                     )
 
                     # Show raw object analysis option
@@ -553,7 +553,7 @@ def show_memory_tab():
                             "line": "Line",
                         },
                         hide_index=True,
-                        use_container_width=True
+                        width='stretch'
                     )
                 else:
                     st.info("Take another snapshot to see changes")

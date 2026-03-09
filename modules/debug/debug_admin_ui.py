@@ -214,18 +214,18 @@ def show_config_tab():
     with col_toggle:
         # Toggle button
         if current_disengaged:
-            if st.button("🔊 Re-engage Logging", type="primary", use_container_width=True):
+            if st.button("🔊 Re-engage Logging", type="primary", width='stretch'):
                 set_logging_disengaged(False)
                 st.rerun()
         else:
-            if st.button("🔇 Disengage Logging", type="secondary", use_container_width=True):
+            if st.button("🔇 Disengage Logging", type="secondary", width='stretch'):
                 set_logging_disengaged(True)
                 st.rerun()
 
     # Test buttons
     col_test1, col_test2 = st.columns(2)
     with col_test1:
-        if st.button("📝 Test Logging", use_container_width=True):
+        if st.button("📝 Test Logging", width='stretch'):
             from core.logging import debug, info, warning, error
             if current_disengaged:
                 st.info("Logging is disengaged - these messages will be IGNORED")
@@ -594,14 +594,14 @@ def show_debug_admin_content():
             st.session_state.memory_tab_loaded = False
 
         if not st.session_state.memory_tab_loaded:
-            if st.button("📊 Load Memory Analysis (may be slow)", use_container_width=True, type="primary"):
+            if st.button("📊 Load Memory Analysis (may be slow)", width='stretch', type="primary"):
                 st.session_state.memory_tab_loaded = True
                 st.rerun()
         else:
             from modules.debug.debug_mem_tab import show_memory_tab
             show_memory_tab()
 
-            if st.button("🔄 Reload", use_container_width=True):
+            if st.button("🔄 Reload", width='stretch'):
                 st.rerun()
 
 def inject_ui_admin_tab():

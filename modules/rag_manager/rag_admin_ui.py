@@ -90,7 +90,7 @@ def _show_cache_tab():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔄 Clear Cache", type="primary", use_container_width=True,
+        if st.button("🔄 Clear Cache", type="primary", width='stretch',
                    help="Clear all cached model weights. Models will reload on next use."):
             with st.spinner("Clearing cache..."):
                 if _get_rag_manager().clear_model_cache():
@@ -100,11 +100,11 @@ def _show_cache_tab():
                     st.error("Failed to clear cache")
 
     with col2:
-        if st.button("📊 Refresh Cache Info", use_container_width=True):
+        if st.button("📊 Refresh Cache Info", width='stretch'):
             st.rerun()
 
     with col3:
-        if st.button("⚙️ Reload Config", use_container_width=True,
+        if st.button("⚙️ Reload Config", width='stretch',
                    help="Reload RAG configuration from config file"):
             with st.spinner("Reloading config..."):
                 _get_rag_manager().refresh_config()
@@ -144,7 +144,7 @@ def _show_cache_tab():
         st.markdown("**Step 1: Clear Existing Indices**")
         st.caption("Clear all indices before re-indexing with new model")
 
-        if st.button("🗑️ Clear All Indices", type="secondary", use_container_width=True,
+        if st.button("🗑️ Clear All Indices", type="secondary", width='stretch',
                     help="Clear all indices from all engines. Required before re-indexing with new model."):
 
             with st.spinner("Clearing all engine indices..."):
@@ -181,7 +181,7 @@ def _show_cache_tab():
             help="Choose which engines to re-index"
         )
 
-        if st.button("🔄 Re-index All Documents", type="primary", use_container_width=True,
+        if st.button("🔄 Re-index All Documents", type="primary", width='stretch',
                     help="Re-index all documents across selected engines"):
 
             if not selected_engines:
@@ -235,7 +235,7 @@ def _show_cache_tab():
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🔄 Clear & Re-index (All-in-One)", type="secondary", use_container_width=True):
+        if st.button("🔄 Clear & Re-index (All-in-One)", type="secondary", width='stretch'):
 
             if st.session_state.get("confirm_complete_reindex", False):
                 with st.spinner("Step 1: Clearing all indices..."):
