@@ -118,9 +118,9 @@ class HybridRAGEngine(RAGEngine):
     All features are independently togglable via config or update_config().
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__("hybrid")
-        self.description = "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks"
+    def __init__(self, config: Optional[Dict[str, Any]] = None, engine_id: Optional[str] = None):
+        super().__init__("hybrid", engine_id)
+        self.description = config.get("description", "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks") if config else "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks"
         self._apply_config(config or {})
 
         self.indices:  Dict[str, faiss.IndexFlatIP] = {}
@@ -141,7 +141,10 @@ class HybridRAGEngine(RAGEngine):
 
     def _apply_config(self, cfg: Dict[str, Any]) -> None:
         """Write all config values onto self. Called at init and by update_config."""
-        self.index_path           = Path(cfg.get("index_path", "data/hybrid_indexes"))
+        # Default index path uses engine_id so named variants get isolated storage.
+        # e.g. engine_id="hybrid_no_hyde" → "data/hybrid_indexes/hybrid_no_hyde"
+        default_path = f"data/hybrid_indexes/{self.engine_id}" if hasattr(self, "engine_id") else "data/hybrid_indexes"
+        self.index_path           = Path(cfg.get("index_path", default_path))
         self.index_path.mkdir(parents=True, exist_ok=True)
         self.similarity_threshold = cfg.get("similarity_threshold", 0.25)
 
@@ -168,11 +171,11 @@ class HybridRAGEngine(RAGEngine):
         self.contextual_model     = cfg.get("contextual_model", None)
 
     def _log_active_config(self) -> None:
-        log("info", (
-            f"HybridRAGEngine ready — strategy={self.chunk_strategy} "
+        log("debug", (
+            f"HybridRAGEngine [{self.engine_id}] ready — strategy={self.chunk_strategy} "
             f"hyde={self.use_hyde} bm25={self.use_bm25_hybrid} "
             f"contextual={self.use_contextual} summaries={self.use_summaries} "
-            f"threshold={self.similarity_threshold}"
+            f"threshold={self.similarity_threshold} path={self.index_path}"
         ))
 
     def get_config(self) -> Dict[str, Any]:
@@ -252,7 +255,7 @@ class HybridRAGEngine(RAGEngine):
                     with open(meta_f, "rb") as fh:
                         self.metadata[uid] = pickle.load(fh)
                 self._rebuild_bm25(uid)
-                log("info", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
+                log("debug", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
             except Exception as e:
                 log("error", f"HybridRAG: failed to load index for {uid}: {e}")
 
@@ -449,7 +452,7 @@ class HybridRAGEngine(RAGEngine):
                 })
             self._save_index(user_id)
             self._rebuild_bm25(user_id)
-            log("info", f"HybridRAG: indexed {filename} for {user_id} ({len(chunks)} chunks)")
+            log("debug", f"HybridRAG: indexed {filename} for {user_id} ({len(chunks)} chunks)")
             return True
         except Exception as e:
             log("error", f"HybridRAG: index_document failed: {e}", stacktrace=True)
@@ -514,7 +517,13 @@ class HybridRAGEngine(RAGEngine):
 
     def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         if self.dimension is None: return []
-        if user_id not in self.indices or self.indices[user_id].ntotal == 0: return []
+        if user_id not in self.indices or self.indices[user_id].ntotal == 0:
+            log("warning",
+                f"HybridRAGEngine [{self.engine_id}]: no index found for user '{user_id}' "
+                f"at path '{self.index_path}'. "
+                f"This engine needs to be re-indexed (Documents tab → re-index) "
+                f"because its index_path differs from the default engine.")
+            return []
         try:
             query_vec = self._build_query_embedding(query)
             n_chunks  = self.indices[user_id].ntotal

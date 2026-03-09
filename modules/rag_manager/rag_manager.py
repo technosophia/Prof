@@ -138,6 +138,7 @@ class RAGManager:
         self.documents = self._load_metadata()
 
         self.discover_engines()
+        self.instantiate_engines()
 
         self._user_manager.register_before_delete_callback(self._handle_user_deletion)
 
@@ -250,79 +251,145 @@ class RAGManager:
 
         return tuple(sorted((k, _make_hashable(val)) for k, val in engine_config.items()))
 
-    def discover_engines(self) -> None:
+    def get_engine_ids(self) -> list:
+        """Return all registered engine_ids in declaration order."""
+        return list(self.engines.keys())
+
+    def discover_engines(self):
         """
-        Discover and register all engine plugins.
-
-        Each engine is instantiated via a module-level cached factory so that
-        expensive __init__ work (e.g. loading FAISS / llama-index indices from
-        disk) is performed at most once per process lifetime, regardless of
-        how many Streamlit reruns occur.
+        Discover all RAGEngine subclasses from the rag_engines/ directory.
+        Populates self._engine_classes  {engine_type: class}  — NOT instances yet.
+        Instances are created by instantiate_engines() which reads the config.
         """
-        global _CACHED_ENGINE_FACTORY
+        import os, sys, importlib, pkgutil
+        from modules.rag_manager.rag_engine import RAGEngine
 
-        # Build (once) the st.cache_resource-decorated factory.
-        if self._cache_fn is not None and _CACHED_ENGINE_FACTORY is None:
-            _CACHED_ENGINE_FACTORY = _make_cached_engine_factory(self._cache_fn)
+        self._engine_classes = {}   # engine_type → class
+        engines_dir = os.path.join(os.path.dirname(__file__), "rag_engines")
 
-        engines_dir = Path(__file__).parent / "rag_engines"
-        if not engines_dir.exists():
-            log("warning", "rag_engines directory not found")
+        if not os.path.isdir(engines_dir):
+            log("error", f"RAGManager: rag_engines/ directory not found at {engines_dir}")
             return
 
-        if str(engines_dir.parent) not in sys.path:
-            sys.path.insert(0, str(engines_dir.parent))
+        parent = os.path.dirname(os.path.dirname(__file__))  # project root
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
 
-        engines_config = self._get_rag_config().get("engines", {})
-        discovered: Dict[str, RAGEngine] = {}
-
-        for _, module_name, is_pkg in pkgutil.iter_modules([str(engines_dir)]):
-            if is_pkg or not module_name.startswith('rag_'):
+        for _, module_name, is_pkg in pkgutil.iter_modules([engines_dir]):
+            if is_pkg:
                 continue
             try:
-                full_module_name = f"modules.rag_manager.rag_engines.{module_name}"
-
-                # Import only for class discovery — this is cheap (no index loading).
-                module = importlib.import_module(full_module_name)
-
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if not (isinstance(attr, type)
+                full = f"modules.rag_manager.rag_engines.{module_name}"
+                mod = importlib.import_module(full)
+                for attr_name in dir(mod):
+                    attr = getattr(mod, attr_name)
+                    if (isinstance(attr, type)
                             and issubclass(attr, RAGEngine)
-                            and attr is not RAGEngine):
-                        continue
-
-                    # Resolve config key (same logic as before).
-                    guessed_key = module_name.replace("rag_", "")
-
-                    engine_config = engines_config.get(guessed_key, {})
-                    fingerprint = self._config_fingerprint(engine_config)
-
-                    # --- THE KEY CHANGE ---
-                    # Use the stable cached factory when available; fall back to
-                    # a plain module-level dict cache (headless / test mode).
-                    if _CACHED_ENGINE_FACTORY is not None:
-                        engine = _CACHED_ENGINE_FACTORY(
-                            full_module_name, attr_name, fingerprint
-                        )
-                    else:
-                        cache_key = f"{full_module_name}.{attr_name}:{fingerprint}"
-                        if cache_key not in _ENGINE_CACHE:
-                            try:
-                                _ENGINE_CACHE[cache_key] = attr(config=engine_config)
-                            except TypeError:
-                                _ENGINE_CACHE[cache_key] = attr()
-                        engine = _ENGINE_CACHE[cache_key]
-
-                    if engine is not None:
-                        discovered[engine.engine_type] = engine
-                        log("debug", f"Registered RAG engine: {engine.engine_type}")
-
+                            and attr is not RAGEngine
+                            and not getattr(attr, "__abstractmethods__", None)):
+                        # Use the class's default engine_type as the registry key.
+                        dummy = object.__new__(attr)
+                        dummy.engine_type = "unknown"
+                        try:
+                            # Peek at what engine_type the class would use.
+                            # We call __init__ with empty config to sniff engine_type.
+                            # For classes that don't accept config kwarg, just
+                            # instantiate normally — they'll read nothing from config.
+                            import re as _re
+                            import inspect as _inspect
+                            etype = None
+                            # 1. Cheapest: class-level constant ENGINE_TYPE = "..."
+                            etype = getattr(attr, "ENGINE_TYPE", None)
+                            # 2. Parse super().__init__("engine_type_here") from source
+                            if etype is None:
+                                try:
+                                    src = _inspect.getsource(attr.__init__)
+                                    m = _re.search(
+                                        r'super\(\)\.__init__\s*\(\s*["\'](\w+)["\']', src
+                                    )
+                                    if m:
+                                        etype = m.group(1)
+                                except Exception:
+                                    pass
+                            # 3. Strip "rag_" prefix from module filename as last resort
+                            if etype is None:
+                                etype = (
+                                    module_name[4:]
+                                    if module_name.startswith("rag_")
+                                    else module_name
+                                )
+                        except Exception:
+                            etype = module_name  # fallback
+                        self._engine_classes[etype] = attr
+                        log("info", f"RAGManager: registered engine class '{etype}' from {module_name}")
+                        break
             except Exception as e:
-                log("error", f"Failed to load RAG engine module {module_name}: {e}")
+                log("error", f"RAGManager: failed to load {module_name}: {e}")
 
-        self.engines = discovered
-        log("info", f"Registered {len(self.engines)} RAG engines: {list(self.engines.keys())}")
+        log("debug", f"RAGManager: engine classes = {list(self._engine_classes.keys())}")
+
+    def instantiate_engines(self) -> None:
+        """
+        Read rag_manager.engines from config and create one named instance per block.
+
+        engine_id   = config key  (e.g. "hybrid_no_hyde")  — display name / bench key
+        engine_type = config["type"] or engine_id           — selects which class to use
+
+        Skips engine_ids already present in self.engines (so engines built by the
+        old explicit construction path are preserved and not double-instantiated).
+        """
+        import inspect
+        try:
+            rag_cfg = self._get_rag_config()
+        except Exception as e:
+            log("error",
+                f"RAGManager.instantiate_engines: failed to read rag_manager config — {e}. "
+                f"Check config.json for JSON syntax errors in the rag_manager section. "
+                f"No additional engines will be loaded.")
+            return
+        engines_cfg = rag_cfg.get("engines", {})
+        if not engines_cfg:
+            log("warning",
+                "RAGManager.instantiate_engines: 'engines' section is empty or missing "
+                "from rag_manager config. Check config.json for syntax errors.")
+            return
+
+        for engine_id, ecfg in engines_cfg.items():
+            if not isinstance(ecfg, dict):
+                continue
+            if not ecfg.get("enabled", True):
+                log("debug", f"RAGManager.instantiate_engines: skipping disabled '{engine_id}'")
+                continue
+            if engine_id in self.engines:
+                # Already built by the explicit construction path — don't overwrite.
+                log("debug", f"RAGManager.instantiate_engines: '{engine_id}' already exists, skipping")
+                continue
+
+            engine_type = ecfg.get("type", engine_id)   # fallback = engine_id (backward compat)
+            cls = self._engine_classes.get(engine_type)
+            if cls is None:
+                log("warning", f"RAGManager.instantiate_engines: no class for "
+                               f"engine_type='{engine_type}' (id='{engine_id}') — skipping")
+                continue
+
+            try:
+                sig = inspect.signature(cls.__init__)
+                params = list(sig.parameters.keys())
+                kwargs = {}
+                if "config" in params:
+                    kwargs["config"] = ecfg
+                if "engine_id" in params:
+                    kwargs["engine_id"] = engine_id
+                instance = cls(**kwargs)
+                self.engines[engine_id] = instance
+                log("debug", f"RAGManager.instantiate_engines: created '{engine_id}' "
+                            f"(type={engine_type})")
+            except Exception as e:
+                log("error", f"RAGManager.instantiate_engines: failed to create "
+                             f"'{engine_id}': {e}", stacktrace=True)
+
+        log("info", f"RAGManager: engines = {list(self.engines.keys())}")
+
 
     def register_engine(self, engine: RAGEngine):
         self.engines[engine.engine_type] = engine

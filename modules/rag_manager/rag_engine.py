@@ -5,8 +5,11 @@ from typing import List, Dict, Optional, Tuple, Any, Callable
 class RAGEngine(ABC):
     """Abstract base class for all RAG engines."""
 
-    def __init__(self, engine_type: str):
+    def __init__(self, engine_type: str, engine_id: Optional[str] = None):
         self.engine_type = engine_type
+        # engine_id is the config key / display name (e.g. "hybrid_no_hyde").
+        # Falls back to engine_type when not provided (classic / simple / etc.).
+        self.engine_id = engine_id or engine_type
         self.description = ""
         self.model_name = "all-MiniLM-L6-v2"  # Default model
         self.dimension = 384  # Default dimension

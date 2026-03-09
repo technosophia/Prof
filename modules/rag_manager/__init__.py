@@ -74,8 +74,11 @@ def _unregister_context_callback(callback: Callable) -> None:
 def _resolve_activation_engine(name: str) -> Optional[str]:
     if _engine_exists(name):
         return name
-    for candidate in ("simple", "classic", "faiss_hierarchical"):
+    # Fall back to any available engine — not a hardcoded list.
+    manager = get_rag_manager()
+    for candidate in manager.get_engine_ids():
         if _engine_exists(candidate):
+            log("warning", f"RAG engine '{name}' unavailable, falling back to '{candidate}'")
             return candidate
     return None
 
@@ -87,8 +90,6 @@ def _activate_rag_engine(name: str) -> None:
     if resolved_name is None:
         log("warning", f"Cannot activate unavailable RAG engine: {name}")
         return
-    if resolved_name != name:
-        log("warning", f"RAG engine '{name}' unavailable, falling back to '{resolved_name}'")
     name = resolved_name
 
     manager = get_rag_manager()
@@ -148,22 +149,33 @@ def on_module_activated(services) -> None:
     set_services(services)
     _LLM_MANAGER = llm_manager
     reset_rag_manager()
-    manager = get_rag_manager(config=config, user_manager=user_manager)
+    try:
+        manager = get_rag_manager(config=config, user_manager=user_manager)
+    except Exception as e:
+        # Most common cause: syntax error in config.json making rag_manager.engines
+        # unparseable, which leaves self.engines empty and causes "Cannot activate" warnings.
+        log("error",
+            f"rag_manager: failed to initialize RAGManager — {e}. "
+            f"Check config.json for syntax errors in the rag_manager.engines section.")
+        raise
     manager._cache_fn = cache_fn
 
-    for name, description in [
-        ("simple", "Keyword-based retrieval — fast, no embeddings"),
-        ("classic", "Vector similarity retrieval — standard RAG"),
-        ("faiss_hierarchical", "Hierarchical chunking and retrieval"),
-    ]:
-        if _engine_exists(name):
-            driver.register_option(
-                group="rag_engine",
-                name=name,
-                activate_fn=lambda n=name: _activate_rag_engine(n),
-                deactivate_fn=lambda n=name: _deactivate_rag_engine(n),
-                description=description,
-            )
+    # Register ALL engines declared in config — not a hardcoded list.
+    # Engine description comes from the instance itself (set in __init__ or config).
+    for name in manager.get_engine_ids():
+        if not _engine_exists(name):
+            log("debug", f"rag_manager: skipping unavailable engine '{name}'")
+            continue
+        engine = manager.get_engine(name)
+        description = getattr(engine, "description", name)
+        driver.register_option(
+            group="rag_engine",
+            name=name,
+            activate_fn=lambda n=name: _activate_rag_engine(n),
+            deactivate_fn=lambda n=name: _deactivate_rag_engine(n),
+            description=description,
+        )
+        log("debug", f"rag_manager: registered driver option for engine '{name}'")
 
     _clear_registered_context_callbacks()
     if manager.is_rag_enabled() and manager.default_engine:

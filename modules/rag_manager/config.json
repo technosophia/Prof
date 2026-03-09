@@ -1,14 +1,22 @@
 {
   "rag_manager": {
     "data_directory": "data/rag_documents",
-    "allowed_extensions": [".txt", ".pdf", ".md", ".docx", ".csv", ".json"],
+    "allowed_extensions": [
+      ".txt",
+      ".pdf",
+      ".md",
+      ".docx",
+      ".csv",
+      ".json"
+    ],
     "max_file_size_mb": 20,
     "default_engine": "classic",
     "engines": {
       "simple": {
         "enabled": true,
         "index_path": "data/simple_indexes",
-        "description": "Simple keyword-based search engine"
+        "description": "Simple keyword-based search engine",
+        "type": "simple"
       },
       "classic": {
         "enabled": true,
@@ -16,13 +24,15 @@
         "index_path": "data/classic_indexes",
         "chunk_size": 500,
         "chunk_overlap": 50,
-        "similarity_threshold": 0.3
+        "similarity_threshold": 0.3,
+        "type": "classic"
       },
       "faiss_hierarchical": {
         "enabled": true,
         "description": "FAISS vector store with hierarchical markdown parsing",
         "index_path": "data/hierarchical_indexes",
-        "similarity_threshold": 0.3
+        "similarity_threshold": 0.3,
+        "type": "faiss_hierarchical"
       },
       "faiss_hierarchical_v2": {
         "enabled": true,
@@ -34,27 +44,117 @@
           "section": 1.2,
           "paragraph": 1.0
         },
-        "summary_slots": 1
+        "summary_slots": 1,
+        "type": "faiss_hierarchical_v2"
+      },
+      "llama_index": {
+        "type": "llamaindex",
+        "enabled": true,
+        "description": "LlamaIndex SentenceWindow retrieval",
+        "index_path": "data/llamaindex_indexes",
+        "window_size": 3,
+        "similarity_top_k": 10,
+        "high_threshold": 0.4,
+        "low_threshold": 0.18
       },
       "hybrid": {
         "enabled": true,
         "description": "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks",
-        "index_path": "data/hybrid_indexes",
+        "index_path": "data/hybrid_indexes/default",
         "similarity_threshold": 0.25,
-
         "chunk_strategy": "sentence_window",
         "chunk_size": 400,
         "chunk_overlap": 60,
         "sentence_window_size": 3,
-        "dynamic_chunk_sizes": [150, 300, 500],
-
+        "dynamic_chunk_sizes": [
+          150,
+          300,
+          500
+        ],
         "hyde": true,
         "hyde_prompt_key": "rag_manager.hyde_prompt",
         "bm25_hybrid": true,
         "bm25_alpha": 0.5,
         "bm25_rerank_only": true,
         "use_summaries": true,
-
+        "contextual_chunking": false,
+        "contextual_model": null,
+        "type": "hybrid"
+      },
+      "hybrid_no_hyde": {
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Hybrid: no HyDE (baseline for HyDE comparison)",
+        "index_path": "data/hybrid_indexes/hybrid_no_hyde",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "sentence_window",
+        "chunk_size": 400,
+        "chunk_overlap": 60,
+        "sentence_window_size": 3,
+        "dynamic_chunk_sizes": [
+          150,
+          300,
+          500
+        ],
+        "hyde": false,
+        "hyde_prompt_key": "rag_manager.hyde_prompt",
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.5,
+        "bm25_rerank_only": true,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
+      },
+      "hybrid_no_hyde_no_dynamic": {
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks",
+        "index_path": "data/hybrid_indexes/no_hyde2",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "sentence_window",
+        "chunk_size": 400,
+        "chunk_overlap": 60,
+        "sentence_window_size": 3,
+        "hyde": false,
+        "hyde_prompt_key": "rag_manager.hyde_prompt",
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.5,
+        "bm25_rerank_only": true,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
+      },
+      "hybrid_wide_window": {
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Hybrid: wider sentence window (\u00b15) for richer context",
+        "index_path": "data/hybrid_indexes/hybrid_wide_window",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "sentence_window",
+        "sentence_window_size": 5,
+        "hyde": true,
+        "hyde_prompt_key": "rag_manager.hyde_prompt",
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.5,
+        "bm25_rerank_only": true,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
+      },
+      "hybrid_bm25_blend": {
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Hybrid: full BM25 blend (alpha=0.6) instead of tiebreaker",
+        "index_path": "data/hybrid_indexes/hybrid_bm25_blend",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "sentence_window",
+        "sentence_window_size": 3,
+        "hyde": true,
+        "hyde_prompt_key": "rag_manager.hyde_prompt",
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.6,
+        "bm25_rerank_only": false,
+        "use_summaries": true,
         "contextual_chunking": false,
         "contextual_model": null
       }
