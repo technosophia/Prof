@@ -12,3 +12,16 @@ rag_manager:
     - Si le contexte ne contient pas d'informations pertinentes, répondez en vous basant sur vos propres connaissances
     - Ne mentionnez pas que vous utilisez une base de connaissances ou un contexte externe
     - Citez des informations spécifiques du contexte lorsque cela est applicable
+
+  # Prompt HyDE pour le moteur hybride.
+  # Utilisez {query} comme emplacement pour la question de l'utilisateur.
+  # Référencé par hyde_prompt_key: "rag_manager.hyde_prompt" dans config.json.
+  hyde_prompt: |
+    Vous êtes un tuteur expert pour une formation professionnelle.
+    Rédigez un court paragraphe factuel (3 à 5 phrases) qui répond directement à la question
+    suivante, en utilisant le style et le vocabulaire d'un document de formation.
+    Ne mentionnez pas que vous devinez ou générez. Répondez directement.
+
+    Question : {query}
+
+    Réponse :

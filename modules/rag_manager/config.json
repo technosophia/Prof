@@ -35,6 +35,27 @@
           "paragraph": 1.0
         },
         "summary_slots": 1
+      },
+      "hybrid": {
+        "enabled": true,
+        "description": "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks",
+        "index_path": "data/hybrid_indexes",
+        "similarity_threshold": 0.25,
+
+        "chunk_strategy": "sentence_window",
+        "chunk_size": 400,
+        "chunk_overlap": 60,
+        "sentence_window_size": 3,
+        "dynamic_chunk_sizes": [150, 300, 500],
+
+        "hyde": true,
+        "hyde_prompt_key": "rag_manager.hyde_prompt",
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.5,
+        "use_summaries": true,
+
+        "contextual_chunking": false,
+        "contextual_model": null
       }
     }
   }

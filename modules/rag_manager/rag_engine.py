@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Tuple, Any, Callable
 
+
 class RAGEngine(ABC):
     """Abstract base class for all RAG engines."""
 
@@ -44,3 +45,28 @@ class RAGEngine(ABC):
     def get_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get engine statistics."""
         pass
+
+    # ------------------------------------------------------------------
+    # Live config override — engines override this to apply changes
+    # without requiring reconstruction of the singleton.
+    # ------------------------------------------------------------------
+
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Return the current runtime config of this engine as a plain dict.
+        Override in subclasses to expose all tunable parameters.
+        The default implementation returns an empty dict.
+        """
+        return {}
+
+    def update_config(self, overrides: Dict[str, Any]) -> None:
+        """
+        Apply runtime config overrides without reconstructing the engine.
+        Override in subclasses to handle each relevant key.
+
+        Args:
+            overrides: Dict of config keys → new values.
+                       Only keys present in the dict are updated;
+                       unmentioned keys keep their current value.
+        """
+        pass  # Default: no-op. Subclasses implement what they support.

@@ -1,0 +1,563 @@
+"""
+Hybrid RAG Engine — Experimental / Configurable
+
+Combines multiple retrieval strategies, all togglable via config:
+
+  hyde            : HyDE — embed a hypothetical answer instead of the raw query
+  contextual      : prepend a per-chunk LLM-generated context summary at index time
+  sentence_window : index at sentence level, return ±window_size sentences as context
+  bm25_hybrid     : combine BM25 keyword score with cosine score (alpha blend)
+  dynamic_chunks  : try multiple chunk sizes at query time, keep best-scoring hit per size
+  use_summaries   : if the doc has >[!Résumé] blocks, inject them as extra high-weight chunks
+
+No Streamlit dependency. Config is injected at construction time.
+
+QUICK CONFIG REFERENCE (engines.hybrid section in config.json):
+------------------------------------------------------------
+{
+  "hybrid": {
+    "enabled": true,
+    "index_path": "data/hybrid_indexes",
+    "similarity_threshold": 0.25,
+
+    "chunk_strategy": "sentence_window",
+    "chunk_size": 400,
+    "chunk_overlap": 60,
+    "sentence_window_size": 3,
+    "dynamic_chunk_sizes": [150, 300, 500],
+
+    "hyde": true,
+    "hyde_prompt_key": "rag_manager.hyde_prompt",
+    "bm25_hybrid": true,
+    "bm25_alpha": 0.5,
+    "use_summaries": true,
+
+    "contextual_chunking": false,
+    "contextual_model": null
+  }
+}
+
+PROMPT KEYS (prompts.en.yaml / prompts.fr.yaml):
+------------------------------------------------
+Add under rag_manager:
+  hyde_prompt: |
+    You are an expert tutor. Write a short factual paragraph (3-5 sentences)
+    that directly answers the following question as if found in a training document.
+    Question: {query}
+    Answer:
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import json
+import pickle
+import numpy as np
+import faiss
+from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
+from modules.rag_manager.rag_engine import RAGEngine
+from shared.common import get_embedding, get_embeddings
+from core.logging import log
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _cosine_norm(vecs: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return vecs / norms
+
+
+class _BM25:
+    def __init__(self, tokenised_corpus: List[List[str]]):
+        try:
+            from rank_bm25 import BM25Okapi
+            self._bm25 = BM25Okapi(tokenised_corpus)
+            self._ok = True
+        except ImportError:
+            log("warning", "rank_bm25 not installed — BM25 hybrid disabled. pip install rank-bm25")
+            self._ok = False
+
+    def scores(self, query_tokens: List[str], n: int) -> np.ndarray:
+        if not self._ok:
+            return np.zeros(n)
+        raw = np.array(self._bm25.get_scores(query_tokens), dtype=np.float32)
+        mx = raw.max()
+        return raw / mx if mx > 0 else raw
+
+    @property
+    def available(self) -> bool:
+        return self._ok
+
+
+def _tokenise(text: str) -> List[str]:
+    return re.findall(r"[a-zA-ZÀ-ÿ0-9]+", text.lower())
+
+
+_SENT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-Ý\"])")
+
+
+def _split_sentences(text: str) -> List[str]:
+    parts = _SENT_RE.split(text.strip())
+    return [s.strip() for s in parts if s.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Main engine
+# ---------------------------------------------------------------------------
+
+class HybridRAGEngine(RAGEngine):
+    """
+    Configurable hybrid RAG engine.
+    All features are independently togglable via config or update_config().
+    """
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        super().__init__("hybrid")
+        self.description = "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks"
+        self._apply_config(config or {})
+
+        self.indices:  Dict[str, faiss.IndexFlatIP] = {}
+        self.metadata: Dict[str, List[Dict[str, Any]]] = {}
+        self.bm25s:    Dict[str, Optional[_BM25]] = {}
+
+        try:
+            self.dimension = len(get_embedding("test"))
+            log("info", f"HybridRAGEngine: embedding dim={self.dimension}")
+        except Exception as e:
+            log("error", f"HybridRAGEngine: failed to get embedding dim: {e}")
+            self.dimension = None
+
+        self._load_indices()
+        self._log_active_config()
+
+    # ---------------------------------------------------------------- config
+
+    def _apply_config(self, cfg: Dict[str, Any]) -> None:
+        """Write all config values onto self. Called at init and by update_config."""
+        self.index_path           = Path(cfg.get("index_path", "data/hybrid_indexes"))
+        self.index_path.mkdir(parents=True, exist_ok=True)
+        self.similarity_threshold = cfg.get("similarity_threshold", 0.25)
+
+        self.chunk_strategy       = cfg.get("chunk_strategy", "sentence_window")
+        self.chunk_size           = int(cfg.get("chunk_size", 400))
+        self.chunk_overlap        = int(cfg.get("chunk_overlap", 60))
+        self.sentence_window_size = int(cfg.get("sentence_window_size", 3))
+        self.dynamic_chunk_sizes  = cfg.get("dynamic_chunk_sizes", [150, 300, 500])
+
+        self.use_hyde             = bool(cfg.get("hyde", True))
+        # Dotted key into prompts yaml, e.g. "rag_manager.hyde_prompt"
+        # None / absent → built-in fallback prompt is used
+        self.hyde_prompt_key      = cfg.get("hyde_prompt_key", "rag_manager.hyde_prompt")
+        self.use_bm25_hybrid      = bool(cfg.get("bm25_hybrid", True))
+        self.bm25_alpha           = float(cfg.get("bm25_alpha", 0.5))
+        self.use_summaries        = bool(cfg.get("use_summaries", True))
+
+        self.use_contextual       = bool(cfg.get("contextual_chunking", False))
+        self.contextual_model     = cfg.get("contextual_model", None)
+
+    def _log_active_config(self) -> None:
+        log("info", (
+            f"HybridRAGEngine ready — strategy={self.chunk_strategy} "
+            f"hyde={self.use_hyde} bm25={self.use_bm25_hybrid} "
+            f"contextual={self.use_contextual} summaries={self.use_summaries} "
+            f"threshold={self.similarity_threshold}"
+        ))
+
+    def get_config(self) -> Dict[str, Any]:
+        """Return all tunable parameters as a plain dict (used by admin UI)."""
+        return {
+            "similarity_threshold": self.similarity_threshold,
+            "chunk_strategy":       self.chunk_strategy,
+            "chunk_size":           self.chunk_size,
+            "chunk_overlap":        self.chunk_overlap,
+            "sentence_window_size": self.sentence_window_size,
+            "dynamic_chunk_sizes":  self.dynamic_chunk_sizes,
+            "hyde":                 self.use_hyde,
+            "hyde_prompt_key":      self.hyde_prompt_key,
+            "bm25_hybrid":          self.use_bm25_hybrid,
+            "bm25_alpha":           self.bm25_alpha,
+            "use_summaries":        self.use_summaries,
+            "contextual_chunking":  self.use_contextual,
+            "contextual_model":     self.contextual_model,
+        }
+
+    def update_config(self, overrides: Dict[str, Any]) -> None:
+        """
+        Apply runtime overrides without reconstructing the engine.
+        - Retrieval params (threshold, hyde, bm25_alpha…) take effect immediately.
+        - Chunking params take effect on the next index_document call.
+        """
+        current = self.get_config()
+        current.update(overrides)
+        current["index_path"] = str(self.index_path)   # preserve, not user-editable
+        self._apply_config(current)
+        self._log_active_config()
+
+    # ---------------------------------------------------------------- prompt
+
+    def _get_hyde_prompt(self) -> Optional[str]:
+        """
+        Resolve HyDE prompt text.
+        1. Try get_prompt(hyde_prompt_key) from shared.common.
+        2. Return None → caller uses built-in fallback.
+        """
+        if self.hyde_prompt_key:
+            try:
+                from shared.common import get_prompt
+                text = get_prompt(self.hyde_prompt_key)
+                if text:
+                    return text
+            except Exception as e:
+                log("debug", f"HybridRAG: could not load hyde prompt '{self.hyde_prompt_key}': {e}")
+        return None
+
+    # ---------------------------------------------------------------- persistence
+
+    def _index_file(self, uid: str) -> Path: return self.index_path / f"{uid}_hybrid.index"
+    def _meta_file(self, uid: str)  -> Path: return self.index_path / f"{uid}_hybrid_meta.pkl"
+    def _model_file(self, uid: str) -> Path: return self.index_path / f"{uid}_hybrid_model.json"
+
+    def _load_indices(self):
+        for f in self.index_path.glob("*_hybrid.index"):
+            uid = f.stem.replace("_hybrid", "")
+            model_f = self._model_file(uid)
+            if model_f.exists():
+                try:
+                    with open(model_f) as fh:
+                        meta = json.load(fh)
+                    if meta.get("dimension") != self.dimension:
+                        log("warning", f"HybridRAG: stale index for {uid} (dim mismatch) — skipping")
+                        continue
+                except Exception as e:
+                    log("error", f"HybridRAG: cannot read model meta for {uid}: {e}")
+                    continue
+            try:
+                idx = faiss.read_index(str(f))
+                self.indices[uid] = idx
+                meta_f = self._meta_file(uid)
+                if meta_f.exists():
+                    with open(meta_f, "rb") as fh:
+                        self.metadata[uid] = pickle.load(fh)
+                self._rebuild_bm25(uid)
+                log("info", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
+            except Exception as e:
+                log("error", f"HybridRAG: failed to load index for {uid}: {e}")
+
+    def _save_index(self, user_id: str):
+        if user_id in self.indices and self.indices[user_id].ntotal > 0:
+            try:
+                faiss.write_index(self.indices[user_id], str(self._index_file(user_id)))
+                with open(self._meta_file(user_id), "wb") as fh:
+                    pickle.dump(self.metadata[user_id], fh)
+                with open(self._model_file(user_id), "w") as fh:
+                    json.dump({"dimension": self.dimension,
+                               "saved_at": datetime.now().isoformat()}, fh)
+            except Exception as e:
+                log("error", f"HybridRAG: failed to save index for {user_id}: {e}")
+        else:
+            for p in [self._index_file(user_id), self._meta_file(user_id),
+                      self._model_file(user_id)]:
+                if p.exists():
+                    p.unlink()
+            self.indices.pop(user_id, None)
+            self.metadata.pop(user_id, None)
+            self.bm25s.pop(user_id, None)
+
+    def _rebuild_bm25(self, user_id: str):
+        if not self.use_bm25_hybrid:
+            self.bm25s[user_id] = None
+            return
+        meta = self.metadata.get(user_id, [])
+        if not meta:
+            self.bm25s[user_id] = None
+            return
+        corpus = [_tokenise(m["embed_text"]) for m in meta]
+        self.bm25s[user_id] = _BM25(corpus)
+
+    # ---------------------------------------------------------------- chunking
+
+    def _extract_summaries(self, content: str) -> List[Dict]:
+        chunks, current_chapter, in_block, block_lines = [], "", None, []
+        for line in content.splitlines():
+            s = line.strip()
+            if s.startswith("# "):
+                current_chapter = s[2:].strip(); in_block = None; block_lines = []
+            elif s.startswith(">[!Résumé]") or s.startswith(">[!concepts]"):
+                if block_lines and in_block:
+                    chunks.append({"embed_text": f"[{in_block.upper()}] {current_chapter}\n" + "\n".join(block_lines),
+                                   "display_text": "\n".join(block_lines), "chunk_type": in_block,
+                                   "chapter": current_chapter, "is_summary": True})
+                in_block = "résumé" if "Résumé" in s else "concepts"; block_lines = []
+            elif in_block and line.startswith(">"):
+                block_lines.append(line.lstrip(">").strip())
+            else:
+                if block_lines and in_block:
+                    chunks.append({"embed_text": f"[{in_block.upper()}] {current_chapter}\n" + "\n".join(block_lines),
+                                   "display_text": "\n".join(block_lines), "chunk_type": in_block,
+                                   "chapter": current_chapter, "is_summary": True})
+                in_block = None; block_lines = []
+        return chunks
+
+    def _fixed_chunks(self, content: str, filename: str) -> List[Dict]:
+        chunks, start = [], 0
+        while start < len(content):
+            text = content[start:start + self.chunk_size].strip()
+            if len(text) > 30:
+                chunks.append({"embed_text": text, "display_text": text, "chunk_type": "fixed",
+                                "filename": filename, "is_summary": False})
+            if start + self.chunk_size >= len(content): break
+            start += self.chunk_size - self.chunk_overlap
+        return chunks
+
+    def _sentence_window_chunks(self, content: str, filename: str) -> List[Dict]:
+        sentences = _split_sentences(content)
+        w = self.sentence_window_size
+        chunks = []
+        for i, sent in enumerate(sentences):
+            if len(sent) < 20: continue
+            window = " ".join(sentences[max(0, i - w):min(len(sentences), i + w + 1)])
+            chunks.append({"embed_text": sent, "display_text": window,
+                           "chunk_type": "sentence_window", "filename": filename,
+                           "sentence_index": i, "is_summary": False})
+        return chunks
+
+    def _sentence_chunks(self, content: str, filename: str) -> List[Dict]:
+        return [{"embed_text": s, "display_text": s, "chunk_type": "sentence",
+                 "filename": filename, "sentence_index": i, "is_summary": False}
+                for i, s in enumerate(_split_sentences(content)) if len(s) > 20]
+
+    def _dynamic_chunks(self, content: str, filename: str) -> List[Dict]:
+        chunks = []
+        for size in self.dynamic_chunk_sizes:
+            step, start = max(size // 2, 1), 0
+            while start < len(content):
+                text = content[start:start + size].strip()
+                if len(text) > 30:
+                    chunks.append({"embed_text": text, "display_text": text,
+                                   "chunk_type": f"dynamic_{size}", "filename": filename,
+                                   "is_summary": False})
+                if start + size >= len(content): break
+                start += step
+        return chunks
+
+    def _build_chunks(self, content: str, filename: str) -> List[Dict]:
+        dispatch = {
+            "fixed":           self._fixed_chunks,
+            "sentence":        self._sentence_chunks,
+            "sentence_window": self._sentence_window_chunks,
+            "dynamic":         self._dynamic_chunks,
+        }
+        fn = dispatch.get(self.chunk_strategy)
+        if fn is None:
+            log("warning", f"HybridRAG: unknown strategy '{self.chunk_strategy}', using sentence_window")
+            fn = self._sentence_window_chunks
+        chunks = fn(content, filename)
+
+        if self.use_summaries:
+            summary_chunks = self._extract_summaries(content)
+            for sc in summary_chunks:
+                sc["filename"] = filename
+            chunks = summary_chunks + chunks
+        return chunks
+
+    def _add_contextual_prefix(self, chunks: List[Dict], full_content: str) -> List[Dict]:
+        try:
+            from shared.common import call_llm
+        except ImportError:
+            log("warning", "HybridRAG: contextual_chunking requires call_llm — skipped")
+            return chunks
+        for chunk in chunks:
+            if chunk.get("is_summary"): continue
+            try:
+                prompt = (f"Document extract:\n{chunk['embed_text'][:600]}\n\n"
+                          "Write ONE sentence summarising this extract, starting with 'This passage covers'.")
+                ctx = call_llm(prompt, model=self.contextual_model, max_tokens=80)
+                chunk["embed_text"] = f"{ctx.strip()}\n\n{chunk['embed_text']}"
+            except Exception as e:
+                log("warning", f"HybridRAG: contextual prefix failed: {e}")
+        return chunks
+
+    # ---------------------------------------------------------------- indexing
+
+    def index_document(self, user_id: str, filename: str,
+                       file_path: str, content: Optional[str] = None) -> bool:
+        if self.dimension is None: return False
+        try:
+            if content is None:
+                with open(file_path, "r", encoding="utf-8") as fh:
+                    content = fh.read()
+            chunks = self._build_chunks(content, filename)
+            if not chunks:
+                log("warning", f"HybridRAG: no chunks produced for {filename}")
+                return False
+            if self.use_contextual:
+                chunks = self._add_contextual_prefix(chunks, content)
+
+            vecs = _cosine_norm(np.array(
+                get_embeddings([c["embed_text"] for c in chunks]), dtype=np.float32))
+            file_size = os.path.getsize(file_path)
+
+            if user_id not in self.indices:
+                self.indices[user_id]  = faiss.IndexFlatIP(self.dimension)
+                self.metadata[user_id] = []
+
+            self.indices[user_id].add(vecs)
+            for chunk in chunks:
+                self.metadata[user_id].append({
+                    "embed_text": chunk["embed_text"], "content": chunk["display_text"],
+                    "filename": chunk["filename"], "chunk_type": chunk.get("chunk_type", "unknown"),
+                    "is_summary": chunk.get("is_summary", False), "chapter": chunk.get("chapter", ""),
+                    "file_size": file_size, "indexed_at": datetime.now().isoformat(),
+                })
+            self._save_index(user_id)
+            self._rebuild_bm25(user_id)
+            log("info", f"HybridRAG: indexed {filename} for {user_id} ({len(chunks)} chunks)")
+            return True
+        except Exception as e:
+            log("error", f"HybridRAG: index_document failed: {e}", stacktrace=True)
+            return False
+
+    # ---------------------------------------------------------------- search
+
+    def _build_query_embedding(self, query: str) -> np.ndarray:
+        if not self.use_hyde:
+            return _cosine_norm(np.array([get_embedding(query)], dtype=np.float32))
+        try:
+            from shared.common import call_llm
+            prompt_text = self._get_hyde_prompt()
+            if prompt_text:
+                prompt = prompt_text.format(query=query) if "{query}" in prompt_text \
+                         else f"{prompt_text}\n\nQuestion: {query}\n\nAnswer:"
+            else:
+                prompt = (
+                    "You are an expert tutor. Write a short, factual paragraph (3-5 sentences) "
+                    "that directly answers the following question as if it were found in a "
+                    "training document.\n\nQuestion: {query}\n\nAnswer:".format(query=query)
+                )
+            hypothetical = call_llm(prompt, max_tokens=200)
+            log("debug", f"HybridRAG HyDE: generated {len(hypothetical)} char answer")
+            return _cosine_norm(np.array([get_embedding(hypothetical)], dtype=np.float32))
+        except Exception as e:
+            log("warning", f"HybridRAG: HyDE failed ({e}), falling back to raw query")
+            return _cosine_norm(np.array([get_embedding(query)], dtype=np.float32))
+
+    def _hybrid_scores(self, user_id: str, query: str,
+                       cosine_scores: np.ndarray) -> np.ndarray:
+        bm25 = self.bm25s.get(user_id)
+        if not self.use_bm25_hybrid or bm25 is None or not bm25.available:
+            return cosine_scores
+        n = len(self.metadata.get(user_id, []))
+        bm25_raw = bm25.scores(_tokenise(query), n)
+        cos_norm = (cosine_scores + 1.0) / 2.0
+        return self.bm25_alpha * cos_norm + (1.0 - self.bm25_alpha) * bm25_raw
+
+    def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        if self.dimension is None: return []
+        if user_id not in self.indices or self.indices[user_id].ntotal == 0: return []
+        try:
+            query_vec = self._build_query_embedding(query)
+            n_chunks  = self.indices[user_id].ntotal
+            k         = min(n_chunks, limit * 6)
+            D, I      = self.indices[user_id].search(query_vec, k)
+
+            all_cosine = np.full(n_chunks, -1.0, dtype=np.float32)
+            for rank, idx in enumerate(I[0]):
+                if idx != -1: all_cosine[idx] = D[0][rank]
+            blended = self._hybrid_scores(user_id, query, all_cosine)
+
+            candidates = sorted([i for i in I[0] if i != -1],
+                                 key=lambda i: blended[i], reverse=True)
+            results, max_score = [], 0.0
+            for idx in candidates:
+                score = float(blended[idx])
+                max_score = max(max_score, score)
+                if score < self.similarity_threshold: continue
+                meta = self.metadata[user_id][idx]
+                results.append({
+                    "filename": meta["filename"], "score": score,
+                    "cosine_score": float(all_cosine[idx]), "content": meta["content"],
+                    "chunk_type": meta.get("chunk_type", ""), "is_summary": meta.get("is_summary", False),
+                    "chapter": meta.get("chapter", ""), "threshold_used": self.similarity_threshold,
+                    "max_score_reached": None,
+                })
+                if len(results) >= limit: break
+            for r in results:
+                r["max_score_reached"] = max_score
+            if not results:
+                return [{"filename": None, "score": 0, "content": "",
+                         "threshold_used": self.similarity_threshold,
+                         "max_score_reached": max_score, "no_results": True}]
+            return results
+        except Exception as e:
+            log("error", f"HybridRAG: search failed: {e}", stacktrace=True)
+            return []
+
+    # ---------------------------------------------------------------- CRUD
+
+    def delete_document(self, user_id: str, filename: str) -> bool:
+        if user_id not in self.metadata: return False
+        try:
+            kept = [m for m in self.metadata[user_id] if m["filename"] != filename]
+            if len(kept) == len(self.metadata[user_id]): return False
+            if kept:
+                vecs = _cosine_norm(np.array(
+                    get_embeddings([m["embed_text"] for m in kept]), dtype=np.float32))
+                new_idx = faiss.IndexFlatIP(self.dimension)
+                new_idx.add(vecs)
+                self.indices[user_id]  = new_idx
+                self.metadata[user_id] = kept
+            else:
+                self.indices.pop(user_id, None)
+                self.metadata.pop(user_id, None)
+            self._save_index(user_id)
+            self._rebuild_bm25(user_id)
+            return True
+        except Exception as e:
+            log("error", f"HybridRAG: delete_document failed: {e}")
+            return False
+
+    def get_indexed_documents(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        docs = []
+        for uid in ([user_id] if user_id else self.metadata.keys()):
+            if uid not in self.metadata: continue
+            seen: set = set()
+            for m in self.metadata[uid]:
+                fn = m["filename"]
+                if fn not in seen:
+                    seen.add(fn)
+                    docs.append({"user_id": uid, "filename": fn,
+                                 "indexed_at": m["indexed_at"], "size": m.get("file_size", 0)})
+        return docs
+
+    def clear_user_index(self, user_id: str) -> bool:
+        try:
+            self.indices.pop(user_id, None)
+            self.metadata.pop(user_id, None)
+            self.bm25s.pop(user_id, None)
+            self._save_index(user_id)
+            return True
+        except Exception as e:
+            log("error", f"HybridRAG: clear_user_index failed: {e}")
+            return False
+
+    def is_available(self) -> bool:
+        return self.dimension is not None
+
+    def get_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        base = {"engine_type": self.engine_type, "active_config": self.get_config()}
+        if user_id:
+            meta = self.metadata.get(user_id, [])
+            return {**base, "documents_indexed": len({m["filename"] for m in meta}),
+                    "total_chunks": len(meta)}
+        return {**base,
+                "total_documents_indexed": sum(len({m["filename"] for m in c})
+                                               for c in self.metadata.values()),
+                "total_chunks": sum(len(c) for c in self.metadata.values()),
+                "users_with_index": len(self.metadata)}

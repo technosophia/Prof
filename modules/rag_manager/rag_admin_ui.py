@@ -473,36 +473,48 @@ def _show_documents_tab():
 
 
 def _show_engines_tab():
-    """Show RAG engines management tab."""
+    """Show RAG engines management tab — with inline config editor per engine."""
     st.header("RAG Engines")
 
     engines = _get_rag_manager().get_available_engines()
-
     if not engines:
         st.warning("No RAG engines available")
         return
 
-    # Engine selection
     st.subheader("Available Engines")
 
     for engine in engines:
-        col1, col2, col3 = st.columns([2, 3, 1])
+        status_icon = "✅" if engine["available"] else "❌"
+        default_badge = " ⭐ default" if engine["default"] else ""
+        label = f"{status_icon} **{engine['type'].upper()}**{default_badge} — {engine['description']}"
 
-        with col1:
-            st.write(f"**{engine['type'].upper()}**")
-            if engine['default']:
-                st.caption("⭐ Default")
+        with st.expander(label, expanded=engine["default"]):
 
-        with col2:
-            st.write(engine['description'])
-            status = "✅ Available" if engine['available'] else "❌ Unavailable"
-            st.caption(status)
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.caption(f"Status: {'Available' if engine['available'] else 'Unavailable'}")
+                # Show current live stats (chunks, docs)
+                eng_obj = _get_rag_manager().get_engine(engine["type"])
+                if eng_obj:
+                    stats = eng_obj.get_stats()
+                    info_parts = []
+                    for k in ("total_chunks", "total_documents_indexed", "users_with_index",
+                              "model_name", "dimension"):
+                        if k in stats:
+                            info_parts.append(f"{k.replace('_', ' ')}: **{stats[k]}**")
+                    if info_parts:
+                        st.caption("  ·  ".join(info_parts))
 
-        with col3:
-            if not engine['default'] and engine['available']:
-                if st.button("Set Default", key=f"set_default_{engine['type']}"):
-                    # In a real implementation, you would update the config
-                    st.info(f"Setting {engine['type']} as default would require config update")
+            with col2:
+                if not engine["default"] and engine["available"]:
+                    if st.button("Set as default", key=f"set_default_{engine['type']}"):
+                        st.info(f"Setting default engine requires a config file change "
+                                f"(set `default_engine` to `{engine['type']}`).")
+
+            if engine["available"]:
+                st.divider()
+                st.markdown("**⚙️ Live Config Override**")
+                _show_engine_config_editor(engine["type"])
 
     # Default engine info
     default_engine = _get_rag_manager().get_default_engine()
@@ -1133,3 +1145,185 @@ def test_rag_manager():
     except Exception as e:
         log("error", f"RAG Manager test failed: {str(e)}", stacktrace=True)
         return False
+
+def _show_engine_config_editor(engine_type: str) -> None:
+    """
+    Render an inline config editor for one engine.
+    Works for any engine that implements get_config() / update_config().
+    For engines that don't (simple, classic, hierarchical), falls back to
+    a raw JSON editor so they still get *some* override capability.
+    """
+    engine = _get_rag_manager().get_engine(engine_type)
+    if not engine:
+        st.warning(f"Engine '{engine_type}' not found.")
+        return
+
+    session_key = f"engine_cfg_draft_{engine_type}"
+
+    # ---- Build the editable config dict ----
+    if hasattr(engine, "get_config") and engine.get_config():
+        # Structured editor path (hybrid and any future engine that implements it)
+        current_cfg = engine.get_config()
+        use_structured = True
+    else:
+        # Raw JSON fallback for legacy engines
+        # Reconstruct a best-effort config from known attributes
+        current_cfg = {}
+        for attr in ("similarity_threshold", "chunk_size", "chunk_overlap",
+                     "index_path", "model_name"):
+            if hasattr(engine, attr):
+                val = getattr(engine, attr)
+                current_cfg[attr] = str(val) if isinstance(val, type(engine.index_path
+                                           if hasattr(engine, "index_path") else "")) else val
+        use_structured = False
+
+    # Initialise session draft on first render
+    if session_key not in st.session_state:
+        st.session_state[session_key] = dict(current_cfg)
+
+    draft: dict = st.session_state[session_key]
+
+    if use_structured:
+        # ---- Structured widget editor ----
+        st.caption("Changes to retrieval params (threshold, hyde, bm25…) apply immediately. "
+                   "Chunking changes apply on next re-index.")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # --- Retrieval params ---
+            st.markdown("**Retrieval**")
+
+            if "similarity_threshold" in draft:
+                draft["similarity_threshold"] = st.slider(
+                    "Similarity threshold",
+                    0.0, 1.0, float(draft["similarity_threshold"]), 0.01,
+                    key=f"{session_key}_threshold")
+
+            if "hyde" in draft:
+                draft["hyde"] = st.checkbox(
+                    "HyDE (embed hypothetical answer)", bool(draft["hyde"]),
+                    key=f"{session_key}_hyde")
+
+            if "hyde_prompt_key" in draft:
+                draft["hyde_prompt_key"] = st.text_input(
+                    "HyDE prompt key (dotted path in prompts yaml)",
+                    str(draft.get("hyde_prompt_key") or ""),
+                    key=f"{session_key}_hyde_key",
+                    help="e.g. rag_manager.hyde_prompt — set to empty to use built-in fallback")
+
+            if "bm25_hybrid" in draft:
+                draft["bm25_hybrid"] = st.checkbox(
+                    "BM25 hybrid", bool(draft["bm25_hybrid"]),
+                    key=f"{session_key}_bm25")
+
+            if "bm25_alpha" in draft:
+                draft["bm25_alpha"] = st.slider(
+                    "BM25 alpha (0=pure BM25, 1=pure cosine)",
+                    0.0, 1.0, float(draft["bm25_alpha"]), 0.05,
+                    key=f"{session_key}_alpha",
+                    disabled=not draft.get("bm25_hybrid", True))
+
+            if "use_summaries" in draft:
+                draft["use_summaries"] = st.checkbox(
+                    "Use doc summaries as extra chunks", bool(draft["use_summaries"]),
+                    key=f"{session_key}_summaries")
+
+        with col2:
+            # --- Chunking params ---
+            st.markdown("**Chunking** *(next re-index)*")
+
+            if "chunk_strategy" in draft:
+                strategies = ["sentence_window", "fixed", "sentence", "dynamic"]
+                idx = strategies.index(draft["chunk_strategy"]) \
+                      if draft["chunk_strategy"] in strategies else 0
+                draft["chunk_strategy"] = st.selectbox(
+                    "Chunk strategy", strategies, index=idx,
+                    key=f"{session_key}_strategy")
+
+            if "sentence_window_size" in draft:
+                draft["sentence_window_size"] = st.number_input(
+                    "Sentence window ±N",
+                    1, 10, int(draft["sentence_window_size"]),
+                    key=f"{session_key}_window",
+                    disabled=(draft.get("chunk_strategy") != "sentence_window"))
+
+            if "chunk_size" in draft:
+                draft["chunk_size"] = st.number_input(
+                    "Chunk size (chars)",
+                    50, 4000, int(draft["chunk_size"]),
+                    key=f"{session_key}_chunk_size",
+                    disabled=(draft.get("chunk_strategy") not in ("fixed", "dynamic")))
+
+            if "chunk_overlap" in draft:
+                draft["chunk_overlap"] = st.number_input(
+                    "Chunk overlap (chars)",
+                    0, 500, int(draft["chunk_overlap"]),
+                    key=f"{session_key}_overlap",
+                    disabled=(draft.get("chunk_strategy") != "fixed"))
+
+            if "dynamic_chunk_sizes" in draft:
+                raw = ", ".join(str(x) for x in draft["dynamic_chunk_sizes"])
+                edited = st.text_input(
+                    "Dynamic chunk sizes (comma-separated)",
+                    raw,
+                    key=f"{session_key}_dyn_sizes",
+                    disabled=(draft.get("chunk_strategy") != "dynamic"))
+                try:
+                    draft["dynamic_chunk_sizes"] = [
+                        int(x.strip()) for x in edited.split(",") if x.strip()]
+                except ValueError:
+                    st.caption("⚠️ Invalid sizes — keeping previous value")
+
+            if "contextual_chunking" in draft:
+                draft["contextual_chunking"] = st.checkbox(
+                    "Contextual chunking (LLM call per chunk — slow)",
+                    bool(draft["contextual_chunking"]),
+                    key=f"{session_key}_contextual")
+
+    else:
+        # ---- Raw JSON fallback ----
+        st.caption("This engine doesn't expose a structured config. Edit raw JSON below.")
+        import json as _json
+        raw_json = st.text_area(
+            "Config JSON",
+            _json.dumps(draft, indent=2, default=str),
+            height=200,
+            key=f"{session_key}_raw_json")
+        try:
+            draft = _json.loads(raw_json)
+            st.session_state[session_key] = draft
+        except _json.JSONDecodeError as e:
+            st.error(f"Invalid JSON: {e}")
+            return
+
+    # ---- Apply / Reset buttons ----
+    col_a, col_b, _ = st.columns([1, 1, 3])
+    with col_a:
+        if st.button("✅ Apply", type="primary", key=f"{session_key}_apply"):
+            try:
+                if hasattr(engine, "update_config"):
+                    engine.update_config(draft)
+                    st.success(f"Config applied to {engine_type}.")
+                else:
+                    # Legacy engines: apply known scalar attrs directly
+                    for k, v in draft.items():
+                        if hasattr(engine, k):
+                            try:
+                                setattr(engine, k, type(getattr(engine, k))(v))
+                            except Exception:
+                                setattr(engine, k, v)
+                    st.success(f"Config applied to {engine_type} (legacy mode).")
+                # Sync draft with what's now live
+                if hasattr(engine, "get_config") and engine.get_config():
+                    st.session_state[session_key] = engine.get_config()
+            except Exception as e:
+                st.error(f"Failed to apply config: {e}")
+
+    with col_b:
+        if st.button("↩ Reset", key=f"{session_key}_reset"):
+            if hasattr(engine, "get_config") and engine.get_config():
+                st.session_state[session_key] = engine.get_config()
+            else:
+                st.session_state.pop(session_key, None)
+            st.rerun()

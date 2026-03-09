@@ -1,4 +1,4 @@
-# file name: modules/rag_manager/prompts.yaml
+# file name: modules/rag_manager/prompts.en.yaml
 rag_manager:
   # Single prompt template for RAG context injection
   context_template: |
@@ -12,3 +12,16 @@ rag_manager:
     - If the context doesn't contain relevant information, respond based on your own knowledge
     - Do not mention that you are using a knowledge base or external context
     - Cite specific information from the context when applicable
+
+  # HyDE prompt for the hybrid engine.
+  # Use {query} as the placeholder for the user's question.
+  # This is referenced by hyde_prompt_key: "rag_manager.hyde_prompt" in config.json.
+  hyde_prompt: |
+    You are an expert tutor for a professional training course.
+    Write a short, factual paragraph (3-5 sentences) that directly answers the following
+    question, using the style and vocabulary of a training document.
+    Do not mention that you are guessing or generating. Just write the answer directly.
+
+    Question: {query}
+
+    Answer:
