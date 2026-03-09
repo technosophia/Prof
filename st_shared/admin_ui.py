@@ -199,7 +199,7 @@ def show_system_admin_content():
 
         # Get the actual database path from config
         config = get_config()
-        db_url = config.get("database.url") or config.get("database.path", "sqlite:///data/app.db")
+        db_url = config.get("database.path", "sqlite:///data/app.db")
 
         # Extract the file path if it's a SQLite database
         from core.database import extract_sqlite_file_path

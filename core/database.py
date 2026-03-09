@@ -586,7 +586,7 @@ def init_database(use_memory: bool = False,
             from st_shared.cached import get_config
             config = get_config()
             # Allow config to return either a path or a full URL
-            db_path = config.get("database.url") or config.get("database.path", "sqlite:///data/app.db")
+            db_path = config.get("database.path", "sqlite:///data/app.db")
         except ImportError:
             db_path = "sqlite:///data/app.db"
             log("warning", f"Could not load config, using default URL: {db_path}")
