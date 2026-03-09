@@ -28,14 +28,14 @@
         "type": "classic"
       },
       "faiss_hierarchical": {
-        "enabled": true,
+        "enabled": false,
         "description": "FAISS vector store with hierarchical markdown parsing",
         "index_path": "data/hierarchical_indexes",
         "similarity_threshold": 0.3,
         "type": "faiss_hierarchical"
       },
       "faiss_hierarchical_v2": {
-        "enabled": true,
+        "enabled": false,
         "description": "FAISS V2 vector store with hierarchical markdown parsing Enhanced",
         "index_path": "data/hierarchical_indexes_v2",
         "similarity_threshold": 0.3,
@@ -49,7 +49,7 @@
       },
       "llama_index": {
         "type": "llamaindex",
-        "enabled": true,
+        "enabled": false,
         "description": "LlamaIndex SentenceWindow retrieval",
         "index_path": "data/llamaindex_indexes",
         "window_size": 3,
@@ -107,9 +107,9 @@
       },
       "hybrid_no_hyde_no_dynamic": {
         "type": "hybrid",
-        "enabled": true,
+        "enabled": false,
         "description": "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks",
-        "index_path": "data/hybrid_indexes/no_hyde2",
+        "index_path": "data/hybrid_indexes/hybrid_no_hyde_no_dynamic",
         "similarity_threshold": 0.25,
         "chunk_strategy": "sentence_window",
         "chunk_size": 400,
@@ -126,7 +126,7 @@
       },
       "hybrid_wide_window": {
         "type": "hybrid",
-        "enabled": true,
+        "enabled": false,
         "description": "Hybrid: wider sentence window (\u00b15) for richer context",
         "index_path": "data/hybrid_indexes/hybrid_wide_window",
         "similarity_threshold": 0.25,
@@ -160,9 +160,9 @@
       },
       "hybrid_bm25_blend_no_hyde": {
         "type": "hybrid",
-        "enabled": true,
+        "enabled": false,
         "description": "Hybrid: full BM25 blend (alpha=0.6) instead of tiebreaker",
-        "index_path": "data/hybrid_indexes/hybrid_bm25_blend",
+        "index_path": "data/hybrid_indexes/hybrid_bm25_blend_no_hyde",
         "similarity_threshold": 0.25,
         "chunk_strategy": "sentence_window",
         "sentence_window_size": 3,
@@ -179,7 +179,7 @@
         "type": "hybrid",
         "enabled": true,
         "description": "Hybrid: HyDE grounded with >[!Résumé] summary blocks",
-        "index_path": "data/hybrid_indexes/hybrid_no_hyde",
+        "index_path": "data/hybrid_indexes/hybrid_hyde_summaries",
         "similarity_threshold": 0.25,
         "chunk_strategy": "sentence_window",
         "sentence_window_size": 3,

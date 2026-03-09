@@ -129,7 +129,7 @@ class HybridRAGEngine(RAGEngine):
 
         try:
             self.dimension = len(get_embedding("test"))
-            log("debug", f"HybridRAGEngine: embedding dim={self.dimension}")
+            log("info", f"HybridRAGEngine: embedding dim={self.dimension}")
         except Exception as e:
             log("error", f"HybridRAGEngine: failed to get embedding dim: {e}")
             self.dimension = None
@@ -263,7 +263,7 @@ class HybridRAGEngine(RAGEngine):
                     with open(meta_f, "rb") as fh:
                         self.metadata[uid] = pickle.load(fh)
                 self._rebuild_bm25(uid)
-                log("info", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
+                log("debug", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
             except Exception as e:
                 log("error", f"HybridRAG: failed to load index for {uid}: {e}")
 
@@ -384,35 +384,65 @@ class HybridRAGEngine(RAGEngine):
             chunks = summary_chunks + chunks
         return chunks
 
+    def _get_llm_manager(self):
+        """
+        Resolve the LLM manager via the service locator.
+        Tries two paths in order:
+          1. shared.common.get_llm_manager()  — normal app runtime
+          2. modules.rag_manager.get_rag_manager().manager — bench / early-init contexts
+             where the service locator may not be set yet but the rag_manager
+             already holds a direct reference to the LLM manager.
+        Raises RuntimeError if neither path works.
+        """
+        # Path 1: standard service locator
+        try:
+            from shared.common import get_llm_manager
+            return get_llm_manager()
+        except Exception as e1:
+            pass
+
+        # Path 2: reach the LLM manager through the already-instantiated rag_manager
+        try:
+            from modules.rag_manager import get_rag_manager
+            rag_mgr = get_rag_manager()
+            if rag_mgr is not None and hasattr(rag_mgr, "llm_manager") and rag_mgr.llm_manager is not None:
+                return rag_mgr.llm_manager
+        except Exception as e2:
+            pass
+
+        raise RuntimeError(
+            "HybridRAG: cannot resolve LLM manager — "
+            "service locator not initialized and rag_manager.llm_manager not set. "
+            "HyDE/contextual features require the app to be fully started."
+        )
+
     def _llm_one_shot(self, prompt: str, max_tokens: int = 200) -> str:
         """
         Synchronous wrapper around manager.internal_response() for internal use
         (HyDE, contextual prefix). Bypasses conversation history and context callbacks.
 
-        Works whether called from a sync or async context:
-        - Inside a running event loop (Streamlit): spawns a thread with its own loop.
-        - Outside a running event loop (indexing scripts): runs directly.
+        Always runs in a dedicated thread with its own fresh event loop.
+        This is the only pattern that works reliably in both contexts:
+          - Streamlit (has a running loop): asyncio.run() inside a new thread
+            is safe because the thread has no loop of its own.
+          - Bench / subprocess (no running loop): same — works fine too.
+        Avoids both failure modes:
+          - asyncio.run() from a running loop → RuntimeError
+          - run_coroutine_threadsafe() deadlocking when the loop is also
+            waiting on the same thread (Streamlit's rerun mechanism).
         """
         import asyncio
-        from shared.common import get_llm_manager
-        manager = get_llm_manager()
+        import concurrent.futures
+        manager = self._get_llm_manager()
         messages = [{"role": "user", "content": prompt}]
 
-        async def _call():
-            return await manager.internal_response(manager.current_llm, messages)
+        def _run_in_thread():
+            return asyncio.run(
+                manager.internal_response(manager.current_llm, messages)
+            )
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # Already inside an event loop (e.g. Streamlit) — run in a sibling thread.
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, _call()).result(timeout=30)
-        else:
-            return asyncio.run(_call())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_run_in_thread).result(timeout=30)
 
     def _add_contextual_prefix(self, chunks: List[Dict], full_content: str) -> List[Dict]:
         for chunk in chunks:
