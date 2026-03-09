@@ -151,6 +151,35 @@ class MemoryPluginCore(TrainerPluginCore):
             return False
 
     # ─────────────────────────────────────────────────────────────────────
+    # Trigger — single entry point for both manual and automatic analysis
+    # ─────────────────────────────────────────────────────────────────────
+
+    def trigger_analysis(self, student_id: str, trainer_id: str,
+                         conversation_id: Optional[str] = None) -> Dict:
+        """
+        Trigger a memory analysis for a student.
+
+        Single entry point used by both the automatic conversation-created
+        callback and the manual driver action.  Builds the context and
+        delegates to _action_trigger_analysis.
+
+        Args:
+            student_id: The student's user ID.
+            trainer_id: The trainer's user ID.
+            conversation_id: Optional conversation that triggered the analysis.
+
+        Returns:
+            Result dict from _action_trigger_analysis.
+        """
+        context = SimpleNamespace(
+            student_id=student_id,
+            trainer_id=trainer_id,
+            conversation_id=conversation_id,
+            llm_id=None,
+        )
+        return self._action_trigger_analysis(context)
+
+    # ─────────────────────────────────────────────────────────────────────
     # Conversation-created callback
     # ─────────────────────────────────────────────────────────────────────
 
@@ -179,14 +208,7 @@ class MemoryPluginCore(TrainerPluginCore):
             log("info", f"Memory plugin: auto-analyze triggered on new conversation "
                         f"(student={user_id}, trainer={trainer_id}, conv={conversation_id})")
 
-            # Build a minimal context matching what _action_trigger_analysis expects
-            context = SimpleNamespace(
-                student_id=user_id,
-                trainer_id=trainer_id,
-                conversation_id=conversation_id,
-                llm_id=None,
-            )
-            self._action_trigger_analysis(context)
+            self.trigger_analysis(user_id, trainer_id, conversation_id)
 
         except Exception as e:
             log("error", f"Memory plugin: error in _on_conversation_created: {e}", stacktrace=True)
@@ -475,7 +497,7 @@ class MemoryPluginCore(TrainerPluginCore):
     def _action_trigger_analysis(self, context, **params) -> Dict:
         """
         Called by the driver action 'trigger_memory_analysis'.
-        Also called internally by _on_conversation_created.
+        Also called internally via trigger_analysis().
         DATA LAYER — no st.* here.
         """
         from shared.common import record_plugin_event

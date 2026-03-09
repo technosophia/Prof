@@ -54,10 +54,10 @@ class MemoryPluginUI(TrainerPluginUI):
                              width='stretch'):
                     log("info", f"Refresh button clicked (plugin={self._core.id}, trainer={trainer_id}, student={student_id})")
                     with st.spinner("Analyzing conversations..."):
-                        # DATA: calls data method
-                        success = asyncio.run(self.refresh_memory(trainer_id, student_id))
+                        # DATA: calls trigger_analysis which delegates to _action_trigger_analysis
+                        result = self._core.trigger_analysis(student_id, trainer_id)
 
-                        if success:
+                        if result.get("success"):
                             log("info", f"Refresh succeeded (plugin={self._core.id}, student={student_id})")
                             st.success("✅ Memory updated successfully!")
                             st.rerun()
