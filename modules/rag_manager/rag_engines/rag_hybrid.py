@@ -129,7 +129,7 @@ class HybridRAGEngine(RAGEngine):
 
         try:
             self.dimension = len(get_embedding("test"))
-            log("info", f"HybridRAGEngine: embedding dim={self.dimension}")
+            log("debug", f"HybridRAGEngine: embedding dim={self.dimension}")
         except Exception as e:
             log("error", f"HybridRAGEngine: failed to get embedding dim: {e}")
             self.dimension = None
@@ -158,6 +158,11 @@ class HybridRAGEngine(RAGEngine):
         # Dotted key into prompts yaml, e.g. "rag_manager.hyde_prompt"
         # None / absent → built-in fallback prompt is used
         self.hyde_prompt_key      = cfg.get("hyde_prompt_key", "rag_manager.hyde_prompt")
+        # hyde_use_summaries: when True, prepend the indexed >[!Résumé] blocks to the
+        # HyDE prompt so the LLM generates a grounded hypothetical answer instead of
+        # relying on its parametric knowledge of the domain.
+        # Default False — old behavior (ungrounded HyDE). Set True to experiment.
+        self.hyde_use_summaries   = bool(cfg.get("hyde_use_summaries", False))
         self.use_bm25_hybrid      = bool(cfg.get("bm25_hybrid", True))
         self.bm25_alpha           = float(cfg.get("bm25_alpha", 0.5))
         # bm25_rerank_only: when True, BM25 is used only as a tiebreaker AFTER cosine
@@ -173,7 +178,9 @@ class HybridRAGEngine(RAGEngine):
     def _log_active_config(self) -> None:
         log("debug", (
             f"HybridRAGEngine [{self.engine_id}] ready — strategy={self.chunk_strategy} "
-            f"hyde={self.use_hyde} bm25={self.use_bm25_hybrid} "
+            f"hyde={self.use_hyde}"
+            + (f"(+summaries)" if self.use_hyde and self.hyde_use_summaries else "")
+            + f" bm25={self.use_bm25_hybrid} "
             f"contextual={self.use_contextual} summaries={self.use_summaries} "
             f"threshold={self.similarity_threshold} path={self.index_path}"
         ))
@@ -189,6 +196,7 @@ class HybridRAGEngine(RAGEngine):
             "dynamic_chunk_sizes":  self.dynamic_chunk_sizes,
             "hyde":                 self.use_hyde,
             "hyde_prompt_key":      self.hyde_prompt_key,
+            "hyde_use_summaries":   self.hyde_use_summaries,
             "bm25_hybrid":          self.use_bm25_hybrid,
             "bm25_alpha":           self.bm25_alpha,
             "bm25_rerank_only":     self.bm25_rerank_only,
@@ -255,7 +263,7 @@ class HybridRAGEngine(RAGEngine):
                     with open(meta_f, "rb") as fh:
                         self.metadata[uid] = pickle.load(fh)
                 self._rebuild_bm25(uid)
-                log("debug", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
+                log("info", f"HybridRAG: loaded index for {uid} ({idx.ntotal} vectors)")
             except Exception as e:
                 log("error", f"HybridRAG: failed to load index for {uid}: {e}")
 
@@ -452,13 +460,36 @@ class HybridRAGEngine(RAGEngine):
                 })
             self._save_index(user_id)
             self._rebuild_bm25(user_id)
-            log("debug", f"HybridRAG: indexed {filename} for {user_id} ({len(chunks)} chunks)")
+            log("info", f"HybridRAG: indexed {filename} for {user_id} ({len(chunks)} chunks)")
             return True
         except Exception as e:
             log("error", f"HybridRAG: index_document failed: {e}", stacktrace=True)
             return False
 
     # ---------------------------------------------------------------- search
+
+    def _get_hyde_summary_context(self) -> str:
+        """
+        Collect all indexed >[!Résumé] chunks across all users and return them
+        as a compact context string to ground HyDE generation.
+        Only used when hyde_use_summaries=True.
+        Caps at 5 summaries / 1500 chars to stay within prompt budget.
+        """
+        seen, parts = set(), []
+        for meta_list in self.metadata.values():
+            for m in meta_list:
+                if not m.get("is_summary"):
+                    continue
+                text = m.get("content", "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                parts.append(text[:300])
+                if len(parts) >= 5:
+                    break
+            if len(parts) >= 5:
+                break
+        return "\n\n".join(parts)
 
     def _build_query_embedding(self, query: str) -> np.ndarray:
         if not self.use_hyde:
@@ -474,6 +505,15 @@ class HybridRAGEngine(RAGEngine):
                     "that directly answers the following question as if it were found in a "
                     "training document.\n\nQuestion: {query}\n\nAnswer:".format(query=query)
                 )
+            # Optionally prepend >[!Résumé] summary blocks to ground the LLM.
+            if self.hyde_use_summaries:
+                ctx = self._get_hyde_summary_context()
+                if ctx:
+                    prompt = (
+                        f"The following are summaries from the training document:\n\n{ctx}"
+                        f"\n\nUsing only concepts from this document, {prompt}"
+                    )
+                    log("debug", f"HybridRAG HyDE: injected {len(ctx)} chars of summary context")
             hypothetical = self._llm_one_shot(prompt, max_tokens=200)
             log("debug", f"HybridRAG HyDE: generated {len(hypothetical)} char answer")
             return _cosine_norm(np.array([get_embedding(hypothetical)], dtype=np.float32))
