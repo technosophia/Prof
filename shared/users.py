@@ -62,6 +62,7 @@ from sqlalchemy.orm import Session, relationship, joinedload
 
 from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
+from core.callback import register_callback, unregister_callback
 
 
 class UserRole(Enum):
@@ -1388,9 +1389,27 @@ class UserManager:
                          with structure: {"field_name": {"type": "text|select|checkbox",
                                                        "options": [...], "default": value}}
         """
-        if callback_func not in self._profile_preferences_callbacks:
-            self._profile_preferences_callbacks.append(callback_func)
-            log("debug", f"Registered profile preferences callback: {callback_func.__name__}")
+        if not hasattr(self, '_profile_preferences_callbacks'):
+            self._profile_preferences_callbacks = []
+
+        callback_name = getattr(callback_func, '__name__', str(callback_func))
+
+        # Check by object identity first
+        if callback_func in self._profile_preferences_callbacks:
+            log("debug", f"Profile preferences callback {callback_name} already registered (by object identity)")
+            return
+
+        # Check by function name and handle duplicates
+        for i, existing_cb in enumerate(self._profile_preferences_callbacks):
+            existing_name = getattr(existing_cb, '__name__', str(existing_cb))
+            if existing_name == callback_name:
+                log("debug", f"Profile preferences callback with name '{callback_name}' already registered. "
+                              f"Replacing existing callback with new one.")
+                self._profile_preferences_callbacks[i] = callback_func
+                return
+
+        self._profile_preferences_callbacks.append(callback_func)
+        log("debug", f"Registered profile preferences callback: {callback_name}")
 
     def get_profile_preferences_schema(self) -> Dict[str, Any]:
         """Get the schema for profile preferences from all registered callbacks."""
@@ -1413,16 +1432,25 @@ class UserManager:
         return schema
 
     def register_before_delete_callback(self, callback_func):
-        """Register a callback to be executed before a user is deleted."""
-        if callback_func not in self._before_delete_callbacks:
-            self._before_delete_callbacks.append(callback_func)
-            log("debug", f"Registered before_delete callback: {callback_func.__name__}")
+            """Register a callback to be executed before a user is deleted."""
+            register_callback(
+                callback_list=self._before_delete_callbacks,
+                callback_func=callback_func,
+                callback_type="before_delete callback",
+                allow_replace=True
+            )
 
     def unregister_before_delete_callback(self, callback_func):
         """Unregister a before_delete callback."""
-        if callback_func in self._before_delete_callbacks:
-            self._before_delete_callbacks.remove(callback_func)
-            log("debug", f"Unregistered before_delete callback: {callback_func.__name__}")
+        return unregister_callback(
+            callback_list=self._before_delete_callbacks,
+            callback_func=callback_func,
+            callback_type="before_delete callback"
+        )
+
+    def clear_before_delete_callbacks(self) -> int:
+        """Clear all before_delete callbacks."""
+        return clear_callbacks(self._before_delete_callbacks, "before_delete callback")
 
     def delete_user(self, user_id: str, current_user_id: Optional[str] = None) -> bool:
         """Delete a user with permission checks."""

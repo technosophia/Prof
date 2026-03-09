@@ -112,6 +112,7 @@ import asyncio
 from enum import Enum
 from core.logging import log, set_log_module_level
 from shared.llm_engine import LLMEngine, GenerateResult
+from core.callback import register_callback, unregister_callback
 
 
 class ContextPosition(Enum):
@@ -134,6 +135,7 @@ class LLMManager:
         self.current_llm = None
         self.llm_callbacks = []  # Legacy callbacks: return just context string
         self.context_callbacks = []  # Enhanced callbacks: return (context, role, position)
+        self._monitor_callbacks = [] # Initialize monitor callbacks list
 
         # Load embedding configuration
         self.embedding_model_name = self.config.get("embedding.model_name", "all-MiniLM-L6-v2")
@@ -483,15 +485,11 @@ class LLMManager:
 
         Legacy callback returns just a context string (implicitly SYSTEM role, BOTTOM position).
         """
-        if callback_func not in self.llm_callbacks:
-            self.llm_callbacks.append(callback_func)
-            log("debug", f"Registered legacy LLM callback: {callback_func.__name__}")
+        register_callback(self.llm_callbacks, callback_func, "legacy LLM callback")
 
     def unregister_llm_callback(self, callback_func: Callable[[str, List[Dict]], str]):
         """Unregister a legacy LLM callback."""
-        if callback_func in self.llm_callbacks:
-            self.llm_callbacks.remove(callback_func)
-            log("debug", f"Unregistered legacy LLM callback: {callback_func.__name__}")
+        unregister_callback(self.llm_callbacks, callback_func, "legacy LLM callback")
 
     def register_context_callback(self, callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
         """Register an enhanced context callback with control over role and position.
@@ -499,15 +497,11 @@ class LLMManager:
         The callback should return a tuple: (context, role, position)
         where role is "system" or "user" and position is "top" or "bottom".
         """
-        if callback_func not in self.context_callbacks:
-            self.context_callbacks.append(callback_func)
-            log("debug", f"Registered enhanced context callback: {callback_func.__name__}")
+        register_callback(self.context_callbacks, callback_func, "enhanced context callback")
 
     def unregister_context_callback(self, callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
         """Unregister an enhanced context callback."""
-        if callback_func in self.context_callbacks:
-            self.context_callbacks.remove(callback_func)
-            log("debug", f"Unregistered enhanced context callback: {callback_func.__name__}")
+        unregister_callback(self.context_callbacks, callback_func, "enhanced context callback")
 
     def _add_llm_context(self, user_id: str, messages: List[Dict]) -> List[Dict]:
         """Add LLM context to messages using registered callbacks."""
@@ -740,17 +734,20 @@ class LLMManager:
 
     def register_monitor_callback(self, callback_func: Callable[[Dict[str, Any]], None]):
         """Register a callback to monitor LLM usage and costs."""
-        if not hasattr(self, '_monitor_callbacks'):
-            self._monitor_callbacks = []
-        if callback_func not in self._monitor_callbacks:
-            self._monitor_callbacks.append(callback_func)
-            log("debug", f"Registered monitor callback: {callback_func.__name__}")
+        register_callback(
+                    callback_list=self._monitor_callbacks,
+                    callback_func=callback_func,
+                    callback_type="monitor callback",
+                    allow_replace=True  # or False based on your preference
+                )
 
     def unregister_monitor_callback(self, callback_func: Callable[[Dict[str, Any]], None]):
         """Unregister a monitor callback."""
-        if hasattr(self, '_monitor_callbacks') and callback_func in self._monitor_callbacks:
-            self._monitor_callbacks.remove(callback_func)
-            log("debug", f"Unregistered monitor callback: {callback_func.__name__}")
+        unregister_callback(
+                    callback_list=self._monitor_callbacks,
+                    callback_func=callback_func,
+                    callback_type="monitor callback"
+                )
 
     def _notify_monitor_callbacks(self, data: Dict[str, Any]):
         """Notify all registered monitor callbacks."""

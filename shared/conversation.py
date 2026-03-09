@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, relationship
 from core.logging import log, set_log_module_level
 from core.database import Base, get_db_manager
 from shared.users import get_user_manager
+from core.callback import register_callback, unregister_callback
 
 
 class ConversationTable(Base):
@@ -155,6 +156,13 @@ Args:
     messages: Full conversation history including the new message
 """
 
+ConversationCreatedCallback = Callable[[str, str], None]
+"""Callback type for conversation creation events.
+Args:
+    conversation_id: The ID of the newly created conversation
+    user_id: The ID of the user who owns the conversation
+"""
+
 class ConversationManager:
     """Manages conversation operations."""
 
@@ -170,18 +178,22 @@ class ConversationManager:
         if not hasattr(self, '_initialized'):
             self.db = get_db_manager()
             self._user_message_callbacks: List[UserMessageCallback] = []
+            self._conversation_created_callbacks: List[ConversationCreatedCallback] = []
             self._initialized = True
 
     def register_user_message_callback(self, callback: UserMessageCallback) -> None:
-        """
-        Register a callback to be triggered when a user message is added.
+            """
+            Register a callback to be triggered when a user message is added.
 
-        Args:
-            callback: Function that takes (conversation_id, messages) as arguments
-        """
-        if callback not in self._user_message_callbacks:
-            self._user_message_callbacks.append(callback)
-            log("debug", f"Registered user message callback: {callback.__name__ if hasattr(callback, '__name__') else 'anonymous'}")
+            Args:
+                callback: Function that takes (conversation_id, messages) as arguments
+            """
+            register_callback(
+                callback_list=self._user_message_callbacks,
+                callback_func=callback,
+                callback_type="user message callback",
+                allow_replace=True
+            )
 
     def unregister_user_message_callback(self, callback: UserMessageCallback) -> bool:
         """
@@ -193,17 +205,49 @@ class ConversationManager:
         Returns:
             bool: True if callback was found and removed, False otherwise
         """
-        if callback in self._user_message_callbacks:
-            self._user_message_callbacks.remove(callback)
-            log("debug", f"Unregistered user message callback: {callback.__name__ if hasattr(callback, '__name__') else 'anonymous'}")
-            return True
-        return False
+        return unregister_callback(
+            callback_list=self._user_message_callbacks,
+            callback_func=callback,
+            callback_type="user message callback"
+        )
 
     def clear_user_message_callbacks(self) -> None:
         """Remove all registered user message callbacks."""
-        count = len(self._user_message_callbacks)
-        self._user_message_callbacks.clear()
-        log("debug", f"Cleared {count} user message callbacks")
+        from core.callback import clear_callbacks
+        clear_callbacks(self._user_message_callbacks, "user message callback")
+
+    def register_conversation_created_callback(self, callback: ConversationCreatedCallback) -> None:
+            """Register a callback triggered when a conversation is created."""
+            register_callback(
+                callback_list=self._conversation_created_callbacks,
+                callback_func=callback,
+                callback_type="conversation created callback",
+                allow_replace=True
+            )
+
+    def unregister_conversation_created_callback(self, callback: ConversationCreatedCallback) -> bool:
+        """Unregister a conversation-created callback. Returns True if found and removed."""
+        return unregister_callback(
+            callback_list=self._conversation_created_callbacks,
+            callback_func=callback,
+            callback_type="conversation created callback"
+        )
+
+    def _trigger_conversation_created_callbacks(self, conversation_id: str, user_id: str) -> None:
+        """Fire all registered conversation-created callbacks."""
+        for callback in self._conversation_created_callbacks:
+            try:
+                callback(conversation_id, user_id)
+            except Exception as e:
+                log("error", f"Error in conversation_created callback: {e}", stacktrace=True)
+
+    def _trigger_conversation_created_callbacks(self, conversation_id: str, user_id: str) -> None:
+        """Fire all registered conversation-created callbacks."""
+        for callback in self._conversation_created_callbacks:
+            try:
+                callback(conversation_id, user_id)
+            except Exception as e:
+                log("error", f"Error in conversation_created callback: {e}", stacktrace=True)
 
     def _trigger_user_message_callbacks(self, conversation_id: str, messages: List[Message]) -> None:
         """
@@ -282,6 +326,11 @@ class ConversationManager:
                 session.add(message)
 
         log("info", f"Created conversation: {title.strip()} (ID: {conversation_id}) for user {user_id}")
+
+        if self._conversation_created_callbacks:
+            log("info", f"Triggering conversation created callbacks for conversation {conversation_id}")
+            self._trigger_conversation_created_callbacks(conversation_id, user_id.strip())
+
         return conversation_id
 
     def get_conversation(self, conversation_id: str, include_messages: bool = True) -> Optional[Conversation]:
