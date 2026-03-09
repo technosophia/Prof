@@ -189,8 +189,64 @@ def show_text_llm_tab():
 
 
 def show_config_tab():
-    """Tab 2: Configuration Inspection."""
-    st.header("⚙️ Configuration Inspection")
+    """Tab 2: Configuration Inspection with Logging Control."""
+    st.header("⚙️ Configuration Inspection & Logging Control")
+
+    # SECTION 1: Logging System Control
+    st.subheader("🔇 Logging System Control")
+
+    # Get current disengagement state
+    from core.logging import set_logging_disengaged, is_logging_disengaged
+    current_disengaged = is_logging_disengaged()
+
+    # Create columns for better layout
+    col_status, col_toggle = st.columns([2, 1])
+
+    with col_status:
+        # Status display
+        if current_disengaged:
+            st.error("🔴 **Logging is DISENGAGED** - All log calls are no-ops")
+            st.caption("Performance is maximized but no logs will be written")
+        else:
+            st.success("🟢 **Logging is ENGAGED** - Normal logging operation")
+            st.caption("Logs are being written according to current configuration")
+
+    with col_toggle:
+        # Toggle button
+        if current_disengaged:
+            if st.button("🔊 Re-engage Logging", type="primary", use_container_width=True):
+                set_logging_disengaged(False)
+                st.rerun()
+        else:
+            if st.button("🔇 Disengage Logging", type="secondary", use_container_width=True):
+                set_logging_disengaged(True)
+                st.rerun()
+
+    # Test buttons
+    col_test1, col_test2 = st.columns(2)
+    with col_test1:
+        if st.button("📝 Test Logging", use_container_width=True):
+            from core.logging import debug, info, warning, error
+            if current_disengaged:
+                st.info("Logging is disengaged - these messages will be IGNORED")
+                debug("Debug test - should NOT appear")
+                info("Info test - should NOT appear")
+                warning("Warning test - should NOT appear")
+                error("Error test - should NOT appear")
+                st.success("Test messages sent (they were ignored)")
+            else:
+                st.info("Logging is engaged - check console/logs")
+                debug("Debug test - should appear")
+                info("Info test - should appear")
+                warning("Warning test - should appear")
+                error("Error test - should appear")
+                st.success("Test messages sent - check your logs")
+
+
+    st.divider()
+
+    # SECTION 2: Configuration Inspection (existing code)
+    st.subheader("📁 Configuration Inspection")
 
     config = get_config()
 
@@ -228,7 +284,7 @@ def show_config_tab():
 
     st.divider()
 
-    # File-centric config registry display
+    # File-centric config registry display (existing code)
     st.subheader("📁 Config registry by file")
 
     if hasattr(config, 'list_source_files') and hasattr(config, 'list_keys_by_source_file'):
