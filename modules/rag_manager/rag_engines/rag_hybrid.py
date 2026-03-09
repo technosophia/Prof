@@ -157,6 +157,11 @@ class HybridRAGEngine(RAGEngine):
         self.hyde_prompt_key      = cfg.get("hyde_prompt_key", "rag_manager.hyde_prompt")
         self.use_bm25_hybrid      = bool(cfg.get("bm25_hybrid", True))
         self.bm25_alpha           = float(cfg.get("bm25_alpha", 0.5))
+        # bm25_rerank_only: when True, BM25 is used only as a tiebreaker AFTER cosine
+        # ranking, not as a co-equal blend. Fixes BM25 over-promotion of high-frequency
+        # topic words (e.g. "attention" in every chunk) that drowns out rare negation
+        # phrases. Recommended: True for domain-specific corpora with a dominant topic.
+        self.bm25_rerank_only     = bool(cfg.get("bm25_rerank_only", True))
         self.use_summaries        = bool(cfg.get("use_summaries", True))
 
         self.use_contextual       = bool(cfg.get("contextual_chunking", False))
@@ -183,6 +188,7 @@ class HybridRAGEngine(RAGEngine):
             "hyde_prompt_key":      self.hyde_prompt_key,
             "bm25_hybrid":          self.use_bm25_hybrid,
             "bm25_alpha":           self.bm25_alpha,
+            "bm25_rerank_only":     self.bm25_rerank_only,
             "use_summaries":        self.use_summaries,
             "contextual_chunking":  self.use_contextual,
             "contextual_model":     self.contextual_model,
@@ -367,18 +373,43 @@ class HybridRAGEngine(RAGEngine):
             chunks = summary_chunks + chunks
         return chunks
 
-    def _add_contextual_prefix(self, chunks: List[Dict], full_content: str) -> List[Dict]:
+    def _llm_one_shot(self, prompt: str, max_tokens: int = 200) -> str:
+        """
+        Synchronous wrapper around manager.internal_response() for internal use
+        (HyDE, contextual prefix). Bypasses conversation history and context callbacks.
+
+        Works whether called from a sync or async context:
+        - Inside a running event loop (Streamlit): spawns a thread with its own loop.
+        - Outside a running event loop (indexing scripts): runs directly.
+        """
+        import asyncio
+        from shared.common import get_llm_manager
+        manager = get_llm_manager()
+        messages = [{"role": "user", "content": prompt}]
+
+        async def _call():
+            return await manager.internal_response(manager.current_llm, messages)
+
         try:
-            from shared.common import call_llm
-        except ImportError:
-            log("warning", "HybridRAG: contextual_chunking requires call_llm — skipped")
-            return chunks
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Already inside an event loop (e.g. Streamlit) — run in a sibling thread.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, _call()).result(timeout=30)
+        else:
+            return asyncio.run(_call())
+
+    def _add_contextual_prefix(self, chunks: List[Dict], full_content: str) -> List[Dict]:
         for chunk in chunks:
             if chunk.get("is_summary"): continue
             try:
                 prompt = (f"Document extract:\n{chunk['embed_text'][:600]}\n\n"
                           "Write ONE sentence summarising this extract, starting with 'This passage covers'.")
-                ctx = call_llm(prompt, model=self.contextual_model, max_tokens=80)
+                ctx = self._llm_one_shot(prompt, max_tokens=80)
                 chunk["embed_text"] = f"{ctx.strip()}\n\n{chunk['embed_text']}"
             except Exception as e:
                 log("warning", f"HybridRAG: contextual prefix failed: {e}")
@@ -430,7 +461,6 @@ class HybridRAGEngine(RAGEngine):
         if not self.use_hyde:
             return _cosine_norm(np.array([get_embedding(query)], dtype=np.float32))
         try:
-            from shared.common import call_llm
             prompt_text = self._get_hyde_prompt()
             if prompt_text:
                 prompt = prompt_text.format(query=query) if "{query}" in prompt_text \
@@ -441,7 +471,7 @@ class HybridRAGEngine(RAGEngine):
                     "that directly answers the following question as if it were found in a "
                     "training document.\n\nQuestion: {query}\n\nAnswer:".format(query=query)
                 )
-            hypothetical = call_llm(prompt, max_tokens=200)
+            hypothetical = self._llm_one_shot(prompt, max_tokens=200)
             log("debug", f"HybridRAG HyDE: generated {len(hypothetical)} char answer")
             return _cosine_norm(np.array([get_embedding(hypothetical)], dtype=np.float32))
         except Exception as e:
@@ -450,13 +480,37 @@ class HybridRAGEngine(RAGEngine):
 
     def _hybrid_scores(self, user_id: str, query: str,
                        cosine_scores: np.ndarray) -> np.ndarray:
+        """
+        Two modes:
+
+        BLEND mode (bm25_rerank_only=False):
+            score = alpha * cosine + (1-alpha) * bm25
+            Good when the corpus has diverse vocabulary and BM25 discriminates well.
+
+        RERANK mode (bm25_rerank_only=True, default):
+            BM25 is used only as a fractional tiebreaker added on top of cosine.
+            score = cosine + epsilon * bm25   (epsilon = 0.01)
+            This preserves cosine ranking for cases where the dominant topic word
+            (e.g. "attention" in every chunk) would otherwise let BM25 swamp the
+            signal from rare but critical phrases (e.g. negations like "ne peut pas").
+        """
         bm25 = self.bm25s.get(user_id)
         if not self.use_bm25_hybrid or bm25 is None or not bm25.available:
             return cosine_scores
+
         n = len(self.metadata.get(user_id, []))
         bm25_raw = bm25.scores(_tokenise(query), n)
-        cos_norm = (cosine_scores + 1.0) / 2.0
-        return self.bm25_alpha * cos_norm + (1.0 - self.bm25_alpha) * bm25_raw
+
+        if self.bm25_rerank_only:
+            # Tiebreaker: BM25 contributes at most 1% of the score range,
+            # so it can only reorder chunks within the same cosine tier.
+            epsilon = 0.01
+            cos_norm = (cosine_scores + 1.0) / 2.0
+            return cos_norm + epsilon * bm25_raw
+        else:
+            # Full blend: BM25 is a co-equal signal.
+            cos_norm = (cosine_scores + 1.0) / 2.0
+            return self.bm25_alpha * cos_norm + (1.0 - self.bm25_alpha) * bm25_raw
 
     def search(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         if self.dimension is None: return []

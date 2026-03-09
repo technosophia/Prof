@@ -1222,7 +1222,20 @@ def _show_engine_config_editor(engine_type: str) -> None:
                     "BM25 alpha (0=pure BM25, 1=pure cosine)",
                     0.0, 1.0, float(draft["bm25_alpha"]), 0.05,
                     key=f"{session_key}_alpha",
-                    disabled=not draft.get("bm25_hybrid", True))
+                    disabled=not draft.get("bm25_hybrid", True) or bool(draft.get("bm25_rerank_only", True)))
+
+            if "bm25_rerank_only" in draft:
+                draft["bm25_rerank_only"] = st.checkbox(
+                    "BM25 as tiebreaker only (recommended)",
+                    bool(draft["bm25_rerank_only"]),
+                    key=f"{session_key}_bm25_rerank",
+                    disabled=not draft.get("bm25_hybrid", True),
+                    help=(
+                        "When ON: BM25 only reorders chunks with similar cosine scores. "
+                        "Prevents high-frequency topic words from drowning out rare "
+                        "but critical phrases (negations, specific facts). "
+                        "Turn OFF to use full alpha blend instead."
+                    ))
 
             if "use_summaries" in draft:
                 draft["use_summaries"] = st.checkbox(

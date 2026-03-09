@@ -52,6 +52,7 @@
         "hyde_prompt_key": "rag_manager.hyde_prompt",
         "bm25_hybrid": true,
         "bm25_alpha": 0.5,
+        "bm25_rerank_only": true,
         "use_summaries": true,
 
         "contextual_chunking": false,
