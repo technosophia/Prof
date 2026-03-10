@@ -79,7 +79,7 @@ from shared.module_handler import ServiceLocator, module_handler
 from st_shared.cached import register_all_services
 from st_shared.cached import get_config, get_db_manager, get_user_manager
 from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager
-from st_shared.cached import get_prompt_manager, get_llm_manager, get_driver
+from st_shared.cached import get_prompt_manager, get_llm_manager, get_driver, get_language_service
 
 from shared.common import init_user_manager
 from shared.ui_registry import UIRegistry
@@ -92,6 +92,21 @@ log("debug", f"Python path  : {sys.path}")
 log("debug", f"Conftest dir : {_CONFTEST_DIR}")
 log("debug", f"Project root : {PROJECT_ROOT}")
 log("debug", f"prof.py found: {(PROJECT_ROOT / 'prof.py').exists()}")
+
+
+# ---------------------------------------------------------------------------
+# 4.  Set default language from config for tests
+# ---------------------------------------------------------------------------
+def _set_default_language_from_config():
+    """Set the default language in language service from config."""
+    config = get_config()
+    default_language = config.get("app.default_language", "en")
+    language_service = get_language_service()
+    language_service.set_default_language(default_language)
+    log("debug", f"Default language set to: {default_language}")
+
+# Call this after services are registered
+_set_default_language_from_config()
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +315,9 @@ def pytest_sessionstart(session) -> None:  # noqa: ARG001
     # IMPORTANT: Set up services for modules BEFORE initialization
     register_all_services()
 
+    # Set default language from config
+    _set_default_language_from_config()
+
     # Step 1: DB must exist before users or modules.
     _reset_db()
 
@@ -309,8 +327,6 @@ def pytest_sessionstart(session) -> None:  # noqa: ARG001
         init_user_manager(create_default_users=True)
     except Exception as exc:
         log("debug", f"⚠ init_user_manager failed: {exc}", level="ERROR")
-
-
 
     # Step 3: Module initialisation (Phase 1: on_module_activated; Phase 2: legacy).
     log("debug", "Initialising modules…")
