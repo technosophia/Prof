@@ -9,14 +9,13 @@ services:
       - MYSQL_DATABASE=${MYSQL_DATABASE}
       - MYSQL_USER=${MYSQL_USER}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} # Add this to your .env
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
     volumes:
-      # Persist MySQL data in the data directory
       - ./data/mysql:/var/lib/mysql
     networks:
       - internal
     ports:
-      - "3306:3306" # Optional: expose to host if needed
+      - "3306:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
@@ -35,9 +34,7 @@ services:
       mysql:
         condition: service_healthy
     volumes:
-      # Mount the current directory to /app for live code updates
       - ./:/app
-      # Mount data directory separately (for any SQLite fallback or other data)
       - ./data:/app/data
     networks:
       - traefik
@@ -48,17 +45,14 @@ services:
       - STREAMLIT_SERVER_ENABLE_CORS=true
       - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
       - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-      # Virtual environment variables
       - VIRTUAL_ENV=/opt/venv
       - PATH=/opt/venv/bin:${PATH}
-      # Database environment variables (passed through)
       - MYSQL_HOST=mysql
       - MYSQL_PORT=3306
       - MYSQL_DATABASE=${MYSQL_DATABASE}
       - MYSQL_USER=${MYSQL_USER}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - MYSQL_DRIVER=${MYSQL_DRIVER}
-      # Add your other environment variables here
       - GIT_TOKEN=${GIT_TOKEN}
       - PYTHON_VERSION=3.11.9
     labels:
@@ -67,7 +61,6 @@ services:
       - "traefik.frontend.rule=Host:coach.yoga-pro.xyz"
       - "traefik.port=8501"
       - "traefik.frontend.entryPoints=https,http"
-
 
   fastapi_frontend:
     build:
@@ -80,8 +73,13 @@ services:
       mysql:
         condition: service_healthy
     volumes:
-      - ./:/app
+      # Mount only specific subdirectories — never the root /app.
+      # Mounting ./ over /app would wipe the frontend_dist baked into the image.
       - ./data:/app/data
+      - ./core:/app/core
+      - ./shared:/app/shared
+      - ./modules:/app/modules
+      - ./api:/app/api
     networks:
       - traefik
       - internal

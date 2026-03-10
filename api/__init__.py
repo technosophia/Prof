@@ -42,7 +42,10 @@ def bootstrap_services() -> ServiceLocator:
     user_settings_manager = UserSettingsManager()
     driver = _get_driver()
     language_service = LanguageService()
-    language_service.set_default_language("en")
+
+    # Get default language from config, fallback to "en"
+    default_language = config.get("app.default_language", "en")
+    language_service.set_default_language(default_language)
 
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pm = get_prompt_manager()
