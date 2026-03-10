@@ -44,6 +44,7 @@
   "app": {
     "name": "Professor",
     "default_llm": "ollama_qwen",
+    "default_language": "en",
     "version": "1.0.0",
     "auto_login": true,
     "auto_login_user": "master2",
