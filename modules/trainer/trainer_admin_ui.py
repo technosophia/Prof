@@ -27,9 +27,12 @@ def inject_ui_admin_tab():
     user_id = st.session_state.current_user['id']
     user_role = st.session_state.current_user['role']
 
+    def empty():
+        st.write("Empty for non MASTER users")
+
     if user_role != UserRole.MASTER.value:
         st.warning("Only masters should use the Trainer admin tab.")
-        return ("Trainer", render_trainer_admin)
+        return ("Trainer", empty)
 
     def render_trainer_admin():
         st.header("🎓 Trainer Module")
