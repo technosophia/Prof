@@ -21,6 +21,7 @@ async function request(path, options = {}) {
 const post = (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) })
 const get = (path) => request(path)
 const del = (path) => request(path, { method: 'DELETE' })
+const patch = (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) })
 
 export const auth = {
   login: (userId, password) => post('/api/auth/login', { user_id: userId, password }),
@@ -33,6 +34,7 @@ export const conversations = {
   list: () => get('/api/conversations'),
   create: (title) => post('/api/conversations', { title }),
   delete: (id) => del(`/api/conversations/${id}`),
+  rename: (id, title) => patch(`/api/conversations/${id}`, { title }),
   messages: (id) => get(`/api/conversations/${id}/messages`),
 }
 

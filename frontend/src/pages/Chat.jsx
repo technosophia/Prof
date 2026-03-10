@@ -49,6 +49,18 @@ export default function Chat() {
     setMessages([])
   }
 
+  async function onRename(id, currentTitle) {
+    const title = window.prompt('New conversation title', currentTitle)
+    if (!title || !title.trim() || title.trim() === currentTitle) return
+    await conversations.rename(id, title.trim())
+    await loadConversations(false)
+  }
+
+  function onLogout() {
+    localStorage.removeItem('token')
+    navigate('/login')
+  }
+
   function onSend(text) {
     if (!currentId || streaming) return
     setStreaming(true)
@@ -67,6 +79,7 @@ export default function Chat() {
       () => {
         setStreaming(false)
         loadConversations(false)
+        conversations.messages(currentId).then(setMessages)
       },
       () => {
         setStreaming(false)
@@ -76,7 +89,14 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen">
-      <ConversationList conversations={list} currentId={currentId} onSelect={setCurrentId} onCreate={onCreate} />
+      <ConversationList
+        conversations={list}
+        currentId={currentId}
+        onSelect={setCurrentId}
+        onCreate={onCreate}
+        onRename={onRename}
+        onLogout={onLogout}
+      />
       <section className="flex flex-1 flex-col">
         <header className="border-b border-slate-800 px-4 py-3 text-sm text-slate-300">{user ? `${user.name} (${user.role})` : 'Loading...'}</header>
         <ChatMessages messages={messages} streaming={streaming} />

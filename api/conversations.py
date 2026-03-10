@@ -11,6 +11,10 @@ class ConversationCreateRequest(BaseModel):
     title: str
 
 
+class ConversationRenameRequest(BaseModel):
+    title: str
+
+
 @router.get("")
 async def list_conversations(current_user: dict = Depends(get_current_user)):
     convs = get_conversation_manager().get_user_conversations(current_user["id"])
@@ -63,3 +67,26 @@ async def conversation_messages(conversation_id: str, current_user: dict = Depen
         }
         for message in conv.messages
     ]
+
+
+@router.patch("/{conversation_id}")
+async def rename_conversation(
+    conversation_id: str,
+    payload: ConversationRenameRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    conv_manager = get_conversation_manager()
+    conv = conv_manager.get_conversation(conversation_id, include_messages=False)
+    if not conv or conv.user_id != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conv_manager.update_conversation_title(conversation_id, payload.title)
+    updated = conv_manager.get_conversation(conversation_id, include_messages=False)
+    details = next((c for c in conv_manager.get_user_conversations(current_user["id"]) if c["id"] == conversation_id), None)
+    return {
+        "id": updated.id,
+        "title": updated.title,
+        "created_at": updated.created_at.isoformat(),
+        "updated_at": updated.updated_at.isoformat(),
+        "message_count": details.get("message_count", 0) if details else 0,
+    }
