@@ -2,13 +2,36 @@
 
 This is the main entry point for agents, it helps to find autonomously the information needed to build the correct context. 
 
+# Purpose
+This is a LLM training compagnon application. Basically it's a specialized RAG and Memory agent. The RAG and Memory are adapted to the context of training and to the formation content. The agent can be proactive and have more sophisticated functions, but the core is just that : Training RAG + student conversation memory.
+
+# Essentials
+`streamlit run prof.py` to launch the application
+`pytest` to run the all tests
+The app has agent observability via the configuratble logging system that can be changed in config.json.
+
+# Rules
+When coding or documenting :
+  - DRY : don't repeat yourself
+	- KISS : keep it stupid simple
+	- Modularity : deleting a module (a directory) should keep the rest working. That defines semantic units.
+	- CODE IS LAW : the doc only describe intent, usage, attention point and rules, beside that, the code is the doc
+	- Granularity : be maximally granular, better semantics, leaner context
+	- Observability : code is data, data is inspectable at will, use logs as a first pass to detect anomalies
+	- AGENTS.md : each directory has AGENTS.md to describe a module
+
 # Where to find information ?
-The project is structured this way : 
+The project has a nested structure this way : 
+/core : code that help coding the rest, meta-code. Depends on nothing.
+/shared : all that is shared accross modules. Depends only on core.
+/modules : the implementation of the specs. Depends on core and shared. No dependencies between modules.
+
+
 /AGENTS.md : this file, help to navigate the project doc and code
 /_docs : if more docs are needed beside AGENTS.md, regroup them here
 /_adr : architectures decision record
-/_docs/CODE.md : coding rules to follow when producing code
-/_docs/SPECS.md : functional specificiations, the goal of the project
+/_docs/CODE.md : detailled coding rules to follow when producing code
+/_docs/SPECS.md : detailled functional specificiations, the goal of the project
 /_docs/META.md : how to write .md files to document the project
 /_docs/VERIFIER.md : detailled instructions to check the code quality
 

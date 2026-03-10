@@ -34,6 +34,8 @@ Bio-coding is a way to create evolvable code so that new modules can be quickly 
 ## Purpose
 [1 phrase : what the directory does]
 
+## Essentials
+
 ## Key files
 - `file.py` : what's it's role
 
