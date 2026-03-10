@@ -1,0 +1,36 @@
+FROM node:20-slim AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
+
+FROM python:3.11.9-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    default-libmysqlclient-dev \
+    pkg-config \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel
+
+COPY requirements.txt .
+RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+RUN /opt/venv/bin/pip install fastapi uvicorn[standard] python-jose[cryptography] python-multipart
+
+COPY . .
+COPY --from=frontend-build /app/frontend_dist ./frontend_dist
+
+EXPOSE 8000
+CMD ["/opt/venv/bin/uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

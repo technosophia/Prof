@@ -28,3 +28,8 @@ pympler
 objgraph
 rank-bm25
 json-repair
+
+fastapi
+uvicorn[standard]
+python-jose[cryptography]
+python-multipart
