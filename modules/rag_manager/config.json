@@ -33,7 +33,7 @@
       "faiss_hierarchical": {
         "_comment": "Backward-compatible drop-in for the original v1 engine. hierarchical chunking + flat search.",
         "type": "faiss_hierarchical",
-        "enabled": false,
+        "enabled": true,
         "description": "FAISS hierarchical — v1 compat (flat search, section chunks)",
         "index_path": "data/hierarchical_indexes",
         "chunk_strategy": "hierarchical",
@@ -50,7 +50,7 @@
       "faiss_hier_flat_boosted": {
         "_comment": "Flat search with summary-slot injection and per-level boosts — tests whether forcing a summary chunk into every result set improves coverage on broad queries.",
         "type": "faiss_hierarchical",
-        "enabled": false,
+        "enabled": true,
         "description": "FAISS hierarchical — flat + level boosts + 1 summary slot",
         "index_path": "data/hierarchical_indexes/flat_boosted",
         "chunk_strategy": "hierarchical",
@@ -67,7 +67,7 @@
       "faiss_hier_cascade": {
         "_comment": "Inverted sieve cascade (BM25 → paragraph → section → summary). Multi-level indexing required. Equivalent to the former faiss_hierarchical_v2 engine with default parameters.",
         "type": "faiss_hierarchical",
-        "enabled": false,
+        "enabled": true,
         "description": "FAISS hierarchical — cascade (BM25→para→sec→summ)",
         "index_path": "data/hierarchical_indexes/cascade",
         "chunk_strategy": "multi_level",
@@ -85,7 +85,7 @@
       "faiss_hier_cascade_tight": {
         "_comment": "Cascade with tighter confidence gates. A stage must dominate more clearly before it fires. Tests whether requiring stronger confidence reduces false positives on ambiguous queries.",
         "type": "faiss_hierarchical",
-        "enabled": false,
+        "enabled": true,
         "description": "FAISS hierarchical — cascade, tighter confidence gates",
         "index_path": "data/hierarchical_indexes/cascade_tight",
         "chunk_strategy": "multi_level",
@@ -121,7 +121,7 @@
       "faiss_hier_bm25_only": {
         "_comment": "Pure BM25 retrieval, no dense search at all. Useful as a keyword baseline: high on exact-wording factual queries, weak on paraphrases and synthesis.",
         "type": "faiss_hierarchical",
-        "enabled": true,
+        "enabled": false,
         "description": "FAISS hierarchical — BM25 only (keyword baseline)",
         "index_path": "data/hierarchical_indexes/bm25_only",
         "chunk_strategy": "multi_level",
@@ -175,7 +175,7 @@
       "faiss_hier_section_only": {
         "_comment": "Dense search restricted to SECTION chunks only. Each section is one ## block enriched with the chapter résumé — a middle-ground granularity between paragraph and summary.",
         "type": "faiss_hierarchical",
-        "enabled": false,
+        "enabled": true,
         "description": "FAISS hierarchical — section-level dense only",
         "index_path": "data/hierarchical_indexes/section_only",
         "chunk_strategy": "multi_level",
@@ -188,7 +188,7 @@
       "faiss_hier_summary_only": {
         "_comment": "Dense search on SUMMARY chunks only (>[!Résumé] blocks). Useful for broad conceptual queries and as a diagnostic: does the summary alone contain enough signal to answer?",
         "type": "faiss_hierarchical",
-        "enabled": false,
+        "enabled": true,
         "description": "FAISS hierarchical — summary-level dense only",
         "index_path": "data/hierarchical_indexes/summary_only",
         "chunk_strategy": "multi_level",
@@ -198,7 +198,7 @@
 
       "hybrid": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid RAG: HyDE + sentence-window + BM25 + contextual chunks",
         "index_path": "data/hybrid_indexes/default",
         "similarity_threshold": 0.25,
@@ -260,7 +260,7 @@
 
       "hybrid_wide_window": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid: wider sentence window (±5) for richer context",
         "index_path": "data/hybrid_indexes/hybrid_wide_window",
         "similarity_threshold": 0.25,
@@ -278,7 +278,7 @@
 
       "hybrid_bm25_blend": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid: full BM25 blend (alpha=0.6) instead of tiebreaker",
         "index_path": "data/hybrid_indexes/hybrid_bm25_blend",
         "similarity_threshold": 0.25,
@@ -296,7 +296,7 @@
 
       "hybrid_bm25_blend_no_hyde": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid: full BM25 blend (alpha=0.6), no HyDE",
         "index_path": "data/hybrid_indexes/hybrid_bm25_blend_no_hyde",
         "similarity_threshold": 0.25,
@@ -314,7 +314,7 @@
 
       "hybrid_hyde_summaries": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid: HyDE grounded with >[!Résumé] summary blocks",
         "index_path": "data/hybrid_indexes/hybrid_hyde_summaries",
         "similarity_threshold": 0.25,

@@ -152,14 +152,14 @@ def _gauge_color(gauge: float, threshold: float) -> str:
         # white → green
         t = min(delta / max(threshold, 0.1), 1.0)
         r = int(255 * (1 - t))
-        g = 200
+        g = 255
         b = int(255 * (1 - t))
     else:
         # red → white
         t = min(-delta / max(threshold, 0.1), 1.0)
-        r = 220
-        g = int(220 * (1 - t))
-        b = int(220 * (1 - t))
+        r = 255
+        g = int(255 * (1 - t))
+        b = int(255 * (1 - t))
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
