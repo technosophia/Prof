@@ -14,6 +14,15 @@ Problem with concurrency in the tests and sqlite database access
 # Frontend
 decorelate core logic with streamlit => FastAPI + React + shadcn/ui
 
+python -m compileall api.py api
+npm install tailwindcss@3 autoprefixer postcss
+cd frontend
+npm install
+npm run build
+cd ..
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+http://localhost:8000
+
 # Evaluation system
 how to evaluate the accuracy of a response by the LLM ? The best would be to compare with a real output (mine for example)
 
