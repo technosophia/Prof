@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Menu } from 'lucide-react'
 import { auth, conversations, regenerateLastResponse, streamChat } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import ConversationList from '@/components/ConversationList'
@@ -12,6 +13,7 @@ export default function Chat() {
   const [currentId, setCurrentId] = useState(null)
   const [messages, setMessages] = useState([])
   const [streaming, setStreaming] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
 
   async function loadConversations(selectFirst = true) {
@@ -58,7 +60,7 @@ export default function Chat() {
   }
 
   async function onDelete(id, title) {
-    const ok = window.confirm(`Delete conversation \"${title}\"?`)
+    const ok = window.confirm(`Delete conversation "${title}"?`)
     if (!ok) return
     await conversations.delete(id)
     const items = await conversations.list()
@@ -140,8 +142,11 @@ export default function Chat() {
     )
   }
 
+  // Current conversation title for the header
+  const currentTitle = list.find((c) => c.id === currentId)?.title ?? ''
+
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen overflow-hidden">
       <ConversationList
         conversations={list}
         currentId={currentId}
@@ -150,14 +155,39 @@ export default function Chat() {
         onRename={onRename}
         onDelete={onDelete}
         onLogout={onLogout}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
-      <section className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-sm text-slate-300">
-          <span>{user ? `${user.name} (${user.role})` : 'Loading...'}</span>
-          <Button className="bg-slate-700 hover:bg-slate-600" onClick={onRegenerate} disabled={streaming || messages.length === 0}>
-            Regenerate last response
+
+      {/* Main chat area */}
+      <section className="flex flex-1 flex-col min-w-0">
+        <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-3 text-sm text-slate-300 shrink-0">
+          {/* Hamburger — mobile only */}
+          <button
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 md:hidden shrink-0"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
+          >
+            <Menu size={20} />
+          </button>
+
+          {/* Conversation title — fills available space, truncated */}
+          <span className="flex-1 truncate font-medium text-slate-200">{currentTitle}</span>
+
+          {/* Right side: user info + regenerate */}
+          <span className="hidden sm:block shrink-0 text-slate-400">
+            {user ? `${user.name} (${user.role})` : ''}
+          </span>
+          <Button
+            className="bg-slate-700 hover:bg-slate-600 shrink-0 text-xs px-2 py-1.5"
+            onClick={onRegenerate}
+            disabled={streaming || messages.length === 0}
+          >
+            <span className="hidden sm:inline">Regenerate</span>
+            <span className="sm:hidden">↺</span>
           </Button>
         </header>
+
         <ChatMessages messages={messages} streaming={streaming} />
         <ChatInput onSend={onSend} disabled={streaming || !currentId} />
       </section>
