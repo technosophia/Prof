@@ -23,6 +23,7 @@ from modules.rag_bench.rag_bench_models import (
     LEVEL_LABELS, FIXABLE_LEVELS, PARTIAL_LEVELS, ENGINE_LEVELS,
 )
 from modules.rag_bench.rag_bench_report import render_export_section, render_step_export
+from json_repair import repair_json
 
 
 GAUGE_WIDTH=130
@@ -299,19 +300,17 @@ def _build_judge_prompt(case: TestCase, results: List[Dict]) -> str:
         chunks_text=chunks_text,
     )
 
-
 async def _call_ollama(prompt: str, model: str, base_url: str, case_id: str, engine: str) -> Tuple[int, str]:
     url = f"{base_url.rstrip('/')}/api/generate"
 
-    # Add no_thinking parameter to prevent thinking tags
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
         "options": {
             "temperature": 0.0,
-            "num_predict": -1,  # -1 means no truncation, return full response
-            "no_thinking": True  # Prevent thinking tags in response
+            "num_predict": -1,
+            "no_thinking": True
         }
     }
 
@@ -323,38 +322,29 @@ async def _call_ollama(prompt: str, model: str, base_url: str, case_id: str, eng
             resp.raise_for_status()
             raw_response = resp.json().get("response", "")
 
-        # Still strip thinking tags as a fallback (in case no_thinking doesn't work)
-        stripped_response = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL).strip()
+        # Remove <think> blocks if model ignored no_thinking
+        stripped_response = re.sub(
+            r"<think>.*?</think>",
+            "",
+            raw_response,
+            flags=re.DOTALL
+        ).strip()
 
-        # Try multiple JSON extraction strategies
         parsed = None
         parse_error = None
 
-        # Strategy 1: Try to parse the stripped response directly
         try:
-            parsed = json.loads(stripped_response)
-        except json.JSONDecodeError as e:
+            # json-repair handles malformed JSON automatically
+            parsed = repair_json(stripped_response, return_objects=True)
+        except Exception as e:
             parse_error = e
-            # Strategy 2: Look for JSON in code blocks
-            code_block = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', stripped_response)
-            if code_block:
-                try:
-                    parsed = json.loads(code_block.group(1))
-                except json.JSONDecodeError:
-                    pass
-            # Strategy 3: Try to find any JSON object in the response
-            if not parsed:
-                json_match = re.search(r'(\{.*\})', stripped_response, re.DOTALL)
-                if json_match:
-                    try:
-                        parsed = json.loads(json_match.group(1))
-                    except json.JSONDecodeError:
-                        pass
 
-        if parsed is not None:
-            return int(parsed.get("score", 0)), parsed.get("reasoning", "")
+        if isinstance(parsed, dict):
+            score = int(parsed.get("score", 0))
+            reasoning = parsed.get("reasoning", "")
+            return score, reasoning
 
-        # If we get here, all parsing strategies failed
+        # Parsing failed → log detailed error
         log_bench_error(
             error_type="judge_json_parse",
             case_id=case_id,
@@ -368,13 +358,14 @@ async def _call_ollama(prompt: str, model: str, base_url: str, case_id: str, eng
             }
         )
 
-        # Fallback: try to extract score from raw response
-        if '"score": 1' in raw_response or '"score":1' in raw_response:
-            return 1, f"JSON parse error but score=1 detected"
-        elif '"score": 0' in raw_response or '"score":0' in raw_response:
-            return 0, f"JSON parse error but score=0 detected"
+        # Heuristic fallback (rarely needed)
+        if '"score": 1' in stripped_response:
+            return 1, "Recovered score=1 after JSON repair failure"
 
-        return 0, f"JSON parse error: {raw_response[:200]}"
+        if '"score": 0' in stripped_response:
+            return 0, "Recovered score=0 after JSON repair failure"
+
+        return 0, f"JSON parse error: {stripped_response[:200]}"
 
     except httpx.TimeoutException as e:
         log_bench_error(
@@ -396,7 +387,7 @@ async def _call_ollama(prompt: str, model: str, base_url: str, case_id: str, eng
             engine=engine,
             details={
                 "status_code": e.response.status_code,
-                "response_text": e.response.text[:500] if hasattr(e.response, 'text') else str(e),
+                "response_text": e.response.text[:500] if hasattr(e.response, "text") else str(e),
                 "model": model,
                 "url": url
             }

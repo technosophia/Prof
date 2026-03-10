@@ -23,7 +23,8 @@ sqlalchemy-utils
 huggingface-hub
 llama-index-core
 openai
-psutil 
+psutil
 pympler
 objgraph
 rank-bm25
+json-repair
