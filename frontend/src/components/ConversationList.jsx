@@ -11,7 +11,7 @@ function relTime(iso) {
   return `${Math.max(1, m)}m ago`
 }
 
-export default function ConversationList({ conversations, currentId, onSelect, onCreate, onRename, onLogout }) {
+export default function ConversationList({ conversations, currentId, onSelect, onCreate, onRename, onDelete, onLogout }) {
   const items = useMemo(() => conversations || [], [conversations])
 
   return (
@@ -30,13 +30,22 @@ export default function ConversationList({ conversations, currentId, onSelect, o
               <div className="text-sm font-medium">{c.title}</div>
               <div className="mt-1 text-xs text-slate-400">{c.message_count} msg • {relTime(c.updated_at)}</div>
             </button>
-            <button
-              className="mt-2 text-xs text-slate-400 hover:text-slate-200"
-              onClick={() => onRename(c.id, c.title)}
-              type="button"
-            >
-              Rename
-            </button>
+            <div className="mt-2 flex gap-3">
+              <button
+                className="text-xs text-slate-400 hover:text-slate-200"
+                onClick={() => onRename(c.id, c.title)}
+                type="button"
+              >
+                Rename
+              </button>
+              <button
+                className="text-xs text-red-400 hover:text-red-300"
+                onClick={() => onDelete(c.id, c.title)}
+                type="button"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         ))}
       </div>

@@ -38,39 +38,54 @@ export const conversations = {
   messages: (id) => get(`/api/conversations/${id}/messages`),
 }
 
-export function streamChat(conversationId, message, onChunk, onDone, onError) {
+function streamSsePost(path, body, onChunk, onDone, onError) {
   const token = localStorage.getItem('token')
-  fetch('/api/chat/stream', {
+  fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ conversation_id: conversationId, message }),
+    body: JSON.stringify(body),
   })
     .then((res) => {
       if (!res.ok || !res.body) throw new Error(`Stream failed: ${res.status}`)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+
       function pump() {
-        reader.read().then(({ done, value }) => {
-          if (done) {
-            onDone()
-            return
-          }
-          buffer += decoder.decode(value, { stream: true })
-          const parts = buffer.split('\n')
-          buffer = parts.pop() || ''
-          parts.forEach((line) => {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.slice(6))
-              if (data.type === 'chunk') onChunk(data.content)
-              if (data.type === 'done') onDone()
-              if (data.type === 'error') onError(data.content)
-            }
+        reader
+          .read()
+          .then(({ done, value }) => {
+            if (done) return
+
+            buffer += decoder.decode(value, { stream: true })
+            const events = buffer.split('\n\n')
+            buffer = events.pop() || ''
+
+            events.forEach((eventBlock) => {
+              eventBlock.split('\n').forEach((line) => {
+                if (line.startsWith('data: ')) {
+                  const data = JSON.parse(line.slice(6))
+                  if (data.type === 'chunk') onChunk(data.content)
+                  if (data.type === 'done') onDone()
+                  if (data.type === 'error') onError(data.content)
+                }
+              })
+            })
+
+            pump()
           })
-          pump()
-        })
+          .catch((err) => onError(err?.message || 'stream read error'))
       }
+
       pump()
     })
     .catch((err) => onError(err?.message || 'stream error'))
+}
+
+export function streamChat(conversationId, message, onChunk, onDone, onError) {
+  streamSsePost('/api/chat/stream', { conversation_id: conversationId, message }, onChunk, onDone, onError)
+}
+
+export function regenerateLastResponse(conversationId, onChunk, onDone, onError) {
+  streamSsePost('/api/chat/regenerate-stream', { conversation_id: conversationId }, onChunk, onDone, onError)
 }
