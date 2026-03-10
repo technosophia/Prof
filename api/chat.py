@@ -42,6 +42,7 @@ def _streaming_headers():
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
+        "X-Content-Type-Options": "nosniff",
     }
 
 
