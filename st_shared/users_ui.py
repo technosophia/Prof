@@ -252,9 +252,9 @@ def render_reset_password_form(form_key="reset_form"):
 
         col1, col2 = st.columns(2)
         with col1:
-            reset_submit = st.form_submit_button("Reset Password", type="primary", width='stretch')
+            reset_submit = st.form_submit_button("Reset Password", type="primary", use_container_width=True)
         with col2:
-            back_to_login = st.form_submit_button("Back to Login", width='stretch')
+            back_to_login = st.form_submit_button("Back to Login", use_container_width=True)
 
         if reset_submit:
             if not username or not new_password:
@@ -269,18 +269,11 @@ def render_reset_password_form(form_key="reset_form"):
                     # If user provided a reset code, use it directly
                     if reset_code_input:
                         code_to_use = reset_code_input
-                        st.info(f"🔑 Using provided reset code")
                     else:
-                        # No code provided - handle admin recovery
+                        # No code provided - generate a new one for admin
                         try:
                             import os
-                            from datetime import datetime, timedelta
-                            from st_shared.cached import get_config
-
-                            # Get database path from config
-                            config = get_config()
-                            db_path = "./"
-                            reset_code_file = os.path.join(db_path, "reset_code.txt")
+                            from datetime import datetime
 
                             # Find the admin user
                             admin_user = user_manager.get_user_by_name('admin')
@@ -294,63 +287,34 @@ def render_reset_password_form(form_key="reset_form"):
                                 st.error("❌ No admin user found in the system")
                                 return
 
-                            # Check if we have a valid reset code file
-                            code_from_file = None
-                            file_valid = False
+                            # Generate a new reset code
+                            new_code = user_manager.generate_reset_code(admin_user['id'], admin_user['id'])
 
-                            if os.path.exists(reset_code_file):
+                            if new_code:
+                                # Save to file in root directory
+                                reset_code_file = "reset_code.txt"
                                 try:
-                                    with open(reset_code_file, 'r') as f:
-                                        content = f.read()
-
-                                    # Parse the file
-                                    import re
-                                    code_match = re.search(r'Reset Code: (\S+)', content)
-                                    expiry_match = re.search(r'Expires: (.+)', content)
-
-                                    if code_match and expiry_match:
-                                        code_from_file = code_match.group(1)
-                                        expiry_str = expiry_match.group(1)
-
-                                        # Parse expiry date
-                                        try:
-                                            expiry_date = datetime.strptime(expiry_str, '%Y-%m-%d %H:%M:%S')
-
-                                            # Check if code is still valid (not expired)
-                                            if expiry_date > datetime.now():
-                                                file_valid = True
-                                                st.info("📁 Found valid existing reset code file")
-                                            else:
-                                                st.info("📁 Existing reset code has expired")
-                                        except:
-                                            st.info("📁 Invalid expiry format in reset code file")
-                                except Exception as e:
-                                    st.info(f"📁 Could not read reset code file: {e}")
-
-                            # Determine what to do
-                            if file_valid and code_from_file:
-                                # Try to use the code from file
-                                st.info("🔄 Attempting to use reset code from file...")
-                                code_to_use = code_from_file
-                            else:
-                                # Generate a new reset code
-                                st.info("🔑 Generating new reset code for admin...")
-                                new_code = user_manager.generate_reset_code(admin_user['id'], admin_user['id'])
-
-                                if new_code:
-                                    # Save to file
-                                    os.makedirs(db_path, exist_ok=True)
                                     with open(reset_code_file, 'w') as f:
-                                        f.write(f"Reset Code for admin generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                                        f.write(f"Expires: {(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                                        f.write(new_code)
 
-                                    st.success(f"✅ New reset code generated and saved to: {reset_code_file}")
-                                    st.info(f"🔑 New reset code: `{new_code}`")
+                                    st.success("✅ A new reset code has been generated!")
+                                    st.info(f"📁 Reset code saved to: {os.path.abspath(reset_code_file)}")
+                                    st.info("🔑 Please check this file and enter the code in the 'Reset Code' field above.")
 
-                                    code_to_use = new_code
-                                else:
-                                    st.error("❌ Failed to generate reset code for admin")
-                                    return
+                                    # Don't auto-fill the code - user needs to enter it manually
+                                    # This is intentional for security
+
+                                except Exception as e:
+                                    st.error(f"❌ Failed to save reset code to file: {str(e)}")
+                                    # Still show the code as fallback (only in non-prod?)
+                                    st.info(f"🔑 Reset code: {new_code}")
+
+                                # Don't proceed with reset yet - user needs to submit again with the code
+                                st.warning("⚠️ Please copy the reset code from the file and submit the form again.")
+                                return
+                            else:
+                                st.error("❌ Failed to generate reset code for admin")
+                                return
 
                         except Exception as e:
                             st.error(f"❌ Error in admin recovery: {str(e)}")
@@ -362,6 +326,10 @@ def render_reset_password_form(form_key="reset_form"):
                         return
                     code_to_use = reset_code_input
 
+                # If we get here, we have a code to use (either from input or from admin flow with code provided)
+                if username.lower() == 'admin' and reset_code_input:
+                    code_to_use = reset_code_input
+
                 # Attempt to reset password
                 success = user_manager.reset_password_with_code(username, code_to_use, new_password)
 
@@ -371,27 +339,16 @@ def render_reset_password_form(form_key="reset_form"):
                     # Clean up reset code file for admin after successful reset
                     if username.lower() == 'admin':
                         try:
-                            import os
-                            from st_shared.cached import get_config
-
-                            config = get_config()
-                            db_path = "./"
-                            reset_code_file = os.path.join(db_path, "reset_code.txt")
-
+                            reset_code_file = "reset_code.txt"
                             if os.path.exists(reset_code_file):
                                 os.remove(reset_code_file)
-                                st.info("📁 Reset code file has been removed for security")
-                        except Exception as e:
+                        except Exception:
                             pass
 
                     st.session_state.show_reset_password_form = False
                     st.rerun()
                 else:
                     st.error("❌ Invalid username or reset code. Please check and try again.")
-
-                    # If this was admin with file-based code, suggest refreshing
-                    if username.lower() == 'admin' and not reset_code_input:
-                        st.info("💡 The reset code might be invalid. Click 'Reset Password' again to generate a fresh code.")
 
         if back_to_login:
             st.session_state.show_reset_password_form = False
@@ -682,10 +639,14 @@ def render_user_form():
 
                         if production_mode and not password_to_set and reset_code:
                             st.success(f"✅ User created successfully!")
-                            st.info(f"🔑 **Reset Code for {name.strip()}:** `{reset_code}`")
-                            st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
-                        else:
-                            st.success(f"✅ User '{name.strip()}' created successfully!")
+                            # Save reset code to file instead of displaying it
+                            try:
+                                with open(f"reset_code_{name.strip()}.txt", 'w') as f:
+                                    f.write(reset_code)
+                                st.info(f"🔑 A reset code has been saved to reset_code_{name.strip()}.txt")
+                            except Exception as e:
+                                st.error(f"Failed to save reset code: {e}")
+                            st.warning("⚠️ This code will expire in 24 hours.")
 
                         log("info", f"User created: {name} (ID: {user_id})")
 
