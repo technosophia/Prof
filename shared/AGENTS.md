@@ -7,7 +7,7 @@ This code implements functionnalities shared across the app. No other module hav
 /shared contains common functionnalities of the app : users, conversations, llm, prompts, settings, and module handling.
 
 It gives "managers", which are singletons objects that handle the app's data and logic.
-Managers are python classes, but they are cached in common.py as a streamlit resource.
+Managers are python classes, but they are cached in common.py.
 If needed in strategic points, the shared code provide callbacks (internal), and special callbacks for UI : injection points.
 
 /shared/API.md describe the API that other modules can use to interact with the shared code.
@@ -29,6 +29,3 @@ This API is replicated in /shared/common.py and this one
 
 # Special case : common.py
 Single entry point to import all functional logic of the app, common to all modules
-
-# Special case : cached.py
-Contains code to access resources that are cached by streamlit. Can be from core or shared, but it's for performance purpose, to avoid reloading after each rerun() : translations, configuration, user_manager, conversation_manager, prompt_manager, settings

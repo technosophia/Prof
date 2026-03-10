@@ -1,18 +1,18 @@
 """UI Registry System
 
-Provides a modular UI injection system for Streamlit applications. UI modules
+Provides a modular UI injection system for UX applications. UI modules
 can register render functions that are automatically discovered and injected
 into predefined injection points.
 
-STREAMLIT DEPENDENCY IS INTENTIONAL HERE. This module runs only in a Streamlit
+UX DEPENDENCY IS INTENTIONAL HERE. This module runs only in a UX
 context and is responsible for:
   1. Discovering *_ui.py files
-  2. Calling inject_ui_xxx() functions (Streamlit rendering)
+  2. Calling inject_ui_xxx() functions (UX rendering)
   3. Calling inject_ui_initialize() for LEGACY modules (backward compatibility)
      New modules use on_module_activated() via module_handler instead.
 
 ui_registry NEVER calls on_module_activated / on_module_deactivated — those are
-the responsibility of module_handler (no Streamlit).
+the responsibility of module_handler (no UX).
 """
 
 import os
@@ -115,14 +115,14 @@ class UIRegistry:
     """
     Registry for UI modules and their render functions.
 
-    Responsible ONLY for Streamlit UI injection points (inject_ui_xxx).
+    Responsible ONLY for UX injection points (inject_ui_xxx).
     Functional module lifecycle (on_module_activated etc.) is handled by
     module_handler, not here.
 
     Backward compatibility:
     - inject_ui_initialize() is still called for ALL modules (legacy + new)
       because it is the only safe place to set up st.session_state.
-    - on_module_activated() is called by module_handler (no Streamlit).
+    - on_module_activated() is called by module_handler (no UX).
     """
 
     def __init__(self, shared_ui_dir: str | None = None):
@@ -134,8 +134,6 @@ class UIRegistry:
         self.shared_ui_dir = shared_ui_dir
         # Track which modules have had inject_ui_initialize called
         self._initialized_modules: Set[str] = set()
-        # Cache for lazy-loaded render results
-        self._tab_cache: Dict[str, Tuple[str, Callable]] = {}
 
     def set_module_handler(self, handler, shared_ui_dir: str | None = None):
         """Set the module handler instance."""
@@ -176,13 +174,11 @@ class UIRegistry:
             )
             self.last_active_hash = current_hash
             # Clear tab cache when modules change
-            self._tab_cache.clear()
             log("info", f"UI Registry refreshed: {len(self.modules)} modules registered")
             log("debug", f"Discovered injection points: {sorted(self.injection_points)}")
 
             # Call inject_ui_initialize for newly discovered modules
             # This is the ONLY place inject_ui_initialize is called automatically.
-            # It is intentionally Streamlit-aware: it sets up st.session_state.
             self._run_initialize_hooks(current_hash)
 
     def _run_initialize_hooks(self, active_modules_tuple: Tuple[str, ...]) -> None:
@@ -305,34 +301,6 @@ class UIRegistry:
 
         return tabs
 
-    def render_admin_tab(self, tab_name: str, module_key: str, content_func: Callable) -> Any:
-        """
-        Render a specific admin tab by name.
-        This is called only when the tab is actually selected.
-        """
-        log("debug", f"Lazy rendering tab '{tab_name}' from {module_key}")
-
-        # Check cache
-        cache_key = f"{module_key}:{tab_name}"
-        if cache_key in self._tab_cache:
-            log("debug", f"Using cached render for tab '{tab_name}'")
-            return self._tab_cache[cache_key][1]()
-
-        # Render the content
-        try:
-            result = content_func()
-
-            # Optionally cache for this session
-            import streamlit as st
-            if 'tab_cache_enabled' in st.session_state and st.session_state.tab_cache_enabled:
-                self._tab_cache[cache_key] = (time.time(), lambda: result)
-
-            return result
-        except Exception as e:
-            log("error", f"Error rendering tab '{tab_name}': {e}", stacktrace=True)
-            import streamlit as st
-            st.error(f"Error loading tab '{tab_name}': {e}")
-            return None
 
     def render_admin_tabs(self) -> Dict[str, Any]:
         """

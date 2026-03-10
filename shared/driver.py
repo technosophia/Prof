@@ -2,7 +2,7 @@
 [api]
 # API — driver
 
-Programmatic app driver for Professor that can run interactions without Streamlit UI.
+Programmatic app driver for Professor that can run headless interactions.
 
 ## Data Models
 
@@ -67,7 +67,7 @@ All event dataclasses support YAML-serialisable export with `to_dict()`.
 ## Public API
 
 ### `get_driver() -> AppDriver`
-Returns the global `AppDriver` singleton (cached streamlit resource).
+Returns the global `AppDriver` singleton.
 
 ### `AppDriver.register_option(group, name, activate_fn, deactivate_fn, description="")`
 Register a switchable option in a logical group.

@@ -12,7 +12,7 @@ from st_shared.cached import _load_translations
 from st_shared.cached import _, get_available_languages
 @pytest.fixture(autouse=True)
 def clear_translation_cache():
-    """Clear the Streamlit cache before each test to prevent leakage between tests"""
+    """Clear the UX cache before each test to prevent leakage between tests"""
     _load_translations.clear()
     yield
 

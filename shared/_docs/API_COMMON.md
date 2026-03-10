@@ -45,7 +45,7 @@ Here is the list of exportable public functions from `shared/common.py`:
 - `reload_prompts()` - Reload all prompts from files
 - `get_all_prompts(language: Optional[str] = None) -> Dict[str, Any]` - Get all loaded prompts
 - `get_module_prompts(module_prefix: str = "", language: Optional[str] = None) -> Dict[str, Any]` - Get prompts for a specific module
-- `list_modules_with_prompts(language: Optional[str] = None) -> List[str]` - List all module prefixes with prompts
+- `list_modules_with_prompts(module_prefix: str = "", language: Optional[str] = None) -> List[str]` - List all module prefixes with prompts
 - `get_available_prompt_languages() -> List[str]` - Get list of available languages for prompts
 - `is_multilingual()` - Check if multilingual mode is enabled
 - `set_default_language(language: str)` - Set the default language for prompts
@@ -58,3 +58,6 @@ Here is the list of exportable public functions from `shared/common.py`:
 - `register_option(...)` - Register a switchable driver option
 - `register_action(...)` - Register a driveable action
 - `record_plugin_event(...)` - Record plugin-level events in the driver session log
+
+### Module Handler (for service access)
+- `get_module_handler()` - Get the global module handler instance

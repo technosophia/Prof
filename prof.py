@@ -12,6 +12,7 @@ import os
 import sys
 import asyncio
 from dotenv import load_dotenv
+from typing import Dict, Tuple, Callable, Any, Set
 
 # Load environment variables FIRST
 from core.logging import log, set_log_module_level
@@ -147,10 +148,48 @@ def can_access_admin(current_user):
     from shared.common import UserRole
     return current_user.get("role") in [UserRole.ADMIN.value, UserRole.MASTER.value]
 
+def init_tab_cache():
+    """Initialize tab cache in session state if not present."""
+    if 'tab_cache' not in st.session_state:
+        st.session_state.tab_cache = {}
+    if 'tab_cache_timestamp' not in st.session_state:
+        st.session_state.tab_cache_timestamp = {}
+
+def render_admin_tab_content(tab_name: str, module_key: str, content_func: Callable) -> Any:
+    """
+    Render a specific admin tab by name with caching.
+    This is called only when the tab is actually selected.
+    """
+    log("debug", f"Lazy rendering tab '{tab_name}' from {module_key}")
+
+    # Check cache
+    cache_key = f"{module_key}:{tab_name}"
+    if cache_key in st.session_state.tab_cache:
+        log("debug", f"Using cached render for tab '{tab_name}'")
+        return st.session_state.tab_cache[cache_key]()
+
+    # Render the content
+    try:
+        result = content_func()
+
+        # Cache the result (as a function that returns it)
+        if 'enable_tab_cache' in st.session_state and st.session_state.enable_tab_cache:
+            st.session_state.tab_cache[cache_key] = lambda: result
+            st.session_state.tab_cache_timestamp[cache_key] = time.time()
+
+        return result
+    except Exception as e:
+        log("error", f"Error rendering tab '{tab_name}': {e}", stacktrace=True)
+        st.error(f"Error loading tab '{tab_name}': {e}")
+        return None
 
 def render_admin_tabs_lazy(admin_tabs_dict):
+    """Render admin tabs with lazy loading."""
     if not admin_tabs_dict:
         return
+
+    # Initialize cache
+    init_tab_cache()
 
     tab_names = list(admin_tabs_dict.keys())
     if "System" in tab_names:
@@ -182,7 +221,18 @@ def render_admin_tabs_lazy(admin_tabs_dict):
     st.divider()
 
     if selected_tab and selected_tab in admin_tabs_dict:
-        admin_tabs_dict[selected_tab]()
+        module_key, content_func = admin_tabs_dict[selected_tab]
+        render_admin_tab_content(selected_tab, module_key, content_func)
+
+    # Optional: Add a cache control in settings or debug mode
+    if st.session_state.get('debug_mode', False):
+        with st.expander("Cache Controls"):
+            st.checkbox("Enable tab caching", key="enable_tab_cache", value=True)
+            if st.button("Clear Tab Cache"):
+                st.session_state.tab_cache.clear()
+                st.session_state.tab_cache_timestamp.clear()
+                st.rerun()
+
 
 
 def main():
@@ -206,6 +256,8 @@ def main():
         # Mark as initialized
         st.session_state.app_initialized = True
         log("debug", "App initialization complete")
+
+    init_tab_cache()
 
     # INJECTION POINT: Initialize - for setting up session state variables
     log("debug", "Calling UI module initialization functions")
@@ -314,7 +366,7 @@ def main():
         st.title("🔧 Admin Panel")
 
         # Get all admin tabs from UI modules (minimal cost - just gets tab names)
-        admin_tabs_dict = ui_registry.render_admin_tabs()
+        admin_tabs_dict = ui_registry.get_admin_tabs()  # Use get_admin_tabs() instead of render_admin_tabs()
 
         if not admin_tabs_dict:
             st.warning("No admin modules found or active. Install and enable admin modules.")

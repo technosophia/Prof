@@ -19,7 +19,7 @@ LOCAL_MODULES_FILE = "local_modules.json"  # Local override file
 
 
 # ---------------------------------------------------------------------------
-# Module discovery helpers (no Streamlit, pure filesystem)
+# Module discovery helpers (no UX dependency, pure filesystem)
 # ---------------------------------------------------------------------------
 
 def _compute_modules_signature() -> str:
@@ -174,7 +174,7 @@ class ModuleHandler:
     """
     Handles module discovery, activation, and management.
 
-    No Streamlit dependency. All UI concerns are delegated to ui_registry.py.
+    No UX dependency. All UI concerns are delegated to ui_registry.py.
 
     Supports local_modules.json override for development/testing purposes.
     If local_modules.json exists alongside modules.json, it will be used
@@ -422,7 +422,7 @@ class ModuleHandler:
             log("debug", f"Refreshed cache for module '{module_name}' ({len(keys_to_remove)} entries)")
 
     # ------------------------------------------------------------------
-    # Hook dispatch  (NO Streamlit dependency here)
+    # Hook dispatch  (NO UX dependency here)
     # ------------------------------------------------------------------
 
     def _call_module_hook(
@@ -436,8 +436,8 @@ class ModuleHandler:
 
         For on_module_activated, passes the global ServiceLocator when pass_services=True.
 
-        This method is deliberately Streamlit-free. UI hooks (inject_ui_xxx) are
-        called exclusively by ui_registry.py in a Streamlit context.
+        This method is deliberately UX-free. UI hooks (inject_ui_xxx) are
+        called exclusively by ui_registry.py in a UX context.
         """
         module_info = self.modules.get(module_name, {})
         if not module_info:
@@ -497,7 +497,7 @@ class ModuleHandler:
         When activating a new-style module, on_module_activated(services) is called.
         When activating a legacy module, only on_module_activated() (no args) is
         attempted for backward compatibility; the UI layer remains responsible for
-        calling inject_ui_initialize() to set up Streamlit state.
+        calling inject_ui_initialize() to set up UX state.
 
         When deactivating, on_module_deactivated() is called regardless of style.
 

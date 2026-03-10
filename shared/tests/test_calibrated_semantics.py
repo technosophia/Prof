@@ -18,7 +18,7 @@ Two tiers:
 
 SETUP
 -----
-1. Run the calibrator (Streamlit admin tab or CLI) to produce:
+1. Run the calibrator (UX admin tab or CLI) to produce:
        calibration_results.json
 
 2. Place the file at (or set CALIBRATION_FILE env var):
