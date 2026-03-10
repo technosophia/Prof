@@ -585,11 +585,13 @@ def render_captured_interactions():
     col1, col2, col3 = st.columns([1, 1, 4])
 
     with col1:
-        if st.button("🔄 Refresh", width='stretch'):
+        # FIXED: Add a unique key for the refresh button
+        if st.button("🔄 Refresh", key="rag_bench_refresh_btn", width='stretch'):
             st.rerun()
 
     with col2:
-        if st.button("🗑️ Clear All", width='stretch', type="secondary"):
+        # FIXED: Add a unique key for the clear button
+        if st.button("🗑️ Clear All", key="rag_bench_clear_btn", width='stretch', type="secondary"):
             count = clear_captured_interactions()
             st.success(f"Cleared {count} interactions")
             st.rerun()

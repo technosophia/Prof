@@ -11,6 +11,7 @@ import streamlit as st
 import os
 import sys
 import asyncio
+import time
 from dotenv import load_dotenv
 from typing import Dict, Tuple, Callable, Any, Set
 
@@ -19,7 +20,7 @@ from core.logging import log, set_log_module_level
 from core.database import init_database
 from shared.module_handler import module_handler
 from core.service import set_global_services, get_global_services
-from st_shared.cached import _, get_available_languages, get_active_modules
+from st_shared.cached import _, get_available_languages, get_active_modules, get_config, get_language_service
 load_dotenv()
 
 # Add shared directory to path
@@ -27,14 +28,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "shared"))
 
 # Import everything needed - CONFIG FIRST!
 
-from st_shared.cached import get_config
 from core.logging import configure_logging_from_dict
 
 from st_shared.cached import get_db_manager, get_user_manager, get_conversation_manager, get_driver
 from shared.common import init_user_manager
 from st_shared.cached import get_prompt_manager, get_llm_manager
 from shared.export_import import auto_import_conversations_from_config
-from st_shared.cached import get_language_service
 
 # IMPORTANT: Don't alias 'llm' to avoid name conflicts
 from shared.common import llm_conversation_generate, set_current_llm, get_available_llms, get_current_llm_info
@@ -64,11 +63,18 @@ module_handler.activate_all()
 # Get the language service and set up the resolver
 language_service = get_language_service()
 
+# Set default language from config
+config = get_config()
+default_language = config.get("app.default_language", "en")
+language_service.set_default_language(default_language)
+log("debug", f"Default language set to: {default_language}")
+
 def streamlit_language_resolver():
     """Get current language from Streamlit session state."""
     import streamlit as st
     if "current_language" not in st.session_state:
-        st.session_state.current_language = "en"
+        # Initialize with default language from config
+        st.session_state.current_language = default_language
     return st.session_state.current_language
 
 language_service.set_language_resolver(streamlit_language_resolver)
@@ -132,8 +138,9 @@ if "user_manually_logged_out" not in st.session_state:
 if "admin_current_tab" not in st.session_state:
     st.session_state.admin_current_tab = "System"
 
+# Initialize current language with default from config
 if "current_language" not in st.session_state:
-    st.session_state.current_language = "en"
+    st.session_state.current_language = default_language
 
 # Track active admin tab index for lazy loading
 if "active_admin_tab_index" not in st.session_state:
@@ -203,7 +210,10 @@ def render_admin_tabs_lazy(admin_tabs_dict):
         for i, tab_name in enumerate(tab_names):
             with tabs[i]:
                 try:
-                    admin_tabs_dict[tab_name]()
+                    # FIXED: admin_tabs_dict[tab_name] is a tuple (module_key, content_func)
+                    # In test mode we want to render immediately, so we need to call the content_func
+                    module_key, content_func = admin_tabs_dict[tab_name]
+                    content_func()
                 except Exception as e:
                     st.error(f"Error loading {tab_name} admin page: {str(e)}")
                     log("error", f"Error loading {tab_name} admin page: {str(e)}", stacktrace=True)
@@ -232,8 +242,6 @@ def render_admin_tabs_lazy(admin_tabs_dict):
                 st.session_state.tab_cache.clear()
                 st.session_state.tab_cache_timestamp.clear()
                 st.rerun()
-
-
 
 def main():
     # Log main function entry

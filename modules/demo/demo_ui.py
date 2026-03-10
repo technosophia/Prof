@@ -21,7 +21,6 @@ from st_shared.cached import (
     get_llm_manager,
     get_prompt_manager,
 )
-from shared.module_handler import module_handler
 from modules.demo.demo_core import (
     get_demo_config_value,
     get_demo_translation,
@@ -36,6 +35,8 @@ from modules.demo.demo_core import (
     check_services,
     EXPECTED_SERVICES,
 )
+from core.service import get_global_services  # <-- Import the global services accessor
+from shared.common import check_services as common_check_services  # <-- Import the actual function
 
 
 # ─── Injection point 1: session state initialization ─────────────────────────
@@ -179,12 +180,21 @@ def _tab_services() -> None:
         "Registered in `st_shared.cached.register_all_services()`."
     )
 
-    services = module_handler.get_services()
+    # Get the global services
+    services = get_global_services()
     if services is None:
         st.error("⚠️ ServiceLocator is None — `register_all_services()` was not called.")
         return
 
-    status = check_services(services)
+    # FIXED: Use common_check_services with explicit services parameter
+    # The check_services function imported from demo_core might be the one from core.service
+    # which has a different signature. Let's use the one from shared.common directly.
+    status = {}
+    for service_name in EXPECTED_SERVICES:
+        available = service_name in services and services.get(service_name) is not None
+        status[service_name] = available
+
+    # Display results
     for name, available in status.items():
         if available:
             st.success(f"✅ `{name}`")
