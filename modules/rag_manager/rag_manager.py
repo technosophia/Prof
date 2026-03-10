@@ -140,6 +140,18 @@ class RAGManager:
         self.discover_engines()
         self.instantiate_engines()
 
+        embedding_config = self._config.get("embedding", {})
+        if embedding_config:
+            model_name = embedding_config.get("model_name")
+            dimension = embedding_config.get("vector_dimension")
+            if model_name and dimension:
+                for engine in self.engines.values():
+                    if hasattr(engine, 'model_name'):
+                        engine.model_name = model_name
+                    if hasattr(engine, 'dimension'):
+                        engine.dimension = dimension
+                log("info", f"Applied global embedding model to all engines: {model_name}")
+
         self._user_manager.register_before_delete_callback(self._handle_user_deletion)
 
         if not self.has_any_documents():
@@ -354,6 +366,7 @@ class RAGManager:
                 "from rag_manager config. Check config.json for syntax errors.")
             return
 
+        global_embedding_config = self._config.get("embedding", {})
         for engine_id, ecfg in engines_cfg.items():
             if not isinstance(ecfg, dict):
                 continue
@@ -377,7 +390,15 @@ class RAGManager:
                 params = list(sig.parameters.keys())
                 kwargs = {}
                 if "config" in params:
-                    kwargs["config"] = ecfg
+                    # Merge engine config with global embedding config
+                    merged_config = ecfg.copy()
+                    # Only add global embedding settings if not already in engine config
+                    if "model_name" not in merged_config and "model_name" in global_embedding_config:
+                        merged_config["model_name"] = global_embedding_config["model_name"]
+                    if "vector_dimension" not in merged_config and "vector_dimension" in global_embedding_config:
+                        merged_config["dimension"] = global_embedding_config["vector_dimension"]
+
+                    kwargs["config"] = merged_config
                 if "engine_id" in params:
                     kwargs["engine_id"] = engine_id
                 instance = cls(**kwargs)
