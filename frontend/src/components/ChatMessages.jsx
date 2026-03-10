@@ -1,6 +1,13 @@
+import { useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export default function ChatMessages({ messages, streaming }) {
+  const bottomRef = useRef(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages])
+
   return (
     <ScrollArea className="h-[calc(100vh-110px)] p-4">
       <div className="space-y-4">
@@ -12,6 +19,7 @@ export default function ChatMessages({ messages, streaming }) {
             </div>
           </div>
         ))}
+        <div ref={bottomRef} />
       </div>
     </ScrollArea>
   )

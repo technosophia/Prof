@@ -838,6 +838,11 @@ class UserManager:
             ).first()
 
             if not user:
+                user = session.query(UserTable).filter(
+                    func.lower(UserTable.email) == user_id.lower()
+                ).first()
+
+            if not user:
                 self.log_user_action(
                     user_id=None,
                     action=UserAction.LOGIN_FAILED.value,
