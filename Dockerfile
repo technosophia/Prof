@@ -65,7 +65,6 @@ COPY . .
 
 # Expose Streamlit port
 EXPOSE 8501
-EXPOSE 8502  # Additional port for test server
 
 # Health check
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
