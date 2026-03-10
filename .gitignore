@@ -12,3 +12,6 @@ tests/logs
 tests/test.db
 tests/data
 local_*
+node_modules
+package-lock.json
+frontend_dist
