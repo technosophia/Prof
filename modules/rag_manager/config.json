@@ -219,7 +219,7 @@
 
       "hybrid_no_hyde": {
         "type": "hybrid",
-        "enabled": true,
+        "enabled": false,
         "description": "Hybrid: no HyDE (baseline for HyDE comparison)",
         "index_path": "data/hybrid_indexes/hybrid_no_hyde",
         "similarity_threshold": 0.25,
@@ -278,7 +278,7 @@
 
       "hybrid_bm25_blend": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid: full BM25 blend (alpha=0.6) instead of tiebreaker",
         "index_path": "data/hybrid_indexes/hybrid_bm25_blend",
         "similarity_threshold": 0.25,
