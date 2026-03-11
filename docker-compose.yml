@@ -29,7 +29,7 @@ services:
         PYTHON_VERSION: 3.11.9
     image: streamlit-coach:python3.11.9
     container_name: coach_streamlit
-    restart: always
+    restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
