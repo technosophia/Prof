@@ -235,7 +235,7 @@ def _demo_on_user_message(conversation_id: str, messages: list) -> None:
     """
     last = messages[-1] if messages else None
     content = getattr(last, "content", "") if last else ""
-    log("info", f"[demo] user message in {conversation_id}: {content[:60]}")
+    log("debug", f"[demo] user message in {conversation_id}: {content[:60]}")
 
 
 def demo_on_module_activated(services) -> None:

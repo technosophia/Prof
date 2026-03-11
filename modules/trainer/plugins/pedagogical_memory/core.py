@@ -140,7 +140,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 )
                 log("info", "Pedagogical memory tables created/verified")
 
-            register_llm_context_callback(self.get_memory_context)
+            register_llm_context_callback(self.get_pedagogical_memory_context)
             return True
         except Exception as e:
             log("error", f"Failed to initialize pedagogical_memory plugin: {e}", stacktrace=True)
@@ -618,7 +618,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             log("error", f"Failed to get active facts: {e}", stacktrace=True)
             return []
 
-    def get_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
+    def get_pedagogical_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
         if not self._is_active:
             return None
 
