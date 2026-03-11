@@ -122,7 +122,7 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             # Legacy fallback: if config is still None, try to load it directly
             if self.config is None:
                 try:
-                    from st_shared.cached import get_config
+                    from core.config import get_config
                     self.config = get_config()
                     log("debug", "PedagogicalMemoryPlugin: loaded config from st_shared.cached fallback")
                 except ImportError:
