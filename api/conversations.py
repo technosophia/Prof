@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -170,56 +168,36 @@ async def message_context(
     if message_index < 0 or message_index >= len(conv.messages):
         return {"found": False, "debug": "message index out of range"}
 
+    assistant_turn = -1
+    for idx, message in enumerate(conv.messages):
+        if idx > message_index:
+            break
+        if message.role == "assistant":
+            assistant_turn += 1
+
     try:
         from modules.llm_monitor.llm_monitor_factory import get_llm_monitor
         from core.config import get_config
         from core.database import get_db_manager
 
         llm_monitor = get_llm_monitor(config=get_config(), db_manager=get_db_manager())
-    except Exception:
-        return {"found": False, "debug": "llm_monitor unavailable"}
+    except Exception as e:
+        return {"found": False, "debug": f"llm_monitor unavailable :{e}"}
 
-    calls = llm_monitor.get_llm_calls(conversation_id=conversation_id, limit=200)
-    if not calls:
-        return {"found": False, "debug": "no llm call for conversation"}
-
-    target_ts = None
-    if timestamp:
-        try:
-            target_ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        except ValueError:
-            target_ts = None
-
-    selected_call = None
-    if target_ts is not None:
-        closest_delta = None
-        for call in calls:
-            call_timestamp = call.get("timestamp")
-            if not call_timestamp:
-                continue
-            try:
-                call_ts = datetime.fromisoformat(call_timestamp.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            delta = abs((call_ts - target_ts).total_seconds())
-            if closest_delta is None or delta < closest_delta:
-                closest_delta = delta
-                selected_call = call
+    try:
+        selected_call = llm_monitor.get_llm_call_for_message(
+            conversation_id=conversation_id,
+            message_index=assistant_turn,
+            message_timestamp=timestamp,
+        )
+    except Exception as e:
+        return {"found": False, "debug": f"llm_monitor query failed for conversation {conversation_id} message {message_index}: {e}"}
 
     if selected_call is None:
-        assistant_turn = -1
-        for idx, message in enumerate(conv.messages):
-            if idx > message_index:
-                break
-            if message.role == "assistant":
-                assistant_turn += 1
-
-        assistant_calls = [call for call in reversed(calls)]
-        if 0 <= assistant_turn < len(assistant_calls):
-            selected_call = assistant_calls[assistant_turn]
-
-    if selected_call is None:
-        return {"found": False, "debug": "no matching llm call"}
+        return {
+            "found": False,
+            "debug": f"no matching llm call for conversation {conversation_id} message {message_index}",
+        }
 
     return {
         "found": True,

@@ -744,6 +744,46 @@ class LLMMonitor:
             log("error", f"Failed to get LLM calls: {e}")
             return []
 
+
+
+    def get_llm_call_for_message(self, conversation_id: str, message_index: int,
+                                 message_timestamp: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Resolve the most likely LLM call for one assistant message in a conversation."""
+        calls = self.get_llm_calls(conversation_id=conversation_id, limit=200)
+        if not calls:
+            return None
+
+        target_ts = None
+        if message_timestamp:
+            try:
+                target_ts = datetime.fromisoformat(message_timestamp.replace("Z", "+00:00"))
+            except Exception:
+                target_ts = None
+
+        if target_ts is not None:
+            selected_call = None
+            closest_delta = None
+            for call in calls:
+                call_timestamp = call.get("timestamp")
+                if not call_timestamp:
+                    continue
+                try:
+                    call_ts = datetime.fromisoformat(call_timestamp.replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                delta = abs((call_ts - target_ts).total_seconds())
+                if closest_delta is None or delta < closest_delta:
+                    closest_delta = delta
+                    selected_call = call
+            if selected_call is not None:
+                return selected_call
+
+        assistant_calls = list(reversed(calls))
+        if 0 <= message_index < len(assistant_calls):
+            return assistant_calls[message_index]
+
+        return None
+
     def get_total_cost_by_user(self, user_id: str) -> float:
         """Get total cost for a user."""
         try:
