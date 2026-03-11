@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -89,4 +91,85 @@ async def rename_conversation(
         "created_at": updated.created_at.isoformat(),
         "updated_at": updated.updated_at.isoformat(),
         "message_count": details.get("message_count", 0) if details else 0,
+    }
+
+
+@router.get("/{conversation_id}/messages/{message_index}/context")
+async def message_context(
+    conversation_id: str,
+    message_index: int,
+    timestamp: str | None = None,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") not in {"admin", "master"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    conv = get_conversation_manager().get_conversation(conversation_id, include_messages=True)
+    if not conv or conv.user_id != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if message_index < 0 or message_index >= len(conv.messages):
+        return {"found": False}
+
+    try:
+        from modules.llm_monitor.llm_monitor_factory import get_llm_monitor
+        from core.config import get_config
+        from core.database import get_db_manager
+
+        llm_monitor = get_llm_monitor(config=get_config(), db_manager=get_db_manager())
+    except Exception:
+        return {"found": False}
+
+    calls = llm_monitor.get_llm_calls(conversation_id=conversation_id, limit=200)
+    if not calls:
+        return {"found": False}
+
+    target_ts = None
+    if timestamp:
+        try:
+            target_ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            target_ts = None
+
+    selected_call = None
+    if target_ts is not None:
+        closest_delta = None
+        for call in calls:
+            call_timestamp = call.get("timestamp")
+            if not call_timestamp:
+                continue
+            try:
+                call_ts = datetime.fromisoformat(call_timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            delta = abs((call_ts - target_ts).total_seconds())
+            if closest_delta is None or delta < closest_delta:
+                closest_delta = delta
+                selected_call = call
+
+    if selected_call is None:
+        assistant_turn = -1
+        for idx, message in enumerate(conv.messages):
+            if idx > message_index:
+                break
+            if message.role == "assistant":
+                assistant_turn += 1
+        assistant_calls = [call for call in reversed(calls)]
+        if 0 <= assistant_turn < len(assistant_calls):
+            selected_call = assistant_calls[assistant_turn]
+
+    if selected_call is None:
+        return {"found": False}
+
+    return {
+        "found": True,
+        "input_tokens": selected_call.get("input_tokens"),
+        "output_tokens": selected_call.get("output_tokens"),
+        "total_tokens": selected_call.get("total_tokens"),
+        "total_cost": selected_call.get("total_cost"),
+        "model": selected_call.get("model"),
+        "llm_type": selected_call.get("llm_type"),
+        "no_thinking": selected_call.get("no_thinking"),
+        "messages": selected_call.get("messages") or [],
+        "context_messages": selected_call.get("context_messages") or [],
     }

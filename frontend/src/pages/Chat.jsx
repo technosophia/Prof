@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Menu } from 'lucide-react'
-import { auth, conversations, regenerateLastResponse, streamChat } from '@/lib/api'
+import { auth, conversations, masquerade, regenerateLastResponse, streamChat } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import ConversationList from '@/components/ConversationList'
 import ChatMessages from '@/components/ChatMessages'
@@ -14,6 +14,9 @@ export default function Chat() {
   const [messages, setMessages] = useState([])
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [masqueradeTargets, setMasqueradeTargets] = useState([])
+  const [isMasquerading, setIsMasquerading] = useState(false)
+  const [masqueraderId, setMasqueraderId] = useState(null)
   const navigate = useNavigate()
 
   async function loadConversations(selectFirst = true) {
@@ -32,8 +35,18 @@ export default function Chat() {
   useEffect(() => {
     auth
       .me()
-      .then(setUser)
-      .then(() => loadConversations())
+      .then(async (me) => {
+        setUser(me)
+        setIsMasquerading(!!me.masquerader_id)
+        setMasqueraderId(me.masquerader_id ?? null)
+
+        if (me.role !== 'normal' || me.masquerader_id) {
+          const targets = await masquerade.targets()
+          setMasqueradeTargets(targets)
+        }
+
+        await loadConversations()
+      })
       .catch(() => {
         localStorage.removeItem('token')
         navigate('/login')
@@ -78,6 +91,19 @@ export default function Chat() {
   function onLogout() {
     localStorage.removeItem('token')
     navigate('/login')
+  }
+
+  async function handleMasquerade(targetId) {
+    const data = await masquerade.as(targetId)
+    localStorage.setItem('token', data.access_token)
+    window.location.reload()
+  }
+
+  async function handleUnmasquerade() {
+    if (!masqueraderId) return
+    const data = await masquerade.as(masqueraderId)
+    localStorage.setItem('token', data.access_token)
+    window.location.reload()
   }
 
   function onSend(text) {
@@ -142,7 +168,6 @@ export default function Chat() {
     )
   }
 
-  // Current conversation title for the header
   const currentTitle = list.find((c) => c.id === currentId)?.title ?? ''
 
   return (
@@ -159,10 +184,8 @@ export default function Chat() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Main chat area */}
       <section className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-3 text-sm text-slate-300 shrink-0">
-          {/* Hamburger — mobile only */}
           <button
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 md:hidden shrink-0"
             onClick={() => setSidebarOpen(true)}
@@ -171,10 +194,38 @@ export default function Chat() {
             <Menu size={20} />
           </button>
 
-          {/* Conversation title — fills available space, truncated */}
           <span className="flex-1 truncate font-medium text-slate-200">{currentTitle}</span>
 
-          {/* Right side: user info + regenerate */}
+          {((user?.role !== 'normal') || isMasquerading) && masqueradeTargets.length > 0 && (
+            <select
+              className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
+              value={isMasquerading ? user?.id ?? '' : ''}
+              onChange={(e) => e.target.value && handleMasquerade(e.target.value)}
+            >
+              <option value="">View as…</option>
+              {masqueradeTargets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.name} ({target.role})
+                </option>
+              ))}
+            </select>
+          )}
+
+          {isMasquerading && (
+            <button
+              onClick={handleUnmasquerade}
+              className="text-xs px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-white shrink-0"
+            >
+              ↩ Exit masquerade
+            </button>
+          )}
+
+          {isMasquerading && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-800 text-amber-200 shrink-0">
+              Viewing as {user?.name}
+            </span>
+          )}
+
           <span className="hidden sm:block shrink-0 text-slate-400">
             {user ? `${user.name} (${user.role})` : ''}
           </span>
@@ -188,7 +239,12 @@ export default function Chat() {
           </Button>
         </header>
 
-        <ChatMessages messages={messages} streaming={streaming} />
+        <ChatMessages
+          messages={messages}
+          streaming={streaming}
+          canInspect={user?.role === 'admin' || user?.role === 'master'}
+          conversationId={currentId}
+        />
         <ChatInput onSend={onSend} disabled={streaming || !currentId} />
       </section>
     </div>

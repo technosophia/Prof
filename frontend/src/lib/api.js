@@ -38,6 +38,19 @@ export const conversations = {
   messages: (id) => get(`/api/conversations/${id}/messages`),
 }
 
+
+export const masquerade = {
+  targets: () => get('/api/auth/masquerade-targets'),
+  as: (targetUserId) => post('/api/auth/masquerade', { target_user_id: targetUserId }),
+}
+
+export const messageContext = {
+  get: (conversationId, messageIndex, timestamp) =>
+    get(
+      `/api/conversations/${conversationId}/messages/${messageIndex}/context?timestamp=${encodeURIComponent(timestamp ?? '')}`,
+    ),
+}
+
 function streamSsePost(path, body, onChunk, onDone, onError) {
   const token = localStorage.getItem('token')
   fetch(path, {
