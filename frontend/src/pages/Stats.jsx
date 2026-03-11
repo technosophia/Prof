@@ -3,6 +3,27 @@ import { useNavigate } from 'react-router-dom'
 
 import { auth, conversations } from '@/lib/api'
 
+function formatElapsed(lastMessageAt) {
+  if (!lastMessageAt) return '—'
+
+  const then = new Date(lastMessageAt)
+  if (Number.isNaN(then.getTime())) return lastMessageAt
+
+  let deltaSeconds = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000))
+  const days = Math.floor(deltaSeconds / 86400)
+  deltaSeconds -= days * 86400
+  const hours = Math.floor(deltaSeconds / 3600)
+  deltaSeconds -= hours * 3600
+  const minutes = Math.floor(deltaSeconds / 60)
+
+  const parts = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0 || days > 0) parts.push(`${hours}h`)
+  parts.push(`${minutes}m`)
+
+  return `${parts.join(' ')} ago`
+}
+
 export default function Stats() {
   const [user, setUser] = useState(null)
   const [stats, setStats] = useState([])
@@ -64,7 +85,9 @@ export default function Stats() {
                   <td className="px-3 py-2 text-slate-400">{row.role}</td>
                   <td className="px-3 py-2 text-right">{row.conversation_count}</td>
                   <td className="px-3 py-2 text-right">{row.total_messages}</td>
-                  <td className="px-3 py-2 text-slate-400">{row.last_message_at || '—'}</td>
+                  <td className="px-3 py-2 text-slate-400" title={row.last_message_at || ''}>
+                    {formatElapsed(row.last_message_at)}
+                  </td>
                 </tr>
               ))}
               {stats.length === 0 && (
