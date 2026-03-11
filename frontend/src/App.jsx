@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Login from './pages/Login'
 import Chat from './pages/Chat'
+import Stats from './pages/Stats'
 
 const authed = () => Boolean(localStorage.getItem('token'))
 
@@ -18,6 +19,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Chat />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/stats"
+        element={
+          <ProtectedRoute>
+            <Stats />
           </ProtectedRoute>
         }
       />

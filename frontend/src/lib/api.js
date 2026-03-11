@@ -36,6 +36,7 @@ export const conversations = {
   delete: (id) => del(`/api/conversations/${id}`),
   rename: (id, title) => patch(`/api/conversations/${id}`, { title }),
   messages: (id) => get(`/api/conversations/${id}/messages`),
+  usersStats: () => get('/api/conversations/stats/users'),
 }
 
 

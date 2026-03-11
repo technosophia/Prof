@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Menu } from 'lucide-react'
 import { auth, conversations, masquerade, regenerateLastResponse, streamChat } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ export default function Chat() {
   const [isMasquerading, setIsMasquerading] = useState(false)
   const [masqueraderId, setMasqueraderId] = useState(null)
   const navigate = useNavigate()
+  const isPowerUser = user?.role === 'admin' || user?.role === 'master' || !!user?.masquerader_id
 
   async function loadConversations(selectFirst = true) {
     const items = await conversations.list()
@@ -196,7 +197,7 @@ export default function Chat() {
 
           <span className="flex-1 truncate font-medium text-slate-200">{currentTitle}</span>
 
-          {((user?.role !== 'normal') || isMasquerading) && masqueradeTargets.length > 0 && (
+          {isPowerUser && masqueradeTargets.length > 0 && (
             <select
               className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
               value={isMasquerading ? user?.id ?? '' : ''}
@@ -222,13 +223,24 @@ export default function Chat() {
 
           {isMasquerading && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-800 text-amber-200 shrink-0">
-              Viewing as {user?.name}
+              Viewing as {user?.name} ({user?.role})
             </span>
           )}
 
-          <span className="hidden sm:block shrink-0 text-slate-400">
-            {user ? `${user.name} (${user.role})` : ''}
-          </span>
+          {!isMasquerading && (
+            <span className="hidden sm:block shrink-0 text-slate-400">
+              {user ? `${user.name} (${user.role})` : ''}
+            </span>
+          )}
+
+          {isPowerUser && (
+            <Link
+              to="/stats"
+              className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white shrink-0"
+            >
+              Stats
+            </Link>
+          )}
           <Button
             className="bg-slate-700 hover:bg-slate-600 shrink-0 text-xs px-2 py-1.5"
             onClick={onRegenerate}
@@ -242,7 +254,7 @@ export default function Chat() {
         <ChatMessages
           messages={messages}
           streaming={streaming}
-          canInspect={user?.role === 'admin' || user?.role === 'master'}
+          canInspect={isPowerUser}
           conversationId={currentId}
         />
         <ChatInput onSend={onSend} disabled={streaming || !currentId} />
