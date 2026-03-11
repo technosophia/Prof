@@ -8,14 +8,37 @@ function getHeaders() {
   }
 }
 
+function formatHttpError(detail, method, path, status) {
+  const cleanDetail = (detail || '').trim() || 'no response body'
+  return `[API ${method} ${path}] status=${status} detail=${cleanDetail}`
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, { ...options, headers: { ...getHeaders(), ...(options.headers || {}) } })
-  if (!res.ok) {
-    const detail = await res.text()
-    throw new Error(detail || `Request failed: ${res.status}`)
+  const method = options.method || 'GET'
+  let res
+  try {
+    res = await fetch(`${BASE}${path}`, { ...options, headers: { ...getHeaders(), ...(options.headers || {}) } })
+  } catch (error) {
+    throw new Error(`[API ${method} ${path}] network error: ${error?.message || String(error)}`)
   }
+
+  if (!res.ok) {
+    let detail = ''
+    try {
+      detail = await res.text()
+    } catch (error) {
+      detail = `unable to read error body: ${error?.message || String(error)}`
+    }
+    throw new Error(formatHttpError(detail, method, path, res.status))
+  }
+
   if (res.status === 204) return null
-  return res.json()
+
+  try {
+    return await res.json()
+  } catch (error) {
+    throw new Error(`[API ${method} ${path}] invalid JSON response: ${error?.message || String(error)}`)
+  }
 }
 
 const post = (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) })
@@ -36,6 +59,19 @@ export const conversations = {
   delete: (id) => del(`/api/conversations/${id}`),
   rename: (id, title) => patch(`/api/conversations/${id}`, { title }),
   messages: (id) => get(`/api/conversations/${id}/messages`),
+  usersStats: () => get('/api/conversations/stats/users'),
+}
+
+export const masquerade = {
+  targets: () => get('/api/auth/masquerade-targets'),
+  as: (targetUserId) => post('/api/auth/masquerade', { target_user_id: targetUserId }),
+}
+
+export const messageContext = {
+  get: (conversationId, messageIndex, timestamp) =>
+    get(
+      `/api/conversations/${conversationId}/messages/${messageIndex}/context?timestamp=${encodeURIComponent(timestamp ?? '')}`,
+    ),
 }
 
 function streamSsePost(path, body, onChunk, onDone, onError) {
@@ -46,7 +82,10 @@ function streamSsePost(path, body, onChunk, onDone, onError) {
     body: JSON.stringify(body),
   })
     .then((res) => {
-      if (!res.ok || !res.body) throw new Error(`Stream failed: ${res.status}`)
+      if (!res.ok || !res.body) {
+        onError(`[SSE POST ${path}] request failed with status=${res.status}`)
+        return
+      }
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -67,19 +106,19 @@ function streamSsePost(path, body, onChunk, onDone, onError) {
                   const data = JSON.parse(line.slice(6))
                   if (data.type === 'chunk') onChunk(data.content)
                   if (data.type === 'done') onDone()
-                  if (data.type === 'error') onError(data.content)
+                  if (data.type === 'error') onError(`[SSE POST ${path}] server error: ${data.content}`)
                 }
               })
             })
 
             pump()
           })
-          .catch((err) => onError(err?.message || 'stream read error'))
+          .catch((err) => onError(`[SSE POST ${path}] stream read error: ${err?.message || 'unknown'}`))
       }
 
       pump()
     })
-    .catch((err) => onError(err?.message || 'stream error'))
+    .catch((err) => onError(`[SSE POST ${path}] fetch failed: ${err?.message || 'unknown'}`))
 }
 
 export function streamChat(conversationId, message, onChunk, onDone, onError) {

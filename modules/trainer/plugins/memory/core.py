@@ -26,6 +26,7 @@ from modules.trainer.plugin_base_core import TrainerPluginCore
 
 from core.logging import log
 from core.database import Base
+from core.thread import run_async_safely
 
 
 class StudentMemory(Base):
@@ -494,6 +495,7 @@ class MemoryPluginCore(TrainerPluginCore):
             return {"🧠 Pedagogical Memory": memory}
         return {}
 
+
     def _action_trigger_analysis(self, context, **params) -> Dict:
         """
         Called by the driver action 'trigger_memory_analysis'.
@@ -502,7 +504,7 @@ class MemoryPluginCore(TrainerPluginCore):
         """
         from shared.common import record_plugin_event
 
-        success = asyncio.run(
+        success = run_async_safely(
             self.refresh_memory(context.trainer_id, context.student_id)
         )
         memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)

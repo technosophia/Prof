@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from statistics import mean
 from typing import Tuple
 
 from core.logging import log
+from core.thread import run_async_safely
 from shared.common import get_llm_manager
 
 from .base import EvalCheck, EvalResult, MemEvaluator
@@ -84,15 +84,7 @@ class LLMJudgeEvaluator(MemEvaluator):
 
     @staticmethod
     def _run_internal_response(manager, llm_id: str, messages: list[dict]) -> str:
-        coro = manager.internal_response(llm_id, messages)
-        try:
-            return asyncio.run(coro)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(coro)
-            finally:
-                loop.close()
+        return run_async_safely(manager.internal_response(llm_id, messages))
 
     def _parse_response(self, response: str) -> Tuple[bool, str]:
         clean = response.strip()

@@ -581,6 +581,7 @@ class LLMManager:
         stream_callback: Optional[Callable] = None,
         conversation_history: Optional[List[Dict]] = None,
         user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> str:
         """Generate a response for a user-facing conversation turn.
 
@@ -604,7 +605,13 @@ class LLMManager:
         if user_id and (self.llm_callbacks or self.context_callbacks):
             messages = self._add_llm_context(user_id, messages)
 
-        return await self.internal_response(self.current_llm, messages, stream_callback, user_id=user_id)
+        return await self.internal_response(
+            self.current_llm,
+            messages,
+            stream_callback,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
 
     async def internal_response(
         self,
@@ -613,6 +620,7 @@ class LLMManager:
         stream_callback: Optional[Callable] = None,
         response_format: Optional[str] = None,
         user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> str:
         """Generate a response from the selected LLM.
 
@@ -626,6 +634,7 @@ class LLMManager:
             response_format: Optional output format hint forwarded verbatim to
                 the engine. Pass ``"json"`` to request structured JSON output.
             user_id: Optional user identifier (forwarded to monitor callbacks).
+            conversation_id: Optional conversation identifier forwarded to monitor callbacks.
 
         Returns:
             The cleaned response string.  Use monitor callbacks to access the
@@ -715,6 +724,7 @@ class LLMManager:
                         "response_format": response_format,
                         "no_thinking": no_thinking,
                         "user_id": user_id,
+                        "conversation_id": conversation_id,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "engine_type": engine.engine_type,
                         "success": True,

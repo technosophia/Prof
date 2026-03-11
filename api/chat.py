@@ -82,7 +82,7 @@ async def _stream_llm_response(
         asyncio.set_event_loop(new_loop)
         try:
             return new_loop.run_until_complete(
-                llm_manager.generate(message, on_chunk, history, user_id)
+                llm_manager.generate(message, on_chunk, history, user_id, conversation_id=conversation_id)
             )
         finally:
             new_loop.close()

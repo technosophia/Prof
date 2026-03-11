@@ -292,3 +292,8 @@ def _load_config() -> Config:
 
         log("warning", f"Using fallback configuration due to error: {e}")
         return fallback_config
+
+
+def get_config() -> Config:
+    """Public config accessor (proxy for cached loader)."""
+    return _load_config()

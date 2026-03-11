@@ -28,6 +28,7 @@ from modules.trainer.plugin_base_core import TrainerPluginCore
 
 from core.logging import log
 from core.database import Base
+from core.thread import run_async_safely
 
 # No longer hardcoding embedding dimension
 
@@ -694,10 +695,11 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             return {"🧠 Pedagogical Facts": fact_summary}
         return {}
 
+
     def _action_trigger_analysis(self, context, **params) -> Dict:
         from shared.common import record_plugin_event
 
-        result = asyncio.run(
+        result = run_async_safely(
             self.refresh_memory(context.trainer_id, context.student_id)
         )
 

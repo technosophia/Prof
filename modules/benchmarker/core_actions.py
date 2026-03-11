@@ -1,9 +1,9 @@
 """Built-in scenario actions for benchmarker."""
 
-import asyncio
 from typing import Dict, List
 
 from core.logging import log, set_log_module_level
+from core.thread import run_async_safely
 from shared.common import (
     Message,
     get_conversation_manager,
@@ -11,18 +11,6 @@ from shared.common import (
     llm_conversation_generate,
     set_current_llm,
 )
-
-
-def _run_async(coro):
-    """Run coroutine in sync context."""
-    try:
-        return asyncio.run(coro)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
 
 
 def action_create_conversation(context, **params) -> Dict:
@@ -72,7 +60,7 @@ def action_user_send_message(context, **params) -> Dict:
     llm_manager = get_llm_manager()
     llm_manager.register_monitor_callback(_capture_context)
     try:
-        llm_response = _run_async(
+        llm_response = run_async_safely(
             llm_conversation_generate(
                 content,
                 conversation_history=history,

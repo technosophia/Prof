@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.deps import get_current_user
-from shared.common import get_conversation_manager
+from shared.common import get_conversation_manager, get_user_manager
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -13,6 +13,65 @@ class ConversationCreateRequest(BaseModel):
 
 class ConversationRenameRequest(BaseModel):
     title: str
+
+
+def _get_effective_power_user(current_user: dict):
+    user_manager = get_user_manager()
+    if current_user.get("role") in {"admin", "master"}:
+        return current_user
+
+    masquerader_id = current_user.get("masquerader_id")
+    if not masquerader_id:
+        return None
+
+    masquerader = user_manager.get_user(masquerader_id)
+    if masquerader and masquerader.get("role") in {"admin", "master"}:
+        return masquerader
+    return None
+
+
+@router.get("/stats/users")
+async def users_stats(current_user: dict = Depends(get_current_user)):
+    power_user = _get_effective_power_user(current_user)
+    if not power_user:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    user_manager = get_user_manager()
+    conv_manager = get_conversation_manager()
+
+    if power_user.get("role") == "admin":
+        users = list(user_manager.get_all_users_dict().values())
+    else:
+        users = [power_user]
+        users.extend(
+            user
+            for user in user_manager.get_all_users_dict().values()
+            if user.get("parent_id") == power_user["id"]
+        )
+
+    stats = []
+    for user in users:
+        convs = conv_manager.get_user_conversations(user["id"], include_inactive=True)
+        total_messages = sum(conv.get("message_count", 0) for conv in convs)
+        last_message_at = None
+        for conv in convs:
+            ts = conv.get("last_message_at")
+            if ts and (not last_message_at or ts > last_message_at):
+                last_message_at = ts
+
+        stats.append(
+            {
+                "user_id": user["id"],
+                "name": user.get("name") or user["id"],
+                "role": user.get("role", "normal"),
+                "conversation_count": len(convs),
+                "total_messages": total_messages,
+                "last_message_at": last_message_at,
+            }
+        )
+
+    stats.sort(key=lambda item: item["name"].lower())
+    return stats
 
 
 @router.get("")
@@ -89,4 +148,66 @@ async def rename_conversation(
         "created_at": updated.created_at.isoformat(),
         "updated_at": updated.updated_at.isoformat(),
         "message_count": details.get("message_count", 0) if details else 0,
+    }
+
+
+@router.get("/{conversation_id}/messages/{message_index}/context")
+async def message_context(
+    conversation_id: str,
+    message_index: int,
+    timestamp: str | None = None,
+    current_user: dict = Depends(get_current_user),
+):
+    if not _get_effective_power_user(current_user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    conv = get_conversation_manager().get_conversation(conversation_id, include_messages=True)
+    if not conv or conv.user_id != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if message_index < 0 or message_index >= len(conv.messages):
+        return {"found": False, "debug": "message index out of range"}
+
+    assistant_turn = -1
+    for idx, message in enumerate(conv.messages):
+        if idx > message_index:
+            break
+        if message.role == "assistant":
+            assistant_turn += 1
+
+    try:
+        from modules.llm_monitor.llm_monitor_factory import get_llm_monitor
+        from core.config import get_config
+        from core.database import get_db_manager
+
+        llm_monitor = get_llm_monitor(config=get_config(), db_manager=get_db_manager())
+    except Exception as e:
+        return {"found": False, "debug": f"llm_monitor unavailable :{e}"}
+
+    try:
+        selected_call = llm_monitor.get_llm_call_for_message(
+            conversation_id=conversation_id,
+            message_index=assistant_turn,
+            message_timestamp=timestamp,
+        )
+    except Exception as e:
+        return {"found": False, "debug": f"llm_monitor query failed for conversation {conversation_id} message {message_index}: {e}"}
+
+    if selected_call is None:
+        return {
+            "found": False,
+            "debug": f"no matching llm call for conversation {conversation_id} message {message_index}",
+        }
+
+    return {
+        "found": True,
+        "input_tokens": selected_call.get("input_tokens"),
+        "output_tokens": selected_call.get("output_tokens"),
+        "total_tokens": selected_call.get("total_tokens"),
+        "total_cost": selected_call.get("total_cost"),
+        "model": selected_call.get("model"),
+        "llm_type": selected_call.get("llm_type"),
+        "no_thinking": selected_call.get("no_thinking"),
+        "messages": selected_call.get("messages") or [],
+        "context_messages": selected_call.get("context_messages") or [],
     }
