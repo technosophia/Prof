@@ -2,6 +2,8 @@
 Some times there were threads concurrency problems due to get_running_loop
 
 # Details
+cf core/thread.py for implementation
+
 commit 22f7201fe25be02b4d6846d1d34c10a8ba348f2c
 Author: johannoriel <johannoriel6@gmail.com>
 :
