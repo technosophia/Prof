@@ -20,26 +20,133 @@ def register_trainer_driver_bindings(driver, plugin_manager, trainer_manager, se
     """Register trainer options/actions/assertions in shared driver."""
 
     def _activate_memory_plugin(name: str, trainer_id: str) -> None:
+        """Activate a memory plugin and synchronize with database."""
+        log("debug", f"[MEMORY_ACTIVATION] Attempting to activate plugin '{name}' for trainer '{trainer_id}'")
+
+        if trainer_id is None:
+            error_msg = f"trainer: trainer_id not set in driver context — cannot activate plugin '{name}'"
+            log("error", error_msg)
+            raise DriverContextError(error_msg)
+
         plugin = _get_plugin(plugin_manager, trainer_manager, name)
         if not plugin:
-            log("warning", f"trainer: plugin '{name}' not found")
-            return
-        if trainer_id is None:
-            log("warning", f"trainer: trainer_id not set in driver context — cannot activate plugin '{name}'")
-            return
+            error_msg = f"trainer: plugin '{name}' not found"
+            log("error", error_msg)
+            raise DriverOptionError(error_msg)
+
+        # Check plugin supports activation
+        if not hasattr(plugin, '_mark_active') or not hasattr(plugin, 'on_activate'):
+            error_msg = f"trainer: plugin '{name}' missing required activation methods"
+            log("error", error_msg)
+            raise DriverOptionError(error_msg)
+
+        # 1. Mark active in memory
         plugin._mark_active()
-        plugin.on_activate(trainer_id)
+        log("debug", f"[MEMORY_ACTIVATION] Plugin '{name}' marked active in memory")
+
+        # 2. Verify trainer_manager is available
+        if trainer_manager is None:
+            error_msg = f"trainer: trainer_manager not available for plugin '{name}' activation"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # 3. Sync with database
+        db_success = trainer_manager.set_plugin_active(trainer_id, plugin.id, True)
+        if not db_success:
+            error_msg = f"trainer: failed to set plugin '{name}' active in database for trainer '{trainer_id}'"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+        log("debug", f"[MEMORY_ACTIVATION] Plugin '{name}' synced to database as active")
+
+        # 4. Verify database state immediately
+        db_active = trainer_manager.is_plugin_active(trainer_id, plugin.id)
+        if not db_active:
+            error_msg = f"trainer: plugin '{name}' marked active but database check failed"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+        log("debug", f"[MEMORY_ACTIVATION] Database verification passed for '{name}'")
+
+        # 5. Call plugin's on_activate
+        try:
+            plugin.on_activate(trainer_id)
+            log("debug", f"[MEMORY_ACTIVATION] Plugin '{name}'.on_activate() completed successfully")
+        except Exception as e:
+            error_msg = f"trainer: plugin '{name}'.on_activate() failed: {e}"
+            log("error", error_msg, stacktrace=True)
+            raise DriverOptionError(error_msg) from e
+
+        log("info", f"[MEMORY_ACTIVATION] SUCCESS: Plugin '{name}' fully activated for trainer '{trainer_id}'")
 
     def _deactivate_memory_plugin(name: str, trainer_id: str) -> None:
+        """Deactivate a memory plugin and synchronize with database."""
+        log("debug", f"[MEMORY_DEACTIVATION] Attempting to deactivate plugin '{name}' for trainer '{trainer_id}'")
+
+        if trainer_id is None:
+            error_msg = f"trainer: trainer_id not set in driver context — cannot deactivate plugin '{name}'"
+            log("error", error_msg)
+            raise DriverContextError(error_msg)
+
         plugin = _get_plugin(plugin_manager, trainer_manager, name)
         if not plugin:
-            log("warning", f"trainer: plugin '{name}' not found")
-            return
+            error_msg = f"trainer: plugin '{name}' not found"
+            log("error", error_msg)
+            raise DriverOptionError(error_msg)
+
+        # 1. Call plugin's on_deactivate first
+        try:
+            plugin.on_deactivate(trainer_id)
+            log("debug", f"[MEMORY_DEACTIVATION] Plugin '{name}'.on_deactivate() completed")
+        except Exception as e:
+            log("warning", f"trainer: plugin '{name}'.on_deactivate() failed: {e}", stacktrace=True)
+
+        # 2. Sync with database
+        db_success = trainer_manager.set_plugin_active(trainer_id, plugin.id, False)
+        if not db_success:
+            error_msg = f"trainer: failed to set plugin '{name}' inactive in database for trainer '{trainer_id}'"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+        log("debug", f"[MEMORY_DEACTIVATION] Plugin '{name}' synced to database as inactive")
+
+        # 3. Verify database state
+        db_active = trainer_manager.is_plugin_active(trainer_id, plugin.id)
+        if db_active:
+            error_msg = f"trainer: plugin '{name}' still shows active in database after deactivation"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+        log("debug", f"[MEMORY_DEACTIVATION] Database verification passed for '{name}'")
+
+        # 4. Mark inactive in memory
         plugin._mark_inactive()
-        if trainer_id is None:
-            log("warning", f"trainer: trainer_id not set in driver context — cannot fully deactivate plugin '{name}'")
-            return
-        plugin.on_deactivate(trainer_id)
+        log("debug", f"[MEMORY_DEACTIVATION] Plugin '{name}' marked inactive in memory")
+
+        log("info", f"[MEMORY_DEACTIVATION] SUCCESS: Plugin '{name}' fully deactivated for trainer '{trainer_id}'")
+
+    def _get_context_and_verify(plugin, trainer_id: str, student_id: str, step_id: str) -> Dict[str, str]:
+        """Helper to get context with verification."""
+        log("debug", f"[CONTEXT_VERIFICATION] Getting context for plugin '{plugin.id}', trainer '{trainer_id}', student '{student_id}', step '{step_id}'")
+
+        # Verify plugin is active in memory
+        if not plugin.is_active():
+            error_msg = f"Plugin '{plugin.id}' is not marked active in memory for step '{step_id}'"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Verify plugin is active in database
+        if trainer_manager and not trainer_manager.is_plugin_active(trainer_id, plugin.id):
+            error_msg = f"Plugin '{plugin.id}' is not active in database for trainer '{trainer_id}' (step '{step_id}')"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Get context
+        context = plugin.get_context(student_id)
+        log("debug", f"[CONTEXT_VERIFICATION] Plugin '{plugin.id}' returned context: {bool(context)}")
+
+        if context:
+            log("debug", f"[CONTEXT_VERIFICATION] Context keys: {list(context.keys())}")
+        else:
+            log("warning", f"[CONTEXT_VERIFICATION] Plugin '{plugin.id}' returned empty context for step '{step_id}'")
+
+        return context
 
     def _action_trigger_analysis(context: DriverContext, **params) -> Dict:
         active = driver.get_active_option("memory_backend")

@@ -465,20 +465,86 @@ class MemoryPluginCore(TrainerPluginCore):
         DATA LAYER: uses self.user_manager and self.db only.
         Returns: (context, role, position)
         """
+        log("debug", f"[MEMORY_CALLBACK] ===== START get_memory_context for user {user_id} =====")
+
+        # Vérification 1: user_manager disponible
+        if self.user_manager is None:
+            error_msg = "Memory plugin: user_manager is None in get_memory_context"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Vérification 2: trouver trainer_id
         trainer_id = self._get_student_trainer_id(user_id)
+        log("debug", f"[MEMORY_CALLBACK] Student {user_id} -> trainer_id: {trainer_id}")
+
         if not trainer_id:
+            log("debug", f"[MEMORY_CALLBACK] User {user_id} is not a student (no parent_id), skipping")
             return None
 
-        if not self.trainer_manager.is_plugin_active(trainer_id, self.id):
+        # Vérification 3: trainer_manager disponible
+        if self.trainer_manager is None:
+            error_msg = f"Memory plugin: trainer_manager is None in get_memory_context (trainer {trainer_id})"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Vérification 4: état d'activation en mémoire
+        memory_active = self.is_active()
+        log("debug", f"[MEMORY_CALLBACK] Plugin memory.is_active() = {memory_active}")
+
+        if not memory_active:
+            log("debug", f"[MEMORY_CALLBACK] Plugin memory is not active in memory, skipping")
             return None
 
+        # Vérification 5: état d'activation en base de données
+        db_active = self.trainer_manager.is_plugin_active(trainer_id, self.id)
+        log("debug", f"[MEMORY_CALLBACK] Database is_plugin_active({trainer_id}, {self.id}) = {db_active}")
+
+        if not db_active:
+            error_msg = (f"MEMORY INCONSISTENCY: Plugin memory active in memory ({memory_active}) "
+                        f"but inactive in database ({db_active}) for trainer {trainer_id}")
+            log("error", error_msg)
+            # Option 1: Lever une exception pour détecter immédiatement
+            raise RuntimeError(error_msg)
+            # Option 2 (plus soft): self._mark_inactive() et return None
+            # self._mark_inactive()
+            # return None
+
+        # Vérification 6: récupérer la mémoire
         memory = self._get_current_memory(user_id, trainer_id)
+        log("debug", f"[MEMORY_CALLBACK] Memory content retrieved: {bool(memory)}")
+
         if not memory:
+            log("debug", f"[MEMORY_CALLBACK] No memory found for student {user_id}")
             return None
 
-        context_prompt = get_prompt('memory.context_injection')
-        context = context_prompt.format(memory=memory)
-        return (context, "system", "top")
+        # Vérification 7: longueur de la mémoire
+        if len(memory) < 10:
+            log("warning", f"[MEMORY_CALLBACK] Memory content suspiciously short ({len(memory)} chars): '{memory[:50]}...'")
+
+        # Vérification 8: obtenir le prompt
+        try:
+            context_prompt = get_prompt('memory.context_injection')
+            log("debug", f"[MEMORY_CALLBACK] Got context prompt: {bool(context_prompt)}")
+        except Exception as e:
+            error_msg = f"Memory plugin: failed to get context_injection prompt: {e}"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Vérification 9: formater le contexte
+        try:
+            context = context_prompt.format(memory=memory)
+            log("debug", f"[MEMORY_CALLBACK] Formatted context ({len(context)} chars)")
+        except Exception as e:
+            error_msg = f"Memory plugin: failed to format context with memory: {e}"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Vérification 10: snapshot final
+        result = (context, "system", "top")
+        log("debug", f"[MEMORY_CALLBACK] SUCCESS: Returning context for student {user_id}")
+        log("debug", f"[MEMORY_CALLBACK] ===== END get_memory_context =====")
+
+        return result
 
     def get_context(self, student_id: str) -> Dict[str, str]:
         """
@@ -504,20 +570,69 @@ class MemoryPluginCore(TrainerPluginCore):
         """
         from shared.common import record_plugin_event
 
+        log("debug", f"[MEMORY_ANALYSIS] ===== START trigger_analysis for student {context.student_id} =====")
+
+        # Vérification 1: context valide
+        if not context.student_id:
+            error_msg = "Memory analysis triggered without student_id"
+            log("error", error_msg)
+            raise ValueError(error_msg)
+
+        if not context.trainer_id:
+            error_msg = "Memory analysis triggered without trainer_id"
+            log("error", error_msg)
+            raise ValueError(error_msg)
+
+        # Vérification 2: plugin actif en mémoire
+        if not self.is_active():
+            error_msg = f"Memory analysis triggered but plugin is not active in memory (trainer {context.trainer_id})"
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Vérification 3: plugin actif en base
+        if self.trainer_manager and not self.trainer_manager.is_plugin_active(context.trainer_id, self.id):
+            error_msg = (f"MEMORY INCONSISTENCY: Memory analysis triggered but plugin is not active in database "
+                        f"for trainer {context.trainer_id}")
+            log("error", error_msg)
+            raise RuntimeError(error_msg)
+
+        # Vérification 4: vérifier l'état avant analyse
+        old_memory = self._get_current_memory(context.student_id, context.trainer_id)
+        log("debug", f"[MEMORY_ANALYSIS] Current memory exists: {bool(old_memory)}")
+        if old_memory:
+            log("debug", f"[MEMORY_ANALYSIS] Current memory length: {len(old_memory)} chars")
+
+        # Exécuter l'analyse
+        log("debug", f"[MEMORY_ANALYSIS] Calling refresh_memory...")
         success = run_async_safely(
             self.refresh_memory(context.trainer_id, context.student_id)
         )
-        memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)
+        log("debug", f"[MEMORY_ANALYSIS] refresh_memory completed with success={success}")
+
+        # Vérification 5: vérifier l'état après analyse
+        new_memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)
+        log("debug", f"[MEMORY_ANALYSIS] After analysis - memory exists: {bool(new_memory)}")
+        if new_memory:
+            log("debug", f"[MEMORY_ANALYSIS] New memory version: {new_memory.get('version')}")
+            log("debug", f"[MEMORY_ANALYSIS] New memory length: {len(new_memory.get('content', ''))} chars")
+            log("debug", f"[MEMORY_ANALYSIS] New memory source: {new_memory.get('source')}")
+        else:
+            log("warning", f"[MEMORY_ANALYSIS] No memory found after analysis!")
+
         record_plugin_event("memory", "analysis_complete", {
             "success": success,
-            "version": memory.get("version") if memory else None,
+            "version": new_memory.get("version") if new_memory else None,
         })
-        return {
+
+        result = {
             "success": success,
             "plugin": "memory",
-            "version": memory.get("version") if memory else None,
-            "memory_content": memory.get("content", "") if memory else "",
+            "version": new_memory.get("version") if new_memory else None,
+            "memory_content": new_memory.get("content", "") if new_memory else "",
         }
+
+        log("debug", f"[MEMORY_ANALYSIS] ===== END trigger_analysis =====")
+        return result
 
     def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Export all memory updates as events."""

@@ -119,17 +119,35 @@ class TrainerManager:
         """Check if a plugin is active for this trainer."""
         from .models import PluginActivation
 
+        log("debug", f"[PLUGIN_STATE] Checking is_plugin_active(trainer={trainer_id}, plugin={plugin_id})")
+
         with self.db.get_session() as session:
             activation = session.query(PluginActivation).filter_by(
                 trainer_id=trainer_id,
                 plugin_id=plugin_id
             ).first()
 
-            return activation.is_active if activation else False
+            result = activation.is_active if activation else False
+            log("debug", f"[PLUGIN_STATE] Plugin {plugin_id} for trainer {trainer_id} active = {result}")
+
+            # Si c'est le plugin memory et qu'il est inactif, logguer plus de contexte
+            if plugin_id == "memory" and not result:
+                # Compter combien d'activations existent pour ce trainer
+                count = session.query(PluginActivation).filter_by(trainer_id=trainer_id).count()
+                log("debug", f"[PLUGIN_STATE] Trainer {trainer_id} has {count} total plugin activations")
+
+                # Lister tous les plugins de ce trainer
+                all_plugins = session.query(PluginActivation).filter_by(trainer_id=trainer_id).all()
+                for p in all_plugins:
+                    log("debug", f"[PLUGIN_STATE]   - {p.plugin_id}: active={p.is_active}")
+
+            return result
 
     def set_plugin_active(self, trainer_id: str, plugin_id: str, active: bool) -> bool:
         """Activate or deactivate a plugin for this trainer."""
         from .models import PluginActivation
+
+        log("debug", f"[PLUGIN_STATE] Setting plugin {plugin_id} for trainer {trainer_id} to active={active}")
 
         try:
             with self.db.get_session() as session:
@@ -137,6 +155,9 @@ class TrainerManager:
                     trainer_id=trainer_id,
                     plugin_id=plugin_id
                 ).first()
+
+                before_state = activation.is_active if activation else False
+                log("debug", f"[PLUGIN_STATE] Before change: active={before_state}")
 
                 if activation:
                     activation.is_active = active
@@ -148,8 +169,22 @@ class TrainerManager:
                         is_active=active
                     )
                     session.add(activation)
+
                 session.commit()
+
+                # Vérification immédiate
+                session.refresh(activation)
+                after_state = activation.is_active
+                log("debug", f"[PLUGIN_STATE] After commit: active={after_state}")
+
+                if after_state != active:
+                    error_msg = f"Plugin state mismatch: requested {active} but got {after_state}"
+                    log("error", error_msg)
+                    raise RuntimeError(error_msg)
+
+                log("info", f"[PLUGIN_STATE] SUCCESS: Plugin {plugin_id} for trainer {trainer_id} set to {active}")
                 return True
+
         except Exception as e:
             log("error", f"Failed to set plugin activation: {e}", stacktrace=True)
             return False

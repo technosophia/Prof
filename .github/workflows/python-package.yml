@@ -159,7 +159,7 @@ jobs:
         continue-on-error: true
         run: |
           source .venv/bin/activate
-          pytest -v
+          FORCE_LOG=DEBUG pytest -v
         env:
           OLLAMA_HOST: http://localhost:11434
           OLLAMA_MODEL: ${{ env.MODEL_NAME }}
