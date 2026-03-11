@@ -63,7 +63,7 @@ from sqlalchemy.orm import Session, relationship, joinedload
 
 from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
-from core.callback import register_callback, unregister_callback
+from core.callback import register_callback, unregister_callback, clear_callbacks
 from core.config import get_config
 
 
