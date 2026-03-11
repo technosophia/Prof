@@ -16,7 +16,6 @@ from datetime import datetime
 from types import SimpleNamespace
 import uuid
 import asyncio
-import threading
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer
 from sqlalchemy.orm.attributes import flag_modified
@@ -27,6 +26,7 @@ from modules.trainer.plugin_base_core import TrainerPluginCore
 
 from core.logging import log
 from core.database import Base
+from core.thread import run_async_safely
 
 
 class StudentMemory(Base):
@@ -496,31 +496,6 @@ class MemoryPluginCore(TrainerPluginCore):
         return {}
 
 
-    def _run_async_safely(self, coro):
-        """Run a coroutine from sync code in both sync and async-call contexts."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-
-        result_holder = {}
-        error_holder = {}
-
-        def _thread_runner():
-            try:
-                result_holder["result"] = asyncio.run(coro)
-            except Exception as e:
-                error_holder["error"] = e
-
-        worker = threading.Thread(target=_thread_runner, daemon=True)
-        worker.start()
-        worker.join()
-
-        if "error" in error_holder:
-            raise error_holder["error"]
-
-        return result_holder.get("result")
-
     def _action_trigger_analysis(self, context, **params) -> Dict:
         """
         Called by the driver action 'trigger_memory_analysis'.
@@ -529,7 +504,7 @@ class MemoryPluginCore(TrainerPluginCore):
         """
         from shared.common import record_plugin_event
 
-        success = self._run_async_safely(
+        success = run_async_safely(
             self.refresh_memory(context.trainer_id, context.student_id)
         )
         memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)
