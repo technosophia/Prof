@@ -63,6 +63,7 @@ from sqlalchemy.orm import Session, relationship, joinedload
 from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
 from core.callback import register_callback, unregister_callback
+from core.config import get_config
 
 
 class UserRole(Enum):
@@ -541,7 +542,6 @@ class UserManager:
                 return True
 
         # Get config
-        from st_shared.cached import get_config
         config = get_config()
 
         # Check if auto-import is configured
@@ -556,8 +556,6 @@ class UserManager:
             return False
 
         # Resolve file path
-        import os
-        from st_shared.cached import get_config
         shared_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.dirname(shared_dir)
 
@@ -614,7 +612,6 @@ class UserManager:
 
         Now checks config and uses auto-import if configured, otherwise creates default users.
         """
-        from st_shared.cached import get_config
         config = get_config()
 
         # Check if auto-import is configured
