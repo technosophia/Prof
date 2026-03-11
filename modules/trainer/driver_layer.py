@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Dict
 
 from core.logging import log
-from shared.driver import DriverContext
+from shared.driver import DriverContext, DriverOptionError, DriverContextError
 
 from .driver_assertions import register_trainer_driver_assertions
 
