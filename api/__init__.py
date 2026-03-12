@@ -35,7 +35,7 @@ def bootstrap_services() -> ServiceLocator:
     init_database(use_memory=False, db_path=db_path)
 
     user_manager = _get_user_manager()
-    user_manager.init_default_users()
+    user_manager.init_default_users(config)
 
     conversation_manager = _get_conversation_manager()
     llm_manager = LLMManager(config)

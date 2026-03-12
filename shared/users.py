@@ -64,7 +64,6 @@ from sqlalchemy.orm import Session, relationship, joinedload
 from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
 from core.callback import register_callback, unregister_callback, clear_callbacks
-from core.config import get_config
 
 
 class UserRole(Enum):
@@ -306,15 +305,11 @@ class UserManager:
 
             return logs
 
-    def init_default_users(self):
-        """Initialize default users. Call this after database is initialized."""
-        # First ensure the table exists
+    def init_default_users(self, config=None):
         if not self._ensure_table_exists():
             log("error", "Cannot create default users: users table does not exist")
             return False
-
-        # Then create default users if needed
-        return self.create_default_users()
+        return self.create_default_users(config)
 
     def export_users(self, include_children: bool = False,
                     user_ids: Optional[List[str]] = None,
@@ -525,7 +520,7 @@ class UserManager:
 
         return result
 
-    def auto_import_users_from_config(self, config_path: Optional[str] = None) -> bool:
+    def auto_import_users_from_config(self, config=None) -> bool:
         """Auto-import users from JSON file specified in config, only if no users exist.
 
         Called during system initialization to replace create_default_users.
@@ -533,7 +528,6 @@ class UserManager:
         Returns:
             bool: True if import was successful or no import needed, False on error
         """
-        # Check if users already exist
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
@@ -542,10 +536,10 @@ class UserManager:
                 log("debug", "Users already exist, skipping auto-import")
                 return True
 
-        # Get config
-        config = get_config()
+        if config is None:
+            log("error", "No config provided to auto_import_users_from_config")
+            return False
 
-        # Check if auto-import is configured
         auto_import_config = config.get("database.auto_import_users")
         if not auto_import_config or not auto_import_config.get("enabled", False):
             log("debug", "Auto-import not enabled in config")
@@ -608,21 +602,12 @@ class UserManager:
             log("error", f"Auto-import failed: {e}", stacktrace=True)
             return False
 
-    def create_default_users(self):
-        """Deprecated: kept for backward compatibility.
-
-        Now checks config and uses auto-import if configured, otherwise creates default users.
-        """
-        config = get_config()
-
-        # Check if auto-import is configured
-        if config.get("database.auto_import_users.enabled", False):
+    def create_default_users(self, config=None):
+        if config and config.get("database.auto_import_users.enabled", False):
             log("debug", "Auto-import is configured, using it instead of create_default_users")
-            success = self.auto_import_users_from_config()
+            success = self.auto_import_users_from_config(config)
             if success:
                 return True
-
-        # Fall back to old behavior
         return self._create_default_users_fallback()
 
     def _create_default_users_fallback(self):

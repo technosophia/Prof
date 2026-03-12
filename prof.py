@@ -98,7 +98,7 @@ except Exception as e:
     log("error", f"Database schema upgrade failed: {e}", stacktrace=True)
     st.error(f"Database migration failed: {e}. Please check logs.")
 
-init_user_manager(create_default_users=True)
+init_user_manager(create_default_users=True, config=config)
 get_prompt_manager()
 auto_import_conversations_from_config(
     user_manager=get_user_manager(),

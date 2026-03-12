@@ -166,11 +166,10 @@ def get_user_manager():
 
 
 @require_services
-def init_user_manager(create_default_users: bool = True):
-    """Initialize the user manager."""
+def init_user_manager(create_default_users: bool = True, config=None):
     user_manager = get_user_manager()
     if create_default_users and user_manager.db.is_initialized():
-        user_manager.init_default_users()
+        user_manager.init_default_users(config)
     return user_manager
 
 

@@ -178,7 +178,7 @@ def _reset_db() -> str:
         log("debug", "❌ Database not initialised after init call!", level="ERROR")
 
     try:
-        get_user_manager()._create_default_users_fallback()
+        init_user_manager(create_default_users=True, config=get_config())
         log("debug", "✓ Default users created")
     except Exception as exc:
         log("debug", f"⚠ Could not create default users: {exc}", level="ERROR")
