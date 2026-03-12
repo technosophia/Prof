@@ -572,7 +572,7 @@ class MemoryPluginCore(TrainerPluginCore):
 
         log("debug", f"[MEMORY_ANALYSIS] ===== START trigger_analysis for student {context.student_id} =====")
 
-        # Vérification 1: context valide
+        # cehck : context valid
         if not context.student_id:
             error_msg = "Memory analysis triggered without student_id"
             log("error", error_msg)
@@ -583,33 +583,27 @@ class MemoryPluginCore(TrainerPluginCore):
             log("error", error_msg)
             raise ValueError(error_msg)
 
-        # Vérification 2: plugin actif en mémoire
-        if not self.is_active():
-            error_msg = f"Memory analysis triggered but plugin is not active in memory (trainer {context.trainer_id})"
-            log("error", error_msg)
-            raise RuntimeError(error_msg)
-
-        # Vérification 3: plugin actif en base
+        # check : plugin active in db
         if self.trainer_manager and not self.trainer_manager.is_plugin_active(context.trainer_id, self.id):
             error_msg = (f"MEMORY INCONSISTENCY: Memory analysis triggered but plugin is not active in database "
                         f"for trainer {context.trainer_id}")
             log("error", error_msg)
             raise RuntimeError(error_msg)
 
-        # Vérification 4: vérifier l'état avant analyse
+        # cehck : check the state before analysis
         old_memory = self._get_current_memory(context.student_id, context.trainer_id)
         log("debug", f"[MEMORY_ANALYSIS] Current memory exists: {bool(old_memory)}")
         if old_memory:
             log("debug", f"[MEMORY_ANALYSIS] Current memory length: {len(old_memory)} chars")
 
-        # Exécuter l'analyse
+        # execute analysis
         log("debug", f"[MEMORY_ANALYSIS] Calling refresh_memory...")
         success = run_async_safely(
             self.refresh_memory(context.trainer_id, context.student_id)
         )
         log("debug", f"[MEMORY_ANALYSIS] refresh_memory completed with success={success}")
 
-        # Vérification 5: vérifier l'état après analyse
+        # check the state after analysis
         new_memory = self._get_memory_with_metadata(context.student_id, context.trainer_id)
         log("debug", f"[MEMORY_ANALYSIS] After analysis - memory exists: {bool(new_memory)}")
         if new_memory:

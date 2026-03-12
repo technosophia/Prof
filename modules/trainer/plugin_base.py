@@ -202,7 +202,15 @@ class PluginManager:
         if self._trainer_manager is None:
             log("warning", "PluginManager.get_active_plugins called without trainer_manager")
             return []
-        return [p for p in self.plugins.values() if self._trainer_manager.is_plugin_active(trainer_id, p.id)]
+        result = []
+        for plugin in self.plugins.values():
+            is_active = self._trainer_manager.is_plugin_active(trainer_id, plugin.id)
+            if is_active:
+                plugin._mark_active()
+                result.append(plugin)
+            else:
+                plugin._mark_inactive()
+        return result
 
     def get_active_ui_plugins(self, trainer_id: str) -> List[TrainerPluginUI]:
         if self._trainer_manager is None:
@@ -210,10 +218,14 @@ class PluginManager:
             return []
         result = []
         for plugin_id, plugin in self.plugins.items():
-            if self._trainer_manager.is_plugin_active(trainer_id, plugin_id):
+            is_active = self._trainer_manager.is_plugin_active(trainer_id, plugin_id)
+            if is_active:
+                plugin._mark_active()
                 ui_plugin = self.ui_plugins.get(plugin_id)
                 if ui_plugin is not None:
                     result.append(ui_plugin)
+            else:
+                plugin._mark_inactive()
         return result
 
     def get_plugins_by_hook(self, trainer_id: str, hook_name: str) -> List[TrainerPluginCore]:
