@@ -179,6 +179,7 @@ class ConversationManager:
             self.db = get_db_manager()
             self._user_message_callbacks: List[UserMessageCallback] = []
             self._conversation_created_callbacks: List[ConversationCreatedCallback] = []
+            self._before_delete_callbacks: List[Callable[[str], None]] = []
             self._initialized = True
 
     def register_user_message_callback(self, callback: UserMessageCallback) -> None:
@@ -262,6 +263,29 @@ class ConversationManager:
                 callback(conversation_id, messages)
             except Exception as e:
                 log("error", f"Error in user message callback: {e}", stacktrace=True)
+
+    def register_before_delete_callback(self, callback: Callable[[str], None]) -> None:
+        """Register a callback to run before a conversation is deleted."""
+        register_callback(
+            callback_list=self._before_delete_callbacks,
+            callback_func=callback,
+            callback_type="conversation before_delete callback",
+            allow_replace=True
+        )
+
+    def unregister_before_delete_callback(self, callback: Callable[[str], None]) -> bool:
+        return unregister_callback(
+            callback_list=self._before_delete_callbacks,
+            callback_func=callback,
+            callback_type="conversation before_delete callback"
+        )
+
+    def _trigger_before_delete_callbacks(self, conversation_id: str) -> None:
+        for callback in self._before_delete_callbacks:
+            try:
+                callback(conversation_id)
+            except Exception as e:
+                log("error", f"Error in conversation before_delete callback: {e}", stacktrace=True)
 
     def _ensure_tables_exist(self):
         """Ensure the conversation tables exist."""
@@ -519,6 +543,8 @@ class ConversationManager:
         """Delete a conversation and all its messages."""
         # Ensure tables exist before deleting
         self._ensure_tables_exist()
+
+        self._trigger_before_delete_callbacks(conversation_id)
 
         with self.db.get_session() as session:
             # Delete all messages first
