@@ -46,3 +46,9 @@ def assert_sse_sequence(events: list[dict], *expected_types: str):
 def reconstruct_response(events: list[dict]) -> str:
     """Concatenate all chunk event content."""
     return "".join(event.get("content", "") for event in events if event.get("type") == "chunk")
+
+
+def assert_not_mock_response(text: str):
+    """Ensure integration tests are not accidentally using the mock LLM."""
+    lowered = text.lower()
+    assert "(mock)" not in lowered, f"Mock LLM response detected: {text[:180]}"

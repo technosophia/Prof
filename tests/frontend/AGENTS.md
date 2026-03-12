@@ -10,6 +10,7 @@ This directory contains HTTP-level integration tests for the FastAPI backend use
 - Keep tests independent (each test creates its own conversation state).
 - Use the `create_conversation` fixture from `tests/frontend/conftest.py` (DRY).
 - LLM tests must be marked `@pytest.mark.ollama`.
+- `@pytest.mark.ollama` tests must enforce `ollama_qwen` and reject mock outputs.
 - RAG-heavy tests must be marked `@pytest.mark.slow`.
 
 ## Bootstrap strategy

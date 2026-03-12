@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from tests.frontend.helpers import assert_sse_sequence, parse_sse_stream, reconstruct_response
+from tests.frontend.helpers import (
+    assert_not_mock_response,
+    assert_sse_sequence,
+    parse_sse_stream,
+    reconstruct_response,
+)
 
 pytestmark = [pytest.mark.anyio, pytest.mark.ollama]
 
@@ -21,7 +26,9 @@ async def test_stream_event_sequence(client, auth_headers, users, create_convers
         events = parse_sse_stream((await response.aread()).decode("utf-8"))
 
     assert_sse_sequence(events, "start", "chunk", "done")
-    assert reconstruct_response(events)
+    response_text = reconstruct_response(events)
+    assert response_text
+    assert_not_mock_response(response_text)
 
 
 async def test_stream_persists_messages(client, auth_headers, users, create_conversation):
@@ -36,6 +43,7 @@ async def test_stream_persists_messages(client, auth_headers, users, create_conv
         headers=headers,
     ) as response:
         assistant_text = reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
+        assert_not_mock_response(assistant_text)
 
     payload = (await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()
     assert len(payload) == 2
@@ -79,6 +87,9 @@ async def test_regenerate_replaces_last_assistant_message(client, auth_headers, 
         regen_events = parse_sse_stream((await response.aread()).decode("utf-8"))
 
     assert_sse_sequence(regen_events, "start", "chunk", "done")
+    regenerated_text = reconstruct_response(regen_events)
+    assert regenerated_text
+    assert_not_mock_response(regenerated_text)
     payload = (await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()
     assert len(payload) == 2
 
@@ -117,7 +128,9 @@ async def test_multi_turn_chat(client, auth_headers, users, create_conversation)
             json={"conversation_id": conv_id, "message": prompt},
             headers=headers,
         ) as response:
-            assert reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
+            response_text = reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
+            assert response_text
+            assert_not_mock_response(response_text)
 
     assert len((await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()) == 6
 

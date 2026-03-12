@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import httpx
 import pytest
+import requests
 
 from core.logging import log
 from shared.common import get_user_manager
@@ -77,6 +79,42 @@ def create_conversation(client):
         return conversation_id
 
     return _create_conversation
+
+
+@pytest.fixture(autouse=True)
+def enforce_ollama_for_marked_tests(request):
+    if "ollama" not in request.keywords:
+        yield
+        return
+
+    from shared.common import get_llm_manager
+
+    llm_manager = get_llm_manager()
+    available = {item["id"]: item for item in llm_manager.get_available_llms()}
+    ollama = available.get("ollama_qwen")
+    if not ollama or not ollama.get("available"):
+        pytest.skip("ollama_qwen is not available in this environment")
+
+    if not llm_manager.set_current_llm("ollama_qwen"):
+        pytest.skip("Could not select ollama_qwen for integration test")
+
+    try:
+        health = requests.get("http://localhost:11434/api/tags", timeout=2)
+        if health.status_code != 200:
+            pytest.skip("Ollama runtime is not reachable (health check failed)")
+    except Exception:
+        pytest.skip("Ollama runtime is not reachable")
+
+    previous_force = os.environ.get("FORCE_LLM")
+    os.environ["FORCE_LLM"] = "ollama_qwen"
+    try:
+        yield
+    finally:
+        if previous_force is None:
+            os.environ.pop("FORCE_LLM", None)
+        else:
+            os.environ["FORCE_LLM"] = previous_force
+
 
 
 @pytest.fixture

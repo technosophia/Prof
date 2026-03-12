@@ -169,6 +169,15 @@ async def regenerate_last_response(
         raise HTTPException(status_code=400, detail="No user message found")
 
     last_user_message = conv.messages[last_user_idx].content
+
+    # Regeneration semantics: replace the last assistant answer that followed
+    # this user turn, instead of appending a new assistant message.
+    if last_user_idx < len(conv.messages) - 1:
+        preserved_messages = conv.messages[: last_user_idx + 1]
+        conversation_manager.clear_conversation_messages(payload.conversation_id)
+        for message in preserved_messages:
+            conversation_manager.add_message(payload.conversation_id, message)
+
     truncated_history = _build_history(conv.messages[: last_user_idx + 1])
 
     return await _stream_llm_response(

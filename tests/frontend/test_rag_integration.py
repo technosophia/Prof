@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.frontend.helpers import parse_sse_stream, reconstruct_response
+from tests.frontend.helpers import assert_not_mock_response, parse_sse_stream, reconstruct_response
 
 pytestmark = [pytest.mark.anyio, pytest.mark.ollama, pytest.mark.slow]
 
@@ -19,6 +19,7 @@ async def test_rag_voss_index_threshold(client, auth_headers, users, create_conv
     ) as response:
         answer = reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
 
+    assert_not_mock_response(answer)
     assert "0.85" in answer or "85" in answer
     assert len((await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()) == 2
 
@@ -32,6 +33,7 @@ async def test_rag_routeforge_nxg(client, auth_headers, users, create_conversati
     ) as response:
         answer = reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
 
+    assert_not_mock_response(answer)
     assert "nxg" in answer.lower()
     assert len((await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()) == 2
 
@@ -45,6 +47,7 @@ async def test_rag_voss_review_trigger(client, auth_headers, users, create_conve
     ) as response:
         answer = reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
 
+    assert_not_mock_response(answer)
     assert "400" in answer
     assert len((await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()) == 2
 
@@ -58,6 +61,7 @@ async def test_rag_tuesday_sync(client, auth_headers, users, create_conversation
     ) as response:
         answer = reconstruct_response(parse_sse_stream((await response.aread()).decode("utf-8")))
 
+    assert_not_mock_response(answer)
     assert "tuesday" in answer.lower()
     assert "alphabet" in answer.lower() or "rotation" in answer.lower()
     assert len((await client.get(f"/api/conversations/{conv_id}/messages", headers=headers)).json()) == 2
