@@ -11,43 +11,46 @@ import streamlit as st
 import os
 import sys
 
-from shared.module_handler import module_handler
+from shared.module_handler import module_handler, reload_module
 from st_shared.cached import get_config
 from st_shared.cached import get_user_manager
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _, _discover_ui_modules, get_active_modules
+
+
+def _refresh_ui_registry(active_modules):
+    """Re-discover injection points and update the UI registry in session state."""
+    if 'ui_registry' not in st.session_state:
+        return
+    try:
+        modules, injection_points = _discover_ui_modules(tuple(sorted(active_modules)))
+        st.session_state.ui_registry.modules = modules
+        st.session_state.ui_registry.injection_points = injection_points
+        st.session_state.ui_registry.last_active_hash = tuple(sorted(active_modules))
+        log("info", f"UI Registry updated: {len(modules)} modules registered")
+    except Exception as e:
+        log("error", f"Error re-initializing UI registry: {str(e)}", stacktrace=True)
+
+
 def force_reload_modules():
-    """Force reload all active modules by clearing cache and re-importing."""
+    """Hot-reload all active modules via module_handler.reload_module()."""
     active_modules = get_active_modules()
 
-    # Track reloaded modules
     reloaded = []
     failed = []
 
     with st.spinner("Force reloading modules..."):
         for module_name in active_modules:
             try:
-                # Clear from sys.modules if already loaded
-                module_ui_name = f"{module_name}_ui"
-                if module_ui_name in sys.modules:
-                    # Remove the module from cache
-                    del sys.modules[module_ui_name]
-                    log("debug", f"Removed {module_ui_name} from sys.modules cache")
-
-                # Also clear any parent packages if they exist
-                if module_name in sys.modules:
-                    del sys.modules[module_name]
-
-                # Reload the module UI
-                ui_module = module_handler.load_module_ui(module_name)
-                if ui_module:
+                if reload_module(module_name):
+                    # Also reload the UI file so inject_ui_* picks up new code
+                    module_handler.load_module_ui(module_name)
                     reloaded.append(module_name)
                     log("info", f"Successfully reloaded module: {module_name}")
                 else:
                     failed.append(module_name)
-                    log("error", f"Failed to reload module: {module_name}")
-
+                    log("error", f"reload_module() returned False for: {module_name}")
             except Exception as e:
                 failed.append(module_name)
                 log("error", f"Error reloading module {module_name}: {str(e)}", stacktrace=True)
@@ -59,21 +62,7 @@ def force_reload_modules():
         except Exception as e:
             log("error", f"Error refreshing module discovery: {str(e)}")
 
-        # Re-initialize UI registry to pick up new injection points
-        if 'ui_registry' in st.session_state:
-            try:
-                log("info", "Re-initializing UI registry after module reload")
-                # Get current active modules
-                active_modules = get_active_modules()
-                # Call the standalone discovery function
-                modules, injection_points = _discover_ui_modules(tuple(sorted(active_modules)))
-                # Update the registry's internal state
-                st.session_state.ui_registry.modules = modules
-                st.session_state.ui_registry.injection_points = injection_points
-                st.session_state.ui_registry.last_active_hash = tuple(sorted(active_modules))
-                log("info", f"UI Registry updated: {len(modules)} modules registered")
-            except Exception as e:
-                log("error", f"Error re-initializing UI registry: {str(e)}", stacktrace=True)
+        _refresh_ui_registry(get_active_modules())
 
     return reloaded, failed
 
@@ -95,7 +84,6 @@ def show_system_admin_content():
     with col1:
         st.subheader("Available Modules")
     with col2:
-        # Refresh modules button
         if st.button("🔄 Refresh Modules", key="admin_refresh_modules"):
             try:
                 module_handler.refresh()
@@ -104,9 +92,8 @@ def show_system_admin_content():
             except Exception as e:
                 st.error(f"Error refreshing modules: {str(e)}")
     with col3:
-        # Force reload button
         if st.button("⚡ Force Reload All", key="admin_force_reload",
-                    help="Force reload all active modules (clears cache)"):
+                    help="Hot-reload all active modules (no app restart needed)"):
             reloaded, failed = force_reload_modules()
             if reloaded:
                 st.success(f"✅ Successfully reloaded: {', '.join(reloaded)}")
@@ -133,28 +120,12 @@ def show_system_admin_content():
 
         with col3:
             if is_active:
-                # Individual reload button for active modules
                 if st.button("🔄 Reload", key=f"reload_{module_name}",
-                           help=f"Force reload {module_name} module"):
+                           help=f"Hot-reload {module_name} (no app restart needed)"):
                     try:
-                        # Clear from cache
-                        module_ui_name = f"{module_name}_ui"
-                        if module_ui_name in sys.modules:
-                            del sys.modules[module_ui_name]
-
-                        # Reload
-                        ui_module = module_handler.load_module_ui(module_name)
-                        if ui_module:
-                            # Re-initialize UI registry
-                            if 'ui_registry' in st.session_state:
-                                # Get current active modules
-                                active_mods = get_active_modules()
-                                # Call the standalone discovery function
-                                modules, injection_points = _discover_ui_modules(tuple(sorted(active_mods)))
-                                # Update the registry's internal state
-                                st.session_state.ui_registry.modules = modules
-                                st.session_state.ui_registry.injection_points = injection_points
-                                st.session_state.ui_registry.last_active_hash = tuple(sorted(active_mods))
+                        if reload_module(module_name):
+                            module_handler.load_module_ui(module_name)
+                            _refresh_ui_registry(get_active_modules())
                             st.success(f"✅ Module '{module_name}' reloaded")
                             st.rerun()
                         else:
@@ -192,16 +163,12 @@ def show_system_admin_content():
         st.write(f"**Version:** {config.get('app.version', 'N/A')}")
         st.write(f"**Active Modules:** {len(active_modules)}/{len(all_modules)}")
 
-    # In show_system_admin_content() function, replace the database section with:
-
     with col2:
         st.subheader("Database")
 
-        # Get the actual database path from config
         config = get_config()
         db_url = config.get("database.path", "sqlite:///data/app.db")
 
-        # Extract the file path if it's a SQLite database
         from core.database import extract_sqlite_file_path
         file_path = extract_sqlite_file_path(db_url)
 
@@ -209,30 +176,26 @@ def show_system_admin_content():
             db_display = file_path
             db_exists = os.path.exists(file_path)
             if db_exists:
-                db_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MB
+                db_size = os.path.getsize(file_path) / (1024 * 1024)
                 st.write(f"**Path:** `{db_display}`")
                 st.write(f"**Size:** {db_size:.2f} MB")
             else:
                 st.write(f"**Path:** `{db_display}` (file not found)")
         else:
-            # For non-file databases (like in-memory or other URLs)
             st.write(f"**URL:** `{db_url}`")
             if db_url == 'sqlite:///:memory:':
                 st.write("**Type:** In-memory database")
 
-        # Show database status
         from core.database import get_db_manager
         db_manager = get_db_manager()
         if db_manager.is_initialized():
             st.write(f"**Status:** {'🟢 Connected' if db_manager.is_initialized() else '🔴 Not connected'}")
             st.write(f"**Tables created:** {'✅ Yes' if db_manager.are_tables_created() else '❌ No'}")
 
-            # Show migration status if available
             migration_status = db_manager.get_migration_status()
             if migration_status.get("alembic_available") and not migration_status.get("in_memory"):
                 st.write(f"**Schema revision:** {migration_status.get('current_revision', 'N/A')}")
 
-        # Show module cache status
         st.subheader("Module Cache")
         cached_modules = [name for name in sys.modules.keys() if name.endswith('_ui')]
         st.write(f"**Cached UI Modules:** {len(cached_modules)}")
@@ -248,5 +211,4 @@ def inject_ui_admin_tab():
 
 def inject_ui_initialize():
     """Initialize the admin UI module."""
-    # No need to register anything here - handled by UI registry
     pass

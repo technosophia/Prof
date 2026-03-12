@@ -19,6 +19,28 @@ LOCAL_MODULES_FILE = "local_modules.json"  # Local override file
 
 
 # ---------------------------------------------------------------------------
+# Cache helper
+# ---------------------------------------------------------------------------
+
+def _get_cache_decorator():
+    """
+    Return the application cache decorator from the global ServiceLocator.
+
+    Falls back to a transparent no-op when the ServiceLocator is not yet
+    available (headless / test bootstrap, early imports).  This keeps
+    module_handler.py Streamlit-free while still benefiting from
+    st.cache_resource in production.
+    """
+    services = get_global_services()
+    if services is not None:
+        cache = services.get("cache")
+        if callable(cache):
+            return cache
+    # No-op fallback: behaves like the function was never decorated
+    return lambda f: f
+
+
+# ---------------------------------------------------------------------------
 # Module discovery helpers (no UX dependency, pure filesystem)
 # ---------------------------------------------------------------------------
 
@@ -53,9 +75,17 @@ def _compute_modules_signature() -> str:
     return ";".join(sorted(sig_parts))
 
 
+# NOTE: _load_potential_modules is NOT decorated here at definition time
+# because the cache service may not be available yet.  ModuleHandler wraps
+# calls to it via _cached_load_potential_modules() which resolves the cache
+# decorator lazily on first use.  See ModuleHandler._cached_load_potential_modules.
+
 def _load_potential_modules(_signature: str, filter_modules: Optional[Set[str]] = None) -> Dict[str, Dict]:
     """
-    Cached discovery of all potential modules from disk.
+    Discovery of all potential modules from disk.
+
+    ``_signature`` is used as a cache key by the wrapping layer so that the
+    expensive filesystem walk is skipped when nothing has changed on disk.
 
     If filter_modules is provided, only modules whose names are in the set
     will be included. This is used when local_modules.json overrides are active
@@ -149,15 +179,7 @@ def _load_override_module_list(override_file: str) -> Optional[Set[str]]:
         with open(override_file, 'r') as f:
             data = json.load(f)
 
-        # Get active_modules list from the override file
         active_modules = data.get('active_modules', [])
-
-        # Also include any modules that might be mentioned elsewhere?
-        # For now, we'll just use the active_modules list as the definitive
-        # list of modules that should exist when override is active.
-        # This means if you remove a module from active_modules in the override,
-        # it completely disappears from the system.
-
         module_set = set(active_modules)
         log("info", f"Loaded override module list: {len(module_set)} modules will be available")
         return module_set
@@ -180,6 +202,15 @@ class ModuleHandler:
     If local_modules.json exists alongside modules.json, it will be used
     instead of modules.json for module activation status AND to filter
     which modules are considered available in the system.
+
+    Performance notes
+    -----------------
+    * ``_activated`` tracks which modules have already had
+      ``on_module_activated()`` called.  ``activate_all()`` is therefore O(1)
+      on every Streamlit rerun after the first.
+    * ``_load_potential_modules`` is wrapped with the application cache
+      decorator (``st.cache_resource`` in production, no-op in tests) so the
+      filesystem walk only runs when the on-disk signature changes.
     """
 
     def __init__(self):
@@ -190,19 +221,35 @@ class ModuleHandler:
         self._using_local_override = False
         self._override_module_filter: Optional[Set[str]] = None
         self._initialized = False
+        # Tracks modules whose on_module_activated() hook has been called.
+        # Cleared per-module on deactivation so re-enabling works correctly.
+        self._activated: Set[str] = set()
+        # Lazily-built cached wrapper around _load_potential_modules.
+        self._cached_discover = None
+
+    # ------------------------------------------------------------------
+    # Cached discovery
+    # ------------------------------------------------------------------
+
+    def _get_cached_discover(self):
+        """
+        Return a cached wrapper for _load_potential_modules.
+
+        The wrapper is built once and stored on the instance.  We resolve the
+        cache decorator lazily (not at import time) so that the ServiceLocator
+        is already populated when we first call it.
+        """
+        if self._cached_discover is None:
+            cache = _get_cache_decorator()
+            self._cached_discover = cache(_load_potential_modules)
+            log("debug", "Built cached discovery wrapper for _load_potential_modules")
+        return self._cached_discover
 
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
     def _get_modules_file_path(self) -> str:
-        """
-        Determine which modules file to use.
-
-        Returns the path to local_modules.json if it exists and should override,
-        otherwise returns the path to modules.json.
-        """
-        # Check if local override exists
         if os.path.exists(self.local_modules_file):
             log("info", f"Using local override: {self.local_modules_file}")
             self._using_local_override = True
@@ -213,7 +260,6 @@ class ModuleHandler:
         return self.modules_file
 
     def _load_modules_file(self):
-        """Load modules from either modules.json or local_modules.json."""
         modules_file_path = self._get_modules_file_path()
 
         if os.path.exists(modules_file_path):
@@ -222,9 +268,7 @@ class ModuleHandler:
                     data = json.load(f)
                     self.active_modules = set(data.get('active_modules', []))
 
-                    # If using local override, also capture the module filter
                     if self._using_local_override:
-                        # The active_modules list becomes our filter for which modules exist
                         self._override_module_filter = set(self.active_modules)
                         log("info", f"Local override active: module list filtered to {len(self._override_module_filter)} modules")
 
@@ -240,14 +284,6 @@ class ModuleHandler:
                 self._override_module_filter = set()
 
     def _save_modules_file(self):
-        """
-        Save modules to the appropriate file.
-
-        If using local override, save to local_modules.json to preserve the override.
-        Otherwise, save to modules.json.
-        """
-        # If we're currently using local override, save to local file
-        # This ensures that toggles made during development stay in the local file
         target_file = self.local_modules_file if self._using_local_override else self.modules_file
 
         try:
@@ -256,7 +292,6 @@ class ModuleHandler:
                 'total_modules': len(self.modules),
                 '_note': "This file overrides modules.json for development/testing" if target_file == self.local_modules_file else None
             }
-            # Remove None values
             data = {k: v for k, v in data.items() if v is not None}
 
             with open(target_file, 'w') as f:
@@ -264,7 +299,6 @@ class ModuleHandler:
 
             log("debug", f"Saved modules file: {len(self.active_modules)} active modules to {os.path.basename(target_file)}")
 
-            # If we just saved to local override, update the filter
             if self._using_local_override:
                 self._override_module_filter = set(self.active_modules)
                 log("info", f"Updated local override filter: {len(self._override_module_filter)} modules now available")
@@ -273,11 +307,9 @@ class ModuleHandler:
             log("error", f"Failed to save {target_file}: {str(e)}")
 
     def is_using_local_override(self) -> bool:
-        """Return whether local_modules.json is currently being used as override."""
         return self._using_local_override
 
     def get_available_modules_count(self) -> int:
-        """Return the number of modules available in the current configuration."""
         if not self._initialized:
             self.initialize()
         return len(self.modules)
@@ -290,8 +322,8 @@ class ModuleHandler:
         """Synchronize internal state with disk, respecting local override filter."""
         signature = _compute_modules_signature()
 
-        # Pass the override filter to module discovery
-        potential_modules = _load_potential_modules(signature, self._override_module_filter)
+        # Use cached wrapper — filesystem walk is skipped when signature matches
+        potential_modules = self._get_cached_discover()(signature, self._override_module_filter)
 
         updated = False
 
@@ -299,12 +331,9 @@ class ModuleHandler:
         for name, info in potential_modules.items():
             if name not in self.modules:
                 self.modules[name] = info
-                # Only auto-activate if the module is in our active set or enabled by default
                 if name in self.active_modules:
-                    # Already active, nothing to do
                     pass
                 elif info.get('enabled_by_default', True) and name not in self.active_modules:
-                    # Only auto-activate if not using override filter or if in override filter
                     if self._override_module_filter is None or name in self._override_module_filter:
                         self.active_modules.add(name)
                         log("info", f"Auto-activated new module '{name}' (enabled by default)")
@@ -312,12 +341,13 @@ class ModuleHandler:
             else:
                 self.modules[name].update(info)
 
-        # Remove modules that no longer exist on disk OR are filtered out by override
+        # Remove modules that no longer exist on disk OR are filtered out
         for name in list(self.modules.keys()):
             if name not in potential_modules:
                 del self.modules[name]
                 if name in self.active_modules:
                     self.active_modules.remove(name)
+                    self._activated.discard(name)
                     log("info", f"Deactivated and removed module '{name}' (no longer available)")
                     updated = True
 
@@ -357,14 +387,17 @@ class ModuleHandler:
         This triggers functional setup (driver registration, LLM callback
         registration, etc.) for all active modules.
 
-        Safe to call multiple times — modules that were already activated are
-        skipped (tracked via _activated set).
+        Safe to call multiple times — modules already in ``_activated`` are
+        skipped, making repeated calls (e.g. on every Streamlit rerun) O(1).
         """
         if not self._initialized:
             self.initialize()
 
         for name in sorted(self.active_modules):
+            if name in self._activated:
+                continue  # already activated — skip the expensive import
             self._call_module_hook(name, "on_module_activated", pass_services=True)
+            self._activated.add(name)
 
     def refresh(self):
         """Refresh module discovery from disk."""
@@ -395,7 +428,6 @@ class ModuleHandler:
         return self.modules.get(module_name)
 
     def module_exists(self, module_name: str) -> bool:
-        """Check if a module exists in the current configuration."""
         if not self._initialized:
             self.initialize()
         return module_name in self.modules
@@ -457,13 +489,11 @@ class ModuleHandler:
 
         try:
             if pass_services and hook_name == "on_module_activated":
-                # Pass the global ServiceLocator
                 import inspect
                 sig = inspect.signature(hook)
                 if len(sig.parameters) > 0:
                     hook(get_global_services() or ServiceLocator())
                 else:
-                    # Module declares on_module_activated() with no args → call without
                     hook()
             else:
                 hook()
@@ -494,15 +524,10 @@ class ModuleHandler:
         """
         Activate or deactivate a module.
 
-        When activating a new-style module, on_module_activated(services) is called.
-        When activating a legacy module, only on_module_activated() (no args) is
-        attempted for backward compatibility; the UI layer remains responsible for
-        calling inject_ui_initialize() to set up UX state.
-
-        When deactivating, on_module_deactivated() is called regardless of style.
-
-        Changes are saved to the appropriate modules file (modules.json or
-        local_modules.json if override is active).
+        When activating, on_module_activated(services) is called and the
+        module is added to ``_activated``.
+        When deactivating, on_module_deactivated() is called and the module
+        is removed from ``_activated`` so it can be re-activated cleanly later.
         """
         if not self._initialized:
             self.initialize()
@@ -518,6 +543,7 @@ class ModuleHandler:
                 self.active_modules.add(module_name)
                 self._refresh_module_cache(module_name)
                 self._call_module_hook(module_name, "on_module_activated", pass_services=True)
+                self._activated.add(module_name)
                 log("info", f"Activated module: {module_name}")
                 self._save_modules_file()
                 return True
@@ -525,12 +551,60 @@ class ModuleHandler:
             if module_name in self.active_modules:
                 self._call_module_hook(module_name, "on_module_deactivated")
                 self.active_modules.remove(module_name)
+                self._activated.discard(module_name)
                 self._refresh_module_cache(module_name)
                 log("info", f"Deactivated module: {module_name}")
                 self._save_modules_file()
                 return True
 
         return False
+
+    # ------------------------------------------------------------------
+    # Hot-reload
+    # ------------------------------------------------------------------
+
+    def reload_module(self, module_name: str) -> bool:
+        """
+        Hot-reload a single active module without a full app restart.
+
+        Steps:
+          1. Call on_module_deactivated() hook (best-effort).
+          2. Clear all Python import cache entries for the module.
+          3. Remove from ``_activated`` so activate_all() will re-run the hook.
+          4. Re-import the package and call on_module_activated() immediately.
+          5. Mark as activated again.
+
+        The module must already be in ``active_modules``; this method does not
+        change activation status, only refreshes the imported code.
+
+        Returns True on success, False if the module is unknown or inactive.
+        """
+        if not self._initialized:
+            self.initialize()
+
+        if module_name not in self.modules:
+            log("error", f"Cannot reload module '{module_name}': not found")
+            return False
+
+        if module_name not in self.active_modules:
+            log("warning", f"Cannot reload module '{module_name}': not active")
+            return False
+
+        log("info", f"Hot-reloading module: {module_name}")
+
+        # Step 1 — graceful teardown
+        self._call_module_hook(module_name, "on_module_deactivated")
+
+        # Step 2 & 3 — wipe import cache and activation record
+        self._refresh_module_cache(module_name)
+        self._activated.discard(module_name)
+
+        # Step 4 & 5 — fresh import + hook
+        self._call_module_hook(module_name, "on_module_activated", pass_services=True)
+        self._activated.add(module_name)
+
+        log("info", f"Hot-reload complete: {module_name}")
+        return True
 
     # ------------------------------------------------------------------
     # Legacy: load UI module (kept for backward compatibility)
@@ -582,9 +656,6 @@ class ModuleHandler:
         """
         Create a local_modules.json file based on current modules.json.
 
-        This allows developers to "fork" the module configuration for local
-        development without affecting the main modules.json file.
-
         Returns True if successful, False otherwise.
         """
         if not os.path.exists(self.modules_file):
@@ -592,20 +663,16 @@ class ModuleHandler:
             return False
 
         try:
-            # Load current modules.json
             with open(self.modules_file, 'r') as f:
                 data = json.load(f)
 
-            # Add a note about it being a local override
             data['_note'] = "This file overrides modules.json for development/testing"
 
-            # Save as local_modules.json
             with open(self.local_modules_file, 'w') as f:
                 json.dump(data, f, indent=2)
 
             log("info", f"Created local override file: {self.local_modules_file}")
 
-            # Refresh to start using the local override
             if self._initialized:
                 self._load_modules_file()
                 self._sync_with_disk()
@@ -629,7 +696,6 @@ class ModuleHandler:
             os.remove(self.local_modules_file)
             log("info", f"Removed local override file: {self.local_modules_file}")
 
-            # Refresh to revert to modules.json
             if self._initialized:
                 self._load_modules_file()
                 self._sync_with_disk()
@@ -644,7 +710,6 @@ class ModuleHandler:
 # Global singleton instance
 # ---------------------------------------------------------------------------
 
-# Create the global module handler instance
 module_handler = ModuleHandler()
 
 
@@ -662,6 +727,12 @@ def toggle_module(module_name: str, activate: bool) -> bool:
     """Convenience function to toggle a module."""
     module_handler.initialize()
     return module_handler.toggle_module(module_name, activate)
+
+
+def reload_module(module_name: str) -> bool:
+    """[api] Hot-reload a single active module without a full app restart."""
+    module_handler.initialize()
+    return module_handler.reload_module(module_name)
 
 
 def notify_module_config_changed(module_name: str) -> None:
