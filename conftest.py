@@ -538,6 +538,8 @@ def pytest_configure(config) -> None:
         ("streamlit_testing", "Tests using streamlit.testing.v1 (no browser)"),
         ("playwright",        "Tests using Playwright (browser automation)"),
         ("rag",               "Tests using RAG"),
+        ("ollama",            "Tests requiring local Ollama LLM runtime"),
+        ("slow",              "Long-running tests"),
     ]
     for name, description in markers:
         config.addinivalue_line("markers", f"{name}: {description}")
