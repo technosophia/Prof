@@ -39,7 +39,8 @@ def inject_ui_main_header():
     trainer_manager = get_trainer_manager()
 
     # Get the specific student pad plugin
-    student_pad_plugin = plugin_manager.get_plugin("student_pad")
+    student_pad_plugin = plugin_manager.get_ui_plugin("student_pad")
+
 
     # Fallback to factory if not found in plugin manager (during migration)
     if student_pad_plugin is None:
