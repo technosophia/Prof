@@ -7,7 +7,8 @@ This is a LLM training compagnon application. Basically it's a specialized RAG a
 
 # Essentials
 `streamlit run prof.py` to launch the application
-`pytest` to run the all tests
+`pytest` to run the all tests using conftest.py
+`uvicorn api:app --host 0.0.0.0 --port 8000 --reload` to run the frontend
 The app has agent observability via the configuratble logging system that can be changed in config.json.
 
 # Rules
