@@ -1281,6 +1281,23 @@ class UserManager:
                     )
                     return False
 
+            # Handle ID change specially
+            new_id = kwargs.get("new_id")
+            if new_id and new_id != user_id:
+                # Only admin can change user IDs
+                if current_user_id and current_user.role != UserRole.ADMIN.value:
+                    raise ValueError("Only admin users can change user IDs")
+
+                # Check if new ID already exists
+                existing_user = session.query(UserTable).filter_by(id=new_id).first()
+                if existing_user:
+                    raise ValueError(f"User ID '{new_id}' already exists")
+
+                # Store old ID for logging
+                old_id = user_id
+            else:
+                new_id = None
+
             # Validate role changes
             if "role" in kwargs:
                 new_role = kwargs["role"]
@@ -1310,9 +1327,12 @@ class UserManager:
 
             # Track changes for logging
             changes = {}
+            if new_id:
+                changes["id"] = {"old": old_id, "new": new_id}
+
             for key, value in kwargs.items():
-                if key in ["password_hash", "reset_code", "reset_code_expires"]:
-                    continue  # Skip sensitive fields in logging
+                if key in ["password_hash", "reset_code", "reset_code_expires", "new_id"]:
+                    continue  # Skip sensitive or special fields in logging
 
                 if key == "user_metadata":
                     key_display = "metadata"
@@ -1325,9 +1345,17 @@ class UserManager:
                 if old_value != value:
                     changes[key_display] = {"old": str(old_value), "new": str(value)}
 
-            # Update fields
+            # Update fields (including ID if requested)
+            if new_id:
+                # Update the ID - this requires special handling
+                # First, update any foreign key references if needed
+                # Then update the user's ID
+                user.id = new_id
+
             for key, value in kwargs.items():
-                if key == "user_metadata":
+                if key in ["new_id", "password_hash", "reset_code", "reset_code_expires"]:
+                    continue
+                elif key == "user_metadata":
                     pass
                 elif key == "metadata":
                     key = "user_metadata"
@@ -1346,7 +1374,7 @@ class UserManager:
             self.log_user_action(
                 user_id=current_user_id or user_id,
                 action=UserAction.UPDATE_USER.value,
-                target_user_id=user_id,
+                target_user_id=new_id or user_id,
                 target_username=user.name,
                 details={"changes": changes},
                 success=True

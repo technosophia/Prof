@@ -260,9 +260,43 @@ def _generate_reset_code(target_user_id: str, requesting_user_id: str):
 
     if reset_code:
         target_user = user_manager.get_user(target_user_id)
-        st.success(f"✅ Reset code generated for {target_user['name']}")
-        st.info(f"🔑 **Reset Code:** `{reset_code}`")
-        st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+
+        # Special handling for admin user to save code to file
+        if target_user and target_user.get('name', '').lower() == 'admin':
+            try:
+                import os
+                from datetime import datetime
+                from st_shared.cached import get_config
+
+                # Get database path from config
+                config = get_config()
+                db_path = config.get("database.path", "data")
+
+                # Ensure directory exists
+                os.makedirs(db_path, exist_ok=True)
+
+                # Write reset code to file in database path
+                reset_code_file = os.path.join(db_path, "reset_code.txt")
+                with open(reset_code_file, 'w') as f:
+                    f.write(f"Reset Code for admin generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Reset Code: {reset_code}\n")
+                    f.write(f"Expires: {(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+                st.success(f"✅ Reset code generated for {target_user['name']}")
+                st.info(f"🔑 **Reset Code:** `{reset_code}`")
+                st.info(f"📁 Reset code has been saved to `{reset_code_file}`")
+                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+            except Exception as e:
+                st.success(f"✅ Reset code generated for {target_user['name']}")
+                st.info(f"🔑 **Reset Code:** `{reset_code}`")
+                st.warning(f"⚠️ Could not save to file: {str(e)}")
+                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+        else:
+            st.success(f"✅ Reset code generated for {target_user['name']}")
+            st.info(f"🔑 **Reset Code:** `{reset_code}`")
+            st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
+
+        st.rerun()
     else:
         st.error("❌ Failed to generate reset code")
 
@@ -476,6 +510,26 @@ def _render_edit_form_fields(current_user: Dict[str, Any], user_to_edit: Dict[st
     with col_e2:
         edit_email = st.text_input("Email", value=user_to_edit.get('email', ''))
 
+    # User ID editing - only for admin users and not editing self
+    new_id = None
+    if current_user['role'] == UserRole.ADMIN.value and not is_editing_self:
+        st.subheader("User ID")
+        st.caption("⚠️ Changing user ID is a sensitive operation that may affect relationships")
+        col_id1, col_id2 = st.columns([3, 1])
+        with col_id1:
+            new_id = st.text_input(
+                "User ID",
+                value=user_to_edit['id'],
+                help="Change the user's unique identifier. Use with caution!"
+            )
+        with col_id2:
+            st.write("")
+            st.write("")
+            if new_id != user_to_edit['id']:
+                st.warning("⚠️ ID will be changed")
+    else:
+        st.caption(f"**User ID:** {user_to_edit['id']}")
+
     edit_role = user_to_edit.get('role')
     selected_parent = user_to_edit.get('parent_id')
 
@@ -524,6 +578,7 @@ def _render_edit_form_fields(current_user: Dict[str, Any], user_to_edit: Dict[st
     return {
         "name": edit_name,
         "email": edit_email,
+        "new_id": new_id if new_id and new_id != user_to_edit['id'] else None,
         "role": edit_role,
         "parent_id": selected_parent,
         "profile": profile_updates,
@@ -796,6 +851,10 @@ def _process_edit_submission(current_user: Dict[str, Any], user_id_to_edit: str,
                 "profile": edit_data["profile"]
             }
 
+            # Add new_id if provided (only for admin)
+            if edit_data.get("new_id") and current_user['role'] == UserRole.ADMIN.value and not is_editing_self:
+                updates["new_id"] = edit_data["new_id"].strip()
+
             # Add role and parent if admin editing
             if current_user['role'] == UserRole.ADMIN.value and not is_editing_self:
                 updates["role"] = edit_data["role"]
@@ -823,7 +882,11 @@ def _process_edit_submission(current_user: Dict[str, Any], user_id_to_edit: str,
             )
 
             if success:
-                st.success("✅ User updated successfully!")
+                # If ID was changed, show a message about the new ID
+                if updates.get("new_id") and updates["new_id"] != user_id_to_edit:
+                    st.success(f"✅ User updated successfully! New ID: {updates['new_id']}")
+                else:
+                    st.success("✅ User updated successfully!")
 
                 # Update session state if editing current user
                 if is_editing_self:
@@ -1100,11 +1163,23 @@ def _render_user_row(current_user: Dict[str, Any], user_role: str,
                 st.rerun()
 
         with cols[4]:
-            # Action buttons based on production mode
-            if production_mode:
+            # Check if current user can generate reset code for this user
+            can_generate_reset = False
+
+            # Admin can generate for anyone
+            if user_role == UserRole.ADMIN.value:
+                can_generate_reset = True
+            # Master can generate for their children (normal users)
+            elif user_role == UserRole.MASTER.value:
+                # Master can generate for normal users that are their children
+                if user.get('role') == UserRole.NORMAL.value:
+                    # Check if this user is a child of the current master
+                    if user.get('parent_id') == current_user['id']:
+                        can_generate_reset = True
+
+            if can_generate_reset:
                 # Check for existing reset code in database
                 user_manager = get_user_manager()
-                from sqlalchemy import create_engine
                 from core.database import get_db_manager
 
                 # Direct database query to check for reset code
@@ -1126,71 +1201,24 @@ def _render_user_row(current_user: Dict[str, Any], user_role: str,
                             else:
                                 # Code expired, show button to generate new one
                                 if st.button("🔑 New Reset Code",
-                                           key=f"reset_{user['id']}",
-                                           help=f"Generate new password reset code for {user['name']}",
-                                           width='stretch'):
+                                            key=f"reset_{user['id']}",
+                                            help=f"Generate new password reset code for {user['name']}",
+                                            width='stretch'):
                                     _generate_reset_code(user['id'], current_user['id'])
                         else:
                             # No reset code, show button to generate one
-                            if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-                                if st.button("🔑 Generate Code",
-                                           key=f"reset_{user['id']}",
-                                           help=f"Generate password reset code for {user['id']}",
-                                           width='stretch'):
-                                    _generate_reset_code(user['id'], current_user['id'])
+                            if st.button("🔑 Generate Code",
+                                        key=f"reset_{user['id']}",
+                                        help=f"Generate password reset code for {user['name']}",
+                                        width='stretch'):
+                                _generate_reset_code(user['id'], current_user['id'])
             else:
-                # Delete button (local/test mode only)
-                _render_delete_button(current_user, user)
+                # If user can't generate reset code, show placeholder or nothing
+                st.write("")  # Empty placeholder to maintain layout
+            _render_delete_button(current_user, user)
 
         st.divider()
 
-
-def _generate_reset_code(target_user_id: str, requesting_user_id: str):
-    """Generate a password reset code for a user."""
-    user_manager = get_user_manager()
-    reset_code = user_manager.generate_reset_code(target_user_id, requesting_user_id)
-
-    if reset_code:
-        target_user = user_manager.get_user(target_user_id)
-
-        # Special handling for admin user in production mode
-        if target_user and target_user.get('name', '').lower() == 'admin':
-            try:
-                import os
-                from datetime import datetime
-                from st_shared.cached import get_config
-
-                # Get database path from config
-                config = get_config()
-                db_path = config.get("database.path", "data")
-
-                # Ensure directory exists
-                os.makedirs(db_path, exist_ok=True)
-
-                # Write reset code to file in database path
-                reset_code_file = os.path.join(db_path, "reset_code.txt")
-                with open(reset_code_file, 'w') as f:
-                    f.write(f"Reset Code for admin generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"Reset Code: {reset_code}\n")
-                    f.write(f"Expires: {(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-                st.success(f"✅ Reset code generated for {target_user['name']}")
-                st.info(f"🔑 **Reset Code:** `{reset_code}`")
-                st.info(f"📁 Reset code has been saved to `{reset_code_file}`")
-                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
-            except Exception as e:
-                st.success(f"✅ Reset code generated for {target_user['name']}")
-                st.info(f"🔑 **Reset Code:** `{reset_code}`")
-                st.warning(f"⚠️ Could not save to file: {str(e)}")
-                st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
-        else:
-            st.success(f"✅ Reset code generated for {target_user['name']}")
-            st.info(f"🔑 **Reset Code:** `{reset_code}`")
-            st.warning("⚠️ This code will expire in 24 hours. Share it securely with the user.")
-
-        st.rerun()
-    else:
-        st.error("❌ Failed to generate reset code")
 
 def inject_ui_admin_tab():
     """Register the Users admin tab."""
