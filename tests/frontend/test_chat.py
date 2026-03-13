@@ -9,7 +9,7 @@ from tests.frontend.helpers import (
     reconstruct_response,
 )
 
-pytestmark = [pytest.mark.anyio, pytest.mark.ollama]
+pytestmark = [pytest.mark.asyncio, pytest.mark.ollama]
 
 
 async def test_stream_event_sequence(client, auth_headers, users, create_conversation):

@@ -15,14 +15,14 @@ from core.database import init_database
 from core.logging import configure_logging_from_dict, log
 from core.service import ServiceLocator, get_global_services, set_global_services
 from core.translate import LanguageService
-from shared.conversation import get_conversation_manager as _get_conversation_manager
-from shared.driver import get_driver as _get_driver
+from shared.common import get_conversation_manager as _get_conversation_manager
+from shared.common import get_driver as _get_driver
 from shared.llm import LLMManager
 from shared.module_handler import module_handler
 from shared.prompt_manager import get_prompt_manager, load_all_prompts
 from shared.semantic_eval import SemanticEvaluator
 from shared.settings import UserSettingsManager
-from shared.users import get_user_manager as _get_user_manager
+from shared.common import get_user_manager as _get_user_manager
 
 load_dotenv()
 
@@ -35,7 +35,8 @@ def bootstrap_services() -> ServiceLocator:
     init_database(use_memory=False, db_path=db_path)
 
     user_manager = _get_user_manager()
-    user_manager.init_default_users(config)
+    if not os.getenv("TEST_MODE"):
+        user_manager.init_default_users(config)
 
     conversation_manager = _get_conversation_manager()
     llm_manager = LLMManager(config)

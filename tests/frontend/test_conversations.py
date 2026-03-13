@@ -4,7 +4,7 @@ import pytest
 
 from tests.frontend.helpers import parse_sse_stream
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 async def test_conversation_crud_lifecycle(client, auth_headers, users):

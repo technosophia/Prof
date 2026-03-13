@@ -6,7 +6,7 @@ import os
 from jose import jwt
 import pytest
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 async def test_login_success(client, users):

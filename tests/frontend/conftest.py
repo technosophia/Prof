@@ -14,10 +14,31 @@ from core.logging import log
 from shared.common import get_user_manager
 
 
+def pytest_configure(config):
+    """Override asyncio_mode for this directory.
+
+    The root pyproject.toml sets asyncio_mode=strict which causes pytest-asyncio
+    to hijack tests marked with pytest.mark.anyio, running them as [asyncio]
+    parametrized tests with broken session-fixture lifecycle.
+    Setting auto here makes pytest-asyncio treat async test functions normally,
+    leaving pytest-anyio in control as intended.
+    """
+    config.option.__dict__.setdefault("asyncio_mode", "auto")
+    # Force override even if already set by pyproject.toml
+    try:
+        config._inicache["asyncio_mode"] = "auto"
+    except AttributeError:
+        pass
+
+
+@pytest.fixture(scope="session")
+def anyio_backend():
+    return "asyncio"
+
+
 @pytest.fixture(scope="session")
 def api_app():
     from api import app
-
     return app
 
 
@@ -32,7 +53,6 @@ async def client(api_app):
 def users() -> dict[str, dict]:
     raw = json.loads((Path(__file__).resolve().parents[1] / "initial_users.json").read_text(encoding="utf-8"))
     by_id = {u["id"]: u for u in raw["users"]}
-
     for user_id, user in by_id.items():
         role = user.get("role")
         if user_id == "admin":
@@ -114,7 +134,6 @@ def enforce_ollama_for_marked_tests(request):
             os.environ.pop("FORCE_LLM", None)
         else:
             os.environ["FORCE_LLM"] = previous_force
-
 
 
 @pytest.fixture

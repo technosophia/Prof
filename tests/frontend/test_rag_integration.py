@@ -4,7 +4,7 @@ import pytest
 
 from tests.frontend.helpers import assert_not_mock_response, parse_sse_stream, reconstruct_response
 
-pytestmark = [pytest.mark.anyio, pytest.mark.ollama, pytest.mark.slow]
+pytestmark = [pytest.mark.asyncio, pytest.mark.ollama, pytest.mark.slow]
 
 
 async def test_rag_voss_index_threshold(client, auth_headers, users, create_conversation):

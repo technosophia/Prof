@@ -4,7 +4,7 @@ import pytest
 
 from tests.frontend.helpers import parse_sse_stream
 
-pytestmark = [pytest.mark.anyio, pytest.mark.ollama]
+pytestmark = [pytest.mark.asyncio, pytest.mark.ollama]
 
 
 async def test_message_context_forbidden_for_normal_user(client, auth_headers, users, create_conversation):
