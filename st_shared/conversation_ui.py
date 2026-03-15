@@ -58,12 +58,15 @@ async def generate_llm_response(user_message, conversation_history, current_llm_
         if st.session_state.current_user:
             user_id = st.session_state.current_user['id']
 
+        conversation_id = st.session_state.get('current_conversation_id')
+
         # Use llm_conversation_generate with conversation history and RAG context
         response = await llm_conversation_generate(
             user_message.strip(),
             stream_callback,
             conversation_history=llm_history,
-            user_id=user_id
+            user_id=user_id,
+            conversation_id=conversation_id,
         )
 
         st.session_state.streaming_active = False

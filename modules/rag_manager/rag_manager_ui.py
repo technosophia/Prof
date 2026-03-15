@@ -191,38 +191,72 @@ def inject_ui_sidebar():
 def inject_ui_inside_conversation():
     """Render RAG debug context after conversation (when debug toggle is on)."""
     if not st.session_state.get('rag_debug_enabled', False):
+        log("debug", "RAG debug: toggle is OFF, skipping")
         return
-    if not st.session_state.get('last_rag_context'):
+
+    conversation_id = st.session_state.get('current_conversation_id')
+    if not conversation_id:
+        log("debug", "RAG debug: no current_conversation_id in session state, skipping")
         return
+
+    log("debug", f"RAG debug: fetching LLM calls for conversation_id={conversation_id}")
+
+    # Fetch the most recent LLM call for this conversation from the monitor DB
+    try:
+        from modules.llm_monitor.llm_monitor_factory import get_llm_monitor
+        from st_shared.cached import get_config, get_db_manager
+        monitor = get_llm_monitor(config=get_config(), db_manager=get_db_manager())
+        calls = monitor.get_llm_calls(conversation_id=conversation_id, limit=1)
+        log("debug", f"RAG debug: got {len(calls)} LLM call(s) for conversation {conversation_id}")
+        if not calls:
+            log("debug", "RAG debug: no LLM calls found, skipping")
+            return
+        last_call = calls[0]
+        log("debug", f"RAG debug: last call id={last_call.get('id')}, timestamp={last_call.get('timestamp')}, llm_id={last_call.get('llm_id')}")
+    except Exception as e:
+        log("warning", f"RAG debug: could not fetch LLM call: {e}")
+        return
+
+    # Inspect context_messages
+    context_messages = last_call.get("context_messages") or []
+    log("debug", f"RAG debug: context_messages count={len(context_messages)}")
+    for i, msg in enumerate(context_messages):
+        role = msg.get("role", "?")
+        content_preview = msg.get("content", "")[:80].replace("\n", " ")
+        log("debug", f"RAG debug: context_messages[{i}] role={role} content_preview='{content_preview}'")
+
+    # Extract RAG context messages
+    RAG_PREFIXES = ("Relevant context from documents:", "No result found for :")
+    rag_chunks = [
+        msg["content"] for msg in context_messages
+        if msg.get("role") == "system"
+        and any(msg.get("content", "").startswith(p) for p in RAG_PREFIXES)
+    ]
+    log("debug", f"RAG debug: matched {len(rag_chunks)} RAG chunk(s) using prefix filter")
+
+    if not rag_chunks:
+        log("debug", f"RAG debug: no RAG chunks matched — check prefixes vs actual content above")
+        return
+
+    rag_context = "\n\n".join(rag_chunks)
+    timestamp = last_call.get("timestamp", "")
+    log("debug", f"RAG debug: rendering expander with {len(rag_context)} chars of RAG context")
 
     with st.expander("🔍 RAG Debug Context", expanded=False):
         st.write("**Last RAG context injected into LLM:**")
-        context_text = st.session_state.last_rag_context
-        formatted = context_text.replace("---", "\n---")
         st.text_area(
             "Context",
-            formatted,
+            rag_context,
             height=200,
             key="rag_debug_context_display",
             label_visibility="collapsed",
         )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.session_state.get('last_rag_query'):
-                st.caption(f"**Query:** {st.session_state.last_rag_query}")
-        with col2:
-            if st.session_state.get('last_rag_timestamp'):
-                ts = datetime.fromtimestamp(st.session_state.last_rag_timestamp)
+        if timestamp:
+            try:
+                ts = datetime.fromisoformat(timestamp)
                 st.caption(f"**Retrieved:** {ts.strftime('%Y-%m-%d %H:%M:%S')}")
-
-        if st.button("Clear RAG Context History", type="secondary"):
-            st.session_state.last_rag_context = ""
-            st.session_state.last_rag_query = ""
-            st.session_state.last_rag_timestamp = 0
-            st.rerun()
-
-    return None
+            except Exception:
+                st.caption(f"**Retrieved:** {timestamp}")
 
 
 # ---------------------------------------------------------------------------

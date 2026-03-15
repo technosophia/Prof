@@ -261,10 +261,11 @@ async def llm_conversation_generate(
     stream_callback: Optional[Callable] = None,
     conversation_history: Optional[List[Dict]] = None,
     user_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
 ) -> str:
     """Simple interface to generate response from current LLM with conversation history."""
     manager = get_llm_manager()
-    return await manager.generate(message, stream_callback, conversation_history, user_id)
+    return await manager.generate(message, stream_callback, conversation_history, user_id, conversation_id)
 
 
 @require_services
