@@ -403,6 +403,11 @@ class RAGManager:
                     kwargs["engine_id"] = engine_id
                 instance = cls(**kwargs)
                 self.engines[engine_id] = instance
+                # Inject manager reference into compositional engines (e.g. RRF)
+                # that need to resolve sibling engines at search time.
+                # Uses hasattr so non-RRF engines are unaffected.
+                if hasattr(instance, 'set_manager'):
+                    instance.set_manager(self)
                 log("debug", f"RAGManager.instantiate_engines: created '{engine_id}' "
                             f"(type={engine_type})")
             except Exception as e:

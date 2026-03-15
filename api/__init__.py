@@ -22,7 +22,7 @@ from shared.module_handler import module_handler
 from shared.prompt_manager import get_prompt_manager, load_all_prompts
 from shared.semantic_eval import SemanticEvaluator
 from shared.settings import UserSettingsManager
-from shared.common import get_user_manager as _get_user_manager
+from shared.users import get_user_manager as _get_user_manager  # Changed import path
 
 load_dotenv()
 
@@ -34,14 +34,21 @@ def bootstrap_services() -> ServiceLocator:
     db_path = config.get("database.path", "sqlite:///data/app.db")
     init_database(use_memory=False, db_path=db_path)
 
-    user_manager = _get_user_manager()
+    # Create the services first WITHOUT using the @require_services decorated functions
+    from shared.users import UserManager
+    from shared.conversation import ConversationManager
+    from shared.driver import AppDriver
+
+    # Create instances directly
+    user_manager = UserManager()  # Direct instantiation instead of _get_user_manager()
+
     if not os.getenv("TEST_MODE"):
         user_manager.init_default_users(config)
 
-    conversation_manager = _get_conversation_manager()
+    conversation_manager = ConversationManager()  # Direct instantiation
     llm_manager = LLMManager(config)
     user_settings_manager = UserSettingsManager()
-    driver = _get_driver()
+    driver = AppDriver()  # Direct instantiation
     language_service = LanguageService()
 
     # Get default language from config, fallback to "en"
@@ -70,8 +77,10 @@ def bootstrap_services() -> ServiceLocator:
     services.register("language_service", language_service)
     services.register("semantic_eval", semantic_eval)
 
+    # Set global services BEFORE trying to use any @require_services functions
     set_global_services(services)
 
+    # Now that services are registered, we can initialize module handler
     module_handler.initialize()
     module_handler.activate_all()
 
