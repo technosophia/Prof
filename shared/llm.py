@@ -678,6 +678,9 @@ class LLMManager:
             log("error", error_msg)
             return error_msg
 
+        if hasattr(engine, "set_config"):
+            engine.set_config(llm_config)
+
         requires_api_key = llm_config.get("requires_api_key", False)
         if requires_api_key and not engine.is_available():
             error_msg = f"LLM {llm_id} requires API key which is not configured"
