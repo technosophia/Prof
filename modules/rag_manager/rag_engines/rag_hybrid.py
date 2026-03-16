@@ -9,6 +9,11 @@ Combines multiple retrieval strategies, all togglable via config:
   bm25_hybrid     : combine BM25 keyword score with cosine score (alpha blend)
   dynamic_chunks  : try multiple chunk sizes at query time, keep best-scoring hit per size
   use_summaries   : if the doc has >[!Résumé] blocks, inject them as extra high-weight chunks
+  structured_sheet: parse H2 sections as atomic units; embed signal fields (Question +
+                    Concept clé + Mots-clés), return the full sheet as display context.
+                    Designed for documents following the Question/Concept clé/Pertinence/
+                    Développement/Mots-clés schema. Disabling HyDE is recommended with
+                    this strategy since the Question field already acts as a query expander.
 
 No Streamlit dependency. Config is injected at construction time.
 
@@ -20,7 +25,7 @@ QUICK CONFIG REFERENCE (engines.hybrid section in config.json):
     "index_path": "data/hybrid_indexes",
     "similarity_threshold": 0.25,
 
-    "chunk_strategy": "sentence_window",
+    "chunk_strategy": "sentence_window",   # or "structured_sheet"
     "chunk_size": 400,
     "chunk_overlap": 60,
     "sentence_window_size": 3,
@@ -36,6 +41,17 @@ QUICK CONFIG REFERENCE (engines.hybrid section in config.json):
     "contextual_model": null
   }
 }
+
+STRUCTURED SHEET STRATEGY NOTES:
+---------------------------------
+Each H2 section is parsed into one chunk where:
+  - embed_text  = Question + Concept clé + Mots-clés + H1 group title
+    (lightweight signal optimised for cosine similarity against student queries)
+  - display_text = full H2 section content
+    (returned verbatim to the LLM as context)
+
+The >[!Résumé] and >[!concepts] blocks at H1 level are handled by _extract_summaries
+as before and injected as high-weight summary chunks when use_summaries=True.
 
 PROMPT KEYS (prompts.en.yaml / prompts.fr.yaml):
 ------------------------------------------------
@@ -109,6 +125,94 @@ def _split_sentences(text: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# Structured sheet parser helpers
+# ---------------------------------------------------------------------------
+
+# Field labels as they appear in the markdown (bold prefix pattern).
+# Supports both French field names used in the training corpus and
+# potential English variants so the engine stays forward-compatible.
+_SHEET_FIELD_RE = re.compile(
+    r"^\*\*(Question|Concept clé|Concept clé|Pertinence|Développement|Mots-clés|Source)\s*:\*\*\s*(.*)$",
+    re.IGNORECASE,
+)
+
+# Canonical field keys (normalised from the regex match group)
+_FIELD_ALIASES: Dict[str, str] = {
+    "question":      "question",
+    "concept clé":   "concept",
+    "concept clé":   "concept",
+    "pertinence":    "relevance",
+    "développement": "development",
+    "mots-clés":     "keywords",
+    "source":        "source",
+}
+
+
+def _parse_sheet_fields(block: str) -> Dict[str, str]:
+    """
+    Extract named fields from a single H2 block.
+    Multi-line field values are captured until the next bold field marker.
+    Returns a dict with keys: question, concept, relevance, development, keywords, source.
+    """
+    fields: Dict[str, str] = {}
+    current_key: Optional[str] = None
+    buffer: List[str] = []
+
+    def _flush():
+        if current_key:
+            fields[current_key] = " ".join(buffer).strip()
+
+    for line in block.splitlines():
+        m = _SHEET_FIELD_RE.match(line.strip())
+        if m:
+            _flush()
+            raw_key = m.group(1).strip().lower()
+            current_key = _FIELD_ALIASES.get(raw_key)
+            first_value = m.group(2).strip().strip('"')
+            buffer = [first_value] if first_value else []
+        elif current_key:
+            stripped = line.strip()
+            if stripped:
+                buffer.append(stripped)
+
+    _flush()
+    return fields
+
+
+def _build_embed_text(fields: Dict[str, str], h1_title: str, h2_title: str) -> str:
+    """
+    Compose the signal text used for embedding.
+
+    Included fields and rationale:
+      - H1 group title   : thematic anchor, helps cross-sheet disambiguation
+      - H2 sheet title   : specific topic label
+      - Question         : direct query-intent match
+      - Key concept      : TL;DR semantic core
+      - Relevance        : pedagogical context — explains WHY this sheet matters,
+                           bridges the gap between abstract concepts and student
+                           queries about practical application
+      - Keywords         : explicit vocabulary for BM25 and cosine coverage
+
+    Développement is intentionally excluded: its verbosity dilutes the
+    embedding signal without adding retrieval precision.
+    """
+    parts = []
+    if h1_title:
+        parts.append(f"Group: {h1_title}")
+    if h2_title:
+        parts.append(f"Sheet: {h2_title}")
+    if fields.get("question"):
+        parts.append(f"Question: {fields['question']}")
+    if fields.get("concept"):
+        parts.append(f"Key concept: {fields['concept']}")
+    if fields.get("relevance"):
+        parts.append(f"Relevance: {fields['relevance']}")
+    if fields.get("keywords"):
+        parts.append(f"Keywords: {fields['keywords']}")
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Main engine
 # ---------------------------------------------------------------------------
 
@@ -141,8 +245,6 @@ class HybridRAGEngine(RAGEngine):
 
     def _apply_config(self, cfg: Dict[str, Any]) -> None:
         """Write all config values onto self. Called at init and by update_config."""
-        # Default index path uses engine_id so named variants get isolated storage.
-        # e.g. engine_id="hybrid_no_hyde" → "data/hybrid_indexes/hybrid_no_hyde"
         default_path = f"data/hybrid_indexes/{self.engine_id}" if hasattr(self, "engine_id") else "data/hybrid_indexes"
         self.index_path           = Path(cfg.get("index_path", default_path))
         self.index_path.mkdir(parents=True, exist_ok=True)
@@ -155,20 +257,10 @@ class HybridRAGEngine(RAGEngine):
         self.dynamic_chunk_sizes  = cfg.get("dynamic_chunk_sizes", [150, 300, 500])
 
         self.use_hyde             = bool(cfg.get("hyde", True))
-        # Dotted key into prompts yaml, e.g. "rag_manager.hyde_prompt"
-        # None / absent → built-in fallback prompt is used
         self.hyde_prompt_key      = cfg.get("hyde_prompt_key", "rag_manager.hyde_prompt")
-        # hyde_use_summaries: when True, prepend the indexed >[!Résumé] blocks to the
-        # HyDE prompt so the LLM generates a grounded hypothetical answer instead of
-        # relying on its parametric knowledge of the domain.
-        # Default False — old behavior (ungrounded HyDE). Set True to experiment.
         self.hyde_use_summaries   = bool(cfg.get("hyde_use_summaries", False))
         self.use_bm25_hybrid      = bool(cfg.get("bm25_hybrid", True))
         self.bm25_alpha           = float(cfg.get("bm25_alpha", 0.5))
-        # bm25_rerank_only: when True, BM25 is used only as a tiebreaker AFTER cosine
-        # ranking, not as a co-equal blend. Fixes BM25 over-promotion of high-frequency
-        # topic words (e.g. "attention" in every chunk) that drowns out rare negation
-        # phrases. Recommended: True for domain-specific corpora with a dominant topic.
         self.bm25_rerank_only     = bool(cfg.get("bm25_rerank_only", True))
         self.use_summaries        = bool(cfg.get("use_summaries", True))
 
@@ -213,7 +305,7 @@ class HybridRAGEngine(RAGEngine):
         """
         current = self.get_config()
         current.update(overrides)
-        current["index_path"] = str(self.index_path)   # preserve, not user-editable
+        current["index_path"] = str(self.index_path)
         self._apply_config(current)
         self._log_active_config()
 
@@ -364,12 +456,81 @@ class HybridRAGEngine(RAGEngine):
                 start += step
         return chunks
 
+    def _structured_sheet_chunks(self, content: str, filename: str) -> List[Dict]:
+        """
+        Parse H1/H2 structure into atomic sheet chunks.
+
+        Each H2 section becomes one chunk:
+          - embed_text  : signal fields only (Question + Concept clé + Mots-clés + titles)
+                          optimised for cosine similarity against student queries
+          - display_text: full H2 section text returned verbatim as LLM context
+
+        H1 titles are tracked as group context but do not produce chunks themselves
+        (>[!Résumé] and >[!concepts] blocks are handled by _extract_summaries).
+
+        Sheets with no parseable signal fields fall back to embedding the full block
+        so no content is silently dropped.
+        """
+        chunks: List[Dict] = []
+        current_h1: str = ""
+        current_h2: str = ""
+        block_lines: List[str] = []
+
+        def _flush_block() -> None:
+            if not current_h2 or not block_lines:
+                return
+            block_text = "\n".join(block_lines).strip()
+            if not block_text:
+                return
+            fields = _parse_sheet_fields(block_text)
+            embed_text = _build_embed_text(fields, current_h1, current_h2)
+            # Fallback: if no signal fields were found, embed the full block
+            if not embed_text.strip():
+                embed_text = f"Sheet: {current_h2}\n{block_text}"
+            chunks.append({
+                "embed_text":   embed_text,
+                "display_text": f"## {current_h2}\n\n{block_text}",
+                "chunk_type":   "structured_sheet",
+                "filename":     filename,
+                "chapter":      current_h1,
+                "sheet_title":  current_h2,
+                "fields":       fields,
+                "is_summary":   False,
+            })
+
+        for line in content.splitlines():
+            stripped = line.strip()
+
+            if stripped.startswith("# ") and not stripped.startswith("## "):
+                # H1: flush current sheet, update group title, reset block
+                _flush_block()
+                current_h1 = stripped[2:].strip()
+                current_h2 = ""
+                block_lines = []
+
+            elif stripped.startswith("## "):
+                # H2: flush previous sheet, start a new one
+                _flush_block()
+                current_h2 = stripped[3:].strip()
+                block_lines = []
+
+            else:
+                # Accumulate body lines (includes >[!...] blocks — _extract_summaries
+                # handles those separately when use_summaries=True)
+                block_lines.append(line)
+
+        # Flush the final block
+        _flush_block()
+
+        return chunks
+
     def _build_chunks(self, content: str, filename: str) -> List[Dict]:
         dispatch = {
-            "fixed":           self._fixed_chunks,
-            "sentence":        self._sentence_chunks,
-            "sentence_window": self._sentence_window_chunks,
-            "dynamic":         self._dynamic_chunks,
+            "fixed":            self._fixed_chunks,
+            "sentence":         self._sentence_chunks,
+            "sentence_window":  self._sentence_window_chunks,
+            "dynamic":          self._dynamic_chunks,
+            "structured_sheet": self._structured_sheet_chunks,
         }
         fn = dispatch.get(self.chunk_strategy)
         if fn is None:
@@ -394,20 +555,18 @@ class HybridRAGEngine(RAGEngine):
              already holds a direct reference to the LLM manager.
         Raises RuntimeError if neither path works.
         """
-        # Path 1: standard service locator
         try:
             from shared.common import get_llm_manager
             return get_llm_manager()
-        except Exception as e1:
+        except Exception:
             pass
 
-        # Path 2: reach the LLM manager through the already-instantiated rag_manager
         try:
             from modules.rag_manager import get_rag_manager
             rag_mgr = get_rag_manager()
             if rag_mgr is not None and hasattr(rag_mgr, "llm_manager") and rag_mgr.llm_manager is not None:
                 return rag_mgr.llm_manager
-        except Exception as e2:
+        except Exception:
             pass
 
         raise RuntimeError(
@@ -426,10 +585,6 @@ class HybridRAGEngine(RAGEngine):
           - Streamlit (has a running loop): asyncio.run() inside a new thread
             is safe because the thread has no loop of its own.
           - Bench / subprocess (no running loop): same — works fine too.
-        Avoids both failure modes:
-          - asyncio.run() from a running loop → RuntimeError
-          - run_coroutine_threadsafe() deadlocking when the loop is also
-            waiting on the same thread (Streamlit's rerun mechanism).
         """
         import asyncio
         import concurrent.futures
@@ -483,10 +638,16 @@ class HybridRAGEngine(RAGEngine):
             self.indices[user_id].add(vecs)
             for chunk in chunks:
                 self.metadata[user_id].append({
-                    "embed_text": chunk["embed_text"], "content": chunk["display_text"],
-                    "filename": chunk["filename"], "chunk_type": chunk.get("chunk_type", "unknown"),
-                    "is_summary": chunk.get("is_summary", False), "chapter": chunk.get("chapter", ""),
-                    "file_size": file_size, "indexed_at": datetime.now().isoformat(),
+                    "embed_text":   chunk["embed_text"],
+                    "content":      chunk["display_text"],
+                    "filename":     chunk["filename"],
+                    "chunk_type":   chunk.get("chunk_type", "unknown"),
+                    "is_summary":   chunk.get("is_summary", False),
+                    "chapter":      chunk.get("chapter", ""),
+                    "sheet_title":  chunk.get("sheet_title", ""),
+                    "fields":       chunk.get("fields", {}),
+                    "file_size":    file_size,
+                    "indexed_at":   datetime.now().isoformat(),
                 })
             self._save_index(user_id)
             self._rebuild_bm25(user_id)
@@ -535,7 +696,6 @@ class HybridRAGEngine(RAGEngine):
                     "that directly answers the following question as if it were found in a "
                     "training document.\n\nQuestion: {query}\n\nAnswer:".format(query=query)
                 )
-            # Optionally prepend >[!Résumé] summary blocks to ground the LLM.
             if self.hyde_use_summaries:
                 ctx = self._get_hyde_summary_context()
                 if ctx:
@@ -565,7 +725,7 @@ class HybridRAGEngine(RAGEngine):
             score = cosine + epsilon * bm25   (epsilon = 0.01)
             This preserves cosine ranking for cases where the dominant topic word
             (e.g. "attention" in every chunk) would otherwise let BM25 swamp the
-            signal from rare but critical phrases (e.g. negations like "ne peut pas").
+            signal from rare but critical phrases.
         """
         bm25 = self.bm25s.get(user_id)
         if not self.use_bm25_hybrid or bm25 is None or not bm25.available:
@@ -575,13 +735,10 @@ class HybridRAGEngine(RAGEngine):
         bm25_raw = bm25.scores(_tokenise(query), n)
 
         if self.bm25_rerank_only:
-            # Tiebreaker: BM25 contributes at most 1% of the score range,
-            # so it can only reorder chunks within the same cosine tier.
             epsilon = 0.01
             cos_norm = (cosine_scores + 1.0) / 2.0
             return cos_norm + epsilon * bm25_raw
         else:
-            # Full blend: BM25 is a co-equal signal.
             cos_norm = (cosine_scores + 1.0) / 2.0
             return self.bm25_alpha * cos_norm + (1.0 - self.bm25_alpha) * bm25_raw
 
@@ -614,10 +771,15 @@ class HybridRAGEngine(RAGEngine):
                 if score < self.similarity_threshold: continue
                 meta = self.metadata[user_id][idx]
                 results.append({
-                    "filename": meta["filename"], "score": score,
-                    "cosine_score": float(all_cosine[idx]), "content": meta["content"],
-                    "chunk_type": meta.get("chunk_type", ""), "is_summary": meta.get("is_summary", False),
-                    "chapter": meta.get("chapter", ""), "threshold_used": self.similarity_threshold,
+                    "filename":         meta["filename"],
+                    "score":            score,
+                    "cosine_score":     float(all_cosine[idx]),
+                    "content":          meta["content"],
+                    "chunk_type":       meta.get("chunk_type", ""),
+                    "is_summary":       meta.get("is_summary", False),
+                    "chapter":          meta.get("chapter", ""),
+                    "sheet_title":      meta.get("sheet_title", ""),
+                    "threshold_used":   self.similarity_threshold,
                     "max_score_reached": None,
                 })
                 if len(results) >= limit: break

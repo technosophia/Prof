@@ -10,7 +10,7 @@
       ".json"
     ],
     "max_file_size_mb": 20,
-    "default_engine": "hybrid_bm25_blend",
+    "default_engine": "hybrid_bm25_blend_no_hyde",
     "engines": {
 
       "simple": {
@@ -83,7 +83,7 @@
       },
 
       "faiss_hier_cascade_tight": {
-        "_comment": "Cascade with tighter confidence gates. A stage must dominate more clearly before it fires. Tests whether requiring stronger confidence reduces false positives on ambiguous queries.",
+        "_comment": "Cascade with tighter confidence gates.",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — cascade, tighter confidence gates",
@@ -101,7 +101,7 @@
       },
 
       "faiss_hier_cascade_loose": {
-        "_comment": "Cascade with looser gates — stages fire more eagerly. Tests recall vs precision tradeoff: does firing earlier on weaker evidence help on synthesis queries?",
+        "_comment": "Cascade with looser gates — stages fire more eagerly.",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — cascade, loose confidence gates",
@@ -119,7 +119,7 @@
       },
 
       "faiss_hier_bm25_only": {
-        "_comment": "Pure BM25 retrieval, no dense search at all. Useful as a keyword baseline: high on exact-wording factual queries, weak on paraphrases and synthesis.",
+        "_comment": "Pure BM25 retrieval, no dense search at all.",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — BM25 only (keyword baseline)",
@@ -131,7 +131,7 @@
       },
 
       "faiss_hier_dense_only": {
-        "_comment": "Dense search over all chunks with confidence gate but no cascade. Falls back to flat threshold if no stage is clearly confident. Isolates the contribution of the confidence gate from the cascade structure.",
+        "_comment": "Dense search over all chunks with confidence gate but no cascade.",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — dense only, confidence-gated",
@@ -147,7 +147,7 @@
       },
 
       "faiss_hier_paragraph_only": {
-        "_comment": "Dense search restricted to fine-grained PARAGRAPH chunks only. Tests whether precise factual retrieval improves when the search space is limited to the smallest granularity.",
+        "_comment": "Dense search restricted to fine-grained PARAGRAPH chunks only.",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — paragraph-level dense only",
@@ -160,7 +160,7 @@
       },
 
       "faiss_hier_paragraph_wide": {
-        "_comment": "Paragraph-only retrieval with larger chunks (600 chars) and more overlap (100). Tests whether wider paragraph windows improve synthesis queries at the cost of precision.",
+        "_comment": "Paragraph-only retrieval with larger chunks (600 chars) and more overlap (100).",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — wide paragraph chunks (600 chars)",
@@ -173,7 +173,7 @@
       },
 
       "faiss_hier_section_only": {
-        "_comment": "Dense search restricted to SECTION chunks only. Each section is one ## block enriched with the chapter résumé — a middle-ground granularity between paragraph and summary.",
+        "_comment": "Dense search restricted to SECTION chunks only.",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — section-level dense only",
@@ -186,7 +186,7 @@
       },
 
       "faiss_hier_summary_only": {
-        "_comment": "Dense search on SUMMARY chunks only (>[!Résumé] blocks). Useful for broad conceptual queries and as a diagnostic: does the summary alone contain enough signal to answer?",
+        "_comment": "Dense search on SUMMARY chunks only (>[!Résumé] blocks).",
         "type": "faiss_hierarchical",
         "enabled": false,
         "description": "FAISS hierarchical — summary-level dense only",
@@ -296,7 +296,7 @@
 
       "hybrid_bm25_blend_no_hyde": {
         "type": "hybrid",
-        "enabled": false,
+        "enabled": true,
         "description": "Hybrid: full BM25 blend (alpha=0.6), no HyDE",
         "index_path": "data/hybrid_indexes/hybrid_bm25_blend_no_hyde",
         "similarity_threshold": 0.25,
@@ -329,6 +329,76 @@
         "use_summaries": true,
         "contextual_chunking": false,
         "contextual_model": null
+      },
+
+      "structured_sheet": {
+        "_comment": "Optimised for the Question/Concept clé/Pertinence/Développement/Mots-clés schema. Embeds signal fields only (Question + Concept clé + Mots-clés), returns full sheet as context. HyDE disabled — the Question field already acts as a built-in query expander. BM25 full blend recommended: keywords are diverse and discriminative across sheets.",
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Structured sheet parser — embeds signal fields, returns full sheet",
+        "index_path": "data/hybrid_indexes/structured_sheet",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "structured_sheet",
+        "hyde": false,
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.5,
+        "bm25_rerank_only": false,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
+      },
+
+      "structured_sheet_bm25_heavy": {
+        "_comment": "Structured sheet with heavier BM25 weight (alpha=0.7). Tests whether keyword-rich Mots-clés fields give BM25 enough discriminative power to warrant a larger blend share.",
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Structured sheet — BM25-heavy blend (alpha=0.7)",
+        "index_path": "data/hybrid_indexes/structured_sheet_bm25_heavy",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "structured_sheet",
+        "hyde": false,
+        "bm25_hybrid": true,
+        "bm25_alpha": 0.7,
+        "bm25_rerank_only": false,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
+      },
+      "structured_sheet_dense_only": {
+        "_comment": "Structured sheet with pure cosine search, no BM25. Baseline to measure the isolated contribution of the signal-field embedding strategy.",
+        "type": "hybrid",
+        "enabled": true,
+        "description": "Structured sheet — dense only (BM25 disabled, cosine baseline)",
+        "index_path": "data/hybrid_indexes/structured_sheet_dense_only",
+        "similarity_threshold": 0.25,
+        "chunk_strategy": "structured_sheet",
+        "hyde": false,
+        "bm25_hybrid": false,
+        "use_summaries": true,
+        "contextual_chunking": false,
+        "contextual_model": null
+      },
+
+      "rrf_blend_sheet": {
+        "_comment": "RRF fusion of hybrid_bm25_blend (strong on precise/factual queries L2-L4/L7) and structured_sheet (strong on semantic/paraphrase queries L5/L6/L9). Complementary strengths validated by benchmark.",
+        "type": "rrf",
+        "enabled": true,
+        "description": "RRF ensemble: hybrid_bm25_blend + structured_sheet",
+        "engine_a": "hybrid_bm25_blend",
+        "engine_b": "structured_sheet",
+        "rrf_k": 60,
+        "limit": 5
+      },
+
+      "rrf_blend_sheet_heavy": {
+        "_comment": "Same RRF fusion but using structured_sheet_bm25_heavy as engine_b. To benchmark once structured_sheet_bm25_heavy is correctly re-indexed.",
+        "type": "rrf",
+        "enabled": true,
+        "description": "RRF ensemble: hybrid_bm25_blend + structured_sheet_bm25_heavy",
+        "engine_a": "hybrid_bm25_blend",
+        "engine_b": "structured_sheet_bm25_heavy",
+        "rrf_k": 60,
+        "limit": 5
       }
     }
   }
