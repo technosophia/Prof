@@ -555,25 +555,44 @@ class HybridRAGEngine(RAGEngine):
              already holds a direct reference to the LLM manager.
         Raises RuntimeError if neither path works.
         """
+        import traceback
+
+        # Path 1: Through shared.common (with @require_services decorator)
         try:
             from shared.common import get_llm_manager
-            return get_llm_manager()
-        except Exception:
-            pass
+            llm_manager = get_llm_manager()
+            if llm_manager is not None:
+                return llm_manager
+            else:
+                log("debug", "HybridRAG: get_llm_manager() returned None")
+        except Exception as e:
+            # Log the full stack trace of the exception
+            stack = traceback.format_exc()
+            log("error", f"HybridRAG: get_llm_manager() failed with exception:\n{stack}")
+            # Don't return here, try the next path
 
+        # Path 2: Through rag_manager.llm_manager reference
         try:
             from modules.rag_manager import get_rag_manager
             rag_mgr = get_rag_manager()
             if rag_mgr is not None and hasattr(rag_mgr, "llm_manager") and rag_mgr.llm_manager is not None:
                 return rag_mgr.llm_manager
-        except Exception:
-            pass
+            else:
+                log("debug", f"HybridRAG: rag_manager path failed - rag_mgr={rag_mgr}, has llm_manager={hasattr(rag_mgr, 'llm_manager') if rag_mgr else False}")
+        except Exception as e:
+            stack = traceback.format_exc()
+            log("error", f"HybridRAG: rag_manager path failed with exception:\n{stack}")
 
-        raise RuntimeError(
+        # If we get here, both paths failed
+        error_msg = (
             "HybridRAG: cannot resolve LLM manager — "
             "service locator not initialized and rag_manager.llm_manager not set. "
             "HyDE/contextual features require the app to be fully started."
         )
+        log("error", error_msg)
+
+        # Raise with full context
+        raise RuntimeError(error_msg)
 
     def _llm_one_shot(self, prompt: str, max_tokens: int = 200) -> str:
         """
