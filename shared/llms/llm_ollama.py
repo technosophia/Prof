@@ -7,7 +7,7 @@ import json
 import re
 import requests
 from typing import List, Dict, Any, Optional, Callable
-from shared.llm_engine import LLMEngine, GenerateResult
+from shared.llm_engine import LLMEngine, GenerateResult, _debug_log_messages
 
 
 from core.logging import log, set_log_module_level

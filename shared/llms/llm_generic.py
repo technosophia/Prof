@@ -16,7 +16,7 @@ Configure via config.json:
 
 import os
 from typing import List, Dict, Any, Optional, Callable
-from shared.llm_engine import LLMEngine, GenerateResult
+from shared.llm_engine import LLMEngine, GenerateResult, _debug_log_messages
 from core.logging import log
 
 try:

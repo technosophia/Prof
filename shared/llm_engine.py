@@ -5,6 +5,7 @@ Base LLM Engine Interface
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
+from core.logging import log
 
 
 @dataclass
@@ -72,3 +73,34 @@ class LLMEngine(ABC):
     def get_supported_models(self) -> List[str]:
         """Get list of supported models for this engine."""
         pass
+
+
+def _debug_log_messages(engine_name: str, messages: List[Dict[str, str]], max_preview_lines: int = 2) -> None:
+    """Log truncated conversation history for debugging.
+
+    Args:
+        engine_name: Name of the engine (for log prefix)
+        messages: List of message dictionaries
+        max_preview_lines: Max lines to show from each message content
+    """
+    if not messages:
+        log("info", f"[{engine_name}] No messages to log")
+        return
+
+    log("info", f"[{engine_name}] Conversation history ({len(messages)} messages):")
+
+    for i, msg in enumerate(messages):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+
+        # Truncate content to first few lines
+        lines = content.split('\n')
+        preview_lines = lines[:max_preview_lines]
+
+        if len(lines) > max_preview_lines:
+            preview_lines.append("...")
+
+        preview = '\n'.join(preview_lines)
+        preview = preview[:150] + "..." if len(preview) > 150 else preview
+
+        log("info", f"[{engine_name}]   [{i}] {role}: {preview!r}")
