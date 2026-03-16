@@ -1,0 +1,24 @@
+{
+  "feedback": {
+    "check_translation": "Feedback translation loaded",
+    "title": "Feedback",
+    "description": "Share your feedback with the team.",
+    "login_required": "Please log in to submit feedback.",
+    "last_message_sentiment": "Last message rating",
+    "last_message_comment": "Optional comment",
+    "submit_last_message": "Submit last message feedback",
+    "conversation_comment": "Current conversation feedback",
+    "submit_conversation": "Submit conversation feedback",
+    "app_comment": "App feedback",
+    "app_rating": "App rating (1-5)",
+    "submit_app": "Submit app feedback",
+    "saved": "Feedback saved.",
+    "admin_title": "Latest feedback",
+    "filter_type": "Filter by type",
+    "filter_sentiment": "Filter by sentiment",
+    "clear_all": "Clear all",
+    "admin_only": "Admin access required.",
+    "cleared": "Cleared {count} feedback entries.",
+    "empty": "No feedback yet."
+  }
+}

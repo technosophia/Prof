@@ -3,6 +3,7 @@
     "benchmarker",
     "debug",
     "demo",
+    "feedback",
     "llm_monitor",
     "mem_bench",
     "rag_bench",
@@ -11,5 +12,5 @@
     "test",
     "trainer"
   ],
-  "total_modules": 10
+  "total_modules": 11
 }

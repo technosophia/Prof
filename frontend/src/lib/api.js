@@ -67,6 +67,19 @@ export const masquerade = {
   as: (targetUserId) => post('/api/auth/masquerade', { target_user_id: targetUserId }),
 }
 
+
+
+export const feedback = {
+  message: (conversationId, messageIndex, sentiment, comment = '') =>
+    post('/api/feedback/message', { conversation_id: conversationId, message_index: messageIndex, sentiment, comment }),
+
+  conversation: (conversationId, comment) =>
+    post('/api/feedback/conversation', { conversation_id: conversationId, comment }),
+
+  app: (comment, rating = null) =>
+    post('/api/feedback/app', { comment, rating }),
+}
+
 export const messageContext = {
   get: (conversationId, messageIndex, timestamp) =>
     get(

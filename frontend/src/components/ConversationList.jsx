@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
+import { MessageSquarePlus, X } from 'lucide-react'
+
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { X } from 'lucide-react'
 
 function relTime(iso) {
   if (!iso) return ''
@@ -12,12 +13,22 @@ function relTime(iso) {
   return `${Math.max(1, m)}m ago`
 }
 
-export default function ConversationList({ conversations, currentId, onSelect, onCreate, onRename, onDelete, onLogout, open, onClose }) {
+export default function ConversationList({
+  conversations,
+  currentId,
+  onSelect,
+  onCreate,
+  onRename,
+  onDelete,
+  onLogout,
+  open,
+  onClose,
+  onFeedback,
+}) {
   const items = useMemo(() => conversations || [], [conversations])
 
   return (
     <>
-      {/* Mobile backdrop */}
       {open && (
         <div
           className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm md:hidden"
@@ -25,22 +36,17 @@ export default function ConversationList({ conversations, currentId, onSelect, o
         />
       )}
 
-      {/* Sidebar panel */}
       <aside
         className={[
-          // Base layout
           'flex flex-col border-r border-slate-800 bg-slate-950',
-          // Mobile: fixed drawer sliding in from left
           'fixed inset-y-0 left-0 z-30 w-72 transition-transform duration-300 ease-in-out',
           open ? 'translate-x-0' : '-translate-x-full',
-          // Desktop: static, always visible, fixed width
           'md:static md:w-80 md:translate-x-0 md:transition-none md:z-auto',
         ].join(' ')}
       >
         <div className="flex items-center gap-2 p-3">
           <Button className="flex-1" onClick={onCreate}>+ New conversation</Button>
           <Button className="bg-slate-700 hover:bg-slate-600 shrink-0" onClick={onLogout}>Logout</Button>
-          {/* Close button — mobile only */}
           <button
             className="ml-1 rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 md:hidden"
             onClick={onClose}
@@ -84,6 +90,19 @@ export default function ConversationList({ conversations, currentId, onSelect, o
             </div>
           ))}
         </div>
+
+        {currentId && typeof onFeedback === 'function' && (
+          <div className="p-3 pt-2">
+            <button
+              type="button"
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+              onClick={onFeedback}
+            >
+              <MessageSquarePlus size={14} />
+              Give feedback
+            </button>
+          </div>
+        )}
       </aside>
     </>
   )

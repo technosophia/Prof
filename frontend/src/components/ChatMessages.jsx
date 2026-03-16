@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { ThumbsDown, ThumbsUp } from 'lucide-react'
 
-import { messageContext } from '@/lib/api'
+import { feedback, messageContext } from '@/lib/api'
 
 function renderInlineMarkdown(text) {
   const parts = []
@@ -121,6 +122,9 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
   const bottomRef = useRef(null)
   const [expandedIdx, setExpandedIdx] = useState(null)
   const [contextData, setContextData] = useState({})
+  const [messageVotes, setMessageVotes] = useState({})
+  const [voteLoading, setVoteLoading] = useState({})
+  const [voteError, setVoteError] = useState({})
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -146,12 +150,32 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
     setExpandedIdx(idx)
   }
 
+  async function onVoteMessage(idx, sentiment) {
+    if (!conversationId || voteLoading[idx] || messageVotes[idx]) return
+    setVoteLoading((prev) => ({ ...prev, [idx]: true }))
+    setVoteError((prev) => ({ ...prev, [idx]: false }))
+
+    try {
+      await feedback.message(conversationId, idx, sentiment)
+      setMessageVotes((prev) => ({ ...prev, [idx]: sentiment }))
+    } catch (error) {
+      setVoteError((prev) => ({ ...prev, [idx]: true }))
+      window.setTimeout(() => {
+        setVoteError((prev) => ({ ...prev, [idx]: false }))
+      }, 2000)
+    } finally {
+      setVoteLoading((prev) => ({ ...prev, [idx]: false }))
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-4 min-h-0">
       <div className="space-y-4 max-w-3xl mx-auto">
         {messages.map((m, idx) => {
           const inspectable = canInspect && m.role === 'assistant'
           const currentContext = contextData[idx]
+          const showThumbs = m.role === 'assistant' && !streaming
+          const disabledVote = voteLoading[idx] || !!messageVotes[idx]
 
           return (
             <div key={`msg-${idx}-${m.role}`} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -176,6 +200,30 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
                     <span className="ml-1 animate-pulse">▌</span>
                   ) : null}
                 </div>
+
+                {showThumbs && (
+                  <div className="mt-1 ml-2 flex items-center gap-2 text-slate-500">
+                    <button
+                      type="button"
+                      className={`rounded p-1 transition hover:text-green-400 ${messageVotes[idx] === 'positive' ? 'text-green-400 bg-slate-800' : ''}`}
+                      onClick={() => onVoteMessage(idx, 'positive')}
+                      disabled={disabledVote}
+                      aria-label="Helpful"
+                    >
+                      <ThumbsUp size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded p-1 transition hover:text-red-400 ${messageVotes[idx] === 'negative' ? 'text-red-400 bg-slate-800' : ''}`}
+                      onClick={() => onVoteMessage(idx, 'negative')}
+                      disabled={disabledVote}
+                      aria-label="Not helpful"
+                    >
+                      <ThumbsDown size={14} />
+                    </button>
+                    {voteError[idx] && <span className="inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />}
+                  </div>
+                )}
 
                 {canInspect && expandedIdx === idx && currentContext && (
                   <div className="mt-1 ml-2 text-xs bg-slate-900 border border-slate-700 rounded p-2 max-w-[85%]">

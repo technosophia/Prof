@@ -1,0 +1,8 @@
+{
+  "modules": {
+    "feedback": {
+      "max_display": 37,
+      "sidebar_expanded": false
+    }
+  }
+}

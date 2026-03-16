@@ -1,0 +1,9 @@
+{
+  "name": "feedback",
+  "version": "1.0.0",
+  "description": "Collect user and admin feedback",
+  "author": "System",
+  "enabled_by_default": true,
+  "category": "system",
+  "dependencies": []
+}
