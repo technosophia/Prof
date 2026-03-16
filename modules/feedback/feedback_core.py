@@ -85,10 +85,16 @@ def submit_feedback(
 
 def get_feedback_rows(db_manager, user_manager, *, limit: int, feedback_type: Optional[str] = None, sentiment: Optional[str] = None) -> list[dict[str, Any]]:
     rows = list_feedback(db_manager, limit=limit, feedback_type=feedback_type, sentiment=sentiment)
+    if not rows:
+        return []
+
+    # Fetch all users at once to avoid N+1 queries in the loop.
+    all_users = user_manager.get_all_users_dict()
+
     result = []
     for row in rows:
-        user = user_manager.get_user(row["user_id"])
-        username = user.get("name", row["user_id"]) if isinstance(user, dict) and user else row["user_id"]
+        user = all_users.get(row["user_id"])
+        username = user.get("name", row["user_id"]) if user else row["user_id"]
         result.append({**row, "username": username})
     return result
 
