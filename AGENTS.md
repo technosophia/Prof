@@ -6,10 +6,11 @@ This is the main entry point for agents, it helps to find autonomously the infor
 This is a LLM training compagnon application. Basically it's a specialized RAG and Memory agent. The RAG and Memory are adapted to the context of training and to the formation content. The agent can be proactive and have more sophisticated functions, but the core is just that : Training RAG + student conversation memory.
 
 # Essentials
-`streamlit run prof.py` to launch the application
-`pytest` to run the all tests using conftest.py
-`uvicorn api:app --host 0.0.0.0 --port 8000 --reload` to run the frontend
-The app has agent observability via the configuratble logging system that can be changed in config.json.
+* `streamlit run prof.py` to launch the application backoffice
+* `pytest` to run the all (unit and integration) tests using conftest.py
+* `uvicorn api:app --host 0.0.0.0 --port 8000 --reload` to run the frontend for endusers
+
+The app has agent observability via the configuratble logging system that can be changed in config.json or with FORCE_LOG=level.
 
 # Rules
 When coding or documenting :
@@ -29,6 +30,9 @@ The project has a nested structure this way :
 /core : code that help coding the rest, meta-code. Depends on nothing.
 /shared : all that is shared accross modules. Depends only on core.
 /modules : the implementation of the specs. Depends on core and shared. No dependencies between modules.
+  The goal of a module is to implement one functionnal unity. If the directory is deleted, everything related with the module is deleted : doc, tests, translations, configuration, code, dependencies. The rest of the app should work without any issue. The module uses injection points for it's ui, and callbacks for it's behavior.
+/api : the frontend API, depends on core and shared.
+/frontend : the frontend UI, depends on core and shared.
 
 
 /AGENTS.md : this file, help to navigate the project doc and code
@@ -41,24 +45,7 @@ The project has a nested structure this way :
 
 Anywhere in a directory : 
 AGENTS.md : help find information for agents in that directory
-_docs/CODE.md : global principle to apply when coding, technical specifications
-_docs/API.md and _docs/API_xxx.md : automatically generated from docstrings - the goal is to avoid reading all the .py as much as possible. Function signature and doc.
-
-# How is the project organized ?
-The main goal is modularity.
-
-The modularity rule : files are organized so that deleting a directory delete a "unit" of things related to each other. If a functionnality is deleted, deleting the directory delete also : code, but also doc, translations, tests, and so on. It's the fundamental principle of modularity.
-
-The goal of a module is to implement one functionnal unity. It's a semantic closure (kind of markov blanket). 
-
-prof.py              ← Streamlit entry point (st.run)
-core/                ← observability, logging, config (framework-agnostic)
-shared/              ← always-on module: users, conversations, LLM, module_handler
-modules/             ← pluggable features (each is a semantic unit)
-st_shared/           ← Streamlit-specific UI components shared across modules
-tests/               ← BDD integration tests (pytest-bdd + .feature files)
-tools/               ← dev scripts (API doc generation, migrations)
-_docs/               ← docs associated with AGENTS.md
+_docs/xxx.md : detailled documentation for the project
 
 # Special directories and files
 */translations : contains translations en.json, fr.json and so on, related to the parent directory.
@@ -68,6 +55,8 @@ _docs/               ← docs associated with AGENTS.md
 */local_config.json : contains overrides for the local environement (prod/dev/preprod)
 
 # Commands
-streamlit run prof.py              # run the main app
-pytest tests/                      # unit tests and BDD tests
+```bash
 python tools/generate_api_docs.py  # regenerate API_*.md
+tools/restart-frontend.sh to regenerate the frontend
+tools/start-tunnel.sh to connect the app to a remote database
+```
