@@ -97,6 +97,7 @@ if not jwt_secret:
 from api.auth import router as auth_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
+from api.feedback import router as feedback_router
 
 
 
@@ -117,6 +118,7 @@ def create_app(services: ServiceLocator | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(conversations_router)
     app.include_router(chat_router)
+    app.include_router(feedback_router)
 
     frontend_dist = Path(__file__).parent.parent / "frontend_dist"
     assets_dir = frontend_dist / "assets"

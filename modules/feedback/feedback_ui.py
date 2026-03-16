@@ -19,7 +19,7 @@ def _warn_missing_injection_points_once() -> None:
     if st.session_state.get(WARNED_GAPS_KEY):
         return
     st.session_state[WARNED_GAPS_KEY] = True
-    log("warning", "feedback: sidebar_bottom/message_footer injection points are unavailable, using sidebar fallback")
+    log("info", "feedback: using sidebar injection for feedback entry points")
 
 
 def _render_feedback_form() -> None:

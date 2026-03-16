@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Menu } from 'lucide-react'
 import { auth, conversations, masquerade, regenerateLastResponse, streamChat } from '@/lib/api'
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import ConversationList from '@/components/ConversationList'
 import ChatMessages from '@/components/ChatMessages'
 import ChatInput from '@/components/ChatInput'
+import FeedbackModal from '@/components/FeedbackModal'
 
 export default function Chat() {
   const [user, setUser] = useState(null)
@@ -17,6 +18,7 @@ export default function Chat() {
   const [masqueradeTargets, setMasqueradeTargets] = useState([])
   const [isMasquerading, setIsMasquerading] = useState(false)
   const [masqueraderId, setMasqueraderId] = useState(null)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const navigate = useNavigate()
   const isPowerUser = user?.role === 'admin' || user?.role === 'master' || !!user?.masquerader_id
 
@@ -178,6 +180,12 @@ export default function Chat() {
   }
 
   const currentTitle = list.find((c) => c.id === currentId)?.title ?? ''
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'assistant') return i
+    }
+    return -1
+  }, [messages])
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -191,6 +199,7 @@ export default function Chat() {
         onLogout={onLogout}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onFeedback={() => setFeedbackOpen(true)}
       />
 
       <section className="flex flex-1 flex-col min-w-0">
@@ -266,6 +275,12 @@ export default function Chat() {
           conversationId={currentId}
         />
         <ChatInput onSend={onSend} disabled={streaming || !currentId} />
+        <FeedbackModal
+          open={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+          conversationId={currentId}
+          lastAssistantIndex={lastAssistantIndex}
+        />
       </section>
     </div>
   )
