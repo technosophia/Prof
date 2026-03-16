@@ -50,6 +50,13 @@ export const auth = {
   login: (userId, password) => post('/api/auth/login', { user_id: userId, password }),
   initPassword: (userId, resetCode, newPassword) =>
     post('/api/auth/init-password', { user_id: userId, reset_code: resetCode, new_password: newPassword }),
+  register: (email, password, confirmPassword, suggestedId = null) =>
+    post('/api/auth/register', {
+      email,
+      password,
+      confirm_password: confirmPassword,
+      ...(suggestedId ? { suggested_id: suggestedId } : {}),
+    }),
   me: () => get('/api/auth/me'),
 }
 
