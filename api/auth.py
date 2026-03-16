@@ -2,8 +2,6 @@ from datetime import datetime, timedelta, timezone
 import os
 from typing import Optional
 
-from core.config import get_config
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from jose import jwt
@@ -96,12 +94,6 @@ def _sanitize_user_id(raw_user_id: str) -> str:
         candidate = candidate.replace("__", "_")
     return candidate.strip("_")
 
-
-def _get_preregistered_emails() -> set[str]:
-    config = get_config()
-    configured = config.get("registration.preregistered_emails", []) or []
-    return {str(email).strip().lower() for email in configured if str(email).strip()}
-
 def _create_token(user: dict, masquerader_id: Optional[str] = None) -> str:
     secret = os.getenv("JWT_SECRET")
     if not secret:
@@ -143,10 +135,9 @@ async def register(payload: RegisterRequest):
     if not derived_user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_user_id")
 
-    preregistered_emails = _get_preregistered_emails()
-    registration_status = "approved" if email in preregistered_emails else "pending"
-
     user_manager = get_user_manager()
+    registration_status = "approved" if user_manager.is_email_preregistered(email) else "pending"
+
 
     if user_manager.get_user(derived_user_id):
         return JSONResponse(

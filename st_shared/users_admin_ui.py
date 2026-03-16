@@ -60,7 +60,7 @@ def show_users_admin_content():
 
     # Create main tabs
     if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-        tab_names = ["📋 Manage Users", "➕ Create User"]
+        tab_names = ["📋 Manage Users", "➕ Create User", "📧 Pre-registered Emails"]
 
         # Add Activity Logs tab for production mode
         if production_mode:
@@ -71,29 +71,95 @@ def show_users_admin_content():
 
         tabs = st.tabs(tab_names)
 
-        # Tab 1: Manage Users
         with tabs[0]:
             _render_user_management_tab(current_user, user_role, user_id, manageable_users, production_mode)
 
-        # Tab 2: Create User
         with tabs[1]:
             _render_create_user_tab(current_user, user_role, production_mode)
 
-        # Tab 3: Activity Logs (if in production mode)
-        if production_mode and len(tabs) > 2 and tab_names[2] == "📊 Activity Logs":
-            with tabs[2]:
+        with tabs[2]:
+            _render_preregistered_emails_tab(current_user)
+
+        activity_logs_idx = 3
+        if production_mode and len(tabs) > activity_logs_idx:
+            with tabs[activity_logs_idx]:
                 _render_activity_logs_tab(current_user, user_role, user_id)
 
-        # Tab 4: Import/Export (Admin only)
         if user_role == UserRole.ADMIN.value:
-            # Find the import/export tab index
-            import_export_idx = 2 if not production_mode else 3
+            import_export_idx = activity_logs_idx + 1 if production_mode else 3
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
                     _render_import_export_tab(current_user)
 
     else:  # Should not happen due to can_access_admin_tab check
         st.info("No users found that you can manage.")
+
+
+def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
+    """Render pre-registered email import/management."""
+    st.subheader("📧 Pre-registered Emails")
+
+    user_manager = get_user_manager()
+    import_tab, manage_tab = st.tabs(["📥 Import CSV", "📋 Manage List"])
+
+    with import_tab:
+        uploaded_file = st.file_uploader(
+            "Upload a CSV file with pre-registered emails",
+            type=["csv"],
+            key="preregistered_emails_csv_uploader",
+        )
+
+        if uploaded_file is not None:
+            try:
+                csv_content = uploaded_file.getvalue().decode("utf-8")
+            except UnicodeDecodeError:
+                st.error("❌ Could not decode CSV file as UTF-8")
+            else:
+                result = user_manager.import_preregistered_emails(
+                    csv_content,
+                    requesting_user_id=current_user.get("id"),
+                )
+
+                st.success(
+                    f"Imported: {result['imported']} | Skipped duplicates: {result['skipped']}"
+                )
+
+                if result["invalid"]:
+                    st.warning("Invalid emails skipped:")
+                    for invalid_email in result["invalid"]:
+                        st.caption(f"- {invalid_email}")
+
+                if result["errors"]:
+                    for error in result["errors"]:
+                        st.error(error)
+
+        with st.expander("Expected CSV format"):
+            st.code(
+                "email\n"
+                "alice@example.com\n"
+                "bob@company.org\n\n"
+                "Accepted headers: email, e-mail, mail, email address, e-mail address, courriel",
+                language="text",
+            )
+
+    with manage_tab:
+        preregistered = user_manager.get_preregistered_emails()
+        st.caption(f"Total pre-registered emails: {len(preregistered)}")
+
+        if not preregistered:
+            st.info("No pre-registered emails yet. Use the Import CSV tab to add some.")
+            return
+
+        for row in preregistered:
+            cols = st.columns([4, 2, 2, 1])
+            cols[0].write(row["email"])
+            cols[1].caption(row.get("added_at") or "-")
+            cols[2].caption(row.get("added_by") or "-")
+            if cols[3].button("🗑️ Remove", key=f"remove_preregistered_{row['email']}", width='stretch'):
+                if user_manager.delete_preregistered_email(row["email"]):
+                    st.rerun()
+                st.error("❌ Failed to remove email")
+
 
 
 def _render_activity_logs_tab(current_user: Dict[str, Any], user_role: str, user_id: str):

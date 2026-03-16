@@ -54,6 +54,9 @@ import hashlib
 import secrets
 import json
 import os
+import csv
+import io
+import re
 from typing import Dict, List, Optional, Any, Set, Tuple
 from datetime import datetime, timedelta
 from enum import Enum
@@ -63,6 +66,7 @@ from sqlalchemy.orm import Session, relationship, joinedload
 
 from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
+from core.config import get_config
 from core.callback import register_callback, unregister_callback, clear_callbacks
 
 
@@ -113,6 +117,15 @@ class UserTable(Base):
     # Relationships - define them explicitly
     parent = relationship("UserTable", remote_side=[id], back_populates="children")
     children = relationship("UserTable", back_populates="parent")
+
+
+class PreregisteredEmail(Base):
+    """Pre-registered emails accepted for auto-approved registration."""
+    __tablename__ = 'preregistered_emails'
+
+    email = Column(String(255), primary_key=True)
+    added_at = Column(DateTime, default=datetime.utcnow)
+    added_by = Column(String(36), nullable=True)
 
 
 class UserActionLog(Base):
@@ -183,6 +196,18 @@ class UserManager:
             return True
         except Exception as e:
             log("error", f"Failed to ensure action log table exists: {e}")
+            return False
+
+    def _ensure_preregistered_emails_table(self):
+        """Ensure the preregistered_emails table exists."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            PreregisteredEmail.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure preregistered emails table exists: {e}")
             return False
 
     def _hash_password(self, password: str) -> str:
@@ -923,6 +948,120 @@ class UserManager:
             if not user:
                 return False
             user.registration_status = status
+            session.commit()
+            return True
+
+    def import_preregistered_emails(self, csv_content: str, requesting_user_id: str = None) -> Dict[str, Any]:
+        """Import pre-registered emails from CSV content."""
+        self._ensure_preregistered_emails_table()
+
+        result = {"imported": 0, "skipped": 0, "invalid": [], "errors": []}
+        if not csv_content or not csv_content.strip():
+            return result
+
+        email_column_aliases = {"email", "e-mail", "mail", "email address", "e-mail address", "courriel"}
+        email_regex = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+        try:
+            reader = csv.DictReader(io.StringIO(csv_content))
+        except Exception as error:
+            result["errors"].append(f"invalid_csv: {error}")
+            return result
+
+        if not reader.fieldnames:
+            return result
+
+        normalized = {name.strip().lower(): name for name in reader.fieldnames if name and name.strip()}
+        email_header = next((normalized[name] for name in email_column_aliases if name in normalized), None)
+        if not email_header:
+            result["errors"].append("missing_email_column")
+            return result
+
+        with self.db.get_session() as session:
+            for row in reader:
+                raw_email = (row.get(email_header) or "").strip()
+                if not raw_email:
+                    continue
+
+                email = raw_email.lower()
+                if not email_regex.match(email):
+                    result["invalid"].append(raw_email)
+                    continue
+
+                existing = session.query(PreregisteredEmail).filter(
+                    func.lower(PreregisteredEmail.email) == email
+                ).first()
+                if existing:
+                    result["skipped"] += 1
+                    continue
+
+                session.add(
+                    PreregisteredEmail(
+                        email=email,
+                        added_at=datetime.utcnow(),
+                        added_by=requesting_user_id,
+                    )
+                )
+                result["imported"] += 1
+            session.commit()
+
+        return result
+
+    def is_email_preregistered(self, email: str) -> bool:
+        """Check if an email is preregistered in DB or config."""
+        if not email:
+            return False
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return False
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            db_match = session.query(PreregisteredEmail).filter(
+                func.lower(PreregisteredEmail.email) == normalized_email
+            ).first()
+            if db_match:
+                return True
+
+        config = get_config()
+        config_emails = config.get("registration.preregistered_emails", []) or []
+        return normalized_email in {str(item).strip().lower() for item in config_emails if str(item).strip()}
+
+    def get_preregistered_emails(self) -> List[Dict[str, Any]]:
+        """Get all pre-registered emails from DB."""
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            rows = session.query(PreregisteredEmail).order_by(PreregisteredEmail.email.asc()).all()
+            return [
+                {
+                    "email": row.email,
+                    "added_at": row.added_at.isoformat() if row.added_at else None,
+                    "added_by": row.added_by,
+                }
+                for row in rows
+            ]
+
+    def delete_preregistered_email(self, email: str) -> bool:
+        """Delete one preregistered email by value."""
+        if not email:
+            return False
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return False
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            row = session.query(PreregisteredEmail).filter(
+                func.lower(PreregisteredEmail.email) == normalized_email
+            ).first()
+            if not row:
+                return False
+            session.delete(row)
             session.commit()
             return True
 
