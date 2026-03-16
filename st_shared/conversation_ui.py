@@ -430,17 +430,19 @@ def show_conversation_interface():
 
             # Find the last user message before this assistant message
             user_message = ""
+            user_message_index = -1
             for i in range(regen_index, -1, -1):
                 if st.session_state.conversation_messages[i].role == "user":
                     user_message = st.session_state.conversation_messages[i].content
+                    user_message_index = i
                     break
 
             if user_message:
-                # Get conversation history up to the user message
-                history_up_to_user = st.session_state.conversation_messages[:regen_index]
+                # Get conversation history up to the user message (exclude the assistant message we're regenerating)
+                history_up_to_user = st.session_state.conversation_messages[:user_message_index + 1]
 
-                # Remove the assistant message being regenerated
-                st.session_state.conversation_messages = st.session_state.conversation_messages[:regen_index]
+                # Store the old message ID to delete it from database
+                old_assistant_message = st.session_state.conversation_messages[regen_index]
 
                 # Clear regeneration flag
                 st.session_state.regenerating_message_id = None
@@ -450,7 +452,7 @@ def show_conversation_interface():
 
                 # Process regeneration
                 try:
-                    # Add user message to display
+                    # Add user message to display (if not already displayed)
                     with st.chat_message("user"):
                         st.write(user_message)
 
@@ -464,26 +466,67 @@ def show_conversation_interface():
                             )
                         )
 
-                    # Create and add new assistant message
-                    assistant_msg = Message(
-                        role="assistant",
-                        content=response,
-                        llm_id=llm_id
-                    )
+                    # IMPORTANT FIX: Delete the old assistant message from database first
+                    # Then create and add new assistant message
+                    conversation_manager = get_conversation_manager()
 
-                    # Add to database and session state
-                    get_conversation_manager().add_message(
+                    # First, delete the old assistant message from the database
+                    # Since we don't have a direct delete_message method, we'll need to handle this differently
+                    # Option 1: If we had a message ID, we could delete by ID
+                    # Option 2: For now, we'll clear and re-add the conversation after the user message
+
+                    # Alternative approach: Clear all messages after the user message and add new ones
+                    # This is a workaround until we have proper message deletion
+
+                    # Get the current messages from database to verify
+                    full_conversation = conversation_manager.get_conversation(
                         st.session_state.current_conversation_id,
-                        assistant_msg
+                        include_messages=True
                     )
-                    st.session_state.conversation_messages.append(assistant_msg)
 
-                    # Display the new response
-                    with st.chat_message("assistant"):
-                        st.write(response)
+                    if full_conversation:
+                        # Find the index in the database messages that corresponds to our session state index
+                        db_messages = full_conversation.messages
 
-                    log("info", "LLM response regenerated and saved")
-                    st.rerun()
+                        # We need to find the assistant message in the database that matches the old one
+                        # This is tricky without message IDs. For now, we'll use a simpler approach:
+                        # Clear all messages from the conversation and rebuild from session state
+
+                        # Clear all messages from the conversation
+                        if conversation_manager.clear_conversation_messages(st.session_state.current_conversation_id):
+                            # Now re-add all messages up to the user message
+                            for msg in history_up_to_user:
+                                conversation_manager.add_message(
+                                    st.session_state.current_conversation_id,
+                                    msg
+                                )
+
+                            # Create and add new assistant message
+                            assistant_msg = Message(
+                                role="assistant",
+                                content=response,
+                                llm_id=llm_id
+                            )
+
+                            # Add to database
+                            conversation_manager.add_message(
+                                st.session_state.current_conversation_id,
+                                assistant_msg
+                            )
+
+                            # Update session state - replace the old assistant message with the new one
+                            st.session_state.conversation_messages = history_up_to_user.copy()
+                            st.session_state.conversation_messages.append(assistant_msg)
+
+                            # Display the new response
+                            with st.chat_message("assistant"):
+                                st.write(response)
+
+                            log("info", "LLM response regenerated and replaced old message")
+                            st.rerun()
+                    else:
+                        st.error(_("error_regenerating").format(error="Could not access conversation"))
+                        st.rerun()
 
                 except Exception as e:
                     error_msg = _("error_regenerating").format(error=str(e))

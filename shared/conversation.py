@@ -539,6 +539,28 @@ class ConversationManager:
             log("info", f"Updated conversation {conversation_id} title to: {new_title.strip()}")
             return True
 
+    def delete_message(self, message_id: str) -> bool:
+        """
+        Delete a specific message from a conversation.
+
+        Args:
+            message_id: The ID of the message to delete
+
+        Returns:
+            bool: True if message was deleted, False otherwise
+        """
+        # Ensure tables exist before deleting
+        self._ensure_tables_exist()
+
+        with self.db.get_session() as session:
+            # Find and delete the message
+            result = session.query(MessageTable).filter_by(id=message_id).delete()
+
+            if result > 0:
+                log("debug", f"Deleted message {message_id}")
+                return True
+            return False
+
     def delete_conversation(self, conversation_id: str) -> bool:
         """Delete a conversation and all its messages."""
         # Ensure tables exist before deleting
