@@ -15,11 +15,14 @@ The app has agent observability via the configuratble logging system that can be
 When coding or documenting :
   - DRY : don't repeat yourself
 	- KISS : keep it stupid simple
-	- Modularity : deleting a module (a directory) should keep the rest working. That defines semantic units.
 	- CODE IS LAW : the doc only describe intent, usage, attention point and rules, beside that, the code is the doc
+	- FAIL LOUDLY : fail loudly and early, don't silently continue on error
+	- LEARN FROM FAILURE : document to avoir repeating the same error
+	- AGENTS.md : each directory has AGENTS.md to describe a module. AGENTS.md give instruction on what to know, what to ignore, what to do and not do
+	- Modularity : deleting a module (a directory) should keep the rest working. That defines semantic units.
 	- Granularity : be maximally granular, better semantics, leaner context
 	- Observability : code is data, data is inspectable at will, use logs as a first pass to detect anomalies
-	- AGENTS.md : each directory has AGENTS.md to describe a module
+	- Provability : code should be provable, i.e. it should be easy to verify its correctness
 
 # Where to find information ?
 The project has a nested structure this way : 
