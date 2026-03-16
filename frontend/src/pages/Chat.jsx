@@ -145,8 +145,12 @@ export default function Chat() {
     }
     if (lastUserIdx < 0) return
 
+    // FIX: Keep messages up to and including the last user message
+    // This removes all assistant messages after the last user message
     const base = messages.slice(0, lastUserIdx + 1)
+
     setStreaming(true)
+    // Set messages to base + a new empty assistant message
     setMessages([...base, { role: 'assistant', content: '' }])
 
     regenerateLastResponse(
@@ -154,7 +158,11 @@ export default function Chat() {
       (chunk) => {
         setMessages((prev) => {
           const next = [...prev]
-          next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + chunk }
+          // Update the last message (which is the assistant message)
+          next[next.length - 1] = {
+            ...next[next.length - 1],
+            content: next[next.length - 1].content + chunk
+          }
           return next
         })
       },

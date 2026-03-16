@@ -170,8 +170,7 @@ async def regenerate_last_response(
 
     last_user_message = conv.messages[last_user_idx].content
 
-    # Regeneration semantics: replace the last assistant answer that followed
-    # this user turn, instead of appending a new assistant message.
+    # FIX: This logic should replace, not append
     if last_user_idx < len(conv.messages) - 1:
         preserved_messages = conv.messages[: last_user_idx + 1]
         conversation_manager.clear_conversation_messages(payload.conversation_id)
@@ -185,5 +184,5 @@ async def regenerate_last_response(
         current_user["id"],
         last_user_message,
         truncated_history,
-        save_user_message=False,
+        save_user_message=False,  # This should be False to avoid duplicating the user message
     )
