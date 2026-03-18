@@ -60,6 +60,7 @@ import io
 import re
 from typing import Dict, List, Optional, Any, Set, Tuple
 from datetime import datetime, timedelta
+from datetime import datetime as dt_datetime
 from enum import Enum
 
 from sqlalchemy import (
@@ -877,16 +878,16 @@ class UserManager:
             }
 
             # Only try to compare if reset_code_expires is a datetime
-            if user.reset_code_expires and isinstance(
-                user.reset_code_expires, datetime
-            ):
-                reset_code_info["is_valid"] = (
-                    user.reset_code_expires > datetime.utcnow()
-                )
+            if user.reset_code_expires:
+                if isinstance(user.reset_code_expires, dt_datetime):
+                    reset_code_info["is_valid"] = (
+                        user.reset_code_expires > dt_datetime.utcnow()
+                    )
 
-                # Only include the actual code if it's valid and we have it
-                if user.reset_code and reset_code_info["is_valid"]:
-                    reset_code_info["code"] = user.reset_code
+                    # Only include the actual code if it's valid and we have it
+                    if user.reset_code and reset_code_info["is_valid"]:
+                        reset_code_info["code"] = user.reset_code
+
 
             result["reset_code_info"] = reset_code_info
         else:
@@ -2080,65 +2081,6 @@ class UserManager:
         """Get total number of users."""
         users = self.get_all_users(current_user_id)
         return len(users)
-
-    def _user_to_dict(
-        self, user: UserTable, include_children: bool = False
-    ) -> Dict[str, Any]:
-        """Convert SQLAlchemy user object to dictionary."""
-        result = {
-            "id": user.id,
-            "name": user.name,
-            "email": user.email,
-            "role": user.role,
-            "registration_status": user.registration_status or "approved",
-            "parent_id": user.parent_id,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "last_login": user.last_login.isoformat() if user.last_login else None,
-            "is_active": user.is_active,
-            "profile": user.profile or {},
-            "metadata": user.user_metadata or {},
-            "parent_name": user.parent.name if user.parent else None,
-            "has_password": user.password_hash is not None,
-        }
-
-        # Add reset code information safely - check if attributes exist first
-        if hasattr(user, "reset_code") and hasattr(user, "reset_code_expires"):
-            reset_code_info = {
-                "has_code": user.reset_code is not None
-                and user.reset_code_expires is not None,
-                "expires_at": user.reset_code_expires.isoformat()
-                if user.reset_code_expires
-                else None,
-                "is_valid": False,
-            }
-
-            # Only try to compare if reset_code_expires is a datetime
-            if user.reset_code_expires and isinstance(
-                user.reset_code_expires, datetime
-            ):
-                reset_code_info["is_valid"] = (
-                    user.reset_code_expires > datetime.utcnow()
-                )
-
-                # Only include the actual code if it's valid and we have it
-                if user.reset_code and reset_code_info["is_valid"]:
-                    reset_code_info["code"] = user.reset_code
-
-            result["reset_code_info"] = reset_code_info
-        else:
-            # If attributes don't exist, provide default values
-            result["reset_code_info"] = {
-                "has_code": False,
-                "expires_at": None,
-                "is_valid": False,
-            }
-
-        if include_children and hasattr(user, "child_users") and user.child_users:
-            result["children"] = [
-                self._user_to_dict(child) for child in user.child_users
-            ]
-
-        return result
 
 
 def get_user_manager():
