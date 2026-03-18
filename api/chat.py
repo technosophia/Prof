@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid  # Add this import
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 
 from api.deps import get_current_user
 from shared.common import get_conversation_manager, get_llm_manager
+from modules.rag_manager import get_rag_manager, set_query_override, clear_query_override
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -30,10 +32,12 @@ class ChatMessage:
 class ChatRequest(BaseModel):
     conversation_id: str
     message: str
+    result_limit: int | None = None  # NEW: Optional result limit for RAG context
 
 
 class RegenerateRequest(BaseModel):
     conversation_id: str
+    result_limit: int | None = None  # NEW: Also add to regenerate request
 
 
 def _build_history(messages):
@@ -55,9 +59,23 @@ async def _stream_llm_response(
     message: str,
     history,
     save_user_message: bool,
+    result_limit: int | None = None,  # NEW parameter
 ):
     conversation_manager = get_conversation_manager()
     llm_manager = get_llm_manager()
+
+    # NEW: Set query override for RAG if result_limit is provided
+    query_id = None
+    if result_limit is not None:
+        try:
+            rag_manager = get_rag_manager()
+            # Generate a unique ID for this query
+            query_id = f"chat_{conversation_id}_{uuid.uuid4().hex[:8]}"
+            # Set temporary override (5 minutes TTL)
+            rag_manager.limit_manager.set_query_override(query_id, result_limit, ttl_seconds=300)
+        except Exception as e:
+            # Log but don't fail if RAG is not available
+            print(f"Could not set RAG query override: {e}")
 
     if save_user_message:
         conversation_manager.add_message(conversation_id, ChatMessage(role="user", content=message))
@@ -81,8 +99,16 @@ async def _stream_llm_response(
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
+            # NEW: Pass query_id to generate method
             return new_loop.run_until_complete(
-                llm_manager.generate(message, on_chunk, history, user_id, conversation_id=conversation_id)
+                llm_manager.generate(
+                    message,
+                    on_chunk,
+                    history,
+                    user_id,
+                    conversation_id=conversation_id,
+                    query_id=query_id  # Pass query_id for RAG context limit
+                )
             )
         finally:
             new_loop.close()
@@ -140,12 +166,15 @@ async def stream_chat(payload: ChatRequest, current_user: dict = Depends(get_cur
     history = _build_history(
         refreshed.messages + [ChatMessage(role="user", content=payload.message)]
     )
+
+    # NEW: Pass result_limit to _stream_llm_response
     return await _stream_llm_response(
         payload.conversation_id,
         current_user["id"],
         payload.message,
         history,
         save_user_message=True,
+        result_limit=payload.result_limit,  # Pass the limit
     )
 
 
@@ -170,7 +199,7 @@ async def regenerate_last_response(
 
     last_user_message = conv.messages[last_user_idx].content
 
-    # FIX: This logic should replace, not append
+    # This logic should replace, not append
     if last_user_idx < len(conv.messages) - 1:
         preserved_messages = conv.messages[: last_user_idx + 1]
         conversation_manager.clear_conversation_messages(payload.conversation_id)
@@ -179,10 +208,12 @@ async def regenerate_last_response(
 
     truncated_history = _build_history(conv.messages[: last_user_idx + 1])
 
+    # NEW: Pass result_limit to _stream_llm_response
     return await _stream_llm_response(
         payload.conversation_id,
         current_user["id"],
         last_user_message,
         truncated_history,
         save_user_message=False,  # This should be False to avoid duplicating the user message
+        result_limit=payload.result_limit,  # Pass the limit
     )

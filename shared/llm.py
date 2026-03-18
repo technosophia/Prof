@@ -518,7 +518,14 @@ class LLMManager:
 
         for callback in self.llm_callbacks:
             try:
-                context = callback(user_id, messages)
+                # NEW: Check if callback accepts query_id parameter
+                import inspect
+                sig = inspect.signature(callback)
+                if 'query_id' in sig.parameters:
+                    context = callback(user_id, messages, query_id=getattr(self, '_current_query_id', None))
+                else:
+                    context = callback(user_id, messages)
+
                 if context and context.strip():
                     bottom_contexts.append({
                         "role": "system",
@@ -531,7 +538,14 @@ class LLMManager:
 
         for callback in self.context_callbacks:
             try:
-                result = callback(user_id, messages)
+                # NEW: Check if callback accepts query_id parameter
+                import inspect
+                sig = inspect.signature(callback)
+                if 'query_id' in sig.parameters:
+                    result = callback(user_id, messages, query_id=getattr(self, '_current_query_id', None))
+                else:
+                    result = callback(user_id, messages)
+
                 if result and len(result) >= 3:
                     context, role_str, position_str = result[:3]
                     if not context or not context.strip():
@@ -582,11 +596,20 @@ class LLMManager:
         conversation_history: Optional[List[Dict]] = None,
         user_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        query_id: Optional[str] = None,  # NEW parameter for RAG context limit
     ) -> str:
         """Generate a response for a user-facing conversation turn.
 
         This method is intended for interactive chat. For internal LLM calls
         (e.g. from plugins), use :meth:`internal_response` directly.
+
+        Args:
+            message: The user's message
+            stream_callback: Optional callback for streaming chunks
+            conversation_history: Optional conversation history
+            user_id: Optional user identifier
+            conversation_id: Optional conversation identifier
+            query_id: Optional query ID for RAG context limit overrides
 
         Returns the cleaned response string (backward compatible).
         """
@@ -603,7 +626,12 @@ class LLMManager:
             messages.append({"role": "user", "content": message})
 
         if user_id and (self.llm_callbacks or self.context_callbacks):
+            # NEW: Pass query_id to context callbacks
+            # We need to modify the callback mechanism to pass query_id
+            # For now, we'll store it temporarily
+            self._current_query_id = query_id
             messages = self._add_llm_context(user_id, messages)
+            self._current_query_id = None
 
         return await self.internal_response(
             self.current_llm,

@@ -60,7 +60,7 @@ def _clear_query_id(conversation_id: str) -> None:
 
 
 def _make_engine_context_callback(name: str) -> Callable:
-    def _callback(user_id: str, messages: List[Dict], conversation_id: Optional[str] = None) -> tuple:
+    def _callback(user_id: str, messages: List[Dict], conversation_id: Optional[str] = None, query_id: Optional[str] = None) -> tuple:
         """
         RAG context callback with query_id support.
 
@@ -68,6 +68,7 @@ def _make_engine_context_callback(name: str) -> Callable:
             user_id: The user making the request
             messages: The conversation messages
             conversation_id: Optional conversation ID for tracking overrides
+            query_id: Optional query ID for result limit overrides
         """
         user_messages = [msg for msg in messages if msg.get("role") == "user"]
         if not user_messages:
@@ -82,15 +83,17 @@ def _make_engine_context_callback(name: str) -> Callable:
         if _ACTIVE_ENGINE_NAME != name:
             return "", "system", "bottom"
 
-        # Get or create query ID for this conversation
-        query_id = _get_or_create_query_id(conversation_id)
+        # If no query_id provided, get or create one for this conversation
+        effective_query_id = query_id
+        if effective_query_id is None and conversation_id:
+            effective_query_id = _get_or_create_query_id(conversation_id)
 
         # Get context with query_id to maintain any active overrides
         context = manager.get_rag_context(
             user_id=user_id,
             query=query,
             engine_type=name,
-            query_id=query_id
+            query_id=effective_query_id
         )
         return context, "system", "bottom"
 
@@ -280,6 +283,22 @@ def set_conversation_override(conversation_id: str, limit: int) -> bool:
     # Set the override in the limit manager
     return manager.limit_manager.set_query_override(query_id, limit, ttl_seconds=3600)  # 1 hour TTL for conversations
 
+def set_query_override(query_id: str, limit: int, ttl_seconds: int = 300) -> bool:
+    """
+    Set a temporary override for a specific query.
+
+    This is used for one-time overrides like "regenerate with more/less context".
+
+    Args:
+        query_id: Unique identifier for this query
+        limit: The result limit to use
+        ttl_seconds: How long this override should last (default: 5 minutes)
+
+    Returns:
+        bool: True if override was set successfully
+    """
+    manager = get_rag_manager()
+    return manager.limit_manager.set_query_override(query_id, limit, ttl_seconds)
 
 # Utility function to clear a conversation override
 def clear_conversation_override(conversation_id: str) -> None:
@@ -290,6 +309,10 @@ def clear_conversation_override(conversation_id: str) -> None:
         manager.limit_manager.clear_query_override(query_id)
         _clear_query_id(conversation_id)
 
+def clear_query_override(query_id: str) -> None:
+    """Clear a specific query override."""
+    manager = get_rag_manager()
+    manager.limit_manager.clear_query_override(query_id)
 
 # Utility function to get active override info (for UI)
 def get_active_override_info(conversation_id: Optional[str] = None) -> Dict:
@@ -336,6 +359,8 @@ __all__ = [
     "set_conversation_override",
     "clear_conversation_override",
     "get_active_override_info",
+    "set_query_override",
+    "clear_query_override",
 ]
 
 
