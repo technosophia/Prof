@@ -7,6 +7,7 @@ import ConversationList from '@/components/ConversationList'
 import ChatMessages from '@/components/ChatMessages'
 import ChatInput from '@/components/ChatInput'
 import FeedbackModal from '@/components/FeedbackModal'
+import RegenerateButtons from '@/components/RegenerateButtons' // NEW import
 
 export default function Chat() {
   const [user, setUser] = useState(null)
@@ -135,7 +136,8 @@ export default function Chat() {
     )
   }
 
-  function onRegenerate() {
+  // NEW: Regenerate with specific result limit
+  function onRegenerateWithLimit(limit) {
     if (!currentId || streaming || messages.length < 1) return
 
     let lastUserIdx = -1
@@ -147,8 +149,7 @@ export default function Chat() {
     }
     if (lastUserIdx < 0) return
 
-    // FIX: Keep messages up to and including the last user message
-    // This removes all assistant messages after the last user message
+    // Keep messages up to and including the last user message
     const base = messages.slice(0, lastUserIdx + 1)
 
     setStreaming(true)
@@ -176,7 +177,13 @@ export default function Chat() {
       () => {
         setStreaming(false)
       },
+      limit // NEW: Pass the result limit
     )
+  }
+
+  // Keep original for backward compatibility
+  function onRegenerate() {
+    onRegenerateWithLimit(3) // Default limit = 3
   }
 
   const currentTitle = list.find((c) => c.id === currentId)?.title ?? ''
@@ -258,14 +265,7 @@ export default function Chat() {
               Stats
             </Link>
           )}
-          <Button
-            className="bg-slate-700 hover:bg-slate-600 shrink-0 text-xs px-2 py-1.5"
-            onClick={onRegenerate}
-            disabled={streaming || messages.length === 0}
-          >
-            <span className="hidden sm:inline">Regenerate</span>
-            <span className="sm:hidden">↺</span>
-          </Button>
+          {/* REMOVED: The old regenerate button from header */}
         </header>
 
         <ChatMessages
@@ -274,6 +274,17 @@ export default function Chat() {
           canInspect={isPowerUser}
           conversationId={currentId}
         />
+
+        {/* NEW: Regenerate buttons section - only show if there are messages and not streaming */}
+        {messages.length > 0 && !streaming && (
+          <RegenerateButtons
+            onRegenerate={onRegenerate}
+            onRegenerateWithMore={() => onRegenerateWithLimit(5)}  // More context = 5
+            onRegenerateWithLess={() => onRegenerateWithLimit(1)}  // Less context = 1
+            disabled={streaming}
+          />
+        )}
+
         <ChatInput onSend={onSend} disabled={streaming || !currentId} />
         <FeedbackModal
           open={feedbackOpen}

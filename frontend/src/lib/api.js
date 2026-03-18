@@ -151,6 +151,15 @@ export function streamChat(conversationId, message, onChunk, onDone, onError) {
   streamSsePost('/api/chat/stream', { conversation_id: conversationId, message }, onChunk, onDone, onError)
 }
 
-export function regenerateLastResponse(conversationId, onChunk, onDone, onError) {
-  streamSsePost('/api/chat/regenerate-stream', { conversation_id: conversationId }, onChunk, onDone, onError)
+export function regenerateLastResponse(conversationId, onChunk, onDone, onError, resultLimit = 3) {
+  streamSsePost(
+    '/api/chat/regenerate-stream',
+    {
+      conversation_id: conversationId,
+      result_limit: resultLimit
+    },
+    onChunk,
+    onDone,
+    onError
+  )
 }

@@ -3,3 +3,12 @@
 @tailwind utilities;
 
 body { @apply bg-slate-950 text-slate-100; margin: 0; font-family: Inter, system-ui, sans-serif; }
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+.regenerate-pulse {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
