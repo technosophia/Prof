@@ -2090,6 +2090,7 @@ class UserManager:
             "name": user.name,
             "email": user.email,
             "role": user.role,
+            "registration_status": user.registration_status or "approved",
             "parent_id": user.parent_id,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login": user.last_login.isoformat() if user.last_login else None,

@@ -419,13 +419,6 @@ def _render_pending_approvals_tab(
     """Render a dedicated tab for pending user approvals."""
     st.subheader("⏳ Pending Registrations")
 
-    with st.expander("🔍 Debug: Show all manageable users"):
-        st.write(f"Total manageable users: {len(manageable_users)}")
-        for u in manageable_users:
-            st.write(
-                f"- {u.get('name', u['id'])} | status: {u.get('registration_status')} | last_login: {u.get('last_login')}"
-            )
-
     pending_users = [
         user
         for user in manageable_users
@@ -433,11 +426,41 @@ def _render_pending_approvals_tab(
         and user.get("id") != current_user.get("id")
     ]
 
-    if not pending_users:
-        st.success("No pending registrations to review.")
-        return
+    # Show debug info with actual pending count
+    if pending_users:
+        st.info(f"There are {len(pending_users)} registration(s) awaiting approval.")
+    else:
+        # Check if there are users with None status that should be pending
+        none_status_users = [
+            u
+            for u in manageable_users
+            if u.get("registration_status") is None
+            and u.get("id") != current_user.get("id")
+            and u.get("last_login") is None
+        ]
+        if none_status_users:
+            with st.expander(
+                f"⚠️ {len(none_status_users)} user(s) with undefined status (likely pre-change registrations)"
+            ):
+                for u in none_status_users:
+                    st.write(f"- {u.get('name', u['id'])} | email: {u.get('email')}")
 
-    st.info(f"There are {len(pending_users)} registration(s) awaiting approval.")
+                if st.button(
+                    "🔧 Fix: Set undefined status users to 'pending'",
+                    key="fix_pending_status",
+                ):
+                    user_manager = get_user_manager()
+                    fixed_count = 0
+                    for u in none_status_users:
+                        if user_manager.set_registration_status(u["id"], "pending"):
+                            fixed_count += 1
+                    if fixed_count > 0:
+                        st.success(f"✅ Fixed {fixed_count} user(s). Refreshing...")
+                        st.rerun()
+                    else:
+                        st.error("Failed to fix users")
+        else:
+            st.success("No pending registrations to review.")
 
     for user in pending_users:
         with st.container():
