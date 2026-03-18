@@ -49,6 +49,7 @@ Manages user-specific configuration and preferences with database persistence.
 - `get_user_settings_manager()`: Access user settings manager
 
 """
+
 import uuid
 import hashlib
 import secrets
@@ -61,7 +62,19 @@ from typing import Dict, List, Optional, Any, Set, Tuple
 from datetime import datetime, timedelta
 from enum import Enum
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey, inspect, text
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Text,
+    DateTime,
+    Boolean,
+    JSON,
+    func,
+    ForeignKey,
+    inspect,
+    text,
+)
 from sqlalchemy.orm import Session, relationship, joinedload
 
 from core.logging import log, set_log_module_level
@@ -72,6 +85,7 @@ from core.callback import register_callback, unregister_callback, clear_callback
 
 class UserRole(Enum):
     """User roles enumeration."""
+
     ADMIN = "admin"
     MASTER = "master"
     NORMAL = "normal"
@@ -79,6 +93,7 @@ class UserRole(Enum):
 
 class UserAction(Enum):
     """User action types for logging."""
+
     LOGIN = "login"
     LOGOUT = "logout"
     CREATE_USER = "create_user"
@@ -97,7 +112,8 @@ class UserAction(Enum):
 
 class UserTable(Base):
     """User model for database."""
-    __tablename__ = 'users'
+
+    __tablename__ = "users"
 
     id = Column(String(36), primary_key=True)
     name = Column(String(255), nullable=False)
@@ -108,7 +124,7 @@ class UserTable(Base):
     is_active = Column(Boolean, default=True)
     role = Column(String(20), default=UserRole.NORMAL.value)
     registration_status = Column(String(20), nullable=True, default="approved")
-    parent_id = Column(String(36), ForeignKey('users.id'), nullable=True)
+    parent_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     profile = Column(JSON, default={})
     user_metadata = Column(JSON, default={})
     reset_code = Column(String(64), nullable=True)
@@ -121,7 +137,8 @@ class UserTable(Base):
 
 class PreregisteredEmail(Base):
     """Pre-registered emails accepted for auto-approved registration."""
-    __tablename__ = 'preregistered_emails'
+
+    __tablename__ = "preregistered_emails"
 
     email = Column(String(255), primary_key=True)
     added_at = Column(DateTime, default=datetime.utcnow)
@@ -130,10 +147,11 @@ class PreregisteredEmail(Base):
 
 class UserActionLog(Base):
     """Log of user actions for auditing."""
-    __tablename__ = 'user_action_logs'
+
+    __tablename__ = "user_action_logs"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey('users.id'), nullable=True)  # Add length
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)  # Add length
     username = Column(String(255), nullable=True)  # Add length
     action = Column(String(50), nullable=False)  # Add length
     target_user_id = Column(String(36), nullable=True)  # Add length
@@ -156,7 +174,7 @@ class UserManager:
 
     def __init__(self):
         # Initialize only once
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self.db = get_db_manager()  # Use the global database manager
             self._initialized = True
             # Initialize callback registry
@@ -177,7 +195,11 @@ class UserManager:
             user_columns = {column["name"] for column in inspector.get_columns("users")}
             if "registration_status" not in user_columns:
                 with self.db._engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN registration_status VARCHAR(20) DEFAULT 'approved'"))
+                    conn.execute(
+                        text(
+                            "ALTER TABLE users ADD COLUMN registration_status VARCHAR(20) DEFAULT 'approved'"
+                        )
+                    )
                 log("info", "Added missing users.registration_status column")
 
             log("debug", "Users table ensured to exist")
@@ -218,9 +240,9 @@ class UserManager:
 
     def _verify_password(self, password: str, password_hash: str) -> bool:
         """Verify a password against its hash."""
-        if not password_hash or '$' not in password_hash:
+        if not password_hash or "$" not in password_hash:
             return False
-        salt, hash_value = password_hash.split('$', 1)
+        salt, hash_value = password_hash.split("$", 1)
         check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
         return secrets.compare_digest(check_hash, hash_value)
 
@@ -228,12 +250,16 @@ class UserManager:
         """Generate a secure random reset code."""
         return secrets.token_urlsafe(32)  # 32 characters, URL-safe
 
-    def log_user_action(self, user_id: Optional[str], action: str,
-                       target_user_id: Optional[str] = None,
-                       target_username: Optional[str] = None,
-                       details: Optional[Dict] = None,
-                       success: bool = True,
-                       error_message: Optional[str] = None) -> bool:
+    def log_user_action(
+        self,
+        user_id: Optional[str],
+        action: str,
+        target_user_id: Optional[str] = None,
+        target_username: Optional[str] = None,
+        details: Optional[Dict] = None,
+        success: bool = True,
+        error_message: Optional[str] = None,
+    ) -> bool:
         """Log a user action for auditing."""
         try:
             self._ensure_action_log_table()
@@ -260,7 +286,7 @@ class UserManager:
                 details=details or {},
                 timestamp=datetime.utcnow(),
                 success=success,
-                error_message=error_message
+                error_message=error_message,
             )
 
             with self.db.get_session() as session:
@@ -272,12 +298,15 @@ class UserManager:
             log("error", f"Failed to log user action: {e}")
             return False
 
-    def get_user_action_logs(self, user_id: Optional[str] = None,
-                            target_user_id: Optional[str] = None,
-                            action: Optional[str] = None,
-                            limit: int = 100,
-                            offset: int = 0,
-                            current_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_user_action_logs(
+        self,
+        user_id: Optional[str] = None,
+        target_user_id: Optional[str] = None,
+        action: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+        current_user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Get user action logs with filtering and permission checks."""
         self._ensure_action_log_table()
 
@@ -301,8 +330,8 @@ class UserManager:
                     visible_user_ids = [current_user_id] + child_ids
 
                     query = query.filter(
-                        (UserActionLog.user_id.in_(visible_user_ids)) |
-                        (UserActionLog.target_user_id.in_(visible_user_ids))
+                        (UserActionLog.user_id.in_(visible_user_ids))
+                        | (UserActionLog.target_user_id.in_(visible_user_ids))
                     )
                 else:
                     # Normal users see only their own logs
@@ -324,18 +353,22 @@ class UserManager:
 
             logs = []
             for log_entry in query.all():
-                logs.append({
-                    "id": log_entry.id,
-                    "user_id": log_entry.user_id,
-                    "username": log_entry.username,
-                    "action": log_entry.action,
-                    "target_user_id": log_entry.target_user_id,
-                    "target_username": log_entry.target_username,
-                    "details": log_entry.details or {},
-                    "timestamp": log_entry.timestamp.isoformat() if log_entry.timestamp else None,
-                    "success": log_entry.success,
-                    "error_message": log_entry.error_message
-                })
+                logs.append(
+                    {
+                        "id": log_entry.id,
+                        "user_id": log_entry.user_id,
+                        "username": log_entry.username,
+                        "action": log_entry.action,
+                        "target_user_id": log_entry.target_user_id,
+                        "target_username": log_entry.target_username,
+                        "details": log_entry.details or {},
+                        "timestamp": log_entry.timestamp.isoformat()
+                        if log_entry.timestamp
+                        else None,
+                        "success": log_entry.success,
+                        "error_message": log_entry.error_message,
+                    }
+                )
 
             return logs
 
@@ -345,9 +378,12 @@ class UserManager:
             return False
         return self.create_default_users(config)
 
-    def export_users(self, include_children: bool = False,
-                    user_ids: Optional[List[str]] = None,
-                    requesting_user_id: Optional[str] = None) -> Dict[str, Any]:
+    def export_users(
+        self,
+        include_children: bool = False,
+        user_ids: Optional[List[str]] = None,
+        requesting_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Export users to JSON-serializable dictionary.
 
         Args:
@@ -366,7 +402,10 @@ class UserManager:
             if not requesting_user:
                 raise ValueError("Requesting user not found")
 
-            if requesting_user["role"] not in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+            if requesting_user["role"] not in [
+                UserRole.ADMIN.value,
+                UserRole.MASTER.value,
+            ]:
                 raise PermissionError("Only admin and master users can export users")
 
         with self.db.get_session() as session:
@@ -378,13 +417,19 @@ class UserManager:
                     manageable_ids = [u["id"] for u in manageable]
                     user_ids = [uid for uid in user_ids if uid in manageable_ids]
 
-                users = session.query(UserTable).filter(UserTable.id.in_(user_ids)).all()
+                users = (
+                    session.query(UserTable).filter(UserTable.id.in_(user_ids)).all()
+                )
             else:
                 if requesting_user_id:
                     # Get all manageable users
                     manageable = self.get_manageable_users(requesting_user_id)
                     manageable_ids = [u["id"] for u in manageable]
-                    users = session.query(UserTable).filter(UserTable.id.in_(manageable_ids)).all()
+                    users = (
+                        session.query(UserTable)
+                        .filter(UserTable.id.in_(manageable_ids))
+                        .all()
+                    )
                 else:
                     users = session.query(UserTable).all()
 
@@ -392,7 +437,7 @@ class UserManager:
                 "exported_at": datetime.utcnow().isoformat(),
                 "version": "1.0",
                 "user_count": len(users),
-                "users": []
+                "users": [],
             }
 
             for user in users:
@@ -408,16 +453,22 @@ class UserManager:
                 self.log_user_action(
                     user_id=requesting_user_id,
                     action=UserAction.EXPORT_USERS.value,
-                    details={"user_count": len(users), "include_children": include_children},
-                    success=True
+                    details={
+                        "user_count": len(users),
+                        "include_children": include_children,
+                    },
+                    success=True,
                 )
 
             return export_data
 
-    def import_users(self, import_data: Dict[str, Any],
-                    overwrite_existing: bool = False,
-                    validate_only: bool = False,
-                    requesting_user_id: Optional[str] = None) -> Dict[str, Any]:
+    def import_users(
+        self,
+        import_data: Dict[str, Any],
+        overwrite_existing: bool = False,
+        validate_only: bool = False,
+        requesting_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Import users from JSON data.
 
         Args:
@@ -444,7 +495,7 @@ class UserManager:
             "success_count": 0,
             "failure_count": 0,
             "errors": [],
-            "imported_users": []
+            "imported_users": [],
         }
 
         # Validate import data structure
@@ -461,9 +512,11 @@ class UserManager:
                 # Check existing users
                 existing_ids = set()
                 if not overwrite_existing:
-                    existing = session.query(UserTable.id).filter(
-                        UserTable.id.in_(import_user_ids)
-                    ).all()
+                    existing = (
+                        session.query(UserTable.id)
+                        .filter(UserTable.id.in_(import_user_ids))
+                        .all()
+                    )
                     existing_ids = {e[0] for e in existing}
 
                 # Validate parent references
@@ -487,23 +540,32 @@ class UserManager:
 
                         # Validate role
                         if user_data["role"] not in [r.value for r in UserRole]:
-                            raise ValueError(f"Invalid role '{user_data['role']}' for user {user_data['id']}")
+                            raise ValueError(
+                                f"Invalid role '{user_data['role']}' for user {user_data['id']}"
+                            )
 
                         # Validate parent reference
                         if user_data.get("parent_id"):
                             # Parent must exist either in import or already in DB
                             if user_data["parent_id"] not in all_ids_in_import:
-                                parent_exists = session.query(UserTable).filter_by(
-                                    id=user_data["parent_id"]
-                                ).first() is not None
+                                parent_exists = (
+                                    session.query(UserTable)
+                                    .filter_by(id=user_data["parent_id"])
+                                    .first()
+                                    is not None
+                                )
                                 if not parent_exists:
                                     raise ValueError(
                                         f"Parent '{user_data['parent_id']}' not found for user {user_data['id']}"
                                     )
 
                         # Validate normal users have parent
-                        if user_data["role"] == UserRole.NORMAL.value and not user_data.get("parent_id"):
-                            raise ValueError(f"Normal user {user_data['id']} must have a parent")
+                        if user_data[
+                            "role"
+                        ] == UserRole.NORMAL.value and not user_data.get("parent_id"):
+                            raise ValueError(
+                                f"Normal user {user_data['id']} must have a parent"
+                            )
 
                         # If only validating, continue to next user
                         if validate_only:
@@ -520,7 +582,7 @@ class UserManager:
                             is_active=user_data.get("is_active", True),
                             profile=user_data.get("profile", {}),
                             user_metadata=user_data.get("metadata", {}),
-                            created_at=datetime.utcnow()
+                            created_at=datetime.utcnow(),
                         )
 
                         # Merge or add user
@@ -530,11 +592,16 @@ class UserManager:
 
                     except Exception as e:
                         result["failure_count"] += 1
-                        result["errors"].append(f"Error importing user {user_data.get('id', 'unknown')}: {str(e)}")
+                        result["errors"].append(
+                            f"Error importing user {user_data.get('id', 'unknown')}: {str(e)}"
+                        )
 
                 if not validate_only:
                     session.commit()
-                    log("info", f"Imported {result['success_count']} users, {result['failure_count']} failures")
+                    log(
+                        "info",
+                        f"Imported {result['success_count']} users, {result['failure_count']} failures",
+                    )
 
                     # Log the import
                     if requesting_user_id:
@@ -543,9 +610,9 @@ class UserManager:
                             action=UserAction.IMPORT_USERS.value,
                             details={
                                 "success_count": result["success_count"],
-                                "failure_count": result["failure_count"]
+                                "failure_count": result["failure_count"],
                             },
-                            success=result["failure_count"] == 0
+                            success=result["failure_count"] == 0,
                         )
 
             except Exception as e:
@@ -597,7 +664,8 @@ class UserManager:
 
         try:
             import json
-            with open(import_file, 'r', encoding='utf-8') as f:
+
+            with open(import_file, "r", encoding="utf-8") as f:
                 import_data = json.load(f)
 
             # Validate import format
@@ -605,18 +673,18 @@ class UserManager:
                 # This is our export format
                 result = self.import_users(
                     import_data,
-                    overwrite_existing=auto_import_config.get("overwrite", False)
+                    overwrite_existing=auto_import_config.get("overwrite", False),
                 )
             elif isinstance(import_data, list):
                 # Legacy format: array of user objects
                 legacy_data = {
                     "version": "legacy",
                     "users": import_data,
-                    "exported_at": datetime.utcnow().isoformat()
+                    "exported_at": datetime.utcnow().isoformat(),
                 }
                 result = self.import_users(
                     legacy_data,
-                    overwrite_existing=auto_import_config.get("overwrite", False)
+                    overwrite_existing=auto_import_config.get("overwrite", False),
                 )
             else:
                 log("error", f"Unknown import file format: {import_file}")
@@ -628,8 +696,11 @@ class UserManager:
                 if result["failure_count"] > 5:
                     log("error", f"... and {result['failure_count'] - 5} more errors")
 
-            log("info", f"Auto-import completed: {result['success_count']} users imported, "
-                       f"{result['failure_count']} failures")
+            log(
+                "info",
+                f"Auto-import completed: {result['success_count']} users imported, "
+                f"{result['failure_count']} failures",
+            )
             return result["failure_count"] == 0
 
         except Exception as e:
@@ -638,7 +709,10 @@ class UserManager:
 
     def create_default_users(self, config=None):
         if config and config.get("database.auto_import_users.enabled", False):
-            log("debug", "Auto-import is configured, using it instead of create_default_users")
+            log(
+                "debug",
+                "Auto-import is configured, using it instead of create_default_users",
+            )
             success = self.auto_import_users_from_config(config)
             if success:
                 return True
@@ -668,7 +742,7 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "en"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(admin_user)
 
@@ -683,7 +757,7 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "en"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(master1)
 
@@ -697,7 +771,7 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "fr"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(master2)
 
@@ -712,7 +786,7 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "en"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(normal1_m1)
 
@@ -726,7 +800,7 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "es"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(normal2_m1)
 
@@ -741,7 +815,7 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "de"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(normal1_m2)
 
@@ -755,11 +829,14 @@ class UserManager:
                         created_at=datetime.utcnow(),
                         is_active=True,
                         profile={"language": "it"},
-                        user_metadata={"is_default": True, "created_by": "system"}
+                        user_metadata={"is_default": True, "created_by": "system"},
                     )
                     session.add(normal2_m2)
 
-                    log("info", f"Created 7 default users with passwords: 1 admin, 2 masters, 4 normal users")
+                    log(
+                        "info",
+                        f"Created 7 default users with passwords: 1 admin, 2 masters, 4 normal users",
+                    )
                     return True
                 else:
                     log("debug", "Default users already exist, skipping creation")
@@ -768,7 +845,9 @@ class UserManager:
                 log("error", f"Failed to create default users: {e}")
                 return False
 
-    def _user_to_dict(self, user: UserTable, include_children: bool = False) -> Dict[str, Any]:
+    def _user_to_dict(
+        self, user: UserTable, include_children: bool = False
+    ) -> Dict[str, Any]:
         """Convert SQLAlchemy user object to dictionary."""
         result = {
             "id": user.id,
@@ -787,16 +866,23 @@ class UserManager:
         }
 
         # Add reset code information safely
-        if hasattr(user, 'reset_code') and hasattr(user, 'reset_code_expires'):
+        if hasattr(user, "reset_code") and hasattr(user, "reset_code_expires"):
             reset_code_info = {
-                "has_code": user.reset_code is not None and user.reset_code_expires is not None,
-                "expires_at": user.reset_code_expires.isoformat() if user.reset_code_expires else None,
-                "is_valid": False
+                "has_code": user.reset_code is not None
+                and user.reset_code_expires is not None,
+                "expires_at": user.reset_code_expires.isoformat()
+                if user.reset_code_expires
+                else None,
+                "is_valid": False,
             }
 
             # Only try to compare if reset_code_expires is a datetime
-            if user.reset_code_expires and isinstance(user.reset_code_expires, datetime):
-                reset_code_info["is_valid"] = user.reset_code_expires > datetime.utcnow()
+            if user.reset_code_expires and isinstance(
+                user.reset_code_expires, datetime
+            ):
+                reset_code_info["is_valid"] = (
+                    user.reset_code_expires > datetime.utcnow()
+                )
 
                 # Only include the actual code if it's valid and we have it
                 if user.reset_code and reset_code_info["is_valid"]:
@@ -808,15 +894,17 @@ class UserManager:
             result["reset_code_info"] = {
                 "has_code": False,
                 "expires_at": None,
-                "is_valid": False
+                "is_valid": False,
             }
 
-        if include_children and hasattr(user, 'children') and user.children:
+        if include_children and hasattr(user, "children") and user.children:
             result["children"] = [self._user_to_dict(child) for child in user.children]
 
         return result
 
-    def get_user(self, user_id: str, include_children: bool = False) -> Optional[Dict[str, Any]]:
+    def get_user(
+        self, user_id: str, include_children: bool = False
+    ) -> Optional[Dict[str, Any]]:
         """Get a user by ID."""
         self._ensure_table_exists()
 
@@ -835,14 +923,19 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            user = session.query(UserTable).options(joinedload(UserTable.parent)).filter(
-                func.lower(UserTable.name) == name.lower()
-            ).first()
+            user = (
+                session.query(UserTable)
+                .options(joinedload(UserTable.parent))
+                .filter(func.lower(UserTable.name) == name.lower())
+                .first()
+            )
             if user:
                 return self._user_to_dict(user)
             return None
 
-    def authenticate_user_with_status(self, user_id: str, password: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    def authenticate_user_with_status(
+        self, user_id: str, password: str
+    ) -> Tuple[Optional[Dict[str, Any]], str]:
         """Authenticate a user by user_id/password and return explicit status.
 
         Returns:
@@ -854,21 +947,25 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            user = session.query(UserTable).filter(
-                func.lower(UserTable.id) == user_id.lower()
-            ).first()
+            user = (
+                session.query(UserTable)
+                .filter(func.lower(UserTable.id) == user_id.lower())
+                .first()
+            )
 
             if not user:
-                user = session.query(UserTable).filter(
-                    func.lower(UserTable.email) == user_id.lower()
-                ).first()
+                user = (
+                    session.query(UserTable)
+                    .filter(func.lower(UserTable.email) == user_id.lower())
+                    .first()
+                )
 
             if not user:
                 self.log_user_action(
                     user_id=None,
                     action=UserAction.LOGIN_FAILED.value,
                     details={"user_id": user_id, "reason": "user_not_found"},
-                    success=False
+                    success=False,
                 )
                 return None, "invalid_credentials"
 
@@ -877,7 +974,7 @@ class UserManager:
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
                     details={"reason": "inactive_account"},
-                    success=False
+                    success=False,
                 )
                 return None, "invalid_credentials"
 
@@ -886,7 +983,7 @@ class UserManager:
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
                     details={"reason": "no_password_set"},
-                    success=False
+                    success=False,
                 )
                 return None, "invalid_credentials"
 
@@ -895,7 +992,7 @@ class UserManager:
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
                     details={"reason": "invalid_password"},
-                    success=False
+                    success=False,
                 )
                 return None, "invalid_credentials"
 
@@ -903,8 +1000,11 @@ class UserManager:
                 self.log_user_action(
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
-                    details={"reason": "registration_not_approved", "registration_status": user.registration_status},
-                    success=False
+                    details={
+                        "reason": "registration_not_approved",
+                        "registration_status": user.registration_status,
+                    },
+                    success=False,
                 )
                 return None, "pending_approval"
 
@@ -913,14 +1013,14 @@ class UserManager:
             session.commit()
 
             self.log_user_action(
-                user_id=user.id,
-                action=UserAction.LOGIN.value,
-                success=True
+                user_id=user.id, action=UserAction.LOGIN.value, success=True
             )
 
             return self._user_to_dict(user), "success"
 
-    def authenticate_user(self, user_id: str, password: str) -> Optional[Dict[str, Any]]:
+    def authenticate_user(
+        self, user_id: str, password: str
+    ) -> Optional[Dict[str, Any]]:
         """Authenticate a user by user_id and password.
 
         Returns:
@@ -934,7 +1034,11 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            users = session.query(UserTable).filter(UserTable.registration_status == "pending").all()
+            users = (
+                session.query(UserTable)
+                .filter(UserTable.registration_status == "pending")
+                .all()
+            )
             return [self._user_to_dict(user) for user in users]
 
     def set_registration_status(self, user_id: str, status: str) -> bool:
@@ -951,7 +1055,9 @@ class UserManager:
             session.commit()
             return True
 
-    def import_preregistered_emails(self, csv_content: str, requesting_user_id: str = None) -> Dict[str, Any]:
+    def import_preregistered_emails(
+        self, csv_content: str, requesting_user_id: str = None
+    ) -> Dict[str, Any]:
         """Import pre-registered emails from CSV content."""
         self._ensure_preregistered_emails_table()
 
@@ -959,7 +1065,14 @@ class UserManager:
         if not csv_content or not csv_content.strip():
             return result
 
-        email_column_aliases = {"email", "e-mail", "mail", "email address", "e-mail address", "courriel"}
+        email_column_aliases = {
+            "email",
+            "e-mail",
+            "mail",
+            "email address",
+            "e-mail address",
+            "courriel",
+        }
         email_regex = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
         try:
@@ -971,8 +1084,15 @@ class UserManager:
         if not reader.fieldnames:
             return result
 
-        normalized = {name.strip().lower(): name for name in reader.fieldnames if name and name.strip()}
-        email_header = next((normalized[name] for name in email_column_aliases if name in normalized), None)
+        normalized = {
+            name.strip().lower(): name
+            for name in reader.fieldnames
+            if name and name.strip()
+        }
+        email_header = next(
+            (normalized[name] for name in email_column_aliases if name in normalized),
+            None,
+        )
         if not email_header:
             result["errors"].append("missing_email_column")
             return result
@@ -988,9 +1108,11 @@ class UserManager:
                     result["invalid"].append(raw_email)
                     continue
 
-                existing = session.query(PreregisteredEmail).filter(
-                    func.lower(PreregisteredEmail.email) == email
-                ).first()
+                existing = (
+                    session.query(PreregisteredEmail)
+                    .filter(func.lower(PreregisteredEmail.email) == email)
+                    .first()
+                )
                 if existing:
                     result["skipped"] += 1
                     continue
@@ -1019,22 +1141,75 @@ class UserManager:
         self._ensure_preregistered_emails_table()
 
         with self.db.get_session() as session:
-            db_match = session.query(PreregisteredEmail).filter(
-                func.lower(PreregisteredEmail.email) == normalized_email
-            ).first()
+            db_match = (
+                session.query(PreregisteredEmail)
+                .filter(func.lower(PreregisteredEmail.email) == normalized_email)
+                .first()
+            )
             if db_match:
                 return True
 
         config = get_config()
         config_emails = config.get("registration.preregistered_emails", []) or []
-        return normalized_email in {str(item).strip().lower() for item in config_emails if str(item).strip()}
+        return normalized_email in {
+            str(item).strip().lower() for item in config_emails if str(item).strip()
+        }
+
+    def get_preregistered_email_owner(self, email: str) -> Optional[str]:
+        """Get the user_id of who added this preregistered email.
+
+        Returns:
+            The added_by user_id if found in DB, None if not in DB or from config
+        """
+        if not email:
+            return None
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return None
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            db_match = (
+                session.query(PreregisteredEmail)
+                .filter(func.lower(PreregisteredEmail.email) == normalized_email)
+                .first()
+            )
+            if db_match:
+                return db_match.added_by
+
+        return None
+
+    def is_email_registered(self, email: str) -> bool:
+        """Check if an email is already registered to a user."""
+        if not email:
+            return False
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return False
+
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(UserTable)
+                .filter(func.lower(UserTable.email) == normalized_email)
+                .first()
+            )
+            return existing is not None
 
     def get_preregistered_emails(self) -> List[Dict[str, Any]]:
         """Get all pre-registered emails from DB."""
         self._ensure_preregistered_emails_table()
 
         with self.db.get_session() as session:
-            rows = session.query(PreregisteredEmail).order_by(PreregisteredEmail.email.asc()).all()
+            rows = (
+                session.query(PreregisteredEmail)
+                .order_by(PreregisteredEmail.email.asc())
+                .all()
+            )
             return [
                 {
                     "email": row.email,
@@ -1056,16 +1231,64 @@ class UserManager:
         self._ensure_preregistered_emails_table()
 
         with self.db.get_session() as session:
-            row = session.query(PreregisteredEmail).filter(
-                func.lower(PreregisteredEmail.email) == normalized_email
-            ).first()
+            row = (
+                session.query(PreregisteredEmail)
+                .filter(func.lower(PreregisteredEmail.email) == normalized_email)
+                .first()
+            )
             if not row:
                 return False
             session.delete(row)
             session.commit()
             return True
 
-    def generate_reset_code(self, user_id: str, requesting_user_id: Optional[str] = None) -> Optional[str]:
+    def add_preregistered_email(
+        self, email: str, requesting_user_id: Optional[str] = None
+    ) -> bool:
+        """Add a single pre-registered email.
+
+        Args:
+            email: Email address to add
+            requesting_user_id: ID of user adding the email
+
+        Returns:
+            True if email was added, False if it already exists or is invalid
+        """
+        if not email:
+            return False
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return False
+
+        email_regex = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+        if not email_regex.match(normalized_email):
+            return False
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(PreregisteredEmail)
+                .filter(func.lower(PreregisteredEmail.email) == normalized_email)
+                .first()
+            )
+            if existing:
+                return False
+
+            session.add(
+                PreregisteredEmail(
+                    email=normalized_email,
+                    added_at=datetime.utcnow(),
+                    added_by=requesting_user_id,
+                )
+            )
+            session.commit()
+            return True
+
+    def generate_reset_code(
+        self, user_id: str, requesting_user_id: Optional[str] = None
+    ) -> Optional[str]:
         """Generate a password reset code for a user.
 
         Args:
@@ -1084,7 +1307,9 @@ class UserManager:
 
             # Check permissions if requesting_user_id provided
             if requesting_user_id:
-                requesting_user = session.query(UserTable).filter_by(id=requesting_user_id).first()
+                requesting_user = (
+                    session.query(UserTable).filter_by(id=requesting_user_id).first()
+                )
                 if not requesting_user:
                     return None
 
@@ -1093,7 +1318,10 @@ class UserManager:
                     pass
                 # Master can generate for themselves and their children
                 elif requesting_user.role == UserRole.MASTER.value:
-                    if user_id != requesting_user_id and user.parent_id != requesting_user_id:
+                    if (
+                        user_id != requesting_user_id
+                        and user.parent_id != requesting_user_id
+                    ):
                         return None
                 else:
                     # Normal users cannot generate reset codes
@@ -1111,12 +1339,14 @@ class UserManager:
                 action=UserAction.GENERATE_RESET_CODE.value,
                 target_user_id=user_id,
                 target_username=user.name,
-                success=True
+                success=True,
             )
 
             return reset_code
 
-    def reset_password_with_code(self, user_id: str, reset_code: str, new_password: str) -> bool:
+    def reset_password_with_code(
+        self, user_id: str, reset_code: str, new_password: str
+    ) -> bool:
         """Reset a user's password using a reset code.
 
         Args:
@@ -1127,20 +1357,25 @@ class UserManager:
         Returns:
             True if successful, False otherwise
         """
-        log("info", f"Resetting password for user '{user_id}' '{reset_code}' '{new_password}'")
+        log(
+            "info",
+            f"Resetting password for user '{user_id}' '{reset_code}' '{new_password}'",
+        )
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            user = session.query(UserTable).filter(
-                func.lower(UserTable.id) == user_id.lower()
-            ).first()
+            user = (
+                session.query(UserTable)
+                .filter(func.lower(UserTable.id) == user_id.lower())
+                .first()
+            )
 
             if not user:
                 self.log_user_action(
                     user_id=None,
                     action=UserAction.RESET_PASSWORD.value,
                     details={"username": user_id, "reason": "user_not_found"},
-                    success=False
+                    success=False,
                 )
                 log("error", f"User '{user_id}' not found")
                 return False
@@ -1150,7 +1385,7 @@ class UserManager:
                     user_id=user.id,
                     action=UserAction.RESET_PASSWORD.value,
                     details={"reason": "no_reset_code"},
-                    success=False
+                    success=False,
                 )
                 log("error", f"User '{user_id}' has no reset code")
                 return False
@@ -1160,7 +1395,7 @@ class UserManager:
                     user_id=user.id,
                     action=UserAction.RESET_PASSWORD.value,
                     details={"reason": "code_expired"},
-                    success=False
+                    success=False,
                 )
                 log("error", f"Reset code for user '{user_id}' has expired")
                 return False
@@ -1170,7 +1405,7 @@ class UserManager:
                     user_id=user.id,
                     action=UserAction.RESET_PASSWORD.value,
                     details={"reason": "invalid_code"},
-                    success=False
+                    success=False,
                 )
                 log("error", f"Invalid reset code for user '{user_id}'")
                 return False
@@ -1187,12 +1422,14 @@ class UserManager:
                 action=UserAction.RESET_PASSWORD.value,
                 target_user_id=user.id,
                 target_username=user.name,
-                success=True
+                success=True,
             )
 
             return True
 
-    def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
+    def change_password(
+        self, user_id: str, current_password: str, new_password: str
+    ) -> bool:
         """Change a user's password (requires current password)."""
         self._ensure_table_exists()
 
@@ -1209,7 +1446,7 @@ class UserManager:
                     user_id=user_id,
                     action=UserAction.CHANGE_PASSWORD.value,
                     details={"reason": "invalid_current_password"},
-                    success=False
+                    success=False,
                 )
                 return False
 
@@ -1217,14 +1454,14 @@ class UserManager:
             session.commit()
 
             self.log_user_action(
-                user_id=user_id,
-                action=UserAction.CHANGE_PASSWORD.value,
-                success=True
+                user_id=user_id, action=UserAction.CHANGE_PASSWORD.value, success=True
             )
 
             return True
 
-    def set_password(self, user_id: str, new_password: str, requesting_user_id: Optional[str] = None) -> bool:
+    def set_password(
+        self, user_id: str, new_password: str, requesting_user_id: Optional[str] = None
+    ) -> bool:
         """Set a user's password directly (admin/master function).
 
         Args:
@@ -1244,7 +1481,9 @@ class UserManager:
 
             # Check permissions if requesting_user_id provided
             if requesting_user_id:
-                requesting_user = session.query(UserTable).filter_by(id=requesting_user_id).first()
+                requesting_user = (
+                    session.query(UserTable).filter_by(id=requesting_user_id).first()
+                )
                 if not requesting_user:
                     return False
 
@@ -1253,7 +1492,10 @@ class UserManager:
                     pass
                 # Master can set for themselves and their children
                 elif requesting_user.role == UserRole.MASTER.value:
-                    if user_id != requesting_user_id and user.parent_id != requesting_user_id:
+                    if (
+                        user_id != requesting_user_id
+                        and user.parent_id != requesting_user_id
+                    ):
                         return False
                 else:
                     return False
@@ -1266,12 +1508,14 @@ class UserManager:
                 action=UserAction.CHANGE_PASSWORD.value,
                 target_user_id=user_id,
                 target_username=user.name,
-                success=True
+                success=True,
             )
 
             return True
 
-    def get_all_users(self, current_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_all_users(
+        self, current_user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Get all users, with filtering based on current user's role."""
         self._ensure_table_exists()
 
@@ -1280,7 +1524,9 @@ class UserManager:
 
             # Apply role-based filtering
             if current_user_id:
-                current_user = session.query(UserTable).filter_by(id=current_user_id).first()
+                current_user = (
+                    session.query(UserTable).filter_by(id=current_user_id).first()
+                )
                 if current_user:
                     if current_user.role == UserRole.ADMIN.value:
                         # Admin sees all users
@@ -1288,8 +1534,8 @@ class UserManager:
                     elif current_user.role == UserRole.MASTER.value:
                         # Master sees themselves and their children
                         query = query.filter(
-                            (UserTable.id == current_user_id) |
-                            (UserTable.parent_id == current_user_id)
+                            (UserTable.id == current_user_id)
+                            | (UserTable.parent_id == current_user_id)
                         )
                     else:
                         # Normal users see only themselves
@@ -1303,9 +1549,13 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            users = session.query(UserTable).options(joinedload(UserTable.parent)).filter(
-                UserTable.role == role
-            ).order_by(UserTable.created_at).all()
+            users = (
+                session.query(UserTable)
+                .options(joinedload(UserTable.parent))
+                .filter(UserTable.role == role)
+                .order_by(UserTable.created_at)
+                .all()
+            )
             return [self._user_to_dict(user) for user in users]
 
     def get_children(self, user_id: str) -> List[Dict[str, Any]]:
@@ -1313,8 +1563,13 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            user = session.query(UserTable).options(joinedload(UserTable.children)).filter_by(id=user_id).first()
-            if user and hasattr(user, 'children') and user.children:
+            user = (
+                session.query(UserTable)
+                .options(joinedload(UserTable.children))
+                .filter_by(id=user_id)
+                .first()
+            )
+            if user and hasattr(user, "children") and user.children:
                 return [self._user_to_dict(child) for child in user.children]
             return []
 
@@ -1323,7 +1578,9 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            all_users = session.query(UserTable).options(joinedload(UserTable.parent)).all()
+            all_users = (
+                session.query(UserTable).options(joinedload(UserTable.parent)).all()
+            )
 
             # Build parent-child mapping
             parent_map = {}
@@ -1344,14 +1601,19 @@ class UserManager:
             collect_descendants(user_id, descendants)
             return descendants
 
-    def create_user(self, name: str, role: str = UserRole.NORMAL.value,
-                   email: Optional[str] = None, parent_id: Optional[str] = None,
-                   profile: Optional[Dict] = None,
-                   password: Optional[str] = None,
-                   requesting_user_id: Optional[str] = None,
-                   user_id: Optional[str] = None,
-                   allow_orphan_normal: bool = False,
-                   registration_status: str = "approved") -> Tuple[Optional[str], Optional[str]]:
+    def create_user(
+        self,
+        name: str,
+        role: str = UserRole.NORMAL.value,
+        email: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        profile: Optional[Dict] = None,
+        password: Optional[str] = None,
+        requesting_user_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        allow_orphan_normal: bool = False,
+        registration_status: str = "approved",
+    ) -> Tuple[Optional[str], Optional[str]]:
         """Create a new user with validation.
 
         Args:
@@ -1404,7 +1666,10 @@ class UserManager:
         reset_code = None
 
         with self.db.get_session() as session:
-            if explicit_user_id and session.query(UserTable).filter_by(id=user_id).first():
+            if (
+                explicit_user_id
+                and session.query(UserTable).filter_by(id=user_id).first()
+            ):
                 raise ValueError(f"User ID '{user_id}' already exists")
 
             # Hash password if provided
@@ -1428,7 +1693,9 @@ class UserManager:
                 profile=profile or {"language": "en"},
                 user_metadata={"created_via": "ui"},
                 reset_code=reset_code,
-                reset_code_expires=datetime.utcnow() + timedelta(days=1) if reset_code else None
+                reset_code_expires=datetime.utcnow() + timedelta(days=1)
+                if reset_code
+                else None,
             )
             session.add(user)
 
@@ -1441,12 +1708,14 @@ class UserManager:
             target_user_id=user_id,
             target_username=name.strip(),
             details={"role": role, "has_password": password is not None},
-            success=True
+            success=True,
         )
 
         return user_id, reset_code
 
-    def update_user(self, user_id: str, current_user_id: Optional[str] = None, **kwargs) -> bool:
+    def update_user(
+        self, user_id: str, current_user_id: Optional[str] = None, **kwargs
+    ) -> bool:
         """Update user information with permission checks."""
         self._ensure_table_exists()
 
@@ -1457,15 +1726,20 @@ class UserManager:
 
             # Check permissions if current_user_id is provided
             if current_user_id:
-                current_user = session.query(UserTable).filter_by(id=current_user_id).first()
+                current_user = (
+                    session.query(UserTable).filter_by(id=current_user_id).first()
+                )
                 if not self.can_manage_user(current_user, user):
-                    log("warning", f"User {current_user_id} cannot manage user {user_id}")
+                    log(
+                        "warning",
+                        f"User {current_user_id} cannot manage user {user_id}",
+                    )
                     self.log_user_action(
                         user_id=current_user_id,
                         action=UserAction.UPDATE_USER.value,
                         target_user_id=user_id,
                         details={"reason": "permission_denied"},
-                        success=False
+                        success=False,
                     )
                     return False
 
@@ -1491,14 +1765,23 @@ class UserManager:
                 new_role = kwargs["role"]
                 valid_roles = [role.value for role in UserRole]
                 if new_role not in valid_roles:
-                    raise ValueError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+                    raise ValueError(
+                        f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+                    )
 
                 # Normal users must have a parent
-                if new_role == UserRole.NORMAL.value and not user.parent_id and "parent_id" not in kwargs:
+                if (
+                    new_role == UserRole.NORMAL.value
+                    and not user.parent_id
+                    and "parent_id" not in kwargs
+                ):
                     raise ValueError("Normal users must have a parent")
 
                 # If changing from normal to another role, keep parent for reference but can be None
-                if user.role == UserRole.NORMAL.value and new_role != UserRole.NORMAL.value:
+                if (
+                    user.role == UserRole.NORMAL.value
+                    and new_role != UserRole.NORMAL.value
+                ):
                     kwargs["parent_id"] = None
 
             # Validate parent changes
@@ -1509,7 +1792,9 @@ class UserManager:
                     if not parent:
                         raise ValueError(f"Parent user with ID {parent_id} not found")
                     if parent.role != UserRole.MASTER.value:
-                        raise ValueError(f"Parent user must be a master, not {parent.role}")
+                        raise ValueError(
+                            f"Parent user must be a master, not {parent.role}"
+                        )
                     if user.role != UserRole.NORMAL.value:
                         raise ValueError("Only normal users can have a parent")
 
@@ -1519,7 +1804,12 @@ class UserManager:
                 changes["id"] = {"old": old_id, "new": new_id}
 
             for key, value in kwargs.items():
-                if key in ["password_hash", "reset_code", "reset_code_expires", "new_id"]:
+                if key in [
+                    "password_hash",
+                    "reset_code",
+                    "reset_code_expires",
+                    "new_id",
+                ]:
                     continue  # Skip sensitive or special fields in logging
 
                 if key == "user_metadata":
@@ -1541,7 +1831,12 @@ class UserManager:
                 user.id = new_id
 
             for key, value in kwargs.items():
-                if key in ["new_id", "password_hash", "reset_code", "reset_code_expires"]:
+                if key in [
+                    "new_id",
+                    "password_hash",
+                    "reset_code",
+                    "reset_code_expires",
+                ]:
                     continue
                 elif key == "user_metadata":
                     pass
@@ -1565,7 +1860,7 @@ class UserManager:
                 target_user_id=new_id or user_id,
                 target_username=user.name,
                 details={"changes": changes},
-                success=True
+                success=True,
             )
 
             return True
@@ -1608,22 +1903,28 @@ class UserManager:
                          with structure: {"field_name": {"type": "text|select|checkbox",
                                                        "options": [...], "default": value}}
         """
-        if not hasattr(self, '_profile_preferences_callbacks'):
+        if not hasattr(self, "_profile_preferences_callbacks"):
             self._profile_preferences_callbacks = []
 
-        callback_name = getattr(callback_func, '__name__', str(callback_func))
+        callback_name = getattr(callback_func, "__name__", str(callback_func))
 
         # Check by object identity first
         if callback_func in self._profile_preferences_callbacks:
-            log("debug", f"Profile preferences callback {callback_name} already registered (by object identity)")
+            log(
+                "debug",
+                f"Profile preferences callback {callback_name} already registered (by object identity)",
+            )
             return
 
         # Check by function name and handle duplicates
         for i, existing_cb in enumerate(self._profile_preferences_callbacks):
-            existing_name = getattr(existing_cb, '__name__', str(existing_cb))
+            existing_name = getattr(existing_cb, "__name__", str(existing_cb))
             if existing_name == callback_name:
-                log("debug", f"Profile preferences callback with name '{callback_name}' already registered. "
-                              f"Replacing existing callback with new one.")
+                log(
+                    "debug",
+                    f"Profile preferences callback with name '{callback_name}' already registered. "
+                    f"Replacing existing callback with new one.",
+                )
                 self._profile_preferences_callbacks[i] = callback_func
                 return
 
@@ -1637,7 +1938,7 @@ class UserManager:
                 "type": "select",
                 "options": ["en", "fr", "de", "es", "it", "zh", "ja", "ko"],
                 "default": "en",
-                "label": "Preferred Language"
+                "label": "Preferred Language",
             }
         }
 
@@ -1651,20 +1952,20 @@ class UserManager:
         return schema
 
     def register_before_delete_callback(self, callback_func):
-            """Register a callback to be executed before a user is deleted."""
-            register_callback(
-                callback_list=self._before_delete_callbacks,
-                callback_func=callback_func,
-                callback_type="before_delete callback",
-                allow_replace=True
-            )
+        """Register a callback to be executed before a user is deleted."""
+        register_callback(
+            callback_list=self._before_delete_callbacks,
+            callback_func=callback_func,
+            callback_type="before_delete callback",
+            allow_replace=True,
+        )
 
     def unregister_before_delete_callback(self, callback_func):
         """Unregister a before_delete callback."""
         return unregister_callback(
             callback_list=self._before_delete_callbacks,
             callback_func=callback_func,
-            callback_type="before_delete callback"
+            callback_type="before_delete callback",
         )
 
     def clear_before_delete_callbacks(self) -> int:
@@ -1679,18 +1980,23 @@ class UserManager:
         target_user = None
         if current_user_id:
             with self.db.get_session() as session:
-                current_user = session.query(UserTable).filter_by(id=current_user_id).first()
+                current_user = (
+                    session.query(UserTable).filter_by(id=current_user_id).first()
+                )
                 target_user = session.query(UserTable).filter_by(id=user_id).first()
                 if not current_user or not target_user:
                     return False
                 if not self.can_manage_user(current_user, target_user):
-                    log("warning", f"User {current_user_id} cannot delete user {user_id}")
+                    log(
+                        "warning",
+                        f"User {current_user_id} cannot delete user {user_id}",
+                    )
                     self.log_user_action(
                         user_id=current_user_id,
                         action=UserAction.DELETE_USER.value,
                         target_user_id=user_id,
                         details={"reason": "permission_denied"},
-                        success=False
+                        success=False,
                     )
                     return False
         else:
@@ -1711,7 +2017,10 @@ class UserManager:
                 all_successful = False
 
         if not all_successful:
-            log("error", f"Aborting user deletion for {user_id} due to callback failures")
+            log(
+                "error",
+                f"Aborting user deletion for {user_id} due to callback failures",
+            )
             return False
 
         with self.db.get_session() as session:
@@ -1721,8 +2030,8 @@ class UserManager:
 
             # Delete action logs where user is actor or target
             session.query(UserActionLog).filter(
-                (UserActionLog.user_id == user_id) |
-                (UserActionLog.target_user_id == user_id)
+                (UserActionLog.user_id == user_id)
+                | (UserActionLog.target_user_id == user_id)
             ).delete(synchronize_session=False)
 
             user_name = user.name
@@ -1733,26 +2042,36 @@ class UserManager:
             return True
 
     def update_last_login(self, user_id: str):
-        """Update user's last login timestamp."""
+        """Update user's last login timestamp and remove from preregistered list."""
+        user = self.get_user(user_id)
+        if user and user.get("email"):
+            self.delete_preregistered_email(user["email"])
         self.update_user(user_id, last_login=datetime.utcnow())
 
-    def get_all_users_dict(self, current_user_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    def get_all_users_dict(
+        self, current_user_id: Optional[str] = None
+    ) -> Dict[str, Dict[str, Any]]:
         """Get all users as a dictionary with user_id as key."""
         users = self.get_all_users(current_user_id)
         return {user["id"]: user for user in users}
 
-    def search_users(self, query: str, current_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search_users(
+        self, query: str, current_user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Search users by name or email."""
         users = self.get_all_users(current_user_id)
         query_lower = query.lower()
 
         return [
-            user for user in users
-            if query_lower in user["name"].lower() or
-               (user["email"] and query_lower in user["email"].lower())
+            user
+            for user in users
+            if query_lower in user["name"].lower()
+            or (user["email"] and query_lower in user["email"].lower())
         ]
 
-    def get_active_users(self, current_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_active_users(
+        self, current_user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Get all active users."""
         users = self.get_all_users(current_user_id)
         return [user for user in users if user.get("is_active", True)]
@@ -1762,7 +2081,9 @@ class UserManager:
         users = self.get_all_users(current_user_id)
         return len(users)
 
-    def _user_to_dict(self, user: UserTable, include_children: bool = False) -> Dict[str, Any]:
+    def _user_to_dict(
+        self, user: UserTable, include_children: bool = False
+    ) -> Dict[str, Any]:
         """Convert SQLAlchemy user object to dictionary."""
         result = {
             "id": user.id,
@@ -1780,16 +2101,23 @@ class UserManager:
         }
 
         # Add reset code information safely - check if attributes exist first
-        if hasattr(user, 'reset_code') and hasattr(user, 'reset_code_expires'):
+        if hasattr(user, "reset_code") and hasattr(user, "reset_code_expires"):
             reset_code_info = {
-                "has_code": user.reset_code is not None and user.reset_code_expires is not None,
-                "expires_at": user.reset_code_expires.isoformat() if user.reset_code_expires else None,
-                "is_valid": False
+                "has_code": user.reset_code is not None
+                and user.reset_code_expires is not None,
+                "expires_at": user.reset_code_expires.isoformat()
+                if user.reset_code_expires
+                else None,
+                "is_valid": False,
             }
 
             # Only try to compare if reset_code_expires is a datetime
-            if user.reset_code_expires and isinstance(user.reset_code_expires, datetime):
-                reset_code_info["is_valid"] = user.reset_code_expires > datetime.utcnow()
+            if user.reset_code_expires and isinstance(
+                user.reset_code_expires, datetime
+            ):
+                reset_code_info["is_valid"] = (
+                    user.reset_code_expires > datetime.utcnow()
+                )
 
                 # Only include the actual code if it's valid and we have it
                 if user.reset_code and reset_code_info["is_valid"]:
@@ -1801,11 +2129,13 @@ class UserManager:
             result["reset_code_info"] = {
                 "has_code": False,
                 "expires_at": None,
-                "is_valid": False
+                "is_valid": False,
             }
 
-        if include_children and hasattr(user, 'child_users') and user.child_users:
-            result["children"] = [self._user_to_dict(child) for child in user.child_users]
+        if include_children and hasattr(user, "child_users") and user.child_users:
+            result["children"] = [
+                self._user_to_dict(child) for child in user.child_users
+            ]
 
         return result
 

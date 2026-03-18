@@ -87,6 +87,10 @@ export default function Login() {
         setError('This username is already taken. Please choose another.')
         return
       }
+      if (status === 409 && err?.message?.includes('email_already_registered')) {
+        setError('This email is already registered. Please login instead.')
+        return
+      }
       setError('Registration failed')
     }
   }

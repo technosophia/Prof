@@ -25,7 +25,13 @@ async function request(path, options = {}) {
   if (!res.ok) {
     let detail = ''
     try {
-      detail = await res.text()
+      const ct = res.headers.get('content-type') || ''
+      if (ct.includes('application/json')) {
+        const json = await res.json()
+        detail = json.detail || JSON.stringify(json)
+      } else {
+        detail = await res.text()
+      }
     } catch (error) {
       detail = `unable to read error body: ${error?.message || String(error)}`
     }
