@@ -29,6 +29,9 @@ import sys
 from modules.rag_manager.rag_engine import RAGEngine
 from core.logging import log
 
+from modules.rag_manager.rag_result_limits import ResultLimitManager, ResultLimitContext
+import uuid  # Add if not already present
+
 
 # ---------------------------------------------------------------------------
 # Per-engine stable cached factories
@@ -153,6 +156,8 @@ class RAGManager:
                 log("info", f"Applied global embedding model to all engines: {model_name}")
 
         self._user_manager.register_before_delete_callback(self._handle_user_deletion)
+
+        self.limit_manager = ResultLimitManager(rag_config)
 
         if not self.has_any_documents():
             log("info", "No existing documents found, running auto-import")
@@ -705,14 +710,29 @@ class RAGManager:
         user_id: str,
         query: str,
         engine_type: Optional[str] = None,
-        limit: int = 5,
+        limit: Optional[int] = None,  # ← Made optional
         search_all: bool = False,
+        query_id: Optional[str] = None,  # ← New parameter for dynamic override
     ) -> Dict[str, Any]:
         """Search for documents across one or all engines."""
         results: Dict[str, Any] = {}
 
         log("debug", f"[RAG Search] ========== SEARCH START ==========")
         log("debug", f"[RAG Search] user_id={user_id}, query='{query}', engine_type={engine_type}, search_all={search_all}")
+
+        # Determine effective limit
+        if limit is None:
+            limit = self.limit_manager.get_limit(
+                context=ResultLimitContext.SEARCH,
+                user_id=user_id,
+                engine_type=engine_type,
+                query_id=query_id
+            )
+        else:
+            # Validate explicit limit
+            limit = self.limit_manager.validate_limit(limit)
+
+        log("debug", f"[RAG Search] Using result limit: {limit}")
 
         if not self.is_rag_enabled():
             log("debug", "[RAG Search] RAG disabled, returning empty")
@@ -791,8 +811,8 @@ class RAGManager:
                 else:
                     log("debug", f"[RAG Search]   No indexed documents for owner {owner}")
 
-                # Perform the search
-                owner_results = engine.search(owner, query, limit * 5)
+                # Perform the search - PASS THE LIMIT
+                owner_results = engine.search(owner, query, limit * 3)  # Get more for blending
                 log("debug", f"[RAG Search] Engine {eng_type} returned {len(owner_results)} raw results for owner {owner}")
 
                 if owner_results:
@@ -815,11 +835,11 @@ class RAGManager:
                 engine_results.extend(filtered_for_owner)
                 log("debug", f"[RAG Search] Engine {eng_type}: {pre_filter_count} raw, {len(filtered_for_owner)} kept for owner {owner}")
 
-            # Sort by score and limit
+            # Sort by score and limit to FINAL limit
             engine_results.sort(key=lambda x: x['score'], reverse=True)
             final_results = engine_results[:limit]
 
-            log("debug", f"[RAG Search] Engine {eng_type} final results count: {len(final_results)}")
+            log("debug", f"[RAG Search] Engine {eng_type} final results count: {len(final_results)} (requested limit: {limit})")
 
             if final_results:
                 for i, r in enumerate(final_results):
@@ -859,6 +879,7 @@ class RAGManager:
         user_id: str,
         query: str,
         engine_type: Optional[str] = None,
+        query_id: Optional[str] = None,  # ← New parameter
     ) -> str:
         """Get RAG context for a query."""
         if not self.is_rag_enabled():
@@ -875,7 +896,17 @@ class RAGManager:
 
         log("debug", f"[RAG Context] Getting context for user={user_id}, engine={engine_type}, query='{query}'")
 
-        search_results = self.search(user_id, query, engine_type, limit=3)
+        # Get the appropriate limit for context injection
+        limit = self.limit_manager.get_limit(
+            context=ResultLimitContext.CONTEXT_INJECTION,
+            user_id=user_id,
+            engine_type=engine_type,
+            query_id=query_id
+        )
+
+        log("debug", f"[RAG Context] Using result limit: {limit}")
+
+        search_results = self.search(user_id, query, engine_type, limit=limit, query_id=query_id)
         engine_results = search_results.get(engine_type, []) if search_results else []
 
         if not engine_results:
@@ -900,8 +931,16 @@ class RAGManager:
             for r in engine_results
         ]
 
-        log("debug", f"[RAG Context] Returning {len(context_parts)} context chunks")
+        log("debug", f"[RAG Context] Returning {len(context_parts)} context chunks (limit was {limit})")
         return "Relevant context from documents:\n" + "\n".join(context_parts)
+
+
+    def refresh_result_limits(self) -> None:
+        """Reload result limits from config (called when config changes)"""
+        rag_config = self._get_rag_config()
+        self.limit_manager.update_config(rag_config.get("result_limits", {}))
+        log("debug", "Result limits refreshed from config")
+
 
     # ------------------------------------------------------------------
     # Stats

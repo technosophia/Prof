@@ -11,6 +11,21 @@
     ],
     "max_file_size_mb": 20,
     "default_engine": "hybrid_bm25_blend_no_hyde",
+
+    "result_limits": {
+      "default": 3,
+      "min": 1,
+      "max": 20,
+      "context_injection": 3,
+      "search_test": 5,
+      "per_engine": {
+        "hybrid_bm25_blend": 3,
+        "structured_sheet": 3,
+        "simple": 5,
+        "classic": 5
+      }
+    },
+
     "engines": {
 
       "simple": {

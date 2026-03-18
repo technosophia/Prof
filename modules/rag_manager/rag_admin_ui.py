@@ -8,8 +8,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 import tempfile
+import uuid
 
 from st_shared.cached import get_config
+from modules.rag_manager.rag_limits_ui import render_limit_management_panel, render_limit_controls_in_search
 
 def _get_rag_manager():
     """Lazy accessor — never called at module import time."""
@@ -19,6 +21,7 @@ def _get_rag_manager():
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _
+
 def show_rag_admin_content():
     """Display the enhanced RAG Manager admin content."""
     st.title("📚 RAG Document Manager")
@@ -90,7 +93,7 @@ def _show_cache_tab():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔄 Clear Cache", type="primary", width='stretch',
+        if st.button("🔄 Clear Cache", type="primary", use_container_width=True,
                    help="Clear all cached model weights. Models will reload on next use."):
             with st.spinner("Clearing cache..."):
                 if _get_rag_manager().clear_model_cache():
@@ -100,11 +103,11 @@ def _show_cache_tab():
                     st.error("Failed to clear cache")
 
     with col2:
-        if st.button("📊 Refresh Cache Info", width='stretch'):
+        if st.button("📊 Refresh Cache Info", use_container_width=True):
             st.rerun()
 
     with col3:
-        if st.button("⚙️ Reload Config", width='stretch',
+        if st.button("⚙️ Reload Config", use_container_width=True,
                    help="Reload RAG configuration from config file"):
             with st.spinner("Reloading config..."):
                 _get_rag_manager().refresh_config()
@@ -144,7 +147,7 @@ def _show_cache_tab():
         st.markdown("**Step 1: Clear Existing Indices**")
         st.caption("Clear all indices before re-indexing with new model")
 
-        if st.button("🗑️ Clear All Indices", type="secondary", width='stretch',
+        if st.button("🗑️ Clear All Indices", type="secondary", use_container_width=True,
                     help="Clear all indices from all engines. Required before re-indexing with new model."):
 
             with st.spinner("Clearing all engine indices..."):
@@ -178,10 +181,11 @@ def _show_cache_tab():
             "Select engines to re-index",
             options=available_engines,
             default=available_engines,
+            key="reindex_engine_select",
             help="Choose which engines to re-index"
         )
 
-        if st.button("🔄 Re-index All Documents", type="primary", width='stretch',
+        if st.button("🔄 Re-index All Documents", type="primary", use_container_width=True,
                     help="Re-index all documents across selected engines"):
 
             if not selected_engines:
@@ -235,7 +239,7 @@ def _show_cache_tab():
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🔄 Clear & Re-index (All-in-One)", type="secondary", width='stretch'):
+        if st.button("🔄 Clear & Re-index (All-in-One)", type="secondary", use_container_width=True):
 
             if st.session_state.get("confirm_complete_reindex", False):
                 with st.spinner("Step 1: Clearing all indices..."):
@@ -345,6 +349,7 @@ def _show_documents_tab():
             "Choose files",
             type=allowed_types,
             accept_multiple_files=True,
+            key="doc_uploader",
             help=f"Maximum file size: {rag_config.get('max_file_size_mb', 10)}MB"
         )
 
@@ -352,10 +357,13 @@ def _show_documents_tab():
         # Public upload option (only for admin/masters)
         is_public = False
         if user_role in ['admin', 'master']:
-            is_public = st.checkbox("Make public",
-                                  help="Public documents are visible to all users")
+            is_public = st.checkbox(
+                "Make public",
+                key="make_public_checkbox",
+                help="Public documents are visible to all users"
+            )
 
-        if uploaded_files and st.button("📤 Upload", type="primary"):
+        if uploaded_files and st.button("📤 Upload", type="primary", key="upload_button"):
             success_count = 0
             error_count = 0
 
@@ -402,7 +410,7 @@ def _show_documents_tab():
         st.info("No documents uploaded yet.")
     else:
         # Create a table of documents
-        for doc in documents:
+        for i, doc in enumerate(documents):
             col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
 
             with col1:
@@ -432,12 +440,12 @@ def _show_documents_tab():
 
                 with btn_col1:
                     # Index button
-                    if st.button("🔍", key=f"index_{doc['filename']}", help="Index this document"):
+                    if st.button("🔍", key=f"index_btn_{doc['filename']}_{i}", help="Index this document"):
                         st.session_state[f"indexing_{doc['filename']}"] = True
 
                 with btn_col2:
                     # Delete button
-                    delete_key = f"delete_{doc['filename']}"
+                    delete_key = f"delete_btn_{doc['filename']}_{i}"
                     if st.button("🗑️", key=delete_key, help="Delete this document"):
                         if st.session_state.get(f"confirm_{delete_key}", False):
                             if _get_rag_manager().delete_document(doc['filename'], user_id):
@@ -456,18 +464,19 @@ def _show_documents_tab():
                         selected_engine = st.selectbox(
                             "Select engine",
                             engine_options,
-                            key=f"engine_select_{doc['filename']}"
+                            key=f"engine_select_{doc['filename']}_{i}",
+                            index=0
                         )
 
                         col_a, col_b = st.columns(2)
                         with col_a:
-                            if st.button("✅ Index", type="primary"):
+                            if st.button("✅ Index", type="primary", key=f"confirm_index_{doc['filename']}_{i}"):
                                 if _get_rag_manager().index_document(doc['filename'], selected_engine, user_id):
                                     st.success(f"Document indexed with {selected_engine} engine")
                                     st.session_state[f"indexing_{doc['filename']}"] = False
                                     st.rerun()
                         with col_b:
-                            if st.button("❌ Cancel"):
+                            if st.button("❌ Cancel", key=f"cancel_index_{doc['filename']}_{i}"):
                                 st.session_state[f"indexing_{doc['filename']}"] = False
                                 st.rerun()
 
@@ -483,7 +492,7 @@ def _show_engines_tab():
 
     st.subheader("Available Engines")
 
-    for engine in engines:
+    for i, engine in enumerate(engines):
         status_icon = "✅" if engine["available"] else "❌"
         default_badge = " ⭐ default" if engine["default"] else ""
         label = f"{status_icon} **{engine['type'].upper()}**{default_badge} — {engine['description']}"
@@ -507,7 +516,7 @@ def _show_engines_tab():
 
             with col2:
                 if not engine["default"] and engine["available"]:
-                    if st.button("Set as default", key=f"set_default_{engine['type']}"):
+                    if st.button("Set as default", key=f"set_default_{engine['type']}_{i}"):
                         st.info(f"Setting default engine requires a config file change "
                                 f"(set `default_engine` to `{engine['type']}`).")
 
@@ -532,6 +541,10 @@ def _show_engines_tab():
                 if key != 'engine_type':
                     st.write(f"- {key}: {value}")
 
+    # Add result limits management panel
+    st.divider()
+    render_limit_management_panel(_get_rag_manager())
+
 
 def _show_search_test_tab():
     """Show search testing tab with diagnostics and integrity tooling."""
@@ -547,67 +560,42 @@ def _show_search_test_tab():
     engines = _get_rag_manager().get_available_engines()
     available_engine_types = [e['type'] for e in engines if e['available']]
 
-    docs = _get_rag_manager().get_user_documents(user_id)
+    # Result limit controls - with unique keys
+    limit_controls = render_limit_controls_in_search(
+        _get_rag_manager(),
+        user_id,
+        key_prefix="search_test"
+    )
 
-    with st.expander("🔬 System Diagnostics", expanded=False):
-        st.write(f"**Current user:** `{user_id}` (role: `{user_role}`)")
+    # Generate a unique query ID for this search session if not exists
+    if "search_test_query_id" not in st.session_state:
+        st.session_state.search_test_query_id = str(uuid.uuid4())
 
-        st.subheader("Accessible Documents")
-        if docs:
-            st.dataframe([
-                {
-                    'original_filename': d['original_filename'],
-                    'uploaded_by': d['uploaded_by'],
-                    'indexed_in': ', '.join(d.get('indexed_in', [])) if d.get('indexed_in') else '-'
-                }
-                for d in docs
-            ], width='stretch')
-        else:
-            st.error("No documents accessible — search will always return empty.")
+    # Search input
+    query = st.text_input(
+        "Enter search query",
+        placeholder="Search in your documents...",
+        key="search_test_query_input"
+    )
 
-        st.subheader("Engine Index Contents")
-        for eng_type in available_engine_types:
-            eng = _get_rag_manager().get_engine(eng_type)
-            indexed_docs = eng.get_indexed_documents(user_id) if eng else []
-            if indexed_docs:
-                st.success(f"{eng_type}: {len(indexed_docs)} document(s) indexed under user_id `{user_id}`")
-            else:
-                st.warning(f"{eng_type}: 0 documents indexed under user_id `{user_id}`")
+    col1, col2 = st.columns([2, 1])
 
-        st.subheader("Owner ID Mismatch Check")
-        mismatch_rows = []
-        for doc in docs:
-            owner_id = doc['uploaded_by']
-            row = {
-                'filename': doc['filename'],
-                'uploaded_by': owner_id
-            }
-            for eng_type in available_engine_types:
-                eng = _get_rag_manager().get_engine(eng_type)
-                owner_present = False
-                if eng:
-                    if eng_type == 'simple':
-                        owner_present = owner_id in getattr(eng, 'indices', {})
-                    else:
-                        owner_present = owner_id in getattr(eng, 'metadata', {})
-                row[f'{eng_type}_owner_present'] = '✅' if owner_present else '❌'
-            mismatch_rows.append(row)
-
-        if mismatch_rows:
-            st.dataframe(mismatch_rows, width='stretch')
-            for row in mismatch_rows:
-                missing = [k.replace('_owner_present', '') for k, v in row.items() if k.endswith('_owner_present') and v == '❌']
-                if missing:
-                    st.error(
-                        f"Owner mismatch for `{row['filename']}` (owner `{row['uploaded_by']}`) in engine(s): {', '.join(missing)}"
-                    )
-
-    col1, col2 = st.columns([3, 1])
     with col1:
-        query = st.text_input("Enter search query", placeholder="Search in your documents...")
+        # Engine selection - WITH UNIQUE KEY
+        engine_options_list = ["All"] + available_engine_types
+        selected_engine = st.selectbox(
+            "Engine",
+            options=engine_options_list,  # ← Fixed: use 'options' not 'engine_options'
+            index=0,
+            key="search_test_engine_select"
+        )
+
     with col2:
-        engine_options = ["All"] + available_engine_types
-        selected_engine = st.selectbox("Engine", engine_options, index=0)
+        # Show active override info if any
+        if limit_controls["is_override"]:
+            st.info(f"🔍 Override: {limit_controls['limit']} results")
+        else:
+            st.caption(f"Default: {limit_controls['limit']} results")
 
     threshold = st.slider(
         "Similarity Threshold (vector engines only)",
@@ -615,6 +603,7 @@ def _show_search_test_tab():
         max_value=1.0,
         value=0.5,
         step=0.05,
+        key="search_test_threshold",
         help="Temporarily applied to classic/faiss_hierarchical for this search only."
     )
     st.caption("Threshold change is temporary and only applied for the current search execution.")
@@ -679,13 +668,13 @@ def _show_search_test_tab():
 
         return check_rows, failed_docs
 
-    if st.button("🩺 Run Index Integrity Check"):
+    if st.button("🩺 Run Index Integrity Check", key="integrity_check_btn"):
         rows, integrity_failures = run_integrity_check()
         if rows:
-            st.dataframe(rows, width='stretch')
+            st.dataframe(rows, use_container_width=True)
         if integrity_failures:
             st.warning(f"Integrity issues found for {len({d['filename'] for d in integrity_failures})} document(s).")
-            if st.button("Re-index all documents"):
+            if st.button("Re-index all documents", key="reindex_failed_btn"):
                 with st.spinner("Re-indexing affected documents..."):
                     repaired = 0
                     for doc in {d['filename']: d for d in integrity_failures}.values():
@@ -699,7 +688,7 @@ def _show_search_test_tab():
                                 repaired += 1
                     st.success(f"Re-index complete. Successful indexing operations: {repaired}")
                     rows_after, failures_after = run_integrity_check()
-                    st.dataframe(rows_after, width='stretch')
+                    st.dataframe(rows_after, use_container_width=True)
                     if failures_after:
                         st.error("Some integrity issues remain after re-indexing.")
                     else:
@@ -707,7 +696,7 @@ def _show_search_test_tab():
         else:
             st.success("Integrity check passed.")
 
-    if query and st.button("🔍 Search", type="primary"):
+    if query and st.button("🔍 Search", type="primary", key="search_test_btn"):
         vector_engine_types = ['classic', 'faiss_hierarchical']
         original_thresholds = _get_rag_manager().set_similarity_thresholds({
             engine_type: threshold for engine_type in vector_engine_types
@@ -715,10 +704,27 @@ def _show_search_test_tab():
 
         try:
             with st.spinner("Searching..."):
+                # Use the limit from controls
                 if selected_engine == "All":
-                    results = _get_rag_manager().search(user_id, query, search_all=True)
+                    results = _get_rag_manager().search(
+                        user_id,
+                        query,
+                        search_all=True,
+                        limit=limit_controls["limit"],
+                        query_id=limit_controls["query_id"]
+                    )
                 else:
-                    results = _get_rag_manager().search(user_id, query, selected_engine)
+                    results = _get_rag_manager().search(
+                        user_id,
+                        query,
+                        selected_engine,
+                        limit=limit_controls["limit"],
+                        query_id=limit_controls["query_id"]
+                    )
+
+                # Show override indicator if active
+                if limit_controls["is_override"]:
+                    st.info(f"🔍 Using temporary override: {limit_controls['limit']} results")
 
                 if selected_engine == "All":
                     for engine_type in available_engine_types:
@@ -789,7 +795,7 @@ def _show_search_test_tab():
                                         })
 
                         if raw_rows:
-                            st.dataframe(raw_rows, width='stretch')
+                            st.dataframe(raw_rows, use_container_width=True)
                         else:
                             st.info('No raw results returned even with threshold=0.0')
                     finally:
@@ -834,7 +840,7 @@ def _show_stats_tab():
     st.subheader("Engine Statistics")
 
     engines = _get_rag_manager().get_available_engines()
-    for engine in engines:
+    for i, engine in enumerate(engines):
         if engine['available']:
             stats = _get_rag_manager().get_engine_stats(engine['type'], user_id)
             if stats:
@@ -848,7 +854,7 @@ def _show_stats_tab():
             col1, col2 = st.columns(2)
 
             with col1:
-                if st.button("🗑️ Clear All Your Documents", type="secondary"):
+                if st.button("🗑️ Clear All Your Documents", type="secondary", key="clear_all_docs_btn"):
                     if st.session_state.get("confirm_clear_all", False):
                         if _get_rag_manager().clear_all_documents(user_id):
                             st.success("All your documents cleared")
@@ -858,7 +864,7 @@ def _show_stats_tab():
                         st.warning("Are you sure? This will delete ALL documents you have access to.")
 
             with col2:
-                if st.button("🔄 Refresh", type="secondary"):
+                if st.button("🔄 Refresh", type="secondary", key="stats_refresh_btn"):
                     st.rerun()
 
 
@@ -916,7 +922,8 @@ def _show_index_tab():
     selected_engine_type = st.selectbox(
         "Choose an engine to index documents:",
         options=list(engine_options.keys()),
-        format_func=lambda x: f"{x.upper()} - {engine_options[x]['description']}"
+        format_func=lambda x: f"{x.upper()} - {engine_options[x]['description']}",
+        key="index_tab_engine_select"  # ← UNIQUE KEY
     )
 
     # Get documents for current user
@@ -957,11 +964,15 @@ def _show_index_tab():
         st.markdown("Select documents to index:")
 
         selected_docs = []
-        for doc in unindexed_documents:
+        for i, doc in enumerate(unindexed_documents):
             col1, col2, col3 = st.columns([1, 3, 2])
             with col1:
                 # Checkbox for selection
-                if st.checkbox("Select", key=f"select_{doc['filename']}_{selected_engine_type}"):
+                if st.checkbox(
+                    "Select",
+                    key=f"select_doc_{doc['filename']}_{i}_{selected_engine_type}",
+                    label_visibility="collapsed"
+                ):
                     selected_docs.append(doc)
             with col2:
                 st.write(f"**{doc['original_filename']}**")
@@ -977,7 +988,7 @@ def _show_index_tab():
 
         with col_a:
             # Index selected documents
-            if selected_docs and st.button(f"📥 Index Selected ({len(selected_docs)})", type="primary"):
+            if selected_docs and st.button(f"📥 Index Selected ({len(selected_docs)})", type="primary", key="index_selected_btn"):
                 success_count = 0
                 failed_count = 0
 
@@ -996,7 +1007,7 @@ def _show_index_tab():
 
         with col_b:
             # Index all unindexed documents
-            if unindexed_documents and st.button("📦 Index All Unindexed", type="secondary"):
+            if unindexed_documents and st.button("📦 Index All Unindexed", type="secondary", key="index_all_btn"):
                 success_count = 0
                 failed_count = 0
 
@@ -1015,7 +1026,7 @@ def _show_index_tab():
 
         with col_c:
             # Re-index all documents (even already indexed)
-            if st.button("🔄 Re-index All", type="secondary"):
+            if st.button("🔄 Re-index All", type="secondary", key="reindex_all_btn"):
                 success_count = 0
                 failed_count = 0
 
@@ -1036,7 +1047,7 @@ def _show_index_tab():
         st.info(f"All your documents are already indexed in the {selected_engine_type} engine.")
 
         # Option to re-index anyway
-        if st.button("🔄 Re-index All Documents Anyway", type="secondary"):
+        if st.button("🔄 Re-index All Documents Anyway", type="secondary", key="reindex_anyway_btn"):
             success_count = 0
             failed_count = 0
 
@@ -1059,7 +1070,7 @@ def _show_index_tab():
         st.subheader(f"Already Indexed in {selected_engine_type.upper()}")
 
         with st.expander(f"View {len(indexed_documents)} indexed documents", expanded=False):
-            for doc in indexed_documents:
+            for i, doc in enumerate(indexed_documents):
                 col1, col2, col3 = st.columns([3, 2, 1])
                 with col1:
                     st.write(f"**{doc['original_filename']}**")
@@ -1072,7 +1083,7 @@ def _show_index_tab():
                         st.caption(f"Indexed: {index_date}")
                 with col3:
                     # Re-index button for individual document
-                    if st.button("↻", key=f"reindex_{doc['filename']}_{selected_engine_type}", help="Re-index this document"):
+                    if st.button("↻", key=f"reindex_single_{doc['filename']}_{i}_{selected_engine_type}", help="Re-index this document"):
                         with st.spinner(f"Re-indexing {doc['original_filename']}..."):
                             if _get_rag_manager().index_document(doc['filename'], selected_engine_type, user_id):
                                 st.success(f"Re-indexed {doc['original_filename']}")
@@ -1100,7 +1111,7 @@ def _show_index_tab():
         with col2:
             # Clear index option
             st.markdown("**Index Management**")
-            if st.button("🗑️ Clear Index for This Engine", type="secondary"):
+            if st.button("🗑️ Clear Index for This Engine", type="secondary", key="clear_index_btn"):
                 if st.session_state.get(f"confirm_clear_{selected_engine_type}", False):
                     success, message = clear_engine_index_for_user(selected_engine_type, user_id)
                     if success:
@@ -1113,13 +1124,13 @@ def _show_index_tab():
                     st.warning(f"Are you sure you want to clear the {selected_engine_type} index? This will remove all your documents from this engine's index.")
 
     # Refresh button
-    if st.button("🔄 Refresh Indexing Status"):
+    if st.button("🔄 Refresh Indexing Status", key="refresh_index_status_btn"):
         st.rerun()
+
 
 def inject_ui_admin_tab():
     """Register the enhanced RAG Manager admin tab."""
     return ("RAG Manager", show_rag_admin_content)
-
 
 
 def inject_ui_main_content():
@@ -1145,6 +1156,7 @@ def test_rag_manager():
     except Exception as e:
         log("error", f"RAG Manager test failed: {str(e)}", stacktrace=True)
         return False
+
 
 def _show_engine_config_editor(engine_type: str) -> None:
     """

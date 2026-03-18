@@ -1,6 +1,8 @@
 """RAG manager module — driver options and LLM context callback lifecycle."""
 
 from typing import Callable, Dict, List, Optional
+import uuid
+import time
 
 from core.logging import log
 from shared.common import check_services
@@ -11,6 +13,10 @@ _LLM_MANAGER = None
 _services = None
 _ENGINE_CONTEXT_CALLBACKS: Dict[str, Callable[[str, List[Dict]], tuple]] = {}
 _ACTIVE_ENGINE_NAME: Optional[str] = None
+
+# Store active query IDs per conversation turn
+# This allows maintaining overrides across multi-turn conversations
+_ACTIVE_QUERY_IDS: Dict[str, str] = {}  # conversation_id -> query_id
 
 
 def set_services(services) -> None:
@@ -30,8 +36,39 @@ def _engine_exists(name: str) -> bool:
     return manager.get_engine(name) is not None and manager.is_engine_enabled(name)
 
 
+def _get_or_create_query_id(conversation_id: Optional[str] = None) -> str:
+    """
+    Get existing query ID for a conversation or create a new one.
+
+    This allows maintaining the same override across multiple turns
+    of a conversation while still having per-turn granularity.
+    """
+    if conversation_id and conversation_id in _ACTIVE_QUERY_IDS:
+        return _ACTIVE_QUERY_IDS[conversation_id]
+
+    # Create new query ID
+    new_id = str(uuid.uuid4())
+    if conversation_id:
+        _ACTIVE_QUERY_IDS[conversation_id] = new_id
+
+    return new_id
+
+
+def _clear_query_id(conversation_id: str) -> None:
+    """Clear the query ID for a conversation when it ends."""
+    _ACTIVE_QUERY_IDS.pop(conversation_id, None)
+
+
 def _make_engine_context_callback(name: str) -> Callable:
-    def _callback(user_id: str, messages: List[Dict]) -> tuple:
+    def _callback(user_id: str, messages: List[Dict], conversation_id: Optional[str] = None) -> tuple:
+        """
+        RAG context callback with query_id support.
+
+        Args:
+            user_id: The user making the request
+            messages: The conversation messages
+            conversation_id: Optional conversation ID for tracking overrides
+        """
         user_messages = [msg for msg in messages if msg.get("role") == "user"]
         if not user_messages:
             return "", "system", "bottom"
@@ -45,7 +82,16 @@ def _make_engine_context_callback(name: str) -> Callable:
         if _ACTIVE_ENGINE_NAME != name:
             return "", "system", "bottom"
 
-        context = manager.get_rag_context(user_id=user_id, query=query, engine_type=name)
+        # Get or create query ID for this conversation
+        query_id = _get_or_create_query_id(conversation_id)
+
+        # Get context with query_id to maintain any active overrides
+        context = manager.get_rag_context(
+            user_id=user_id,
+            query=query,
+            engine_type=name,
+            query_id=query_id
+        )
         return context, "system", "bottom"
 
     _callback.__name__ = f"rag_context_callback_{name}"
@@ -121,6 +167,9 @@ def _deactivate_rag_engine(name: str) -> None:
     if _ACTIVE_ENGINE_NAME == name:
         _ACTIVE_ENGINE_NAME = None
 
+    # Clear any stored query IDs when engine is deactivated
+    _ACTIVE_QUERY_IDS.clear()
+
 
 def _clear_registered_context_callbacks() -> None:
     global _ACTIVE_ENGINE_NAME
@@ -129,6 +178,7 @@ def _clear_registered_context_callbacks() -> None:
         _unregister_context_callback(callback)
     _ENGINE_CONTEXT_CALLBACKS.clear()
     _ACTIVE_ENGINE_NAME = None
+    _ACTIVE_QUERY_IDS.clear()
 
 
 def on_module_activated(services) -> None:
@@ -197,9 +247,79 @@ def on_module_config_changed() -> None:
     """Reload config-dependent state."""
     manager = get_rag_manager()
     manager.refresh_config()
+
+    # Also refresh result limits from config
+    if hasattr(manager, 'refresh_result_limits'):
+        manager.refresh_result_limits()
+
     _clear_registered_context_callbacks()
     if manager.is_rag_enabled() and manager.default_engine:
         _activate_rag_engine(manager.default_engine)
+
+
+# Utility function for UI to set a query override for a conversation
+def set_conversation_override(conversation_id: str, limit: int) -> bool:
+    """
+    Set a result limit override for an entire conversation.
+
+    This allows admins/masters to set a limit that persists across
+    multiple turns of a conversation.
+
+    Args:
+        conversation_id: The conversation to apply the override to
+        limit: The result limit to use
+
+    Returns:
+        bool: True if override was set successfully
+    """
+    manager = get_rag_manager()
+
+    # Get or create query ID for this conversation
+    query_id = _get_or_create_query_id(conversation_id)
+
+    # Set the override in the limit manager
+    return manager.limit_manager.set_query_override(query_id, limit, ttl_seconds=3600)  # 1 hour TTL for conversations
+
+
+# Utility function to clear a conversation override
+def clear_conversation_override(conversation_id: str) -> None:
+    """Clear any override for a conversation."""
+    if conversation_id in _ACTIVE_QUERY_IDS:
+        query_id = _ACTIVE_QUERY_IDS[conversation_id]
+        manager = get_rag_manager()
+        manager.limit_manager.clear_query_override(query_id)
+        _clear_query_id(conversation_id)
+
+
+# Utility function to get active override info (for UI)
+def get_active_override_info(conversation_id: Optional[str] = None) -> Dict:
+    """
+    Get information about active overrides.
+
+    Args:
+        conversation_id: Optional conversation ID to check
+
+    Returns:
+        Dict with override information
+    """
+    manager = get_rag_manager()
+
+    if conversation_id and conversation_id in _ACTIVE_QUERY_IDS:
+        query_id = _ACTIVE_QUERY_IDS[conversation_id]
+        limit = manager.limit_manager.get_query_override(query_id)
+        if limit is not None:
+            return {
+                "active": True,
+                "limit": limit,
+                "conversation_id": conversation_id,
+                "query_id": query_id
+            }
+
+    return {
+        "active": False,
+        "limit": None,
+        "conversation_id": conversation_id
+    }
 
 
 __all__ = [
@@ -213,6 +333,9 @@ __all__ = [
     "_ENGINE_CONTEXT_CALLBACKS",
     "_make_engine_context_callback",
     "_services",
+    "set_conversation_override",
+    "clear_conversation_override",
+    "get_active_override_info",
 ]
 
 
