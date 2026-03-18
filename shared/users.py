@@ -54,15 +54,19 @@ import hashlib
 import secrets
 import json
 import os
+import csv
+import io
+import re
 from typing import Dict, List, Optional, Any, Set, Tuple
 from datetime import datetime, timedelta
 from enum import Enum
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey
+from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, JSON, func, ForeignKey, inspect, text
 from sqlalchemy.orm import Session, relationship, joinedload
 
 from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
+from core.config import get_config
 from core.callback import register_callback, unregister_callback, clear_callbacks
 
 
@@ -103,6 +107,7 @@ class UserTable(Base):
     last_login = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
     role = Column(String(20), default=UserRole.NORMAL.value)
+    registration_status = Column(String(20), nullable=True, default="approved")
     parent_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     profile = Column(JSON, default={})
     user_metadata = Column(JSON, default={})
@@ -112,6 +117,15 @@ class UserTable(Base):
     # Relationships - define them explicitly
     parent = relationship("UserTable", remote_side=[id], back_populates="children")
     children = relationship("UserTable", back_populates="parent")
+
+
+class PreregisteredEmail(Base):
+    """Pre-registered emails accepted for auto-approved registration."""
+    __tablename__ = 'preregistered_emails'
+
+    email = Column(String(255), primary_key=True)
+    added_at = Column(DateTime, default=datetime.utcnow)
+    added_by = Column(String(36), nullable=True)
 
 
 class UserActionLog(Base):
@@ -158,6 +172,14 @@ class UserManager:
 
         try:
             UserTable.__table__.create(bind=self.db._engine, checkfirst=True)
+
+            inspector = inspect(self.db._engine)
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if "registration_status" not in user_columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN registration_status VARCHAR(20) DEFAULT 'approved'"))
+                log("info", "Added missing users.registration_status column")
+
             log("debug", "Users table ensured to exist")
             return True
         except Exception as e:
@@ -174,6 +196,18 @@ class UserManager:
             return True
         except Exception as e:
             log("error", f"Failed to ensure action log table exists: {e}")
+            return False
+
+    def _ensure_preregistered_emails_table(self):
+        """Ensure the preregistered_emails table exists."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            PreregisteredEmail.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure preregistered emails table exists: {e}")
             return False
 
     def _hash_password(self, password: str) -> str:
@@ -741,6 +775,7 @@ class UserManager:
             "name": user.name,
             "email": user.email,
             "role": user.role,
+            "registration_status": user.registration_status or "approved",
             "parent_id": user.parent_id,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login": user.last_login.isoformat() if user.last_login else None,
@@ -807,11 +842,14 @@ class UserManager:
                 return self._user_to_dict(user)
             return None
 
-    def authenticate_user(self, user_id: str, password: str) -> Optional[Dict[str, Any]]:
-        """Authenticate a user by user_id and password.
+    def authenticate_user_with_status(self, user_id: str, password: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        """Authenticate a user by user_id/password and return explicit status.
 
         Returns:
-            User dict if authentication successful, None otherwise
+            Tuple of (user, status) where status is one of:
+            - success
+            - pending_approval
+            - invalid_credentials
         """
         self._ensure_table_exists()
 
@@ -832,7 +870,7 @@ class UserManager:
                     details={"user_id": user_id, "reason": "user_not_found"},
                     success=False
                 )
-                return None
+                return None, "invalid_credentials"
 
             if not user.is_active:
                 self.log_user_action(
@@ -841,7 +879,7 @@ class UserManager:
                     details={"reason": "inactive_account"},
                     success=False
                 )
-                return None
+                return None, "invalid_credentials"
 
             if not user.password_hash:
                 self.log_user_action(
@@ -850,28 +888,182 @@ class UserManager:
                     details={"reason": "no_password_set"},
                     success=False
                 )
-                return None
+                return None, "invalid_credentials"
 
-            if self._verify_password(password, user.password_hash):
-                # Update last login
-                user.last_login = datetime.utcnow()
-                session.commit()
-
-                self.log_user_action(
-                    user_id=user.id,
-                    action=UserAction.LOGIN.value,
-                    success=True
-                )
-
-                return self._user_to_dict(user)
-            else:
+            if not self._verify_password(password, user.password_hash):
                 self.log_user_action(
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
                     details={"reason": "invalid_password"},
                     success=False
                 )
-                return None
+                return None, "invalid_credentials"
+
+            if (user.registration_status or "approved") != "approved":
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"reason": "registration_not_approved", "registration_status": user.registration_status},
+                    success=False
+                )
+                return None, "pending_approval"
+
+            # Update last login
+            user.last_login = datetime.utcnow()
+            session.commit()
+
+            self.log_user_action(
+                user_id=user.id,
+                action=UserAction.LOGIN.value,
+                success=True
+            )
+
+            return self._user_to_dict(user), "success"
+
+    def authenticate_user(self, user_id: str, password: str) -> Optional[Dict[str, Any]]:
+        """Authenticate a user by user_id and password.
+
+        Returns:
+            User dict if authentication successful, None otherwise
+        """
+        user, _ = self.authenticate_user_with_status(user_id, password)
+        return user
+
+    def get_pending_users(self) -> List[Dict[str, Any]]:
+        """Return users awaiting manual registration approval."""
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            users = session.query(UserTable).filter(UserTable.registration_status == "pending").all()
+            return [self._user_to_dict(user) for user in users]
+
+    def set_registration_status(self, user_id: str, status: str) -> bool:
+        """Set registration status for a user."""
+        if status not in {"approved", "pending", "rejected"}:
+            raise ValueError("Invalid registration status")
+
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return False
+            user.registration_status = status
+            session.commit()
+            return True
+
+    def import_preregistered_emails(self, csv_content: str, requesting_user_id: str = None) -> Dict[str, Any]:
+        """Import pre-registered emails from CSV content."""
+        self._ensure_preregistered_emails_table()
+
+        result = {"imported": 0, "skipped": 0, "invalid": [], "errors": []}
+        if not csv_content or not csv_content.strip():
+            return result
+
+        email_column_aliases = {"email", "e-mail", "mail", "email address", "e-mail address", "courriel"}
+        email_regex = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+        try:
+            reader = csv.DictReader(io.StringIO(csv_content))
+        except Exception as error:
+            result["errors"].append(f"invalid_csv: {error}")
+            return result
+
+        if not reader.fieldnames:
+            return result
+
+        normalized = {name.strip().lower(): name for name in reader.fieldnames if name and name.strip()}
+        email_header = next((normalized[name] for name in email_column_aliases if name in normalized), None)
+        if not email_header:
+            result["errors"].append("missing_email_column")
+            return result
+
+        with self.db.get_session() as session:
+            for row in reader:
+                raw_email = (row.get(email_header) or "").strip()
+                if not raw_email:
+                    continue
+
+                email = raw_email.lower()
+                if not email_regex.match(email):
+                    result["invalid"].append(raw_email)
+                    continue
+
+                existing = session.query(PreregisteredEmail).filter(
+                    func.lower(PreregisteredEmail.email) == email
+                ).first()
+                if existing:
+                    result["skipped"] += 1
+                    continue
+
+                session.add(
+                    PreregisteredEmail(
+                        email=email,
+                        added_at=datetime.utcnow(),
+                        added_by=requesting_user_id,
+                    )
+                )
+                result["imported"] += 1
+            session.commit()
+
+        return result
+
+    def is_email_preregistered(self, email: str) -> bool:
+        """Check if an email is preregistered in DB or config."""
+        if not email:
+            return False
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return False
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            db_match = session.query(PreregisteredEmail).filter(
+                func.lower(PreregisteredEmail.email) == normalized_email
+            ).first()
+            if db_match:
+                return True
+
+        config = get_config()
+        config_emails = config.get("registration.preregistered_emails", []) or []
+        return normalized_email in {str(item).strip().lower() for item in config_emails if str(item).strip()}
+
+    def get_preregistered_emails(self) -> List[Dict[str, Any]]:
+        """Get all pre-registered emails from DB."""
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            rows = session.query(PreregisteredEmail).order_by(PreregisteredEmail.email.asc()).all()
+            return [
+                {
+                    "email": row.email,
+                    "added_at": row.added_at.isoformat() if row.added_at else None,
+                    "added_by": row.added_by,
+                }
+                for row in rows
+            ]
+
+    def delete_preregistered_email(self, email: str) -> bool:
+        """Delete one preregistered email by value."""
+        if not email:
+            return False
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return False
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            row = session.query(PreregisteredEmail).filter(
+                func.lower(PreregisteredEmail.email) == normalized_email
+            ).first()
+            if not row:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
 
     def generate_reset_code(self, user_id: str, requesting_user_id: Optional[str] = None) -> Optional[str]:
         """Generate a password reset code for a user.
@@ -1156,7 +1348,10 @@ class UserManager:
                    email: Optional[str] = None, parent_id: Optional[str] = None,
                    profile: Optional[Dict] = None,
                    password: Optional[str] = None,
-                   requesting_user_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+                   requesting_user_id: Optional[str] = None,
+                   user_id: Optional[str] = None,
+                   allow_orphan_normal: bool = False,
+                   registration_status: str = "approved") -> Tuple[Optional[str], Optional[str]]:
         """Create a new user with validation.
 
         Args:
@@ -1181,8 +1376,11 @@ class UserManager:
             raise ValueError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
 
         # Validate parent for normal users
-        if role == UserRole.NORMAL.value and not parent_id:
+        if role == UserRole.NORMAL.value and not parent_id and not allow_orphan_normal:
             raise ValueError("Normal users must have a parent (master)")
+
+        if registration_status not in {"approved", "pending", "rejected"}:
+            raise ValueError("Invalid registration_status")
 
         # Validate parent exists and is a master
         if parent_id:
@@ -1201,10 +1399,14 @@ class UserManager:
 
         self._ensure_table_exists()
 
-        user_id = str(uuid.uuid4())
+        explicit_user_id = user_id is not None
+        user_id = user_id or str(uuid.uuid4())
         reset_code = None
 
         with self.db.get_session() as session:
+            if explicit_user_id and session.query(UserTable).filter_by(id=user_id).first():
+                raise ValueError(f"User ID '{user_id}' already exists")
+
             # Hash password if provided
             password_hash = None
             if password:
@@ -1219,6 +1421,7 @@ class UserManager:
                 email=email,
                 password_hash=password_hash,
                 role=role,
+                registration_status=registration_status,
                 parent_id=parent_id,
                 created_at=datetime.utcnow(),
                 is_active=True,

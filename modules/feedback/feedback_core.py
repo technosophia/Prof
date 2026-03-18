@@ -113,11 +113,11 @@ def feedback_on_module_activated(services) -> None:
         return {"feedback_id": submit_feedback(db_manager, **kwargs)}
 
     driver.register_action("feedback.submit", _submit_action, "Submit feedback record")
-    log("info", "feedback: activated")
+    log("debug", "feedback: activated")
 
 
 def feedback_on_module_deactivated() -> None:
-    log("info", "feedback: deactivated (no removable callbacks registered)")
+    log("debug", "feedback: deactivated (no removable callbacks registered)")
 
 
 def clear_feedback(db_manager) -> int:

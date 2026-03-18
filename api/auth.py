@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from jose import jwt
 from pydantic import BaseModel
 
@@ -22,6 +23,17 @@ class InitPasswordRequest(BaseModel):
     reset_code: str
     new_password: str
 
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    confirm_password: str
+    suggested_id: Optional[str] = None
+
+
+class PendingRegistrationResponse(BaseModel):
+    status: str
 
 class UserDTO(BaseModel):
     id: str
@@ -74,6 +86,14 @@ def _to_user_dto(user: dict) -> UserDTO:
     )
 
 
+
+
+def _sanitize_user_id(raw_user_id: str) -> str:
+    candidate = (raw_user_id or "").strip().lower().replace(" ", "_").replace(".", "_")
+    while "__" in candidate:
+        candidate = candidate.replace("__", "_")
+    return candidate.strip("_")
+
 def _create_token(user: dict, masquerader_id: Optional[str] = None) -> str:
     secret = os.getenv("JWT_SECRET")
     if not secret:
@@ -88,9 +108,69 @@ def _create_token(user: dict, masquerader_id: Optional[str] = None) -> str:
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest):
-    user = get_user_manager().authenticate_user(payload.user_id, payload.password)
+    user_manager = get_user_manager()
+    user, auth_status = user_manager.authenticate_user_with_status(payload.user_id, payload.password)
+    if auth_status == "pending_approval":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="pending_approval")
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    token = _create_token(user)
+    return TokenResponse(access_token=token, user=_to_user_dto(user))
+
+
+@router.post(
+    "/register",
+    response_model=TokenResponse | PendingRegistrationResponse,
+)
+async def register(payload: RegisterRequest):
+    if payload.password != payload.confirm_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="password_mismatch")
+
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_email")
+
+    derived_id_source = payload.suggested_id or email.split("@", 1)[0]
+    derived_user_id = _sanitize_user_id(derived_id_source)
+    if not derived_user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_user_id")
+
+    user_manager = get_user_manager()
+    registration_status = "approved" if user_manager.is_email_preregistered(email) else "pending"
+
+
+    if user_manager.get_user(derived_user_id):
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": "user_id_conflict", "conflicting_user_id": derived_user_id},
+        )
+
+    try:
+        user_manager.create_user(
+            name=derived_user_id,
+            role="normal",
+            email=email,
+            parent_id=None,
+            password=payload.password,
+            user_id=derived_user_id,
+            allow_orphan_normal=True,
+            registration_status=registration_status,
+        )
+    except ValueError as error:
+        if "already exists" in str(error):
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content={"detail": "user_id_conflict", "conflicting_user_id": derived_user_id},
+            )
+        raise
+
+    if registration_status == "pending":
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"status": "pending"})
+
+    user = user_manager.authenticate_user(derived_user_id, payload.password)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unable to authenticate user")
+
     token = _create_token(user)
     return TokenResponse(access_token=token, user=_to_user_dto(user))
 

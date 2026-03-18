@@ -60,7 +60,7 @@ def show_users_admin_content():
 
     # Create main tabs
     if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-        tab_names = ["📋 Manage Users", "➕ Create User"]
+        tab_names = ["📋 Manage Users", "➕ Create User", "📧 Pre-registered Emails"]
 
         # Add Activity Logs tab for production mode
         if production_mode:
@@ -71,29 +71,95 @@ def show_users_admin_content():
 
         tabs = st.tabs(tab_names)
 
-        # Tab 1: Manage Users
         with tabs[0]:
             _render_user_management_tab(current_user, user_role, user_id, manageable_users, production_mode)
 
-        # Tab 2: Create User
         with tabs[1]:
             _render_create_user_tab(current_user, user_role, production_mode)
 
-        # Tab 3: Activity Logs (if in production mode)
-        if production_mode and len(tabs) > 2 and tab_names[2] == "📊 Activity Logs":
-            with tabs[2]:
+        with tabs[2]:
+            _render_preregistered_emails_tab(current_user)
+
+        activity_logs_idx = 3
+        if production_mode and len(tabs) > activity_logs_idx:
+            with tabs[activity_logs_idx]:
                 _render_activity_logs_tab(current_user, user_role, user_id)
 
-        # Tab 4: Import/Export (Admin only)
         if user_role == UserRole.ADMIN.value:
-            # Find the import/export tab index
-            import_export_idx = 2 if not production_mode else 3
+            import_export_idx = activity_logs_idx + 1 if production_mode else 3
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
                     _render_import_export_tab(current_user)
 
     else:  # Should not happen due to can_access_admin_tab check
         st.info("No users found that you can manage.")
+
+
+def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
+    """Render pre-registered email import/management."""
+    st.subheader("📧 Pre-registered Emails")
+
+    user_manager = get_user_manager()
+    import_tab, manage_tab = st.tabs(["📥 Import CSV", "📋 Manage List"])
+
+    with import_tab:
+        uploaded_file = st.file_uploader(
+            "Upload a CSV file with pre-registered emails",
+            type=["csv"],
+            key="preregistered_emails_csv_uploader",
+        )
+
+        if uploaded_file is not None:
+            try:
+                csv_content = uploaded_file.getvalue().decode("utf-8")
+            except UnicodeDecodeError:
+                st.error("❌ Could not decode CSV file as UTF-8")
+            else:
+                result = user_manager.import_preregistered_emails(
+                    csv_content,
+                    requesting_user_id=current_user.get("id"),
+                )
+
+                st.success(
+                    f"Imported: {result['imported']} | Skipped duplicates: {result['skipped']}"
+                )
+
+                if result["invalid"]:
+                    st.warning("Invalid emails skipped:")
+                    for invalid_email in result["invalid"]:
+                        st.caption(f"- {invalid_email}")
+
+                if result["errors"]:
+                    for error in result["errors"]:
+                        st.error(error)
+
+        with st.expander("Expected CSV format"):
+            st.code(
+                "email\n"
+                "alice@example.com\n"
+                "bob@company.org\n\n"
+                "Accepted headers: email, e-mail, mail, email address, e-mail address, courriel",
+                language="text",
+            )
+
+    with manage_tab:
+        preregistered = user_manager.get_preregistered_emails()
+        st.caption(f"Total pre-registered emails: {len(preregistered)}")
+
+        if not preregistered:
+            st.info("No pre-registered emails yet. Use the Import CSV tab to add some.")
+            return
+
+        for row in preregistered:
+            cols = st.columns([4, 2, 2, 1])
+            cols[0].write(row["email"])
+            cols[1].caption(row.get("added_at") or "-")
+            cols[2].caption(row.get("added_by") or "-")
+            if cols[3].button("🗑️ Remove", key=f"remove_preregistered_{row['email']}", width='stretch'):
+                if user_manager.delete_preregistered_email(row["email"]):
+                    st.rerun()
+                st.error("❌ Failed to remove email")
+
 
 
 def _render_activity_logs_tab(current_user: Dict[str, Any], user_role: str, user_id: str):
@@ -227,8 +293,23 @@ def _render_user_management_tab(current_user: Dict[str, Any], user_role: str,
             st.info("No users found that you can manage.")
             return
 
+        pending_users = [user for user in manageable_users if user.get("registration_status") == "pending"]
+        if pending_users:
+            col_banner, col_action = st.columns([4, 1])
+            with col_banner:
+                st.warning(f"⏳ {len(pending_users)} registration(s) pending approval")
+            with col_action:
+                if st.button("Review", key="review_pending_registrations", width='stretch'):
+                    st.session_state.pending_registration_review = True
+
+        if st.session_state.get("pending_registration_review") and pending_users:
+            st.markdown("<a id='pending-registrations'></a>", unsafe_allow_html=True)
+            st.info("Review pending registrations below.")
+
         # Display users in a table with actions
         for user in manageable_users:
+            if user.get("registration_status") == "rejected":
+                continue
             # Skip current user in the list for masters (they see themselves separately)
             if user_role == UserRole.MASTER.value and user["id"] == user_id:
                 continue
@@ -1115,7 +1196,8 @@ def _render_user_row(current_user: Dict[str, Any], user_role: str,
         cols = st.columns([3, 2, 1, 1, 2])
 
         with cols[0]:
-            st.write(f"**{user['name']}**")
+            pending_badge = " ⏳ Pending" if user.get('registration_status') == 'pending' else ""
+            st.write(f"**{user['name']}**{pending_badge}")
             if user.get('email'):
                 st.caption(f"📧 {user['email']}")
             st.caption(f"🆔 {user['id']}")
@@ -1153,69 +1235,89 @@ def _render_user_row(current_user: Dict[str, Any], user_role: str,
                 st.session_state.viewing_user_id = user['id']
                 st.rerun()
 
+        is_pending = user.get('registration_status') == 'pending'
+
         with cols[3]:
-            # Edit button
-            if st.button("✏️ Edit",
-                       key=f"edit_{user['id']}",
-                       help=f"Edit user {user['name']}",
-                       width='stretch'):
-                st.session_state.editing_user_id = user['id']
-                st.rerun()
+            if is_pending:
+                if st.button("✅ Approve",
+                           key=f"approve_{user['id']}",
+                           help=f"Approve registration for {user['name']}",
+                           width='stretch'):
+                    if get_user_manager().set_registration_status(user['id'], 'approved'):
+                        st.rerun()
+                    st.error("❌ Failed to approve user")
+            else:
+                # Edit button
+                if st.button("✏️ Edit",
+                           key=f"edit_{user['id']}",
+                           help=f"Edit user {user['name']}",
+                           width='stretch'):
+                    st.session_state.editing_user_id = user['id']
+                    st.rerun()
 
         with cols[4]:
-            # Check if current user can generate reset code for this user
-            can_generate_reset = False
+            if is_pending:
+                if st.button("❌ Reject",
+                           key=f"reject_{user['id']}",
+                           help=f"Reject registration for {user['name']}",
+                           width='stretch'):
+                    if get_user_manager().set_registration_status(user['id'], 'rejected'):
+                        st.rerun()
+                    st.error("❌ Failed to reject user")
+            else:
+                # Check if current user can generate reset code for this user
+                can_generate_reset = False
 
-            # Admin can generate for anyone
-            if user_role == UserRole.ADMIN.value:
-                can_generate_reset = True
-            # Master can generate for their children (normal users)
-            elif user_role == UserRole.MASTER.value:
-                # Master can generate for normal users that are their children
-                if user.get('role') == UserRole.NORMAL.value:
-                    # Check if this user is a child of the current master
-                    if user.get('parent_id') == current_user['id']:
-                        can_generate_reset = True
+                # Admin can generate for anyone
+                if user_role == UserRole.ADMIN.value:
+                    can_generate_reset = True
+                # Master can generate for their children (normal users)
+                elif user_role == UserRole.MASTER.value:
+                    # Master can generate for normal users that are their children
+                    if user.get('role') == UserRole.NORMAL.value:
+                        # Check if this user is a child of the current master
+                        if user.get('parent_id') == current_user['id']:
+                            can_generate_reset = True
 
-            if can_generate_reset:
-                # Check for existing reset code in database
-                user_manager = get_user_manager()
-                from core.database import get_db_manager
+                if can_generate_reset:
+                    # Check for existing reset code in database
+                    user_manager = get_user_manager()
+                    from core.database import get_db_manager
 
-                # Direct database query to check for reset code
-                db_manager = get_db_manager()
-                if db_manager.is_initialized():
-                    with db_manager.get_session() as session:
-                        from shared.users import UserTable
-                        db_user = session.query(UserTable).filter_by(id=user['id']).first()
+                    # Direct database query to check for reset code
+                    db_manager = get_db_manager()
+                    if db_manager.is_initialized():
+                        with db_manager.get_session() as session:
+                            from shared.users import UserTable
+                            db_user = session.query(UserTable).filter_by(id=user['id']).first()
 
-                        if db_user and db_user.reset_code and db_user.reset_code_expires:
-                            # Check if code is still valid (not expired)
-                            if db_user.reset_code_expires > datetime.utcnow():
-                                # Display the existing reset code
-                                st.info("🔑 Reset Code Available")
-                                with st.expander("Show Reset Code", expanded=False):
-                                    st.code(db_user.reset_code, language="text")
-                                    expiry = db_user.reset_code_expires.strftime('%Y-%m-%d %H:%M:%S')
-                                    st.caption(f"Expires: {expiry}")
+                            if db_user and db_user.reset_code and db_user.reset_code_expires:
+                                # Check if code is still valid (not expired)
+                                if db_user.reset_code_expires > datetime.utcnow():
+                                    # Display the existing reset code
+                                    st.info("🔑 Reset Code Available")
+                                    with st.expander("Show Reset Code", expanded=False):
+                                        st.code(db_user.reset_code, language="text")
+                                        expiry = db_user.reset_code_expires.strftime('%Y-%m-%d %H:%M:%S')
+                                        st.caption(f"Expires: {expiry}")
+                                else:
+                                    # Code expired, show button to generate new one
+                                    if st.button("🔑 New Reset Code",
+                                                key=f"reset_{user['id']}",
+                                                help=f"Generate new password reset code for {user['name']}",
+                                                width='stretch'):
+                                        _generate_reset_code(user['id'], current_user['id'])
                             else:
-                                # Code expired, show button to generate new one
-                                if st.button("🔑 New Reset Code",
+                                # No reset code, show button to generate one
+                                if st.button("🔑 Generate Code",
                                             key=f"reset_{user['id']}",
-                                            help=f"Generate new password reset code for {user['name']}",
+                                            help=f"Generate password reset code for {user['name']}",
                                             width='stretch'):
                                     _generate_reset_code(user['id'], current_user['id'])
-                        else:
-                            # No reset code, show button to generate one
-                            if st.button("🔑 Generate Code",
-                                        key=f"reset_{user['id']}",
-                                        help=f"Generate password reset code for {user['name']}",
-                                        width='stretch'):
-                                _generate_reset_code(user['id'], current_user['id'])
-            else:
-                # If user can't generate reset code, show placeholder or nothing
-                st.write("")  # Empty placeholder to maintain layout
-            _render_delete_button(current_user, user)
+                else:
+                    # If user can't generate reset code, show placeholder or nothing
+                    st.write("")  # Empty placeholder to maintain layout
+                _render_delete_button(current_user, user)
 
         st.divider()
 
@@ -1235,3 +1337,5 @@ def inject_ui_initialize():
         st.session_state.user_to_delete = None
     if "show_delete_confirm" not in st.session_state:
         st.session_state.show_delete_confirm = False
+    if "pending_registration_review" not in st.session_state:
+        st.session_state.pending_registration_review = False
