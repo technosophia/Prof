@@ -130,6 +130,46 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages])
 
+  // NEW: Track message versions to detect regeneration
+  const [messageVersions, setMessageVersions] = useState({})
+
+  // NEW: When messages change, check if assistant messages have been updated
+  useEffect(() => {
+    messages.forEach((message, idx) => {
+      if (message.role === 'assistant') {
+        const versionKey = `${idx}-${message.content.length}`
+        if (messageVersions[idx] !== versionKey) {
+          // This message has changed - clear its context data
+          setContextData(prev => {
+            const newData = { ...prev }
+            delete newData[idx]
+            return newData
+          })
+          setMessageVersions(prev => ({ ...prev, [idx]: versionKey }))
+
+          // If this message was expanded, refresh its context
+          if (expandedIdx === idx) {
+            loadContextData(message, idx)
+          }
+        }
+      }
+    })
+  }, [messages])
+
+  async function loadContextData(message, idx) {
+    if (!canInspect || message.role !== 'assistant' || !conversationId) return
+
+    try {
+      const data = await messageContext.get(conversationId, idx, message.timestamp)
+      setContextData((prev) => ({ ...prev, [idx]: data }))
+    } catch (error) {
+      setContextData((prev) => ({
+        ...prev,
+        [idx]: { found: false, debug: error?.message || 'request failed' }
+      }))
+    }
+  }
+
   async function onInspect(message, idx) {
     if (!canInspect || message.role !== 'assistant' || !conversationId) return
 
@@ -138,15 +178,8 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
       return
     }
 
-    if (!contextData[idx]) {
-      try {
-        const data = await messageContext.get(conversationId, idx, message.timestamp)
-        setContextData((prev) => ({ ...prev, [idx]: data }))
-      } catch (error) {
-        setContextData((prev) => ({ ...prev, [idx]: { found: false, debug: error?.message || 'request failed' } }))
-      }
-    }
-
+    // Always refresh context data when expanding, even if we have cached data
+    await loadContextData(message, idx)
     setExpandedIdx(idx)
   }
 
@@ -178,7 +211,7 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
           const disabledVote = voteLoading[idx] || !!messageVotes[idx]
 
           return (
-            <div key={`msg-${idx}-${m.role}`} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={`msg-${idx}-${m.role}-${m.content.length}`} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div>
                 <div
                   role={inspectable ? 'button' : undefined}

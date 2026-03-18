@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button'
 import { RotateCw, Plus, Minus } from 'lucide-react'
 
 export default function RegenerateButtons({
@@ -8,45 +7,34 @@ export default function RegenerateButtons({
   disabled
 }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-3 border-t border-slate-800">
-      <Button
-        variant="outline"
-        size="sm"
+    <div className="flex items-center justify-center gap-1 py-2 px-3">
+      <button
         onClick={onRegenerateWithLess}
         disabled={disabled}
-        className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 border-slate-700"
+        className="p-1.5 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         title="Regenerate with less context (1 chunk)"
       >
-        <Minus size={14} />
-        <span className="hidden sm:inline">Less context</span>
-        <span className="sm:hidden">−</span>
-      </Button>
+        <Minus size={16} />
+      </button>
 
-      <Button
-        variant="default"
-        size="sm"
+      <button
         onClick={onRegenerate}
         disabled={disabled}
-        className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-500"
+        className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
         title="Regenerate with default context (3 chunks)"
       >
-        <RotateCw size={14} />
-        <span className="hidden sm:inline">Regenerate</span>
-        <span className="sm:hidden">↻</span>
-      </Button>
+        <RotateCw size={16} />
+        <span className="text-xs">Regenerate</span>
+      </button>
 
-      <Button
-        variant="outline"
-        size="sm"
+      <button
         onClick={onRegenerateWithMore}
         disabled={disabled}
-        className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 border-slate-700"
+        className="p-1.5 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         title="Regenerate with more context (5 chunks)"
       >
-        <Plus size={14} />
-        <span className="hidden sm:inline">More context</span>
-        <span className="sm:hidden">+</span>
-      </Button>
+        <Plus size={16} />
+      </button>
     </div>
   )
 }
