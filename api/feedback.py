@@ -1,4 +1,4 @@
-"""Feedback API routes."""
+"""Feedback API routes - FIXED to store actual message IDs."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -45,12 +45,34 @@ async def create_message_feedback(payload: MessageFeedbackRequest, current_user:
         if payload.message_index >= len(conversation.messages):
             raise HTTPException(status_code=400, detail="message_index out of range")
 
+        # NEW: Get the actual message ID from the database
+        # Find the message by matching conversation_id, index, and role
+        # Messages are stored in order, so we can use the index
+        target_message = conversation.messages[payload.message_index]
+
+        # Query database to get the real message ID
+        db_manager = get_db_manager()
+        with db_manager.get_session() as session:
+            from shared.conversation import MessageTable
+
+            # Find the message by content and timestamp to get its ID
+            db_message = session.query(MessageTable).filter_by(
+                conversation_id=payload.conversation_id,
+                role=target_message.role,
+                content=target_message.content
+            ).first()
+
+            if not db_message:
+                raise HTTPException(status_code=404, detail="Message ID not found in database")
+
+            actual_message_id = db_message.id
+
         feedback_id = submit_feedback(
-            get_db_manager(),
+            db_manager,
             user_id=current_user["id"],
             feedback_type="message",
             conversation_id=payload.conversation_id,
-            message_id=f"message-index:{payload.message_index}",
+            message_id=actual_message_id,  # Use the actual database message ID
             sentiment=payload.sentiment,
             comment=payload.comment.strip() or None,
         )
