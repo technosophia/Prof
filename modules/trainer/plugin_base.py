@@ -44,6 +44,7 @@ Usage:
     active_ui = plugin_mgr.get_active_ui_plugins(trainer_id)
 
 """
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -89,6 +90,7 @@ class PluginManager:
     def _check_streamlit_available() -> bool:
         try:
             import streamlit  # noqa: F401
+
             return True
         except Exception:
             return False
@@ -117,21 +119,23 @@ class PluginManager:
                     log("error", f"Failed to load plugin {plugin_dir.name}: {e}")
 
     def _make_manifest(self, manifest_file: Path) -> PluginManifest:
-        with open(manifest_file, 'r', encoding='utf-8') as f:
+        with open(manifest_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         return PluginManifest(
-            id=data['id'],
-            name=data['name'],
-            version=data['version'],
-            description=data['description'],
-            author=data.get('author', 'Unknown'),
-            enabled_by_default=data.get('enabled_by_default', True),
-            category=data.get('category', 'general'),
+            id=data["id"],
+            name=data["name"],
+            version=data["version"],
+            description=data["description"],
+            author=data.get("author", "Unknown"),
+            enabled_by_default=data.get("enabled_by_default", True),
+            category=data.get("category", "general"),
         )
 
     def _load_plugin(self, plugin_dir: Path, manifest_file: Path):
         manifest = self._make_manifest(manifest_file)
-        spec = importlib.util.spec_from_file_location(f"trainer_plugin_{manifest.id}", plugin_dir / "__init__.py")
+        spec = importlib.util.spec_from_file_location(
+            f"trainer_plugin_{manifest.id}", plugin_dir / "__init__.py"
+        )
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
@@ -150,7 +154,11 @@ class PluginManager:
 
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
-            if inspect.isclass(attr) and issubclass(attr, TrainerPlugin) and attr != TrainerPlugin:
+            if (
+                inspect.isclass(attr)
+                and issubclass(attr, TrainerPlugin)
+                and attr != TrainerPlugin
+            ):
                 plugin_instance = self._instantiate_core(attr, manifest)
                 if plugin_instance and self._initialize_plugin(plugin_instance):
                     self.plugins[manifest.id] = plugin_instance
@@ -200,53 +208,63 @@ class PluginManager:
 
     def get_active_plugins(self, trainer_id: str) -> List[TrainerPluginCore]:
         if self._trainer_manager is None:
-            log("warning", "PluginManager.get_active_plugins called without trainer_manager")
+            log(
+                "warning",
+                "PluginManager.get_active_plugins called without trainer_manager",
+            )
             return []
         result = []
         for plugin in self.plugins.values():
             is_active = self._trainer_manager.is_plugin_active(trainer_id, plugin.id)
             if is_active:
-                plugin._mark_active()
                 result.append(plugin)
-            else:
-                plugin._mark_inactive()
         return result
 
     def get_active_ui_plugins(self, trainer_id: str) -> List[TrainerPluginUI]:
         if self._trainer_manager is None:
-            log("warning", "PluginManager.get_active_ui_plugins called without trainer_manager")
+            log(
+                "warning",
+                "PluginManager.get_active_ui_plugins called without trainer_manager",
+            )
             return []
         result = []
         for plugin_id, plugin in self.plugins.items():
             is_active = self._trainer_manager.is_plugin_active(trainer_id, plugin_id)
             if is_active:
-                plugin._mark_active()
                 ui_plugin = self.ui_plugins.get(plugin_id)
                 if ui_plugin is not None:
                     result.append(ui_plugin)
-            else:
-                plugin._mark_inactive()
         return result
 
-    def get_plugins_by_hook(self, trainer_id: str, hook_name: str) -> List[TrainerPluginCore]:
+    def get_plugins_by_hook(
+        self, trainer_id: str, hook_name: str
+    ) -> List[TrainerPluginCore]:
         active_plugins = self.get_active_plugins(trainer_id)
         result = []
         for plugin in active_plugins:
             method = getattr(plugin, hook_name, None)
             if method and callable(method):
                 base_method = getattr(TrainerPluginCore, hook_name, None)
-                if base_method is None or getattr(method, "__func__", method) != base_method:
+                if (
+                    base_method is None
+                    or getattr(method, "__func__", method) != base_method
+                ):
                     result.append(plugin)
         return result
 
-    def get_ui_plugins_by_hook(self, trainer_id: str, hook_name: str) -> List[TrainerPluginUI]:
+    def get_ui_plugins_by_hook(
+        self, trainer_id: str, hook_name: str
+    ) -> List[TrainerPluginUI]:
         active_plugins = self.get_active_ui_plugins(trainer_id)
         result = []
         for plugin in active_plugins:
             method = getattr(plugin, hook_name, None)
             if method and callable(method):
                 base_method = getattr(TrainerPluginUI, hook_name, None)
-                if base_method is None or getattr(method, "__func__", method) != base_method:
+                if (
+                    base_method is None
+                    or getattr(method, "__func__", method) != base_method
+                ):
                     result.append(plugin)
         return result
 

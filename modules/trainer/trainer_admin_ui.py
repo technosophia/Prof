@@ -9,12 +9,18 @@ from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
 
 from shared.common import get_prompt, UserRole
-from st_shared.cached import get_user_manager, get_config, get_db_manager, get_conversation_manager
+from st_shared.cached import (
+    get_user_manager,
+    get_config,
+    get_db_manager,
+    get_conversation_manager,
+)
 from modules.trainer.manager import get_trainer_manager
 from modules.trainer.plugin_base import get_plugin_manager
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _
+
 
 def inject_ui_admin_tab():
     """
@@ -24,8 +30,8 @@ def inject_ui_admin_tab():
     if not ("current_user" in st.session_state and st.session_state.current_user):
         return
 
-    user_id = st.session_state.current_user['id']
-    user_role = st.session_state.current_user['role']
+    user_id = st.session_state.current_user["id"]
+    user_role = st.session_state.current_user["role"]
 
     def empty():
         st.write("Empty for non MASTER users")
@@ -37,17 +43,12 @@ def inject_ui_admin_tab():
     def render_trainer_admin():
         st.header("🎓 Trainer Module")
 
-        trainer_id = st.session_state.current_user['id']
+        trainer_id = st.session_state.current_user["id"]
         trainer_manager = get_trainer_manager()
         plugin_manager = get_plugin_manager()
 
         # Create base tabs
-        tab_names = [
-            "User Dashboard",
-            "Plugin Dashboard",
-            "Configuration",
-            "Plugins"
-        ]
+        tab_names = ["User Dashboard", "Plugin Dashboard", "Configuration", "Plugins"]
 
         # Add plugin tabs from active plugins
         active_plugins = plugin_manager.get_active_ui_plugins(trainer_id)
@@ -81,9 +82,9 @@ def inject_ui_admin_tab():
     return ("Trainer", render_trainer_admin)
 
 
-
-def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
-                                   plugin_manager, trainer_manager) -> None:
+def _display_plugin_detailed_view(
+    trainer_id: str, student: Dict[str, Any], plugin_manager, trainer_manager
+) -> None:
     """
     Display detailed views for all active plugins that provide student widgets.
 
@@ -97,10 +98,14 @@ def _display_plugin_detailed_view(trainer_id: str, student: Dict[str, Any],
         trainer_manager: The trainer manager instance
     """
     # Get all active plugins that implement student widgets
-    active_plugins = plugin_manager.get_ui_plugins_by_hook(trainer_id, "render_student_widgets")
+    active_plugins = plugin_manager.get_ui_plugins_by_hook(
+        trainer_id, "render_student_widgets"
+    )
 
     if not active_plugins:
-        st.info("No active plugins provide student views. Activate plugins in the Plugins tab.")
+        st.info(
+            "No active plugins provide student views. Activate plugins in the Plugins tab."
+        )
         return
 
     # Create a tab for each plugin that provides student widgets
@@ -150,9 +155,13 @@ def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager)
     # Add conversation stats
     students = []
     for student in student_objects:
-        student['conversation_count'] = trainer_manager.get_student_conversation_count(trainer_id, student['id'])
-        student['total_messages'] = trainer_manager.get_student_message_count(trainer_id, student['id'])
-        student['last_active'] = trainer_manager.get_student_last_active(student['id'])
+        student["conversation_count"] = trainer_manager.get_student_conversation_count(
+            trainer_id, student["id"]
+        )
+        student["total_messages"] = trainer_manager.get_student_message_count(
+            trainer_id, student["id"]
+        )
+        student["last_active"] = trainer_manager.get_student_last_active(student["id"])
         students.append(student)
 
     # Display student cards
@@ -162,40 +171,45 @@ def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager)
 
             with col1:
                 st.markdown(f"**{student.get('name', 'Unknown')}**")
-                email = student.get('email')
+                email = student.get("email")
                 if email:
                     st.caption(email)
 
             with col2:
-                st.metric(
-                    "Conversations",
-                    student.get('conversation_count', 0)
-                )
+                st.metric("Conversations", student.get("conversation_count", 0))
 
             with col3:
-                st.metric(
-                    "Messages",
-                    student.get('total_messages', 0)
-                )
+                st.metric("Messages", student.get("total_messages", 0))
 
             with col4:
                 if st.button("View", key=f"view_{trainer_id}_{student['id']}"):
-                    st.session_state[f'selected_student_{trainer_id}'] = student['id']
-                    st.session_state[f'selected_student_name_{trainer_id}'] = student.get('name', 'Unknown')
+                    st.session_state[f"selected_student_{trainer_id}"] = student["id"]
+                    st.session_state[f"selected_student_name_{trainer_id}"] = (
+                        student.get("name", "Unknown")
+                    )
                     st.rerun()
 
             # Show student details if selected
-            if st.session_state.get(f'selected_student_{trainer_id}') == student['id']:
+            if st.session_state.get(f"selected_student_{trainer_id}") == student["id"]:
                 # Use a generic expander title without plugin-specific knowledge
-                student_name = st.session_state.get(f'selected_student_name_{trainer_id}', '')
+                student_name = st.session_state.get(
+                    f"selected_student_name_{trainer_id}", ""
+                )
                 with st.expander(f"📋 {student_name} - Student Details", expanded=True):
                     # Create tabs for basic profile and plugin-specific views
                     tab_names = ["Profile"]
 
                     # Get active plugins that implement student widgets
-                    active_plugins = plugin_manager.get_ui_plugins_by_hook(trainer_id, "render_student_widgets")
-                    tab_names.extend([plugin.manifest.name for plugin in active_plugins if
-                                    plugin.render_student_widgets(trainer_id, student)])
+                    active_plugins = plugin_manager.get_ui_plugins_by_hook(
+                        trainer_id, "render_student_widgets"
+                    )
+                    tab_names.extend(
+                        [
+                            plugin.manifest.name
+                            for plugin in active_plugins
+                            if plugin.render_student_widgets(trainer_id, student)
+                        ]
+                    )
 
                     # Create all tabs
                     detail_tabs = st.tabs(tab_names)
@@ -207,16 +221,20 @@ def _render_user_dashboard_tab(trainer_id: str, trainer_manager, plugin_manager)
                             st.write("**Student Information:**")
                             st.write(f"ID: {student['id']}")
                             st.write(f"Email: {student.get('email', 'N/A')}")
-                            if student.get('last_active'):
-                                last_active = student['last_active']
-                                if hasattr(last_active, 'strftime'):
-                                    last_active = last_active.strftime('%Y-%m-%d %H:%M')
+                            if student.get("last_active"):
+                                last_active = student["last_active"]
+                                if hasattr(last_active, "strftime"):
+                                    last_active = last_active.strftime("%Y-%m-%d %H:%M")
                                 st.write(f"Last Active: {last_active}")
 
                         with col2:
                             st.write("**Statistics:**")
-                            st.write(f"Conversations: {student.get('conversation_count', 0)}")
-                            st.write(f"Total Messages: {student.get('total_messages', 0)}")
+                            st.write(
+                                f"Conversations: {student.get('conversation_count', 0)}"
+                            )
+                            st.write(
+                                f"Total Messages: {student.get('total_messages', 0)}"
+                            )
 
                     # Plugin-specific tabs (starting from index 1)
                     plugin_idx = 1
@@ -252,9 +270,13 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
     # Add conversation stats
     students = []
     for student in student_objects:
-        student['conversation_count'] = trainer_manager.get_student_conversation_count(trainer_id, student['id'])
-        student['total_messages'] = trainer_manager.get_student_message_count(trainer_id, student['id'])
-        student['last_active'] = trainer_manager.get_student_last_active(student['id'])
+        student["conversation_count"] = trainer_manager.get_student_conversation_count(
+            trainer_id, student["id"]
+        )
+        student["total_messages"] = trainer_manager.get_student_message_count(
+            trainer_id, student["id"]
+        )
+        student["last_active"] = trainer_manager.get_student_last_active(student["id"])
         students.append(student)
 
     # Plugin dashboard widgets (non-student specific)
@@ -264,12 +286,13 @@ def _render_plugin_dashboard_tab(trainer_id: str, trainer_manager, plugin_manage
         for widget in widgets:
             widget()
 
+
 def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
     """Render the configuration tab — formation directory selection."""
     from modules.trainer.material_loader import MaterialLoader
 
     st.subheader("System Prompt")
-    current_prompt = get_prompt('teacher.system_prompt')
+    current_prompt = get_prompt("teacher.system_prompt")
     st.info(current_prompt)
 
     st.divider()
@@ -280,16 +303,20 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
     current_dir = trainer_manager.get_formation_dir(trainer_id)
 
     if not formations:
-        st.warning("No formations found in material/. Add a subdirectory with program.md and rubrics.yaml.")
+        st.warning(
+            "No formations found in material/. Add a subdirectory with program.md and rubrics.yaml."
+        )
     else:
         options = ["— none —"] + formations
-        current_index = (formations.index(current_dir) + 1) if current_dir in formations else 0
+        current_index = (
+            (formations.index(current_dir) + 1) if current_dir in formations else 0
+        )
 
         selected = st.selectbox(
             "Active formation",
             options=options,
             index=current_index,
-            key="formation_dir_select"
+            key="formation_dir_select",
         )
 
         if selected != "— none —" and selected != current_dir:
@@ -309,27 +336,37 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
             with st.expander("Preview rubrics.yaml", expanded=False):
                 try:
                     import yaml
+
                     rubrics = loader.get_rubrics(active_dir)
-                    st.code(yaml.dump(rubrics, allow_unicode=True, default_flow_style=False), language="yaml")
+                    st.code(
+                        yaml.dump(
+                            rubrics, allow_unicode=True, default_flow_style=False
+                        ),
+                        language="yaml",
+                    )
                 except FileNotFoundError as e:
                     st.error(str(e))
 
     st.divider()
     st.subheader("Student Context Preview")
-    st.caption("View the aggregated context information for a student from all active plugins.")
+    st.caption(
+        "View the aggregated context information for a student from all active plugins."
+    )
 
     # Get students for selection
     students = trainer_manager.get_trainer_students(trainer_id)
 
     if students:
         # Create a mapping of student IDs to display names
-        student_options = {student['id']: student.get('name', 'Unknown') for student in students}
+        student_options = {
+            student["id"]: student.get("name", "Unknown") for student in students
+        }
 
         selected_student_id = st.selectbox(
             "Select Student to View Context",
             options=list(student_options.keys()),
             format_func=lambda x: student_options[x],
-            key="context_student_select"
+            key="context_student_select",
         )
 
         if selected_student_id:
@@ -350,7 +387,9 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
                             # Convert to list of dicts for table display
                             table_data = []
                             for key, value in context_data.items():
-                                table_data.append({"Context Key": key, "Context Value": value})
+                                table_data.append(
+                                    {"Context Key": key, "Context Value": value}
+                                )
 
                             st.table(table_data)
                         else:
@@ -359,6 +398,7 @@ def _render_configuration_tab(trainer_id: str, trainer_manager, plugin_manager):
                 st.info("No context information available for this student.")
     else:
         st.info("No students available to view context.")
+
 
 def _render_plugins_tab(trainer_id: str, trainer_manager, plugin_manager):
     """Render the plugins management tab."""

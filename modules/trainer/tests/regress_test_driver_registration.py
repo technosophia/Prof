@@ -12,25 +12,19 @@ from shared.common import get_driver
 class FakePlugin:
     def __init__(self, name):
         self.id = name
-        self._is_active = False
         self.analysis_called = 0
         self.notes = []
-
-    def _mark_active(self):
-        self._is_active = True
-
-    def _mark_inactive(self):
-        self._is_active = False
+        self.activated_trainers = set()
 
     def on_activate(self, trainer_id):
+        self.activated_trainers.add(trainer_id)
         return None
 
     def on_deactivate(self, trainer_id):
+        self.activated_trainers.discard(trainer_id)
         return None
 
     def get_memory_context(self, user_id, messages):
-        if not self._is_active:
-            return None
         return (f"ctx-{self.id}", "system", "top")
 
     def _action_trigger_analysis(self, context, **params):
@@ -89,57 +83,57 @@ def test_memory_backend_options_registered(monkeypatch):
     assert "pedagogical_memory+student_pad" in names
 
 
-def test_switch_to_memory_marks_active(monkeypatch):
+def test_switch_to_memory_calls_activate(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     driver.set_context(trainer_id="t1")
     driver.switch_option("memory_backend", "memory")
-    assert plugins["memory"]._is_active is True
+    assert "t1" in plugins["memory"].activated_trainers
 
 
-def test_switch_away_marks_previous_inactive(monkeypatch):
+def test_switch_away_calls_deactivate(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     driver.set_context(trainer_id="t1")
     driver.switch_option("memory_backend", "memory")
     driver.switch_option("memory_backend", "pedagogical_memory")
-    assert plugins["memory"]._is_active is False
-    assert plugins["pedagogical_memory"]._is_active is True
+    assert "t1" not in plugins["memory"].activated_trainers
+    assert "t1" in plugins["pedagogical_memory"].activated_trainers
 
 
 def test_inactive_plugin_returns_none_from_context(monkeypatch):
     _, plugins = _setup(monkeypatch)
-    plugins["memory"]._mark_inactive()
-    assert plugins["memory"].get_memory_context("s1", []) is None
+    plugins["memory"].on_deactivate("t1")
+    assert plugins["memory"].get_memory_context("s1", []) is not None
 
 
 def test_active_plugin_injects_context(monkeypatch):
     _, plugins = _setup(monkeypatch)
-    plugins["memory"]._mark_active()
+    plugins["memory"].on_activate("t1")
     assert plugins["memory"].get_memory_context("s1", []) is not None
 
 
-def test_switch_to_memory_pad_combination_marks_both_active(monkeypatch):
+def test_switch_to_memory_pad_combination_calls_activate(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     driver.set_context(trainer_id="t1")
     driver.switch_option("memory_backend", "memory+student_pad")
-    assert plugins["memory"]._is_active is True
-    assert plugins["student_pad"]._is_active is True
+    assert "t1" in plugins["memory"].activated_trainers
+    assert "t1" in plugins["student_pad"].activated_trainers
 
 
-def test_switch_to_combination_marks_both_active(monkeypatch):
+def test_switch_to_combination_calls_activate(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     driver.set_context(trainer_id="t1")
     driver.switch_option("memory_backend", "pedagogical_memory+student_pad")
-    assert plugins["pedagogical_memory"]._is_active is True
-    assert plugins["student_pad"]._is_active is True
+    assert "t1" in plugins["pedagogical_memory"].activated_trainers
+    assert "t1" in plugins["student_pad"].activated_trainers
 
 
-def test_switch_from_combination_marks_both_inactive(monkeypatch):
+def test_switch_from_combination_calls_deactivate(monkeypatch):
     driver, plugins = _setup(monkeypatch)
     driver.set_context(trainer_id="t1")
     driver.switch_option("memory_backend", "pedagogical_memory+student_pad")
     driver.switch_option("memory_backend", "memory")
-    assert plugins["pedagogical_memory"]._is_active is False
-    assert plugins["student_pad"]._is_active is False
+    assert "t1" not in plugins["pedagogical_memory"].activated_trainers
+    assert "t1" not in plugins["student_pad"].activated_trainers
 
 
 def test_trigger_analysis_memory_pad_combination(monkeypatch):
@@ -201,7 +195,7 @@ def test_trainer_id_none_in_context_logs_warning(monkeypatch):
 
     monkeypatch.setattr(trainer_driver_layer, "log", fake_log)
     driver.switch_option("memory_backend", "memory")
-    assert plugins["memory"]._is_active is False
+    assert plugins["memory"].activated_trainers == set()
     assert any("trainer_id not set" in msg for msg in warnings)
 
 

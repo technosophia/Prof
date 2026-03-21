@@ -20,9 +20,25 @@ import json
 import asyncio
 
 import numpy as np
-from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Float, LargeBinary, desc
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    DateTime,
+    JSON,
+    Integer,
+    Float,
+    LargeBinary,
+    desc,
+)
 
-from shared.common import get_prompt, register_llm_context_callback, get_current_llm_id, get_embedding, get_llm_manager
+from shared.common import (
+    get_prompt,
+    register_llm_context_callback,
+    get_current_llm_id,
+    get_embedding,
+    get_llm_manager,
+)
 from modules.trainer.plugin_base import PluginManifest
 from modules.trainer.plugin_base_core import TrainerPluginCore
 
@@ -67,8 +83,8 @@ class PedagogicalAnalysisLog(Base):
     facts_discarded = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-class PedagogicalMemoryPluginCore(TrainerPluginCore):
 
+class PedagogicalMemoryPluginCore(TrainerPluginCore):
     def __init__(self, plugin_id: str = None):
         super().__init__(plugin_id)
         self._embedding_dimension = None  # Will be set in initialize
@@ -83,7 +99,9 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 # Try to get the model and its dimension
                 model = self.llm_manager._get_embedding_model()
                 self._embedding_dimension = model.get_sentence_embedding_dimension()
-                log("info", f"Detected embedding dimension: {self._embedding_dimension}")
+                log(
+                    "info", f"Detected embedding dimension: {self._embedding_dimension}"
+                )
                 return self._embedding_dimension
         except Exception as e:
             log("warning", f"Could not get embedding dimension from model: {e}")
@@ -93,18 +111,27 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         config_dim = cfg.get("embedding_dimension")
         if config_dim:
             self._embedding_dimension = config_dim
-            log("info", f"Using embedding dimension from config: {self._embedding_dimension}")
+            log(
+                "info",
+                f"Using embedding dimension from config: {self._embedding_dimension}",
+            )
             return self._embedding_dimension
 
         # Last resort fallback - try to determine from a test embedding
         try:
             test_embedding = get_embedding("test")
             self._embedding_dimension = len(test_embedding)
-            log("warning", f"Detected embedding dimension from test: {self._embedding_dimension}")
+            log(
+                "warning",
+                f"Detected embedding dimension from test: {self._embedding_dimension}",
+            )
             return self._embedding_dimension
         except:
             # Ultimate fallback - should never happen
-            log("error", "Could not determine embedding dimension, using 768 as fallback")
+            log(
+                "error",
+                "Could not determine embedding dimension, using 768 as fallback",
+            )
             self._embedding_dimension = 768
             return self._embedding_dimension
 
@@ -123,10 +150,17 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             if self.config is None:
                 try:
                     from core.config import get_config
+
                     self.config = get_config()
-                    log("debug", "PedagogicalMemoryPlugin: loaded config from st_shared.cached fallback")
+                    log(
+                        "debug",
+                        "PedagogicalMemoryPlugin: loaded config from st_shared.cached fallback",
+                    )
                 except ImportError:
-                    log("warning", "PedagogicalMemoryPlugin: no config available, using defaults")
+                    log(
+                        "warning",
+                        "PedagogicalMemoryPlugin: no config available, using defaults",
+                    )
                     self.config = {}
 
             # Pre-cache embedding dimension
@@ -135,7 +169,10 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             if self.db and self.db.is_initialized() and not self.db._in_memory:
                 Base.metadata.create_all(
                     self.db._engine,
-                    tables=[PedagogicalFact.__table__, PedagogicalAnalysisLog.__table__],
+                    tables=[
+                        PedagogicalFact.__table__,
+                        PedagogicalAnalysisLog.__table__,
+                    ],
                     checkfirst=True,
                 )
                 log("info", "Pedagogical memory tables created/verified")
@@ -143,7 +180,11 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             register_llm_context_callback(self.get_pedagogical_memory_context)
             return True
         except Exception as e:
-            log("error", f"Failed to initialize pedagogical_memory plugin: {e}", stacktrace=True)
+            log(
+                "error",
+                f"Failed to initialize pedagogical_memory plugin: {e}",
+                stacktrace=True,
+            )
             return False
 
     def on_activate(self, trainer_id: str) -> None:
@@ -165,18 +206,25 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             "decay_days": int(config.get("decay_days", 30)),
             "decay_factor": float(config.get("decay_factor", 0.85)),
             "decay_min_confidence": float(config.get("decay_min_confidence", 0.1)),
-            "embedding_dimension": int(config.get("embedding_dimension", 768)),  # Default to 768 if not specified
+            "embedding_dimension": int(
+                config.get("embedding_dimension", 768)
+            ),  # Default to 768 if not specified
         }
 
     def _serialize_embedding(self, embedding: List[float]) -> bytes:
         return np.asarray(embedding, dtype=np.float32).tobytes()
 
-    def _deserialize_embedding(self, embedding_bytes: bytes, expected_dim: int) -> np.ndarray:
+    def _deserialize_embedding(
+        self, embedding_bytes: bytes, expected_dim: int
+    ) -> np.ndarray:
         vector = np.frombuffer(embedding_bytes, dtype=np.float32)
         actual_dim = vector.shape[0]
 
         if actual_dim != expected_dim:
-            log("warning", f"Embedding dimension mismatch: expected {expected_dim}, got {actual_dim}. This may cause issues.")
+            log(
+                "warning",
+                f"Embedding dimension mismatch: expected {expected_dim}, got {actual_dim}. This may cause issues.",
+            )
             # Attempt to fix by truncating or padding? Better to log and let it fail.
 
         return vector
@@ -190,7 +238,9 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             return 0.0
         return float(np.dot(a, b) / (norm_a * norm_b))
 
-    def _get_last_analysis_date(self, trainer_id: str, student_id: str) -> Optional[datetime]:
+    def _get_last_analysis_date(
+        self, trainer_id: str, student_id: str
+    ) -> Optional[datetime]:
         try:
             with self.db.get_session() as session:
                 analysis = (
@@ -218,7 +268,9 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             log("error", f"Failed to compute analysis version: {e}", stacktrace=True)
             return 1
 
-    def _get_new_conversations(self, student_id: str, since: Optional[datetime]) -> List[Dict[str, Any]]:
+    def _get_new_conversations(
+        self, student_id: str, since: Optional[datetime]
+    ) -> List[Dict[str, Any]]:
         new_messages = []
         try:
             conversations = self.conversation_manager.get_user_conversations(student_id)
@@ -231,13 +283,15 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                         continue
                     msg_time = msg.timestamp
                     if msg_time and (not since or msg_time > since):
-                        new_messages.append({
-                            "role": msg.role,
-                            "content": msg.content,
-                            "timestamp": msg_time.isoformat() if msg_time else None,
-                            "conversation_id": conv["id"],
-                            "conversation_title": conv.get("title", "Untitled"),
-                        })
+                        new_messages.append(
+                            {
+                                "role": msg.role,
+                                "content": msg.content,
+                                "timestamp": msg_time.isoformat() if msg_time else None,
+                                "conversation_id": conv["id"],
+                                "conversation_title": conv.get("title", "Untitled"),
+                            }
+                        )
             new_messages.sort(key=lambda x: x.get("timestamp", ""))
         except Exception as e:
             log("error", f"Failed to read conversations: {e}", stacktrace=True)
@@ -248,14 +302,20 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         return "\n".join(lines)
 
     async def _extract_candidate_facts(
-        self, trainer_id: str, student_id: str, new_messages: List[Dict[str, Any]], fact_types: Dict[str, str]
+        self,
+        trainer_id: str,
+        student_id: str,
+        new_messages: List[Dict[str, Any]],
+        fact_types: Dict[str, str],
     ) -> List[Dict[str, str]]:
         try:
             training_program = get_prompt("teacher.training_program")
             conversations_text = ""
             for msg in new_messages:
                 role_symbol = "👤 Student" if msg["role"] == "user" else "🤖 Assistant"
-                conversations_text += f"{role_symbol} ({msg['timestamp']}): {msg['content']}\n\n"
+                conversations_text += (
+                    f"{role_symbol} ({msg['timestamp']}): {msg['content']}\n\n"
+                )
 
             system_prompt = get_prompt("pedagogical_memory.extraction_system").format(
                 training_program=training_program,
@@ -281,7 +341,11 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             try:
                 payload = json.loads(response)
             except Exception as e:
-                log("error", f"Failed to parse extraction JSON output: {e}\n {response}", stacktrace=True)
+                log(
+                    "error",
+                    f"Failed to parse extraction JSON output: {e}\n {response}",
+                    stacktrace=True,
+                )
                 return []
 
             if not isinstance(payload, list):
@@ -314,8 +378,15 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             embedding_dim = self._get_embedding_dimension()
             existing = (
                 session.query(PedagogicalFact)
-                .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1, fact_type=candidate_type)
-                .filter(PedagogicalFact.embedding_dim == embedding_dim)  # Only compare same dimension embeddings
+                .filter_by(
+                    trainer_id=trainer_id,
+                    student_id=student_id,
+                    is_active=1,
+                    fact_type=candidate_type,
+                )
+                .filter(
+                    PedagogicalFact.embedding_dim == embedding_dim
+                )  # Only compare same dimension embeddings
                 .all()
             )
             scored = []
@@ -333,7 +404,9 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             log("error", f"Failed to search similar facts: {e}", stacktrace=True)
             return []
 
-    async def _decide_reconciliation(self, fact_type: str, existing_content: str, candidate_content: str) -> str:
+    async def _decide_reconciliation(
+        self, fact_type: str, existing_content: str, candidate_content: str
+    ) -> str:
         try:
             llm_id = get_current_llm_id()
             system_prompt = get_prompt("pedagogical_memory.reconciliation_system")
@@ -368,13 +441,18 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         embedding_dim = self._get_embedding_dimension()
 
         for fact in facts:
-            if fact.get("fact_type") != candidate_type or int(fact.get("is_active", 0)) != 1:
+            if (
+                fact.get("fact_type") != candidate_type
+                or int(fact.get("is_active", 0)) != 1
+            ):
                 continue
             # Only compare facts with matching dimension
             if fact.get("embedding_dim") != embedding_dim:
                 continue
 
-            vector = self._deserialize_embedding(fact.get("embedding", b""), int(fact.get("embedding_dim", 0)))
+            vector = self._deserialize_embedding(
+                fact.get("embedding", b""), int(fact.get("embedding_dim", 0))
+            )
             # Double-check dimensions match
             if len(vector) == len(candidate_embedding):
                 score = self._cosine_similarity(candidate_embedding, vector)
@@ -383,16 +461,24 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_n]
 
-    def _run_confidence_decay(self, session, trainer_id: str, student_id: str, cfg: Dict[str, Any]) -> None:
+    def _run_confidence_decay(
+        self, session, trainer_id: str, student_id: str, cfg: Dict[str, Any]
+    ) -> None:
         try:
             cutoff = datetime.utcnow() - timedelta(days=cfg["decay_days"])
-            facts = session.query(PedagogicalFact).filter_by(
-                trainer_id=trainer_id,
-                student_id=student_id,
-                is_active=1,
-            ).all()
+            facts = (
+                session.query(PedagogicalFact)
+                .filter_by(
+                    trainer_id=trainer_id,
+                    student_id=student_id,
+                    is_active=1,
+                )
+                .all()
+            )
             for fact in facts:
-                pivot_date = fact.last_reinforced_at or fact.updated_at or fact.created_at
+                pivot_date = (
+                    fact.last_reinforced_at or fact.updated_at or fact.created_at
+                )
                 if pivot_date and pivot_date < cutoff:
                     fact.confidence = float(fact.confidence) * cfg["decay_factor"]
                     if fact.confidence < cfg["decay_min_confidence"]:
@@ -402,7 +488,13 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             log("error", f"Failed confidence decay: {e}", stacktrace=True)
 
     async def refresh_memory(self, trainer_id: str, student_id: str) -> Dict[str, int]:
-        stats = {"created": 0, "updated": 0, "reinforced": 0, "discarded": 0, "messages_analyzed": 0}
+        stats = {
+            "created": 0,
+            "updated": 0,
+            "reinforced": 0,
+            "discarded": 0,
+            "messages_analyzed": 0,
+        }
         cfg = self._get_plugin_config()
         fact_types = cfg["fact_types"]
         embedding_dim = self._get_embedding_dimension()
@@ -419,15 +511,21 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             return stats
 
         version = self._get_next_analysis_version(trainer_id, student_id)
-        candidates = await self._extract_candidate_facts(trainer_id, student_id, messages, fact_types)
+        candidates = await self._extract_candidate_facts(
+            trainer_id, student_id, messages, fact_types
+        )
 
         try:
             # Create snapshot INSIDE the session context
             with self.db.get_session() as session:
                 current_facts = (
                     session.query(PedagogicalFact)
-                    .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
-                    .filter(PedagogicalFact.embedding_dim == embedding_dim)  # Only use current dimension facts
+                    .filter_by(
+                        trainer_id=trainer_id, student_id=student_id, is_active=1
+                    )
+                    .filter(
+                        PedagogicalFact.embedding_dim == embedding_dim
+                    )  # Only use current dimension facts
                     .all()
                 )
 
@@ -450,11 +548,16 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             pending_id = 0
 
             for candidate in candidates:
-                candidate_vector = np.asarray(get_embedding(candidate["content"]), dtype=np.float32)
+                candidate_vector = np.asarray(
+                    get_embedding(candidate["content"]), dtype=np.float32
+                )
 
                 # Verify candidate vector dimension
                 if len(candidate_vector) != embedding_dim:
-                    log("error", f"Candidate embedding dimension {len(candidate_vector)} doesn't match expected {embedding_dim}. Skipping.")
+                    log(
+                        "error",
+                        f"Candidate embedding dimension {len(candidate_vector)} doesn't match expected {embedding_dim}. Skipping.",
+                    )
                     stats["discarded"] += 1
                     continue
 
@@ -466,24 +569,33 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 )
 
                 if not similar or similar[0][1] < cfg["similarity_threshold"]:
-                    operations.append({
-                        "action": "CREATE",
-                        "fact_type": candidate["fact_type"],
-                        "content": candidate["content"],
-                        "vector": candidate_vector,
-                    })
+                    operations.append(
+                        {
+                            "action": "CREATE",
+                            "fact_type": candidate["fact_type"],
+                            "content": candidate["content"],
+                            "vector": candidate_vector,
+                        }
+                    )
                     stats["created"] += 1
                     pending_id -= 1
-                    fact_snapshot.append({
-                        "id": pending_id,
-                        "fact_type": candidate["fact_type"],
-                        "content": candidate["content"],
-                        "embedding": self._serialize_embedding(candidate_vector.tolist()),
-                        "embedding_dim": embedding_dim,
-                        "confidence": 1.0,
-                        "is_active": 1,
-                        "fact_metadata": {"source": "llm", "reconciliation": "CREATE"},
-                    })
+                    fact_snapshot.append(
+                        {
+                            "id": pending_id,
+                            "fact_type": candidate["fact_type"],
+                            "content": candidate["content"],
+                            "embedding": self._serialize_embedding(
+                                candidate_vector.tolist()
+                            ),
+                            "embedding_dim": embedding_dim,
+                            "confidence": 1.0,
+                            "is_active": 1,
+                            "fact_metadata": {
+                                "source": "llm",
+                                "reconciliation": "CREATE",
+                            },
+                        }
+                    )
                     continue
 
                 best_fact, _ = similar[0]
@@ -494,14 +606,18 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                 )
 
                 if decision == "UPDATE":
-                    operations.append({
-                        "action": "UPDATE",
-                        "fact_id": best_fact["id"],
-                        "content": candidate["content"],
-                        "vector": candidate_vector,
-                    })
+                    operations.append(
+                        {
+                            "action": "UPDATE",
+                            "fact_id": best_fact["id"],
+                            "content": candidate["content"],
+                            "vector": candidate_vector,
+                        }
+                    )
                     best_fact["content"] = candidate["content"]
-                    best_fact["embedding"] = self._serialize_embedding(candidate_vector.tolist())
+                    best_fact["embedding"] = self._serialize_embedding(
+                        candidate_vector.tolist()
+                    )
                     best_fact["embedding_dim"] = embedding_dim
                     best_fact["fact_metadata"] = {
                         **(best_fact.get("fact_metadata") or {}),
@@ -510,8 +626,12 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                     }
                     stats["updated"] += 1
                 elif decision == "REINFORCE":
-                    operations.append({"action": "REINFORCE", "fact_id": best_fact["id"]})
-                    best_fact["confidence"] = min(1.0, float(best_fact.get("confidence", 0.0)) + 0.05)
+                    operations.append(
+                        {"action": "REINFORCE", "fact_id": best_fact["id"]}
+                    )
+                    best_fact["confidence"] = min(
+                        1.0, float(best_fact.get("confidence", 0.0)) + 0.05
+                    )
                     best_fact["fact_metadata"] = {
                         **(best_fact.get("fact_metadata") or {}),
                         "source": "llm",
@@ -530,23 +650,34 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
                                 trainer_id=trainer_id,
                                 fact_type=operation["fact_type"],
                                 content=operation["content"],
-                                embedding=self._serialize_embedding(operation["vector"].tolist()),
+                                embedding=self._serialize_embedding(
+                                    operation["vector"].tolist()
+                                ),
                                 embedding_dim=embedding_dim,
                                 confidence=1.0,
                                 is_active=1,
                                 source_version=version,
-                                fact_metadata={"source": "llm", "reconciliation": "CREATE"},
+                                fact_metadata={
+                                    "source": "llm",
+                                    "reconciliation": "CREATE",
+                                },
                             )
                         )
                         continue
 
-                    db_fact = session.query(PedagogicalFact).filter_by(id=operation["fact_id"]).first()
+                    db_fact = (
+                        session.query(PedagogicalFact)
+                        .filter_by(id=operation["fact_id"])
+                        .first()
+                    )
                     if not db_fact:
                         continue
 
                     if operation["action"] == "UPDATE":
                         db_fact.content = operation["content"]
-                        db_fact.embedding = self._serialize_embedding(operation["vector"].tolist())
+                        db_fact.embedding = self._serialize_embedding(
+                            operation["vector"].tolist()
+                        )
                         db_fact.embedding_dim = embedding_dim
                         db_fact.updated_at = datetime.utcnow()
                         db_fact.source_version = version
@@ -584,14 +715,20 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             log("error", f"Failed to refresh pedagogical memory: {e}", stacktrace=True)
             return stats
 
-    def _get_active_facts(self, trainer_id: str, student_id: str) -> List[Dict[str, Any]]:
+    def _get_active_facts(
+        self, trainer_id: str, student_id: str
+    ) -> List[Dict[str, Any]]:
         try:
             embedding_dim = self._get_embedding_dimension()
             with self.db.get_session() as session:
                 rows = (
                     session.query(PedagogicalFact)
-                    .filter_by(trainer_id=trainer_id, student_id=student_id, is_active=1)
-                    .filter(PedagogicalFact.embedding_dim == embedding_dim)  # Only return current dimension facts
+                    .filter_by(
+                        trainer_id=trainer_id, student_id=student_id, is_active=1
+                    )
+                    .filter(
+                        PedagogicalFact.embedding_dim == embedding_dim
+                    )  # Only return current dimension facts
                     .order_by(desc(PedagogicalFact.updated_at))
                     .all()
                 )
@@ -618,16 +755,20 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             log("error", f"Failed to get active facts: {e}", stacktrace=True)
             return []
 
-    def get_pedagogical_memory_context(self, user_id: str, messages: List[Dict]) -> Optional[Tuple[str, str, str]]:
-        if not self._is_active:
-            return None
-
+    def get_pedagogical_memory_context(
+        self, user_id: str, messages: List[Dict]
+    ) -> Optional[Tuple[str, str, str]]:
         try:
             user = self.user_manager.get_user(user_id)
             if not user or not user.get("parent_id"):
                 return None
 
             trainer_id = user["parent_id"]
+            if self.trainer_manager and not self.trainer_manager.is_plugin_active(
+                trainer_id, self.id
+            ):
+                return None
+
             cfg = self._get_plugin_config()
             embedding_dim = self._get_embedding_dimension()
 
@@ -644,19 +785,28 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             if not last_user_message:
                 return None
 
-            query_vector = np.asarray(get_embedding(last_user_message), dtype=np.float32)
+            query_vector = np.asarray(
+                get_embedding(last_user_message), dtype=np.float32
+            )
 
             # Verify query vector dimension
             if len(query_vector) != embedding_dim:
-                log("error", f"Query embedding dimension {len(query_vector)} doesn't match expected {embedding_dim}")
+                log(
+                    "error",
+                    f"Query embedding dimension {len(query_vector)} doesn't match expected {embedding_dim}",
+                )
                 return None
 
             scored = []
             for fact in active_facts:
-                fact_vector = self._deserialize_embedding(fact["embedding"], fact["embedding_dim"])
+                fact_vector = self._deserialize_embedding(
+                    fact["embedding"], fact["embedding_dim"]
+                )
                 # Verify fact vector dimension
                 if len(fact_vector) != embedding_dim:
-                    log("debug", f"Skipping fact {fact['id']} due to dimension mismatch")
+                    log(
+                        "debug", f"Skipping fact {fact['id']} due to dimension mismatch"
+                    )
                     continue
 
                 similarity = self._cosine_similarity(query_vector, fact_vector)
@@ -678,7 +828,11 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             context = context_prompt.format(facts=facts_text)
             return (context, "system", "top")
         except Exception as e:
-            log("error", f"Failed to inject pedagogical memory context: {e}", stacktrace=True)
+            log(
+                "error",
+                f"Failed to inject pedagogical memory context: {e}",
+                stacktrace=True,
+            )
             return None
 
     def get_context(self, student_id: str) -> Dict[str, str]:
@@ -689,12 +843,16 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
         trainer_id = student["parent_id"]
         active_facts = self._get_active_facts(trainer_id, student_id)
         if active_facts:
-            fact_summary = "\n".join([f"• {fact['fact_type']}: {fact['content']}" for fact in active_facts[:5]])
+            fact_summary = "\n".join(
+                [
+                    f"• {fact['fact_type']}: {fact['content']}"
+                    for fact in active_facts[:5]
+                ]
+            )
             if len(active_facts) > 5:
                 fact_summary += f"\n... and {len(active_facts) - 5} more facts"
             return {"🧠 Pedagogical Facts": fact_summary}
         return {}
-
 
     def _action_trigger_analysis(self, context, **params) -> Dict:
         from shared.common import record_plugin_event
@@ -737,52 +895,82 @@ class PedagogicalMemoryPluginCore(TrainerPluginCore):
             ],
         }
 
-    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def export_history(
+        self, trainer_id: str, student_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
         try:
             with self.db.get_session() as session:
-                facts_query = session.query(PedagogicalFact).filter_by(trainer_id=trainer_id)
-                logs_query = session.query(PedagogicalAnalysisLog).filter_by(trainer_id=trainer_id)
+                facts_query = session.query(PedagogicalFact).filter_by(
+                    trainer_id=trainer_id
+                )
+                logs_query = session.query(PedagogicalAnalysisLog).filter_by(
+                    trainer_id=trainer_id
+                )
 
                 if student_id:
                     facts_query = facts_query.filter_by(student_id=student_id)
                     logs_query = logs_query.filter_by(student_id=student_id)
 
-                for fact in facts_query.order_by(PedagogicalFact.created_at.asc()).all():
-                    events.append({
-                        "timestamp": fact.created_at.isoformat() if fact.created_at else datetime.utcnow().isoformat(),
-                        "type": "plugin.pedagogical_memory.fact",
-                        "plugin_id": self.id,
-                        "id": fact.id,
-                        "student_id": fact.student_id,
-                        "trainer_id": fact.trainer_id,
-                        "fact_type": fact.fact_type,
-                        "content": fact.content,
-                        "embedding_dim": fact.embedding_dim,
-                        "confidence": fact.confidence,
-                        "is_active": fact.is_active,
-                        "source_version": fact.source_version,
-                        "created_at": fact.created_at.isoformat() if fact.created_at else None,
-                        "updated_at": fact.updated_at.isoformat() if fact.updated_at else None,
-                        "last_reinforced_at": fact.last_reinforced_at.isoformat() if fact.last_reinforced_at else None,
-                        "fact_metadata": fact.fact_metadata or {},
-                    })
+                for fact in facts_query.order_by(
+                    PedagogicalFact.created_at.asc()
+                ).all():
+                    events.append(
+                        {
+                            "timestamp": fact.created_at.isoformat()
+                            if fact.created_at
+                            else datetime.utcnow().isoformat(),
+                            "type": "plugin.pedagogical_memory.fact",
+                            "plugin_id": self.id,
+                            "id": fact.id,
+                            "student_id": fact.student_id,
+                            "trainer_id": fact.trainer_id,
+                            "fact_type": fact.fact_type,
+                            "content": fact.content,
+                            "embedding_dim": fact.embedding_dim,
+                            "confidence": fact.confidence,
+                            "is_active": fact.is_active,
+                            "source_version": fact.source_version,
+                            "created_at": fact.created_at.isoformat()
+                            if fact.created_at
+                            else None,
+                            "updated_at": fact.updated_at.isoformat()
+                            if fact.updated_at
+                            else None,
+                            "last_reinforced_at": fact.last_reinforced_at.isoformat()
+                            if fact.last_reinforced_at
+                            else None,
+                            "fact_metadata": fact.fact_metadata or {},
+                        }
+                    )
 
-                for analysis in logs_query.order_by(PedagogicalAnalysisLog.created_at.asc()).all():
-                    events.append({
-                        "timestamp": analysis.created_at.isoformat() if analysis.created_at else datetime.utcnow().isoformat(),
-                        "type": "plugin.pedagogical_memory.analysis",
-                        "plugin_id": self.id,
-                        "id": analysis.id,
-                        "student_id": analysis.student_id,
-                        "trainer_id": analysis.trainer_id,
-                        "version": analysis.version,
-                        "messages_analyzed": analysis.messages_analyzed,
-                        "facts_created": analysis.facts_created,
-                        "facts_updated": analysis.facts_updated,
-                        "facts_discarded": analysis.facts_discarded,
-                        "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
-                    })
+                for analysis in logs_query.order_by(
+                    PedagogicalAnalysisLog.created_at.asc()
+                ).all():
+                    events.append(
+                        {
+                            "timestamp": analysis.created_at.isoformat()
+                            if analysis.created_at
+                            else datetime.utcnow().isoformat(),
+                            "type": "plugin.pedagogical_memory.analysis",
+                            "plugin_id": self.id,
+                            "id": analysis.id,
+                            "student_id": analysis.student_id,
+                            "trainer_id": analysis.trainer_id,
+                            "version": analysis.version,
+                            "messages_analyzed": analysis.messages_analyzed,
+                            "facts_created": analysis.facts_created,
+                            "facts_updated": analysis.facts_updated,
+                            "facts_discarded": analysis.facts_discarded,
+                            "created_at": analysis.created_at.isoformat()
+                            if analysis.created_at
+                            else None,
+                        }
+                    )
         except Exception as e:
-            log("error", f"Failed to export pedagogical_memory history: {e}", stacktrace=True)
+            log(
+                "error",
+                f"Failed to export pedagogical_memory history: {e}",
+                stacktrace=True,
+            )
         return events

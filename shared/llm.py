@@ -697,31 +697,6 @@ class LLMManager:
                         "source": callback.__name__,
                     }
 
-                    source = callback.__name__
-                    content_hash = hash(context.strip())
-
-                    if hasattr(self, "_seen_context_sources"):
-                        if source in self._seen_context_sources:
-                            log(
-                                "warning",
-                                f"Duplicate context source '{source}' detected - skipping duplicate injection",
-                            )
-                            continue
-                        self._seen_context_sources.add(source)
-                    else:
-                        self._seen_context_sources = {source}
-
-                    if hasattr(self, "_seen_context_contents"):
-                        if content_hash in self._seen_context_contents:
-                            log(
-                                "warning",
-                                f"Duplicate context content from '{source}' detected - skipping duplicate",
-                            )
-                            continue
-                        self._seen_context_contents.add(content_hash)
-                    else:
-                        self._seen_context_contents = {content_hash}
-
                     if position == ContextPosition.TOP:
                         top_contexts.append(context_msg)
                     else:

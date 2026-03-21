@@ -40,16 +40,12 @@ def register_trainer_driver_bindings(
             raise DriverOptionError(error_msg)
 
         # Check plugin supports activation
-        if not hasattr(plugin, "_mark_active") or not hasattr(plugin, "on_activate"):
-            error_msg = f"trainer: plugin '{name}' missing required activation methods"
+        if not hasattr(plugin, "on_activate"):
+            error_msg = f"trainer: plugin '{name}' missing required on_activate method"
             log("error", error_msg)
             raise DriverOptionError(error_msg)
 
-        # 1. Mark active in memory
-        plugin._mark_active()
-        log("debug", f"[MEMORY_ACTIVATION] Plugin '{name}' marked active in memory")
-
-        # 2. Verify trainer_manager is available
+        # 1. Verify trainer_manager is available
         if trainer_manager is None:
             error_msg = (
                 f"trainer: trainer_manager not available for plugin '{name}' activation"
@@ -57,7 +53,7 @@ def register_trainer_driver_bindings(
             log("error", error_msg)
             raise RuntimeError(error_msg)
 
-        # 3. Sync with database
+        # 2. Sync with database
         db_success = trainer_manager.set_plugin_active(trainer_id, plugin.id, True)
         if not db_success:
             error_msg = f"trainer: failed to set plugin '{name}' active in database for trainer '{trainer_id}'"
@@ -67,7 +63,7 @@ def register_trainer_driver_bindings(
             "debug", f"[MEMORY_ACTIVATION] Plugin '{name}' synced to database as active"
         )
 
-        # 4. Verify database state immediately
+        # 3. Verify database state immediately
         db_active = trainer_manager.is_plugin_active(trainer_id, plugin.id)
         if not db_active:
             error_msg = (
@@ -77,7 +73,7 @@ def register_trainer_driver_bindings(
             raise RuntimeError(error_msg)
         log("debug", f"[MEMORY_ACTIVATION] Database verification passed for '{name}'")
 
-        # 5. Call plugin's on_activate
+        # 4. Call plugin's on_activate
         try:
             plugin.on_activate(trainer_id)
             log(
@@ -144,10 +140,6 @@ def register_trainer_driver_bindings(
             log("error", error_msg)
             raise RuntimeError(error_msg)
         log("debug", f"[MEMORY_DEACTIVATION] Database verification passed for '{name}'")
-
-        # 4. Mark inactive in memory
-        plugin._mark_inactive()
-        log("debug", f"[MEMORY_DEACTIVATION] Plugin '{name}' marked inactive in memory")
 
         log(
             "info",

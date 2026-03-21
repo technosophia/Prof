@@ -47,7 +47,6 @@ Service attributes (set in initialize, used by data methods):
     self.config          — config (if needed)
 """
 
-
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Callable
 
@@ -60,7 +59,6 @@ class TrainerPluginCore(ABC):
     def __init__(self, manifest, trainer_manager=None):
         self.manifest = manifest
         self.id = manifest.id
-        self._is_active: bool = False
         self.trainer_manager = trainer_manager
 
         self.db = None
@@ -68,15 +66,6 @@ class TrainerPluginCore(ABC):
         self.conversation_manager = None
         self.llm_manager = None
         self.config = None
-
-    def _mark_active(self) -> None:
-        self._is_active = True
-
-    def _mark_inactive(self) -> None:
-        self._is_active = False
-
-    def is_active(self) -> bool:
-        return self._is_active
 
     def _resolve_services(self, services=None) -> None:
         if services is None:
@@ -87,6 +76,7 @@ class TrainerPluginCore(ABC):
         self.conversation_manager = services.get("conversation_manager")
         self.llm_manager = services.get("llm_manager")
         self.config = services.get("config")
+
     def set_trainer_manager(self, trainer_manager) -> None:
         self.trainer_manager = trainer_manager
 
@@ -103,5 +93,7 @@ class TrainerPluginCore(ABC):
     def get_context(self, user_id: str) -> Dict[str, str]:
         return {}
 
-    def export_history(self, trainer_id: str, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def export_history(
+        self, trainer_id: str, student_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         return []
