@@ -21,7 +21,6 @@ class FakeDriver:
         self.options = {"memory_backend": [{"name": "memory", "active": False}]}
         self.actions = [
             {"name": "create_conversation"},
-            {"name": "set_training_program"},
             {"name": "user_send_message"},
             {"name": "switch_option"},
         ]
@@ -56,7 +55,14 @@ class FakeDriver:
             raise ValueError("boom")
         self.events.append({"type": "action", "name": name, "params": params})
         if name == "user_send_message":
-            self.events.append({"type": "llm_call", "llm_id": "groq", "prompt_tokens": 1, "completion_tokens": 1})
+            self.events.append(
+                {
+                    "type": "llm_call",
+                    "llm_id": "groq",
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                }
+            )
         return {"ok": True}
 
     def get_session_events(self):
@@ -64,19 +70,20 @@ class FakeDriver:
 
     def get_session_summary(self):
         return {
-            "total_llm_calls": len([e for e in self.events if e.get("type") == "llm_call"]),
+            "total_llm_calls": len(
+                [e for e in self.events if e.get("type") == "llm_call"]
+            ),
             "total_tokens": 4,
             "active_options": {"memory_backend": "memory"},
             "duration_seconds": 0.5,
         }
-
-
 
     def list_assertions(self):
         return [{"name": name} for name in self._assertion_handlers.keys()]
 
     def evaluate_assertion(self, name, **payload):
         return self._assertion_handlers[name](**payload)
+
 
 def _scenario_path():
     return str(Path("modules/benchmarker/scenarios/example_basic.yaml"))
@@ -113,7 +120,12 @@ def test_validate_scenario_fails_for_unknown_action(monkeypatch):
 def test_actor_violation_records_warning_not_exception(monkeypatch):
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
-    step = {"id": "s1", "actor": "student", "action": "trigger_memory_analysis", "params": {}}
+    step = {
+        "id": "s1",
+        "actor": "student",
+        "action": "trigger_memory_analysis",
+        "params": {},
+    }
 
     result = runner._replay_step(step)
     assert not result.success
@@ -132,8 +144,6 @@ def test_full_run_example_basic(monkeypatch, tmp_path):
     assert result.success
     assert result.assertions_passed == result.assertions_total
     assert Path(result.session_path).exists()
-
-
 
 
 def test_run_sets_context_before_options(monkeypatch, tmp_path):
@@ -156,6 +166,7 @@ def test_run_sets_context_before_options(monkeypatch, tmp_path):
     assert "context_switch" in event_types
     assert "option_switch" in event_types
     assert event_types.index("context_switch") < event_types.index("option_switch")
+
 
 def test_step_error_does_not_abort_run(monkeypatch, tmp_path):
     runner = ScenarioRunner()
@@ -185,7 +196,10 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
     monkeypatch.setattr("modules.benchmarker.runner.get_current_llm_id", lambda: "mock")
 
     switched = {}
-    monkeypatch.setattr("modules.benchmarker.runner.set_current_llm", lambda llm_id: switched.setdefault("llm", llm_id) or True)
+    monkeypatch.setattr(
+        "modules.benchmarker.runner.set_current_llm",
+        lambda llm_id: switched.setdefault("llm", llm_id) or True,
+    )
 
     scenario = runner._load_scenario(_scenario_path())
     scenario.pop("llm", None)
@@ -195,10 +209,12 @@ def test_full_run_example_basic_uses_default_llm_when_missing(monkeypatch, tmp_p
     result = runner.run(str(tmp_file))
     assert result.success
     assert switched["llm"] == "mock"
-    context_events = [e for e in runner.driver.get_session_events() if e.get("type") == "context_switch"]
+    context_events = [
+        e
+        for e in runner.driver.get_session_events()
+        if e.get("type") == "context_switch"
+    ]
     assert any(e.get("data", {}).get("llm_id") == "mock" for e in context_events)
-
-
 
 
 def test_injected_context_contains_accepts_contains_list_with_and_semantics():
@@ -212,7 +228,11 @@ def test_injected_context_contains_accepts_contains_list_with_and_semantics():
             success=True,
             result={
                 "injected_contexts": [
-                    {"source": "rag_mock", "content": "sweet spot et évolutionnaire", "role": "system"}
+                    {
+                        "source": "rag_mock",
+                        "content": "sweet spot et évolutionnaire",
+                        "role": "system",
+                    }
                 ]
             },
         )
@@ -223,7 +243,10 @@ def test_injected_context_contains_accepts_contains_list_with_and_semantics():
             {
                 "id": "a1",
                 "type": "injected_context_contains",
-                "params": {"step_id": "s1", "contains": ["sweet spot", "évolutionnaire"]},
+                "params": {
+                    "step_id": "s1",
+                    "contains": ["sweet spot", "évolutionnaire"],
+                },
             }
         ],
         steps,
@@ -243,7 +266,11 @@ def test_injected_context_contains_list_substring_mode():
             success=True,
             result={
                 "injected_contexts": [
-                    {"source": "rag_mock", "content": "sweet spot et évolutionnaire", "role": "system"}
+                    {
+                        "source": "rag_mock",
+                        "content": "sweet spot et évolutionnaire",
+                        "role": "system",
+                    }
                 ]
             },
         )
@@ -265,6 +292,7 @@ def test_injected_context_contains_list_substring_mode():
 
     assert out[0].passed is True
 
+
 def test_injected_context_contains_semantics_substring_passes():
     runner = ScenarioRunner()
     runner.driver = FakeDriver()
@@ -276,7 +304,11 @@ def test_injected_context_contains_semantics_substring_passes():
             success=True,
             result={
                 "injected_contexts": [
-                    {"source": "rag_mock", "content": "Voss review threshold is 400 lines", "role": "system"}
+                    {
+                        "source": "rag_mock",
+                        "content": "Voss review threshold is 400 lines",
+                        "role": "system",
+                    }
                 ]
             },
         )
@@ -287,7 +319,11 @@ def test_injected_context_contains_semantics_substring_passes():
             {
                 "id": "a1",
                 "type": "injected_context_contains_semantics",
-                "params": {"step_id": "s1", "contains": "threshold is 400", "mode": "substring"},
+                "params": {
+                    "step_id": "s1",
+                    "contains": "threshold is 400",
+                    "mode": "substring",
+                },
             }
         ],
         steps,
@@ -307,7 +343,11 @@ def test_injected_context_contains_semantics_substring_fails_with_source_filter(
             success=True,
             result={
                 "injected_contexts": [
-                    {"source": "memory_mock", "content": "Voss review threshold is 400 lines", "role": "system"}
+                    {
+                        "source": "memory_mock",
+                        "content": "Voss review threshold is 400 lines",
+                        "role": "system",
+                    }
                 ]
             },
         )
@@ -318,7 +358,12 @@ def test_injected_context_contains_semantics_substring_fails_with_source_filter(
             {
                 "id": "a1",
                 "type": "injected_context_contains_semantics",
-                "params": {"step_id": "s1", "contains": "threshold is 400", "mode": "substring", "source_contains": "rag"},
+                "params": {
+                    "step_id": "s1",
+                    "contains": "threshold is 400",
+                    "mode": "substring",
+                    "source_contains": "rag",
+                },
             }
         ],
         steps,
@@ -326,6 +371,7 @@ def test_injected_context_contains_semantics_substring_fails_with_source_filter(
 
     assert out[0].passed is False
     assert "Sources present" in out[0].message
+
 
 def test_injected_context_contains_passes(monkeypatch):
     runner = ScenarioRunner()
@@ -338,7 +384,11 @@ def test_injected_context_contains_passes(monkeypatch):
             success=True,
             result={
                 "injected_contexts": [
-                    {"source": "rag_mock", "content": "Document contains voss_index guidance", "role": "system"}
+                    {
+                        "source": "rag_mock",
+                        "content": "Document contains voss_index guidance",
+                        "role": "system",
+                    }
                 ]
             },
         )
@@ -349,7 +399,11 @@ def test_injected_context_contains_passes(monkeypatch):
             {
                 "id": "a1",
                 "type": "injected_context_contains",
-                "params": {"step_id": "s1", "contains": "voss_index", "source_contains": "rag"},
+                "params": {
+                    "step_id": "s1",
+                    "contains": "voss_index",
+                    "source_contains": "rag",
+                },
             }
         ],
         steps,
@@ -367,12 +421,22 @@ def test_injected_context_contains_fails_wrong_content():
             action="user_send_message",
             actor="student",
             success=True,
-            result={"injected_contexts": [{"source": "rag_mock", "content": "other text", "role": "system"}]},
+            result={
+                "injected_contexts": [
+                    {"source": "rag_mock", "content": "other text", "role": "system"}
+                ]
+            },
         )
     ]
 
     out = runner._evaluate_assertions(
-        [{"id": "a1", "type": "injected_context_contains", "params": {"step_id": "s1", "contains": "voss_index"}}],
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1", "contains": "voss_index"},
+            }
+        ],
         steps,
     )
 
@@ -389,7 +453,11 @@ def test_injected_context_contains_fails_wrong_source():
             action="user_send_message",
             actor="student",
             success=True,
-            result={"injected_contexts": [{"source": "memory_mock", "content": "voss_index", "role": "system"}]},
+            result={
+                "injected_contexts": [
+                    {"source": "memory_mock", "content": "voss_index", "role": "system"}
+                ]
+            },
         )
     ]
 
@@ -422,13 +490,18 @@ def test_injected_context_contains_no_contexts_captured():
     ]
 
     out = runner._evaluate_assertions(
-        [{"id": "a1", "type": "injected_context_contains", "params": {"step_id": "s1"}}],
+        [
+            {
+                "id": "a1",
+                "type": "injected_context_contains",
+                "params": {"step_id": "s1"},
+            }
+        ],
         steps,
     )
 
     assert out[0].passed is False
     assert "No injected contexts captured" in out[0].message
-
 
 
 def test_injected_context_contains_fails_on_rag_no_results_marker_even_if_contains_matches():
@@ -457,7 +530,11 @@ def test_injected_context_contains_fails_on_rag_no_results_marker_even_if_contai
             {
                 "id": "a1",
                 "type": "injected_context_contains",
-                "params": {"step_id": "s1", "contains": "Tuesday Sync", "source_contains": "rag"},
+                "params": {
+                    "step_id": "s1",
+                    "contains": "Tuesday Sync",
+                    "source_contains": "rag",
+                },
             }
         ],
         steps,
@@ -493,7 +570,11 @@ def test_injected_context_contains_fails_on_rag_no_result_singular_marker():
             {
                 "id": "a1",
                 "type": "injected_context_contains",
-                "params": {"step_id": "s1", "contains": "Tuesday Sync", "source_contains": "rag"},
+                "params": {
+                    "step_id": "s1",
+                    "contains": "Tuesday Sync",
+                    "source_contains": "rag",
+                },
             }
         ],
         steps,
@@ -512,7 +593,15 @@ def test_injected_context_not_contains_passes_when_forbidden_text_absent():
             action="user_send_message",
             actor="student",
             success=True,
-            result={"injected_contexts": [{"source": "rag_mock", "content": "useful rag context", "role": "system"}]},
+            result={
+                "injected_contexts": [
+                    {
+                        "source": "rag_mock",
+                        "content": "useful rag context",
+                        "role": "system",
+                    }
+                ]
+            },
         )
     ]
 
@@ -521,7 +610,11 @@ def test_injected_context_not_contains_passes_when_forbidden_text_absent():
             {
                 "id": "a1",
                 "type": "injected_context_contains",
-                "params": {"step_id": "s1", "source_contains": "rag", "not_contains": "forbidden"},
+                "params": {
+                    "step_id": "s1",
+                    "source_contains": "rag",
+                    "not_contains": "forbidden",
+                },
             }
         ],
         steps,
@@ -539,7 +632,15 @@ def test_injected_context_not_contains_fails_when_forbidden_text_present():
             action="user_send_message",
             actor="student",
             success=True,
-            result={"injected_contexts": [{"source": "rag_mock", "content": "has forbidden token", "role": "system"}]},
+            result={
+                "injected_contexts": [
+                    {
+                        "source": "rag_mock",
+                        "content": "has forbidden token",
+                        "role": "system",
+                    }
+                ]
+            },
         )
     ]
 
@@ -548,7 +649,11 @@ def test_injected_context_not_contains_fails_when_forbidden_text_present():
             {
                 "id": "a1",
                 "type": "injected_context_contains",
-                "params": {"step_id": "s1", "source_contains": "rag", "not_contains": "forbidden"},
+                "params": {
+                    "step_id": "s1",
+                    "source_contains": "rag",
+                    "not_contains": "forbidden",
+                },
             }
         ],
         steps,
@@ -556,6 +661,7 @@ def test_injected_context_not_contains_fails_when_forbidden_text_present():
 
     assert out[0].passed is False
     assert "forbidden text 'forbidden'" in out[0].message
+
 
 def test_injected_context_source_only():
     runner = ScenarioRunner()
@@ -566,7 +672,11 @@ def test_injected_context_source_only():
             action="user_send_message",
             actor="student",
             success=True,
-            result={"injected_contexts": [{"source": "rag_mock", "content": "abc", "role": "system"}]},
+            result={
+                "injected_contexts": [
+                    {"source": "rag_mock", "content": "abc", "role": "system"}
+                ]
+            },
         )
     ]
 
@@ -590,7 +700,14 @@ def test_validate_scenario_reports_unknown_option_group():
     scenario = {
         "meta": {"name": "x"},
         "options": {"nonexistent_group": "foo"},
-        "steps": [{"id": "s1", "actor": "student", "action": "user_send_message", "params": {}}],
+        "steps": [
+            {
+                "id": "s1",
+                "actor": "student",
+                "action": "user_send_message",
+                "params": {},
+            }
+        ],
     }
 
     errors = runner.validate_scenario(scenario)
@@ -603,7 +720,9 @@ def test_validate_scenario_reports_unknown_action():
     scenario = {
         "meta": {"name": "x"},
         "options": {},
-        "steps": [{"id": "s1", "actor": "student", "action": "unknown_action", "params": {}}],
+        "steps": [
+            {"id": "s1", "actor": "student", "action": "unknown_action", "params": {}}
+        ],
     }
 
     errors = runner.validate_scenario(scenario)
@@ -617,8 +736,18 @@ def test_validate_scenario_passes_with_all_registered():
         "meta": {"name": "x"},
         "options": {"memory_backend": "memory"},
         "steps": [
-            {"id": "s1", "actor": "system", "action": "create_conversation", "params": {}},
-            {"id": "s2", "actor": "student", "action": "user_send_message", "params": {}},
+            {
+                "id": "s1",
+                "actor": "system",
+                "action": "create_conversation",
+                "params": {},
+            },
+            {
+                "id": "s2",
+                "actor": "student",
+                "action": "user_send_message",
+                "params": {},
+            },
         ],
     }
 
@@ -634,7 +763,15 @@ def test_injected_context_source_alias_student_pad_matches_student_notes_callbac
             action="user_send_message",
             actor="student",
             success=True,
-            result={"injected_contexts": [{"source": "get_student_notes_context", "content": "some note", "role": "system"}]},
+            result={
+                "injected_contexts": [
+                    {
+                        "source": "get_student_notes_context",
+                        "content": "some note",
+                        "role": "system",
+                    }
+                ]
+            },
         )
     ]
 

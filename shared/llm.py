@@ -117,12 +117,14 @@ from core.callback import register_callback, unregister_callback
 
 class ContextPosition(Enum):
     """Position where context should be inserted in the messages list."""
-    TOP = "top"          # Insert at the beginning (first system messages)
-    BOTTOM = "bottom"    # Insert just before the last user message (before final query)
+
+    TOP = "top"  # Insert at the beginning (first system messages)
+    BOTTOM = "bottom"  # Insert just before the last user message (before final query)
 
 
 class ContextRole(Enum):
     """Role for the context message."""
+
     SYSTEM = "system"
     USER = "user"
 
@@ -135,11 +137,15 @@ class LLMManager:
         self.current_llm = None
         self.llm_callbacks = []  # Legacy callbacks: return just context string
         self.context_callbacks = []  # Enhanced callbacks: return (context, role, position)
-        self._monitor_callbacks = [] # Initialize monitor callbacks list
+        self._monitor_callbacks = []  # Initialize monitor callbacks list
 
         # Load embedding configuration
-        self.embedding_model_name = self.config.get("embedding.model_name", "all-MiniLM-L6-v2")
-        self.embedding_vector_dimension = self.config.get("embedding.vector_dimension", 384)
+        self.embedding_model_name = self.config.get(
+            "embedding.model_name", "all-MiniLM-L6-v2"
+        )
+        self.embedding_vector_dimension = self.config.get(
+            "embedding.vector_dimension", 384
+        )
 
         # Discover and load all engine modules
         self.discover_engines()
@@ -151,7 +157,10 @@ class LLMManager:
         self.initialize_current_llm()
 
         log("debug", f"LLMManager initialized with {len(self.engines)} engines")
-        log("debug", f"Embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)")
+        log(
+            "debug",
+            f"Embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)",
+        )
 
     def _get_embedding_model(self):
         """Return cached sentence-transformers model for the configured default.
@@ -162,13 +171,31 @@ class LLMManager:
         try:
             from sentence_transformers import SentenceTransformer
         except Exception as e:
-            log("error", "sentence-transformers is required for embeddings but is not installed", stacktrace=True)
-            raise RuntimeError("sentence-transformers is required for embeddings") from e
+            log(
+                "error",
+                "sentence-transformers is required for embeddings but is not installed",
+                stacktrace=True,
+            )
+            raise RuntimeError(
+                "sentence-transformers is required for embeddings"
+            ) from e
 
         import torch
-        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-        self._embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
-        log("info", f"Loaded embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)")
+
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps"
+            if torch.backends.mps.is_available()
+            else "cpu"
+        )
+        self._embedding_model = SentenceTransformer(
+            self.embedding_model_name, device=device
+        )
+        log(
+            "info",
+            f"Loaded embedding model: {self.embedding_model_name} ({self.embedding_vector_dimension} dims)",
+        )
         return self._embedding_model
 
     def _get_named_embedding_model(self, model_name: str):
@@ -193,12 +220,17 @@ class LLMManager:
         try:
             from sentence_transformers import SentenceTransformer
         except Exception as e:
-            raise RuntimeError("sentence-transformers is required for embeddings") from e
+            raise RuntimeError(
+                "sentence-transformers is required for embeddings"
+            ) from e
 
         import torch
+
         device = (
-            "cuda" if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available()
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps"
+            if torch.backends.mps.is_available()
             else "cpu"
         )
         log("info", f"Loading named embedding model: {model_name} on {device}")
@@ -225,7 +257,9 @@ class LLMManager:
         vector = model.encode(text or "", convert_to_numpy=True)
         return vector.tolist()
 
-    def get_embeddings_for_model(self, texts: List[str], model_name: str) -> List[List[float]]:
+    def get_embeddings_for_model(
+        self, texts: List[str], model_name: str
+    ) -> List[List[float]]:
         """
         Embed a list of strings using a specific (possibly non-default) model.
 
@@ -258,7 +292,7 @@ class LLMManager:
     def discover_engines(self):
         """Discover and load all LLM engine modules from shared/llms directory."""
         shared_dir = os.path.dirname(__file__)
-        llms_dir = os.path.join(shared_dir, 'llms')
+        llms_dir = os.path.join(shared_dir, "llms")
 
         log("debug", f"Looking for engines in: {llms_dir}")
 
@@ -271,22 +305,26 @@ class LLMManager:
 
         try:
             for _, module_name, is_pkg in pkgutil.iter_modules([llms_dir]):
-                if not is_pkg and module_name.startswith('llm_'):
+                if not is_pkg and module_name.startswith("llm_"):
                     try:
                         full_module_name = f"llms.{module_name}"
                         module = importlib.import_module(full_module_name)
 
                         for attr_name in dir(module):
                             attr = getattr(module, attr_name)
-                            if (isinstance(attr, type) and
-                                issubclass(attr, LLMEngine) and
-                                attr != LLMEngine and
-                                attr_name.endswith('Engine')):
-
+                            if (
+                                isinstance(attr, type)
+                                and issubclass(attr, LLMEngine)
+                                and attr != LLMEngine
+                                and attr_name.endswith("Engine")
+                            ):
                                 engine = attr()
                                 engine_type = engine.engine_type
                                 self.engines[engine_type] = engine
-                                log("info", f"Loaded LLM engine: {engine_type} from {module_name}")
+                                log(
+                                    "info",
+                                    f"Loaded LLM engine: {engine_type} from {module_name}",
+                                )
                                 break
 
                     except Exception as e:
@@ -311,7 +349,10 @@ class LLMManager:
         if available_llms:
             log("debug", f"Available LLMs found: {len(available_llms)}")
             for llm in available_llms:
-                log("debug", f"  - '{llm['name']}' (ID: '{llm['id']}', Available: {llm['available']})")
+                log(
+                    "debug",
+                    f"  - '{llm['name']}' (ID: '{llm['id']}', Available: {llm['available']})",
+                )
         else:
             log("debug", "No LLMs returned from get_available_llms()")
 
@@ -321,10 +362,16 @@ class LLMManager:
                 if llm["id"] == default_llm_id:
                     if llm["available"]:
                         self.current_llm = llm["id"]
-                        log("info", f"Current LLM set by ID: {default_llm_id} (name: {llm['name']})")
+                        log(
+                            "info",
+                            f"Current LLM set by ID: {default_llm_id} (name: {llm['name']})",
+                        )
                         return
                     else:
-                        log("warning", f"Default LLM ID '{default_llm_id}' found but not available")
+                        log(
+                            "warning",
+                            f"Default LLM ID '{default_llm_id}' found but not available",
+                        )
                         break
 
         # Fallback: try to find by name (for backward compatibility)
@@ -333,31 +380,52 @@ class LLMManager:
                 if llm["name"] == default_llm_id:
                     if llm["available"]:
                         self.current_llm = llm["id"]
-                        log("warning", f"Default LLM found by name (deprecated): '{default_llm_id}' -> ID: {llm['id']}")
+                        log(
+                            "warning",
+                            f"Default LLM found by name (deprecated): '{default_llm_id}' -> ID: {llm['id']}",
+                        )
                         return
                     else:
-                        log("warning", f"Default LLM '{default_llm_id}' found by name but not available")
+                        log(
+                            "warning",
+                            f"Default LLM '{default_llm_id}' found by name but not available",
+                        )
 
             for llm in available_llms:
                 if llm["name"].lower() == default_llm_id.lower():
                     if llm["available"]:
                         self.current_llm = llm["id"]
-                        log("warning", f"Default LLM found by case-insensitive name (deprecated): '{default_llm_id}' -> ID: {llm['id']}")
+                        log(
+                            "warning",
+                            f"Default LLM found by case-insensitive name (deprecated): '{default_llm_id}' -> ID: {llm['id']}",
+                        )
                         return
                     else:
-                        log("warning", f"Default LLM '{default_llm_id}' found by case-insensitive name but not available")
+                        log(
+                            "warning",
+                            f"Default LLM '{default_llm_id}' found by case-insensitive name but not available",
+                        )
 
         # Fallback to first available LLM
         for llm in available_llms:
             if llm["available"]:
                 self.current_llm = llm["id"]
-                log("warning", f"No default LLM '{default_llm_id}' found or available, falling back to: {llm['name']} (ID: {llm['id']})")
+                log(
+                    "warning",
+                    f"No default LLM '{default_llm_id}' found or available, falling back to: {llm['name']} (ID: {llm['id']})",
+                )
                 return
 
         if available_llms:
-            log("error", f"No available LLMs found among {len(available_llms)} configured LLMs")
+            log(
+                "error",
+                f"No available LLMs found among {len(available_llms)} configured LLMs",
+            )
             self.current_llm = available_llms[0]["id"]
-            log("warning", f"Forcing current LLM to first configured: {available_llms[0]['name']} (ID: {available_llms[0]['id']})")
+            log(
+                "warning",
+                f"Forcing current LLM to first configured: {available_llms[0]['name']} (ID: {available_llms[0]['id']})",
+            )
         else:
             log("error", "No LLMs configured at all")
             self.current_llm = None
@@ -386,22 +454,27 @@ class LLMManager:
                 else:
                     is_available = True
 
-            llms.append({
-                "id": llm_id,
-                "name": llm_config.get("name", llm_id),
-                "type": llm_type,
-                "model": llm_config.get("model", "unknown"),
-                "description": llm_config.get("description", ""),
-                "enabled": enabled,
-                "available": is_available,
-                "requires_api_key": llm_config.get("requires_api_key", False),
-                "engine": engine,
-            })
+            llms.append(
+                {
+                    "id": llm_id,
+                    "name": llm_config.get("name", llm_id),
+                    "type": llm_type,
+                    "model": llm_config.get("model", "unknown"),
+                    "description": llm_config.get("description", ""),
+                    "enabled": enabled,
+                    "available": is_available,
+                    "requires_api_key": llm_config.get("requires_api_key", False),
+                    "engine": engine,
+                }
+            )
 
         total = len(llms)
         available_count = sum(1 for llm in llms if llm["available"])
         enabled_count = sum(1 for llm in llms if llm["enabled"])
-        log("debug", f"LLM Status: {available_count}/{total} available, {enabled_count}/{total} enabled")
+        log(
+            "debug",
+            f"LLM Status: {available_count}/{total} available, {enabled_count}/{total} enabled",
+        )
 
         return llms
 
@@ -417,7 +490,10 @@ class LLMManager:
                     log("info", f"Current LLM changed to: {llm['name']} ({llm_id})")
                     return True
                 else:
-                    log("warning", f"LLM {llm_id} is not available (enabled: {llm['enabled']})")
+                    log(
+                        "warning",
+                        f"LLM {llm_id} is not available (enabled: {llm['enabled']})",
+                    )
                     return False
 
         log("error", f"LLM {llm_id} not found in available LLMs")
@@ -437,17 +513,26 @@ class LLMManager:
             if "model_name" not in embedding_config:
                 log("warning", "Embedding config missing 'model_name', using default")
             if "vector_dimension" not in embedding_config:
-                log("warning", "Embedding config missing 'vector_dimension', using default")
+                log(
+                    "warning",
+                    "Embedding config missing 'vector_dimension', using default",
+                )
 
         llms_config = self.config.get("llms", {})
         if not isinstance(llms_config, dict):
-            log("error", f"'llms' section should be a dictionary, got: {type(llms_config)}")
+            log(
+                "error",
+                f"'llms' section should be a dictionary, got: {type(llms_config)}",
+            )
             return False
 
         valid_count = 0
         for llm_id, llm_config in llms_config.items():
             if not isinstance(llm_config, dict):
-                log("warning", f"LLM '{llm_id}' config is not a dictionary: {llm_config}")
+                log(
+                    "warning",
+                    f"LLM '{llm_id}' config is not a dictionary: {llm_config}",
+                )
                 continue
             if "type" not in llm_config:
                 log("warning", f"LLM '{llm_id}' missing 'type' field")
@@ -457,7 +542,9 @@ class LLMManager:
                 continue
             engine_type = llm_config.get("type")
             if engine_type not in self.engines:
-                log("warning", f"LLM '{llm_id}' uses unknown engine type: {engine_type}")
+                log(
+                    "warning", f"LLM '{llm_id}' uses unknown engine type: {engine_type}"
+                )
                 continue
             valid_count += 1
 
@@ -491,17 +578,25 @@ class LLMManager:
         """Unregister a legacy LLM callback."""
         unregister_callback(self.llm_callbacks, callback_func, "legacy LLM callback")
 
-    def register_context_callback(self, callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
+    def register_context_callback(
+        self, callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]
+    ):
         """Register an enhanced context callback with control over role and position.
 
         The callback should return a tuple: (context, role, position)
         where role is "system" or "user" and position is "top" or "bottom".
         """
-        register_callback(self.context_callbacks, callback_func, "enhanced context callback")
+        register_callback(
+            self.context_callbacks, callback_func, "enhanced context callback"
+        )
 
-    def unregister_context_callback(self, callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]):
+    def unregister_context_callback(
+        self, callback_func: Callable[[str, List[Dict]], Tuple[str, str, str]]
+    ):
         """Unregister an enhanced context callback."""
-        unregister_callback(self.context_callbacks, callback_func, "enhanced context callback")
+        unregister_callback(
+            self.context_callbacks, callback_func, "enhanced context callback"
+        )
 
     def _add_llm_context(self, user_id: str, messages: List[Dict]) -> List[Dict]:
         """Add LLM context to messages using registered callbacks."""
@@ -520,18 +615,25 @@ class LLMManager:
             try:
                 # NEW: Check if callback accepts query_id parameter
                 import inspect
+
                 sig = inspect.signature(callback)
-                if 'query_id' in sig.parameters:
-                    context = callback(user_id, messages, query_id=getattr(self, '_current_query_id', None))
+                if "query_id" in sig.parameters:
+                    context = callback(
+                        user_id,
+                        messages,
+                        query_id=getattr(self, "_current_query_id", None),
+                    )
                 else:
                     context = callback(user_id, messages)
 
                 if context and context.strip():
-                    bottom_contexts.append({
-                        "role": "system",
-                        "content": context.strip(),
-                        "source": callback.__name__,
-                    })
+                    bottom_contexts.append(
+                        {
+                            "role": "system",
+                            "content": context.strip(),
+                            "source": callback.__name__,
+                        }
+                    )
                     log("debug", f"Added legacy context from {callback.__name__}")
             except Exception as e:
                 log("error", f"Legacy LLM callback {callback.__name__} failed: {e}")
@@ -540,11 +642,31 @@ class LLMManager:
             try:
                 # NEW: Check if callback accepts query_id parameter
                 import inspect
+
                 sig = inspect.signature(callback)
-                if 'query_id' in sig.parameters:
-                    result = callback(user_id, messages, query_id=getattr(self, '_current_query_id', None))
+                log(
+                    "debug", f"[_add_llm_context] Calling callback: {callback.__name__}"
+                )
+                if "query_id" in sig.parameters:
+                    result = callback(
+                        user_id,
+                        messages,
+                        query_id=getattr(self, "_current_query_id", None),
+                    )
                 else:
                     result = callback(user_id, messages)
+
+                if result and len(result) >= 3:
+                    context, role_str, position_str = result[:3]
+                    log(
+                        "debug",
+                        f"[_add_llm_context] {callback.__name__} returned: context_len={len(context) if context else 0}, role={role_str}, position={position_str}",
+                    )
+                else:
+                    log(
+                        "debug",
+                        f"[_add_llm_context] {callback.__name__} returned None or invalid result",
+                    )
 
                 if result and len(result) >= 3:
                     context, role_str, position_str = result[:3]
@@ -555,13 +677,19 @@ class LLMManager:
                     try:
                         role = ContextRole(role_str.lower())
                     except ValueError:
-                        log("warning", f"Invalid role '{role_str}' from {callback.__name__}, using 'system'")
+                        log(
+                            "warning",
+                            f"Invalid role '{role_str}' from {callback.__name__}, using 'system'",
+                        )
 
                     position = ContextPosition.BOTTOM
                     try:
                         position = ContextPosition(position_str.lower())
                     except ValueError:
-                        log("warning", f"Invalid position '{position_str}' from {callback.__name__}, using 'bottom'")
+                        log(
+                            "warning",
+                            f"Invalid position '{position_str}' from {callback.__name__}, using 'bottom'",
+                        )
 
                     context_msg = {
                         "role": role.value,
@@ -569,15 +697,46 @@ class LLMManager:
                         "source": callback.__name__,
                     }
 
+                    source = callback.__name__
+                    content_hash = hash(context.strip())
+
+                    if hasattr(self, "_seen_context_sources"):
+                        if source in self._seen_context_sources:
+                            log(
+                                "warning",
+                                f"Duplicate context source '{source}' detected - skipping duplicate injection",
+                            )
+                            continue
+                        self._seen_context_sources.add(source)
+                    else:
+                        self._seen_context_sources = {source}
+
+                    if hasattr(self, "_seen_context_contents"):
+                        if content_hash in self._seen_context_contents:
+                            log(
+                                "warning",
+                                f"Duplicate context content from '{source}' detected - skipping duplicate",
+                            )
+                            continue
+                        self._seen_context_contents.add(content_hash)
+                    else:
+                        self._seen_context_contents = {content_hash}
+
                     if position == ContextPosition.TOP:
                         top_contexts.append(context_msg)
                     else:
                         bottom_contexts.append(context_msg)
 
-                    log("debug", f"Added enhanced context from {callback.__name__} (role: {role.value}, position: {position.value})")
+                    log(
+                        "debug",
+                        f"Added enhanced context from {callback.__name__} (role: {role.value}, position: {position.value})",
+                    )
 
             except Exception as e:
-                log("error", f"Enhanced context callback {callback.__name__} failed: {e}")
+                log(
+                    "error",
+                    f"Enhanced context callback {callback.__name__} failed: {e}",
+                )
 
         if top_contexts:
             for context_msg in reversed(top_contexts):
@@ -620,7 +779,10 @@ class LLMManager:
 
         if conversation_history and messages:
             last_message = messages[-1]
-            if not (last_message.get("role") == "user" and last_message.get("content") == message.strip()):
+            if not (
+                last_message.get("role") == "user"
+                and last_message.get("content") == message.strip()
+            ):
                 messages.append({"role": "user", "content": message})
         else:
             messages.append({"role": "user", "content": message})
@@ -629,6 +791,10 @@ class LLMManager:
             # NEW: Pass query_id to context callbacks
             # We need to modify the callback mechanism to pass query_id
             # For now, we'll store it temporarily
+            log(
+                "debug",
+                f"[_add_llm_context] user_id={user_id}, {len(self.llm_callbacks)} legacy callbacks, {len(self.context_callbacks)} context callbacks",
+            )
             self._current_query_id = query_id
             messages = self._add_llm_context(user_id, messages)
             self._current_query_id = None
@@ -674,12 +840,21 @@ class LLMManager:
             if force_llm in self.config.get("llms", {}):
                 original_llm_id = llm_id
                 llm_id = force_llm
-                log("debug", f"FORCE_LLM environment variable overrides LLM choice: {original_llm_id} -> {llm_id}")
+                log(
+                    "debug",
+                    f"FORCE_LLM environment variable overrides LLM choice: {original_llm_id} -> {llm_id}",
+                )
             else:
-                log("warning", f"FORCE_LLM environment variable set to '{force_llm}' but this LLM is not configured. Using original: {llm_id}")
+                log(
+                    "warning",
+                    f"FORCE_LLM environment variable set to '{force_llm}' but this LLM is not configured. Using original: {llm_id}",
+                )
 
         log("debug", f"Generating response with LLM: {llm_id}")
-        log("debug", f"Messages: {len(messages)} messages, response_format={response_format!r}")
+        log(
+            "debug",
+            f"Messages: {len(messages)} messages, response_format={response_format!r}",
+        )
 
         llm_config = self.config.get("llms", {}).get(llm_id, {})
         if not llm_config:
@@ -733,13 +908,16 @@ class LLMManager:
             # Soft dependency: record LLM usage in driver when available.
             try:
                 from shared.driver import get_driver
-                prompt_tokens = sum(len((msg.get("content") or "").split()) for msg in filtered_messages)
+
+                prompt_tokens = sum(
+                    len((msg.get("content") or "").split()) for msg in filtered_messages
+                )
                 completion_tokens = len((result.response or "").split())
                 get_driver().record_llm_call(llm_id, prompt_tokens, completion_tokens)
             except Exception:
                 pass
 
-            if hasattr(self, '_monitor_callbacks') and self._monitor_callbacks:
+            if hasattr(self, "_monitor_callbacks") and self._monitor_callbacks:
                 try:
                     monitor_data = {
                         "llm_id": llm_id,
@@ -763,7 +941,11 @@ class LLMManager:
                     }
                     self._notify_monitor_callbacks(monitor_data)
                 except Exception as e:
-                    log("error", f"Error notifying monitor callbacks: {str(e)}", stacktrace=True)
+                    log(
+                        "error",
+                        f"Error notifying monitor callbacks: {str(e)}",
+                        stacktrace=True,
+                    )
 
             # Return only the cleaned response string — full backward compat.
             return result.response
@@ -773,26 +955,30 @@ class LLMManager:
             log("error", error_msg)
             return error_msg
 
-    def register_monitor_callback(self, callback_func: Callable[[Dict[str, Any]], None]):
+    def register_monitor_callback(
+        self, callback_func: Callable[[Dict[str, Any]], None]
+    ):
         """Register a callback to monitor LLM usage and costs."""
         register_callback(
-                    callback_list=self._monitor_callbacks,
-                    callback_func=callback_func,
-                    callback_type="monitor callback",
-                    allow_replace=True  # or False based on your preference
-                )
+            callback_list=self._monitor_callbacks,
+            callback_func=callback_func,
+            callback_type="monitor callback",
+            allow_replace=True,  # or False based on your preference
+        )
 
-    def unregister_monitor_callback(self, callback_func: Callable[[Dict[str, Any]], None]):
+    def unregister_monitor_callback(
+        self, callback_func: Callable[[Dict[str, Any]], None]
+    ):
         """Unregister a monitor callback."""
         unregister_callback(
-                    callback_list=self._monitor_callbacks,
-                    callback_func=callback_func,
-                    callback_type="monitor callback"
-                )
+            callback_list=self._monitor_callbacks,
+            callback_func=callback_func,
+            callback_type="monitor callback",
+        )
 
     def _notify_monitor_callbacks(self, data: Dict[str, Any]):
         """Notify all registered monitor callbacks."""
-        if hasattr(self, '_monitor_callbacks'):
+        if hasattr(self, "_monitor_callbacks"):
             for callback in self._monitor_callbacks:
                 try:
                     callback(data)

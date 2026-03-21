@@ -53,8 +53,8 @@ assertions:                          # Optional: validation rules
 | Actor | Context used | Typical actions |
 |-------|--------------|-----------------|
 | `student` | `student_id`, `conversation_id` | `user_send_message`, `create_conversation`, `add_student_note` |
-| `teacher` | `trainer_id`, `student_id`, `conversation_id` | `teacher_send_message`, `trigger_memory_analysis`, `set_training_program` |
-| `system` | any (can set context fields) | `create_conversation`, `set_training_program`, `switch_option` |
+| `teacher` | `trainer_id`, `student_id`, `conversation_id` | `teacher_send_message`, `trigger_memory_analysis` |
+| `system` | any (can set context fields) | `create_conversation`, `switch_option` |
 
 Context is automatically set from `setup` before steps run. The driver maintains current `student_id`, `trainer_id`, `conversation_id`, and `llm_id` throughout execution.
 
@@ -86,13 +86,6 @@ params:
 Runs memory analysis on recent conversations to update student memory.
 ```yaml
 params: {}  # No parameters needed
-```
-
-### `set_training_program` (teacher, system)
-Sets the training program prompt for the current trainer.
-```yaml
-params:
-  content: "Focus on Python fundamentals..."
 ```
 
 ### `add_student_note` (student)

@@ -28,8 +28,11 @@ is still registered.
 
 ### Actions registered by trainer:
 - `trigger_memory_analysis` — dispatches to active backend plugin(s)
-- `set_training_program` — saves training program via save_prompt()
 - `add_student_note` — delegates to student_pad plugin
+
+### LLM Context Callbacks:
+- `inject_teacher_system_prompt` — injects system prompt as system at top
+- `inject_training_program` — injects trainer's training program as system at top
 
 ### Activation guard (TrainerPlugin base class):
 Every plugin has `_is_active: bool`. `get_memory_context` returns None

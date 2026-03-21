@@ -2,8 +2,9 @@
 
 from core.logging import log
 from shared.common import check_services
-from shared.common import record_plugin_event, set_prompt
+from shared.common import record_plugin_event, register_llm_context_callback
 
+from .context_callbacks import inject_teacher_system_prompt, inject_training_program
 from .driver_layer import register_trainer_driver_bindings
 from .manager import TrainerManager, set_trainer_manager
 from .models import PluginActivation, PluginData, ensure_tables_exist
@@ -46,9 +47,11 @@ def on_module_activated(services) -> None:
         driver=driver,
         plugin_manager=plugin_manager,
         trainer_manager=trainer_manager,
-        set_prompt_fn=set_prompt,
         record_plugin_event_fn=record_plugin_event,
     )
+
+    register_llm_context_callback(inject_teacher_system_prompt)
+    register_llm_context_callback(inject_training_program)
 
     log("info", "trainer: activated")
 

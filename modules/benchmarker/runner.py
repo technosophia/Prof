@@ -11,14 +11,27 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from shared.common import get_current_llm_id, get_driver, get_user_manager, set_current_llm, _get_service
-from shared.driver import DriverActionError, DriverContextError, DriverOptionError, DriverAssertionError
+from shared.common import (
+    get_current_llm_id,
+    get_driver,
+    get_user_manager,
+    set_current_llm,
+    _get_service,
+)
+from shared.driver import (
+    DriverActionError,
+    DriverContextError,
+    DriverOptionError,
+    DriverAssertionError,
+)
 
 from modules.benchmarker.benchmarker import BenchmarkRun
 from modules.benchmarker.session import SessionSerializer
 
 
 from core.logging import log, set_log_module_level
+
+
 @dataclass
 class AssertionResult:
     """Result of a single scenario assertion."""
@@ -63,8 +76,8 @@ class ScenarioRunner:
 
     ALLOWED_BY_ACTOR = {
         "student": {"user_send_message", "create_conversation", "add_student_note"},
-        "teacher": {"teacher_send_message", "trigger_memory_analysis", "set_training_program"},
-        "system": {"create_conversation", "set_training_program", "switch_option"},
+        "teacher": {"teacher_send_message", "trigger_memory_analysis"},
+        "system": {"create_conversation", "switch_option"},
     }
 
     def __init__(self, driver=None, config=None, db_manager=None):
@@ -94,8 +107,13 @@ class ScenarioRunner:
         summary_overrides = summary_overrides or {}
 
         scenario = self._load_scenario(scenario_path)
-        scenario_name = scenario.get("meta", {}).get("name", os.path.basename(scenario_path))
-        log("info", f"Benchmarker run start: scenario={scenario_name} path={scenario_path}")
+        scenario_name = scenario.get("meta", {}).get(
+            "name", os.path.basename(scenario_path)
+        )
+        log(
+            "info",
+            f"Benchmarker run start: scenario={scenario_name} path={scenario_path}",
+        )
 
         validation_errors = self.validate_scenario(scenario)
         if validation_errors:
@@ -121,7 +139,11 @@ class ScenarioRunner:
         created_users = self._ensure_test_users(setup)
 
         scenario_options = dict(scenario.get("options") or {})
-        llm_id = (llm_override or "").strip() or scenario.get("llm") or scenario_options.get("llm")
+        llm_id = (
+            (llm_override or "").strip()
+            or scenario.get("llm")
+            or scenario_options.get("llm")
+        )
 
         try:
             if not llm_id:
@@ -176,7 +198,11 @@ class ScenarioRunner:
         summary = self.driver.get_session_summary()
         summary.update(summary_overrides)
         assertions_passed = len([a for a in assertions_out if a.passed])
-        success = not run_errors and not [e for e in steps_out if not e.success] and assertions_passed == len(assertions_out)
+        success = (
+            not run_errors
+            and not [e for e in steps_out if not e.success]
+            and assertions_passed == len(assertions_out)
+        )
 
         run_result = RunResult(
             scenario_name=scenario_name,
@@ -224,7 +250,10 @@ class ScenarioRunner:
         for group, option_name in scenario.get("options", {}).items():
             # Runner must support cold start with no options registered.
             if not listed_options:
-                log("info", f"No driver options registered; skipping option validation for {group}.{option_name}")
+                log(
+                    "info",
+                    f"No driver options registered; skipping option validation for {group}.{option_name}",
+                )
                 continue
             names = {opt["name"] for opt in listed_options.get(group, [])}
             if group not in listed_options:
@@ -240,7 +269,9 @@ class ScenarioRunner:
             actor = step.get("actor")
             action = step.get("action")
             if not sid or not actor or not action:
-                errors.append(f"Step #{idx + 1} missing required field(s): id/actor/action")
+                errors.append(
+                    f"Step #{idx + 1} missing required field(s): id/actor/action"
+                )
                 continue
             if sid in ids:
                 errors.append(f"Duplicate step id: {sid}")
@@ -251,7 +282,9 @@ class ScenarioRunner:
 
             allowed = self.ALLOWED_BY_ACTOR.get(actor, set())
             if action not in allowed:
-                errors.append(f"Actor '{actor}' cannot execute action '{action}' (step {sid})")
+                errors.append(
+                    f"Actor '{actor}' cannot execute action '{action}' (step {sid})"
+                )
 
         for assertion in scenario.get("assertions", []):
             atype = assertion.get("type")
@@ -259,7 +292,6 @@ class ScenarioRunner:
                 errors.append(f"Unknown assertion type: {atype}")
 
         return errors
-
 
     @staticmethod
     def _build_auto_memory_assertions(scenario: Dict) -> List[Dict]:
@@ -296,14 +328,25 @@ class ScenarioRunner:
         if action not in self.ALLOWED_BY_ACTOR.get(actor, set()):
             msg = f"Actor '{actor}' is not allowed to run '{action}'"
             log("warning", msg)
-            return StepResult(step_id=step_id, action=action, actor=actor, success=False, result={}, error=msg, params=params)
+            return StepResult(
+                step_id=step_id,
+                action=action,
+                actor=actor,
+                success=False,
+                result={},
+                error=msg,
+                params=params,
+            )
 
         started = time.time()
         log("info", f"Running step {step_id}: [{actor}] {action} params={params}")
         try:
             if step.get("context"):
                 self.driver.set_context(**step["context"])
-                log("info", f"Applied step-specific context for {step_id}: {step['context']}")
+                log(
+                    "info",
+                    f"Applied step-specific context for {step_id}: {step['context']}",
+                )
             result = self.driver.do_action(action, **params)
             duration = time.time() - started
             log("info", f"Step {step_id} completed in {duration:.3f}s")
@@ -316,10 +359,19 @@ class ScenarioRunner:
                 duration_seconds=duration,
                 params=params,
             )
-        except (DriverContextError, DriverActionError, DriverOptionError, ValueError) as exc:
+        except (
+            DriverContextError,
+            DriverActionError,
+            DriverOptionError,
+            ValueError,
+        ) as exc:
             msg = str(exc)
             duration = time.time() - started
-            log("warning", f"Step {step_id} failed in {duration:.3f}s: {msg}", stacktrace=True)
+            log(
+                "warning",
+                f"Step {step_id} failed in {duration:.3f}s: {msg}",
+                stacktrace=True,
+            )
             return StepResult(
                 step_id=step_id,
                 action=action,
@@ -350,7 +402,9 @@ class ScenarioRunner:
         with open(scenario_path, "r", encoding="utf-8") as handle:
             return yaml.safe_load(handle) or {}
 
-    def _evaluate_assertions(self, assertions: List[Dict], steps: List[StepResult]) -> List[AssertionResult]:
+    def _evaluate_assertions(
+        self, assertions: List[Dict], steps: List[StepResult]
+    ) -> List[AssertionResult]:
         events = self.driver.get_session_events()
         steps_by_id = {step.step_id: step for step in steps}
         results: List[AssertionResult] = []
@@ -375,9 +429,17 @@ class ScenarioRunner:
             except Exception as exc:
                 passed = False
                 message = f"An unexpected error occurred during evaluation of assertion '{aid}' (type: '{atype}'): {exc}"
-                log("error", f"Unexpected error evaluating assertion {aid} ({atype}):", stacktrace=True)
+                log(
+                    "error",
+                    f"Unexpected error evaluating assertion {aid} ({atype}):",
+                    stacktrace=True,
+                )
 
-            results.append(AssertionResult(id=aid, passed=passed, message=message, assertion_type=atype))
+            results.append(
+                AssertionResult(
+                    id=aid, passed=passed, message=message, assertion_type=atype
+                )
+            )
 
         return results
 
@@ -397,7 +459,9 @@ class ScenarioRunner:
 
         student = user_manager.get_user_by_name(student_name) if student_name else None
         if student is None and student_name and trainer:
-            student_id, _ = user_manager.create_user(name=student_name, role="normal", parent_id=trainer["id"])
+            student_id, _ = user_manager.create_user(
+                name=student_name, role="normal", parent_id=trainer["id"]
+            )
             created.append(student_id)
             log("info", f"Created test user {student_name}")
 
@@ -414,14 +478,14 @@ class ScenarioRunner:
 
     def _persist_run(self, run_result: RunResult) -> None:
         try:
-
-
             with self.db_manager.get_session() as session:
                 session.add(
                     BenchmarkRun(
                         scenario_name=run_result.scenario_name,
                         run_at=datetime.now(timezone.utc),
-                        duration_seconds=run_result.summary.get("duration_seconds", 0.0),
+                        duration_seconds=run_result.summary.get(
+                            "duration_seconds", 0.0
+                        ),
                         options=run_result.summary.get("active_options", {}),
                         success=1 if run_result.success else 0,
                         assertions_passed=run_result.assertions_passed,

@@ -22,12 +22,6 @@ steps:
       title: "Full integration"
 
   - id: "s2"
-    actor: teacher
-    action: set_training_program
-    params:
-      content: "Focus on Python fundamentals and immutable data structures."
-
-  - id: "s3"
     actor: student
     action: user_send_message
     params:
@@ -43,8 +37,3 @@ assertions:
     type: action_succeeded
     params:
       step_id: "s2"
-
-  - id: "a3"
-    type: action_succeeded
-    params:
-      step_id: "s3"

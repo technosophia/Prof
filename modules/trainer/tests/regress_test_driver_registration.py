@@ -206,10 +206,12 @@ def test_trainer_id_none_in_context_logs_warning(monkeypatch):
 
 
 def test_example_basic_scenario_has_no_trainer_actions():
-    with open("modules/benchmarker/scenarios/example_basic.yaml", "r", encoding="utf-8") as f:
+    with open(
+        "modules/benchmarker/scenarios/example_basic.yaml", "r", encoding="utf-8"
+    ) as f:
         scenario = yaml.safe_load(f)
 
-    forbidden = {"set_training_program", "trigger_memory_analysis", "add_student_note"}
+    forbidden = {"trigger_memory_analysis", "add_student_note"}
     actions = [step.get("action") for step in scenario.get("steps", [])]
     assert not (set(actions) & forbidden)
     assert "training_program" not in (scenario.get("setup") or {})
