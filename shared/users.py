@@ -888,7 +888,6 @@ class UserManager:
                     if user.reset_code and reset_code_info["is_valid"]:
                         reset_code_info["code"] = user.reset_code
 
-
             result["reset_code_info"] = reset_code_info
         else:
             # If attributes don't exist, provide default values
@@ -1223,10 +1222,12 @@ class UserManager:
     def delete_preregistered_email(self, email: str) -> bool:
         """Delete one preregistered email by value."""
         if not email:
+            log("info", "delete_preregistered_email called with empty email")
             return False
 
         normalized_email = email.strip().lower()
         if not normalized_email:
+            log("info", "delete_preregistered_email called with invalid email")
             return False
 
         self._ensure_preregistered_emails_table()
@@ -1240,8 +1241,17 @@ class UserManager:
             if not row:
                 return False
             session.delete(row)
-            session.commit()
+            log("info", f"Deleted preregistered email: {email}")
             return True
+
+    def delete_all_preregistered_emails(self) -> int:
+        """Delete all pre-registered emails. Returns count of deleted rows."""
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            count = session.query(PreregisteredEmail).delete()
+            log("info", f"Deleted {count} preregistered emails")
+            return count
 
     def add_preregistered_email(
         self, email: str, requesting_user_id: Optional[str] = None

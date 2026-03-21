@@ -125,7 +125,9 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
             key="preregistered_emails_csv_uploader",
         )
 
-        if uploaded_file is not None:
+        if uploaded_file is not None and st.button(
+            "📥 Import CSV", key="import_preregistered_csv"
+        ):
             try:
                 csv_content = uploaded_file.getvalue().decode("utf-8")
             except UnicodeDecodeError:
@@ -136,18 +138,22 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
                     requesting_user_id=current_user.get("id"),
                 )
 
-                st.success(
-                    f"Imported: {result['imported']} | Skipped duplicates: {result['skipped']}"
-                )
+                st.session_state.prereg_csv_result = result
+                st.rerun()
 
-                if result["invalid"]:
-                    st.warning("Invalid emails skipped:")
-                    for invalid_email in result["invalid"]:
-                        st.caption(f"- {invalid_email}")
-
-                if result["errors"]:
-                    for error in result["errors"]:
-                        st.error(error)
+        if "prereg_csv_result" in st.session_state:
+            result = st.session_state.prereg_csv_result
+            del st.session_state.prereg_csv_result
+            st.success(
+                f"Imported: {result['imported']} | Skipped duplicates: {result['skipped']}"
+            )
+            if result["invalid"]:
+                st.warning("Invalid emails skipped:")
+                for invalid_email in result["invalid"]:
+                    st.caption(f"- {invalid_email}")
+            if result["errors"]:
+                for error in result["errors"]:
+                    st.error(error)
 
         with st.expander("Expected CSV format"):
             st.code(
@@ -199,6 +205,13 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
         preregistered = user_manager.get_preregistered_emails()
         st.caption(f"Total pre-registered emails: {len(preregistered)}")
 
+        if preregistered:
+            if st.button(
+                "🗑️ Remove All", key="remove_all_preregistered_emails", type="primary"
+            ):
+                user_manager.delete_all_preregistered_emails()
+                st.rerun()
+
         if not preregistered:
             st.info("No pre-registered emails yet. Use the Import CSV tab to add some.")
             return
@@ -213,7 +226,8 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
             ):
                 if user_manager.delete_preregistered_email(row["email"]):
                     st.rerun()
-                st.error("❌ Failed to remove email")
+                else:
+                    st.error("❌ Failed to remove email")
 
 
 def _render_activity_logs_tab(
