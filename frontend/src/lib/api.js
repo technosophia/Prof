@@ -80,7 +80,12 @@ export const masquerade = {
   as: (targetUserId) => post('/api/auth/masquerade', { target_user_id: targetUserId }),
 }
 
-
+export const admin = {
+  llm: {
+    get: () => get('/api/admin/llm'),
+    set: (llmId) => post('/api/admin/llm', { llm_id: llmId }),
+  },
+}
 
 export const feedback = {
   message: (conversationId, messageIndex, sentiment, comment = '') =>

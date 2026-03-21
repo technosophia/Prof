@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Menu } from 'lucide-react'
-import { auth, conversations, masquerade, regenerateLastResponse, streamChat } from '@/lib/api'
+import { auth, conversations, masquerade, regenerateLastResponse, streamChat, admin } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import ConversationList from '@/components/ConversationList'
 import ChatMessages from '@/components/ChatMessages'
 import ChatInput from '@/components/ChatInput'
 import FeedbackModal from '@/components/FeedbackModal'
-import RegenerateButtons from '@/components/RegenerateButtons' // NEW import
+import RegenerateButtons from '@/components/RegenerateButtons'
 
 export default function Chat() {
   const [user, setUser] = useState(null)
@@ -20,6 +20,7 @@ export default function Chat() {
   const [isMasquerading, setIsMasquerading] = useState(false)
   const [masqueraderId, setMasqueraderId] = useState(null)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [llmStatus, setLlmStatus] = useState(null)
   const navigate = useNavigate()
   const isPowerUser = user?.role === 'admin' || user?.role === 'master' || !!user?.masquerader_id
 
@@ -48,6 +49,10 @@ export default function Chat() {
           const targets = await masquerade.targets()
           setMasqueradeTargets(targets)
         }
+
+        // Load LLM status for everyone
+        const status = await admin.llm.get()
+        setLlmStatus(status)
 
         await loadConversations()
       })
@@ -108,6 +113,16 @@ export default function Chat() {
     const data = await masquerade.as(masqueraderId)
     localStorage.setItem('token', data.access_token)
     window.location.reload()
+  }
+
+  async function handleLlmChange(llmId) {
+    try {
+      await admin.llm.set(llmId)
+      const status = await admin.llm.get()
+      setLlmStatus(status)
+    } catch (err) {
+      console.error('Failed to change LLM:', err)
+    }
   }
 
   function onSend(text) {
@@ -265,7 +280,32 @@ export default function Chat() {
               Stats
             </Link>
           )}
-          {/* REMOVED: The old regenerate button from header */}
+
+          {/* LLM Selector - visible to all, editable by admin only */}
+          {llmStatus && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-slate-400 hidden sm:inline">LLM:</span>
+              {llmStatus.can_change ? (
+                <select
+                  className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 max-w-[150px]"
+                  value={llmStatus.current_llm?.id ?? ''}
+                  onChange={(e) => e.target.value && handleLlmChange(e.target.value)}
+                >
+                  {llmStatus.available_llms
+                    .filter((llm) => llm.available)
+                    .map((llm) => (
+                      <option key={llm.id} value={llm.id}>
+                        {llm.name}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <span className="text-xs text-slate-400 bg-slate-800 rounded px-2 py-1">
+                  {llmStatus.current_llm?.name ?? 'Unknown'}
+                </span>
+              )}
+            </div>
+          )}
         </header>
 
         <ChatMessages

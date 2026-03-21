@@ -68,7 +68,10 @@ def bootstrap_services() -> ServiceLocator:
     services.register("cache", no_cache)
     services.register("config", config)
     services.register("user_manager", user_manager)
-    services.register("db_manager", __import__("core.database", fromlist=["get_db_manager"]).get_db_manager())
+    services.register(
+        "db_manager",
+        __import__("core.database", fromlist=["get_db_manager"]).get_db_manager(),
+    )
     services.register("conversation_manager", conversation_manager)
     services.register("prompt_manager", pm)
     services.register("llm_manager", llm_manager)
@@ -91,14 +94,17 @@ jwt_secret = os.getenv("JWT_SECRET")
 if not jwt_secret:
     jwt_secret = secrets.token_urlsafe(48)
     os.environ["JWT_SECRET"] = jwt_secret
-    log("warning", "JWT_SECRET is not set. Generated ephemeral secret for current process.")
+    log(
+        "warning",
+        "JWT_SECRET is not set. Generated ephemeral secret for current process.",
+    )
 
 
 from api.auth import router as auth_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
 from api.feedback import router as feedback_router
-
+from api.admin_llm import router as admin_llm_router
 
 
 def create_app(services: ServiceLocator | None = None) -> FastAPI:
@@ -119,6 +125,7 @@ def create_app(services: ServiceLocator | None = None) -> FastAPI:
     app.include_router(conversations_router)
     app.include_router(chat_router)
     app.include_router(feedback_router)
+    app.include_router(admin_llm_router)
 
     frontend_dist = Path(__file__).parent.parent / "frontend_dist"
     assets_dir = frontend_dist / "assets"
@@ -144,7 +151,10 @@ def create_app(services: ServiceLocator | None = None) -> FastAPI:
         index_file = frontend_dist / "index.html"
         if index_file.exists():
             return FileResponse(index_file)
-        return {"message": "Frontend not built yet. Run frontend build first.", "path": full_path}
+        return {
+            "message": "Frontend not built yet. Run frontend build first.",
+            "path": full_path,
+        }
 
     return app
 

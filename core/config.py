@@ -21,6 +21,7 @@ from .logging import log
 # Constants for config file suffixes
 CONFIG_FILE = "config.json"
 
+
 class Config:
     def __init__(self):
         self._config: dict[str, Any] = {}
@@ -37,20 +38,20 @@ class Config:
                 "format": "[{level}] {timestamp} - {message}",
                 "include_traceback": True,
                 "file": None,
-                "console": True
+                "console": True,
             },
-            "app": {
-                "name": "Default App",
-                "version": "1.0.0",
-                "debug": False
-            }
+            "app": {"name": "Default App", "version": "1.0.0", "debug": False},
         }
         self._deep_merge(self._config, defaults)
 
     def _deep_merge(self, target: dict, source: dict):
         """Deep merge that always overrides leaf values."""
         for key, value in source.items():
-            if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+            if (
+                isinstance(value, dict)
+                and key in target
+                and isinstance(target[key], dict)
+            ):
                 self._deep_merge(target[key], value)
             else:
                 target[key] = value
@@ -93,7 +94,10 @@ class Config:
             for leaf_key in self._flatten_leaf_keys(data):
                 previous_file = self._key_source_files.get(leaf_key)
                 if previous_file and previous_file != file_path and not is_override:
-                    log("warning", f"Duplicate config key '{leaf_key}' loaded from {file_path}; previous source: {previous_file}")
+                    log(
+                        "warning",
+                        f"Duplicate config key '{leaf_key}' loaded from {file_path}; previous source: {previous_file}",
+                    )
                 self._key_source_files[leaf_key] = file_path
                 self._file_to_keys.setdefault(file_path, set()).add(leaf_key)
 
@@ -111,7 +115,10 @@ class Config:
             else:
                 if key not in self._missing_keys_warned:
                     self._missing_keys_warned.add(key)
-                    log("warning", f"Config key not found: '{key}' (returning default={default!r})")
+                    log(
+                        "warning",
+                        f"Config key not found: '{key}' (returning default={default!r})",
+                    )
                 return default
         return value
 
@@ -166,14 +173,21 @@ class Config:
 
     def list_keys_by_source_file(self) -> dict[str, list[str]]:
         """Map each source config file path to sorted leaf keys loaded from it."""
-        return {file_path: sorted(keys) for file_path, keys in sorted(self._file_to_keys.items())}
+        return {
+            file_path: sorted(keys)
+            for file_path, keys in sorted(self._file_to_keys.items())
+        }
 
     def get_section(self, prefix: str = "") -> dict:
         """Return a copy of an entire section (e.g., prefix='modules.rag')."""
         parts = prefix.split(".") if prefix else []
         current = self._config
         for p in parts:
-            if isinstance(current, dict) and p in current and isinstance(current[p], dict):
+            if (
+                isinstance(current, dict)
+                and p in current
+                and isinstance(current[p], dict)
+            ):
                 current = current[p]
             else:
                 return {}
@@ -208,8 +222,53 @@ class Config:
             print(f"Error saving config to {file_path}: {e}")
             return False
 
+    def save_key(self, key: str, value: Any) -> bool:
+        """Save a single config key to local_config.json (root-level override)."""
+        keys = key.split(".")
 
-def load_all_configs(root_dir: str, additional_prefixes: Optional[List[str]] = None) -> Config:
+        # Find root local_config.json path
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_config_path = os.path.join(root_dir, "local_config.json")
+
+        # Load existing local_config or create new
+        if os.path.exists(local_config_path):
+            try:
+                with open(local_config_path, "r", encoding="utf-8") as f:
+                    local_config = json.load(f)
+            except Exception as e:
+                print(f"Error reading local_config.json: {e}")
+                local_config = {}
+        else:
+            local_config = {}
+
+        # Navigate to correct nested location and set value
+        current = local_config
+        for k in keys[:-1]:
+            if k not in current:
+                current[k] = {}
+            current = current[k]
+        current[keys[-1]] = value
+
+        try:
+            with open(local_config_path, "w", encoding="utf-8") as f:
+                json.dump(local_config, f, indent=4, sort_keys=True)
+
+            # Update in-memory config
+            self.set(key, value)
+            # Track that this key now comes from local_config.json
+            self._key_source_files[key] = local_config_path
+            self._file_to_keys.setdefault(local_config_path, set()).add(key)
+
+            print(f"Saved config key '{key}' to {local_config_path}")
+            return True
+        except Exception as e:
+            print(f"Error saving to local_config.json: {e}")
+            return False
+
+
+def load_all_configs(
+    root_dir: str, additional_prefixes: Optional[List[str]] = None
+) -> Config:
     """
     Discover and load all configs automatically.
 
@@ -264,17 +323,20 @@ def _load_config() -> Config:
             raise ValueError(f"Invalid root_dir: {root_dir}")
 
         # Determine additional prefixes to load
-        additional_prefixes = ['local']  # Always load local configs
+        additional_prefixes = ["local"]  # Always load local configs
 
         test_mode = os.getenv("TEST_MODE") == "true" or "pytest" in sys.modules
         if test_mode:
-            additional_prefixes.append('tests/test')
+            additional_prefixes.append("tests/test")
 
         log("debug", f"_load_config: test_mode = {test_mode}")
         log("debug", f"_load_config: additional_prefixes = {additional_prefixes}")
 
         config = load_all_configs(root_dir, additional_prefixes)
-        log("debug", f"_load_config: config loaded successfully, has {len(config)} top-level sections")
+        log(
+            "debug",
+            f"_load_config: config loaded successfully, has {len(config)} top-level sections",
+        )
 
         return config
 
@@ -283,10 +345,13 @@ def _load_config() -> Config:
 
         # Return a minimal default config as fallback
         from core.config import Config
+
         fallback_config = Config()
 
         # Try to load root config directly
-        root_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), CONFIG_FILE)
+        root_config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), CONFIG_FILE
+        )
         if os.path.exists(root_config_path):
             fallback_config.load_file(root_config_path)
 
