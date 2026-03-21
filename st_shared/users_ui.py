@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 
 from core.logging import log, set_log_module_level
 from st_shared.cached import _, get_available_languages
+
+
 def is_production_mode() -> bool:
     """Check if we're in production mode (not local and not test)."""
     config = get_config()
@@ -38,9 +40,14 @@ def apply_user_preferences(user):
     # Import settings manager
     try:
         from st_shared.settings_ui import get_user_settings_manager
+
         settings_manager = get_user_settings_manager()
     except Exception as e:
-        log("warning", f"Settings UI module not available for applying preferences: {e}", stacktrace=True)
+        log(
+            "warning",
+            f"Settings UI module not available for applying preferences: {e}",
+            stacktrace=True,
+        )
         return False
 
     applied = False
@@ -50,7 +57,6 @@ def apply_user_preferences(user):
 
     # Apply language preference
     if preferred_lang and preferred_lang != st.session_state.current_language:
-
         available_langs = get_available_languages()
         if preferred_lang in available_langs:
             st.session_state.current_language = preferred_lang
@@ -110,8 +116,16 @@ def auto_login_first_user():
                 all_users = user_manager.get_all_users_dict()
                 if all_users:
                     # Try to find an admin first, then master, then any user
-                    admin_users = [u for u in all_users.values() if u.get('role') == UserRole.ADMIN.value]
-                    master_users = [u for u in all_users.values() if u.get('role') == UserRole.MASTER.value]
+                    admin_users = [
+                        u
+                        for u in all_users.values()
+                        if u.get("role") == UserRole.ADMIN.value
+                    ]
+                    master_users = [
+                        u
+                        for u in all_users.values()
+                        if u.get("role") == UserRole.MASTER.value
+                    ]
 
                     if admin_users:
                         target_user = admin_users[0]
@@ -120,7 +134,10 @@ def auto_login_first_user():
                     else:
                         target_user = list(all_users.values())[0]
 
-                    log("info", f"Falling back to auto-login with user: {target_user['name']}")
+                    log(
+                        "info",
+                        f"Falling back to auto-login with user: {target_user['name']}",
+                    )
                 else:
                     log("warning", "No users available for auto-login")
                     return False
@@ -132,12 +149,15 @@ def auto_login_first_user():
             apply_user_preferences(target_user)
 
             # Update last login
-            user_manager.update_last_login(target_user['id'])
+            user_manager.update_last_login(target_user["id"])
 
             # Set the flag to show this was an auto-login
             st.session_state.just_auto_logged_in = True
 
-            log("info", f"Auto-logged in user: {target_user['name']} ({target_user['role']})")
+            log(
+                "info",
+                f"Auto-logged in user: {target_user['name']} ({target_user['role']})",
+            )
             return True
 
         except Exception as e:
@@ -152,71 +172,27 @@ def render_login_form(form_key="login_form"):
     """Render login form for production mode."""
     st.subheader("🔐 Login")
 
-    # Get all users except admin for the dropdown
     user_manager = get_user_manager()
-    all_users = user_manager.get_all_users_dict()
-
-    # Create list of non-admin users for dropdown
-    user_options = []
-    user_display_map = {}  # Map display names to actual usernames
-
-    if all_users:
-        for user_id, user_data in all_users.items():
-            # Skip admin users from dropdown
-            if user_data.get('name', '').lower() == 'admin' or user_data.get('role') == UserRole.ADMIN.value:
-                continue
-            username = user_data['name']
-            display_name = f"{username} ({user_data.get('role', 'user')})"
-            user_options.append(display_name)
-            user_display_map[display_name] = user_id
-
-    # Sort options alphabetically
-    user_options.sort()
 
     with st.form(key=form_key):
-        st.write("**Select existing user or type admin username**")
-
-        # Dropdown for non-admin users
-        selected_display = st.selectbox(
-            "Choose user",
-            options=[""] + user_options,  # Empty first option
-            format_func=lambda x: "Select a user..." if x == "" else x,
-            key=f"{form_key}_user_select"
+        # Text input for username
+        username = st.text_input(
+            "Username", key=f"{form_key}_username", placeholder="Enter username"
         )
 
-        # Text input for manual entry (for admin)
-        manual_username = st.text_input(
-            "Or type username directly",
-            key=f"{form_key}_manual_username",
-            placeholder="Enter username (admin must be typed here)"
+        password = st.text_input(
+            "Password", type="password", key=f"{form_key}_password"
         )
-
-        password = st.text_input("Password", type="password", key=f"{form_key}_password")
 
         col1, col2 = st.columns(2)
         with col1:
-            login_submit = st.form_submit_button("Login", type="primary", width='stretch')
+            login_submit = st.form_submit_button(
+                "Login", type="primary", width="stretch"
+            )
         with col2:
-            reset_request = st.form_submit_button("Forgot Password?", width='stretch')
+            reset_request = st.form_submit_button("Forgot Password?", width="stretch")
 
         if login_submit:
-            # Determine which username to use
-            username = None
-
-            # Check manual input first (for admin)
-            if manual_username and manual_username.strip():
-                username = manual_username.strip()
-                st.info(f"🔑 Attempting login with manual username: {username}")
-            # Then check dropdown selection
-            elif selected_display and selected_display != "":
-                # Get the actual username from the display map
-                username = user_display_map.get(selected_display)
-                if username:
-                    st.info(f"🔑 Attempting login with selected user: {username}")
-                else:
-                    st.error("❌ Could not find username for selected option")
-                    return
-
             if username and password:
                 # Authenticate with username (not ID)
                 user = user_manager.authenticate_user(username, password)
@@ -233,7 +209,7 @@ def render_login_form(form_key="login_form"):
                 else:
                     st.error("❌ Invalid username or password")
             else:
-                st.warning("Please enter both username and password (select a user or type username)")
+                st.warning("Please enter both username and password")
 
         if reset_request:
             st.session_state.show_reset_password_form = True
@@ -247,14 +223,22 @@ def render_reset_password_form(form_key="reset_form"):
     with st.form(key=form_key):
         username = st.text_input("Username", key=f"{form_key}_username")
         reset_code_input = st.text_input("Reset Code", key=f"{form_key}_code")
-        new_password = st.text_input("New Password", type="password", key=f"{form_key}_new_pw")
-        confirm_password = st.text_input("Confirm New Password", type="password", key=f"{form_key}_confirm_pw")
+        new_password = st.text_input(
+            "New Password", type="password", key=f"{form_key}_new_pw"
+        )
+        confirm_password = st.text_input(
+            "Confirm New Password", type="password", key=f"{form_key}_confirm_pw"
+        )
 
         col1, col2 = st.columns(2)
         with col1:
-            reset_submit = st.form_submit_button("Reset Password", type="primary", use_container_width=True)
+            reset_submit = st.form_submit_button(
+                "Reset Password", type="primary", use_container_width=True
+            )
         with col2:
-            back_to_login = st.form_submit_button("Back to Login", use_container_width=True)
+            back_to_login = st.form_submit_button(
+                "Back to Login", use_container_width=True
+            )
 
         if reset_submit:
             if not username or not new_password:
@@ -265,7 +249,7 @@ def render_reset_password_form(form_key="reset_form"):
                 user_manager = get_user_manager()
 
                 # Special handling for admin username
-                if username.lower() == 'admin':
+                if username.lower() == "admin":
                     # If user provided a reset code, use it directly
                     if reset_code_input:
                         code_to_use = reset_code_input
@@ -276,10 +260,12 @@ def render_reset_password_form(form_key="reset_form"):
                             from datetime import datetime
 
                             # Find the admin user
-                            admin_user = user_manager.get_user_by_name('admin')
+                            admin_user = user_manager.get_user_by_name("admin")
                             if not admin_user:
                                 # Try to find any admin user
-                                admin_users = user_manager.get_users_by_role(UserRole.ADMIN.value)
+                                admin_users = user_manager.get_users_by_role(
+                                    UserRole.ADMIN.value
+                                )
                                 if admin_users:
                                     admin_user = admin_users[0]
 
@@ -288,29 +274,41 @@ def render_reset_password_form(form_key="reset_form"):
                                 return
 
                             # Generate a new reset code
-                            new_code = user_manager.generate_reset_code(admin_user['id'], admin_user['id'])
+                            new_code = user_manager.generate_reset_code(
+                                admin_user["id"], admin_user["id"]
+                            )
 
                             if new_code:
                                 # Save to file in root directory
                                 reset_code_file = "reset_code.txt"
                                 try:
-                                    with open(reset_code_file, 'w') as f:
+                                    with open(reset_code_file, "w") as f:
                                         f.write(new_code)
 
-                                    st.success("✅ A new reset code has been generated!")
-                                    st.info(f"📁 Reset code saved to: {os.path.abspath(reset_code_file)}")
-                                    st.info("🔑 Please check this file and enter the code in the 'Reset Code' field above.")
+                                    st.success(
+                                        "✅ A new reset code has been generated!"
+                                    )
+                                    st.info(
+                                        f"📁 Reset code saved to: {os.path.abspath(reset_code_file)}"
+                                    )
+                                    st.info(
+                                        "🔑 Please check this file and enter the code in the 'Reset Code' field above."
+                                    )
 
                                     # Don't auto-fill the code - user needs to enter it manually
                                     # This is intentional for security
 
                                 except Exception as e:
-                                    st.error(f"❌ Failed to save reset code to file: {str(e)}")
+                                    st.error(
+                                        f"❌ Failed to save reset code to file: {str(e)}"
+                                    )
                                     # Still show the code as fallback (only in non-prod?)
                                     st.info(f"🔑 Reset code: {new_code}")
 
                                 # Don't proceed with reset yet - user needs to submit again with the code
-                                st.warning("⚠️ Please copy the reset code from the file and submit the form again.")
+                                st.warning(
+                                    "⚠️ Please copy the reset code from the file and submit the form again."
+                                )
                                 return
                             else:
                                 st.error("❌ Failed to generate reset code for admin")
@@ -327,17 +325,19 @@ def render_reset_password_form(form_key="reset_form"):
                     code_to_use = reset_code_input
 
                 # If we get here, we have a code to use (either from input or from admin flow with code provided)
-                if username.lower() == 'admin' and reset_code_input:
+                if username.lower() == "admin" and reset_code_input:
                     code_to_use = reset_code_input
 
                 # Attempt to reset password
-                success = user_manager.reset_password_with_code(username, code_to_use, new_password)
+                success = user_manager.reset_password_with_code(
+                    username, code_to_use, new_password
+                )
 
                 if success:
                     st.success("✅ Password reset successfully! You can now login.")
 
                     # Clean up reset code file for admin after successful reset
-                    if username.lower() == 'admin':
+                    if username.lower() == "admin":
                         try:
                             reset_code_file = "reset_code.txt"
                             if os.path.exists(reset_code_file):
@@ -348,7 +348,9 @@ def render_reset_password_form(form_key="reset_form"):
                     st.session_state.show_reset_password_form = False
                     st.rerun()
                 else:
-                    st.error("❌ Invalid username or reset code. Please check and try again.")
+                    st.error(
+                        "❌ Invalid username or reset code. Please check and try again."
+                    )
 
         if back_to_login:
             st.session_state.show_reset_password_form = False
@@ -364,7 +366,7 @@ def inject_ui_sidebar():
     if production_mode:
         # Production mode - show login if no user
         if not st.session_state.current_user:
-            if st.button("🔐 Login", type="primary", width='stretch'):
+            if st.button("🔐 Login", type="primary", width="stretch"):
                 st.session_state.show_login_form = True
                 st.rerun()
             return True
@@ -372,23 +374,26 @@ def inject_ui_sidebar():
     # Current user info
     if st.session_state.current_user:
         current_user = st.session_state.current_user
-        role = current_user.get('role', 'normal')
-        role_emoji = "👑" if role == UserRole.ADMIN.value else "⭐" if role == UserRole.MASTER.value else "👤"
+        role = current_user.get("role", "normal")
+        role_emoji = (
+            "👑"
+            if role == UserRole.ADMIN.value
+            else "⭐"
+            if role == UserRole.MASTER.value
+            else "👤"
+        )
 
         st.info(f"**Current User:** {current_user['name']} {role_emoji}")
         col1, col2 = st.columns(2)
         col1.caption(f"Role: {role.capitalize()}")
 
-        if current_user.get('parent_name'):
+        if current_user.get("parent_name"):
             col2.caption(f"Parent: {current_user['parent_name']}")
 
         # Logout button
-        if st.button("🚪 Logout", width='stretch'):
+        if st.button("🚪 Logout", width="stretch"):
             user_manager = get_user_manager()
-            user_manager.log_user_action(
-                user_id=current_user['id'],
-                action="logout"
-            )
+            user_manager.log_user_action(user_id=current_user["id"], action="logout")
             st.session_state.user_manually_logged_out = True
             st.session_state.current_user = None
             st.session_state.current_conversation_id = None
@@ -415,17 +420,22 @@ def inject_ui_sidebar():
                 selected_user = st.selectbox(
                     "Choose user",
                     options=user_options,
-                    format_func=lambda x: user_display[user_options.index(x)] if x in user_options else x,
-                    key="user_selector"
+                    format_func=lambda x: user_display[user_options.index(x)]
+                    if x in user_options
+                    else x,
+                    key="user_selector",
                 )
 
                 if selected_user != "Select a user..." and selected_user:
-                    if st.button("Login as User", width='stretch'):
+                    if st.button("Login as User", width="stretch"):
                         st.session_state.user_manually_logged_out = False
                         st.session_state.current_user = all_users[selected_user]
                         apply_user_preferences(st.session_state.current_user)
                         get_user_manager().update_last_login(selected_user)
-                        log("info", f"User logged in: {st.session_state.current_user['name']}")
+                        log(
+                            "info",
+                            f"User logged in: {st.session_state.current_user['name']}",
+                        )
                         st.rerun()
 
     return True
@@ -433,7 +443,7 @@ def inject_ui_sidebar():
 
 def render_user_form():
     """Render the user creation/editing form."""
-    current_user = st.session_state.get('current_user')
+    current_user = st.session_state.get("current_user")
     production_mode = is_production_mode()
 
     if production_mode and not current_user:
@@ -443,10 +453,16 @@ def render_user_form():
     can_create = False
     if production_mode:
         # In production mode, only admin and master can create users
-        can_create = current_user and current_user.get('role') in [UserRole.ADMIN.value, UserRole.MASTER.value]
+        can_create = current_user and current_user.get("role") in [
+            UserRole.ADMIN.value,
+            UserRole.MASTER.value,
+        ]
     else:
         # In local/test mode, anyone with admin/master role can create
-        can_create = current_user and current_user.get('role') in [UserRole.ADMIN.value, UserRole.MASTER.value]
+        can_create = current_user and current_user.get("role") in [
+            UserRole.ADMIN.value,
+            UserRole.MASTER.value,
+        ]
 
     if not can_create and not st.session_state.edit_user_id:
         st.error("You don't have permission to create users.")
@@ -484,31 +500,59 @@ def render_user_form():
             st.write("**Password Setup**")
             col_pw1, col_pw2 = st.columns(2)
             with col_pw1:
-                set_password = st.text_input("Set Password (optional)", type="password",
-                                           help="Leave empty to generate a reset code")
+                set_password = st.text_input(
+                    "Set Password (optional)",
+                    type="password",
+                    help="Leave empty to generate a reset code",
+                )
             with col_pw2:
                 confirm_password = st.text_input("Confirm Password", type="password")
-        elif production_mode and is_editing and current_user.get('role') == UserRole.ADMIN.value:
+        elif (
+            production_mode
+            and is_editing
+            and current_user.get("role") == UserRole.ADMIN.value
+        ):
             # Admin can reset password for users
             if st.checkbox("Reset user's password", key=f"reset_pw_check_{user['id']}"):
                 col_reset1, col_reset2 = st.columns(2)
                 with col_reset1:
-                    new_pw = st.text_input("New Password", type="password", key=f"admin_new_pw_{user['id']}")
+                    new_pw = st.text_input(
+                        "New Password",
+                        type="password",
+                        key=f"admin_new_pw_{user['id']}",
+                    )
                 with col_reset2:
-                    confirm_new_pw = st.text_input("Confirm New Password", type="password", key=f"admin_confirm_pw_{user['id']}")
+                    confirm_new_pw = st.text_input(
+                        "Confirm New Password",
+                        type="password",
+                        key=f"admin_confirm_pw_{user['id']}",
+                    )
 
         # Role selection
-        if current_user and current_user.get('role') == UserRole.ADMIN.value:
+        if current_user and current_user.get("role") == UserRole.ADMIN.value:
             if is_editing:
                 # Can change role for any user except maybe themselves?
-                available_roles = [UserRole.ADMIN.value, UserRole.MASTER.value, UserRole.NORMAL.value]
-                role = st.selectbox("Role", available_roles,
-                                   index=available_roles.index(current_role) if current_role in available_roles else 0)
+                available_roles = [
+                    UserRole.ADMIN.value,
+                    UserRole.MASTER.value,
+                    UserRole.NORMAL.value,
+                ]
+                role = st.selectbox(
+                    "Role",
+                    available_roles,
+                    index=available_roles.index(current_role)
+                    if current_role in available_roles
+                    else 0,
+                )
             else:
                 # For new users, admin can choose any role
-                available_roles = [UserRole.ADMIN.value, UserRole.MASTER.value, UserRole.NORMAL.value]
+                available_roles = [
+                    UserRole.ADMIN.value,
+                    UserRole.MASTER.value,
+                    UserRole.NORMAL.value,
+                ]
                 role = st.selectbox("Role", available_roles)
-        elif current_user and current_user.get('role') == UserRole.MASTER.value:
+        elif current_user and current_user.get("role") == UserRole.MASTER.value:
             # Master can only create normal users
             role = UserRole.NORMAL.value
             if is_editing and current_role != UserRole.NORMAL.value:
@@ -522,12 +566,18 @@ def render_user_form():
 
         # Parent selection for normal users
         selected_parent = None
-        if role == UserRole.NORMAL.value or (is_editing and current_role == UserRole.NORMAL.value):
+        if role == UserRole.NORMAL.value or (
+            is_editing and current_role == UserRole.NORMAL.value
+        ):
             if current_user:
-                if current_user.get('role') == UserRole.ADMIN.value:
-                    masters = get_user_manager().get_users_by_role(UserRole.MASTER.value)
-                    parent_options = [("", "Select a master...")] + [(m["id"], m["name"]) for m in masters]
-                elif current_user.get('role') == UserRole.MASTER.value:
+                if current_user.get("role") == UserRole.ADMIN.value:
+                    masters = get_user_manager().get_users_by_role(
+                        UserRole.MASTER.value
+                    )
+                    parent_options = [("", "Select a master...")] + [
+                        (m["id"], m["name"]) for m in masters
+                    ]
+                elif current_user.get("role") == UserRole.MASTER.value:
                     parent_options = [(current_user["id"], current_user["name"])]
                 else:
                     parent_options = []
@@ -539,8 +589,10 @@ def render_user_form():
                         "Parent (Master) *",
                         options=list(parent_options_dict.keys()),
                         format_func=lambda x: parent_options_dict[x],
-                        index=list(parent_options_dict.keys()).index(default_parent) if default_parent in parent_options_dict else 0,
-                        help="Normal users must have a master as parent"
+                        index=list(parent_options_dict.keys()).index(default_parent)
+                        if default_parent in parent_options_dict
+                        else 0,
+                        help="Normal users must have a master as parent",
                     )
                 else:
                     st.error("No masters available to be parent")
@@ -551,20 +603,21 @@ def render_user_form():
         preference_schema = get_user_manager().get_profile_preferences_schema()
 
         # Language
-        current_profile = user.get('profile', {}) if is_editing else {}
-        current_lang = current_profile.get('language', 'en')
+        current_profile = user.get("profile", {}) if is_editing else {}
+        current_lang = current_profile.get("language", "en")
         language = st.selectbox(
             "Preferred Language",
             preference_schema["language"]["options"],
             index=preference_schema["language"]["options"].index(current_lang)
-            if current_lang in preference_schema["language"]["options"] else 0
+            if current_lang in preference_schema["language"]["options"]
+            else 0,
         )
 
         col1, col2 = st.columns(2)
         with col1:
-            submit = st.form_submit_button("💾 Save", type="primary", width='stretch')
+            submit = st.form_submit_button("💾 Save", type="primary", width="stretch")
         with col2:
-            cancel = st.form_submit_button("❌ Cancel", width='stretch')
+            cancel = st.form_submit_button("❌ Cancel", width="stretch")
 
         if submit:
             if not name.strip():
@@ -583,11 +636,14 @@ def render_user_form():
                         updates = {
                             "name": name.strip(),
                             "email": email.strip() if email else None,
-                            "profile": profile
+                            "profile": profile,
                         }
 
                         # Add role if admin editing
-                        if current_user and current_user.get('role') == UserRole.ADMIN.value:
+                        if (
+                            current_user
+                            and current_user.get("role") == UserRole.ADMIN.value
+                        ):
                             updates["role"] = role
                             if role == UserRole.NORMAL.value:
                                 updates["parent_id"] = selected_parent
@@ -595,27 +651,37 @@ def render_user_form():
                                 updates["parent_id"] = None
 
                         # Handle password reset by admin
-                        if production_mode and current_user.get('role') == UserRole.ADMIN.value:
-                            if st.session_state.get(f'reset_pw_check_{user["id"]}', False):
+                        if (
+                            production_mode
+                            and current_user.get("role") == UserRole.ADMIN.value
+                        ):
+                            if st.session_state.get(
+                                f"reset_pw_check_{user['id']}", False
+                            ):
                                 if new_pw and new_pw == confirm_new_pw:
                                     user_manager.set_password(
                                         st.session_state.edit_user_id,
                                         new_pw,
-                                        current_user['id']
+                                        current_user["id"],
                                     )
                                     st.success("✅ Password updated!")
 
                         success = user_manager.update_user(
                             st.session_state.edit_user_id,
-                            current_user['id'] if current_user else None,
-                            **updates
+                            current_user["id"] if current_user else None,
+                            **updates,
                         )
 
                         if success:
                             st.success("✅ Profile updated successfully!")
                             # Update current user if editing self
-                            if current_user and current_user['id'] == st.session_state.edit_user_id:
-                                updated_user = user_manager.get_user(st.session_state.edit_user_id)
+                            if (
+                                current_user
+                                and current_user["id"] == st.session_state.edit_user_id
+                            ):
+                                updated_user = user_manager.get_user(
+                                    st.session_state.edit_user_id
+                                )
                                 if updated_user:
                                     st.session_state.current_user = updated_user
                                     # Apply updated preferences
@@ -625,7 +691,9 @@ def render_user_form():
                             st.error("❌ Failed to update user (permission denied)")
                     else:
                         # Create new user
-                        password_to_set = set_password if production_mode and set_password else None
+                        password_to_set = (
+                            set_password if production_mode and set_password else None
+                        )
 
                         user_id, reset_code = user_manager.create_user(
                             name=name.strip(),
@@ -634,16 +702,20 @@ def render_user_form():
                             parent_id=selected_parent if selected_parent else None,
                             profile=profile,
                             password=password_to_set,
-                            requesting_user_id=current_user['id'] if current_user else None
+                            requesting_user_id=current_user["id"]
+                            if current_user
+                            else None,
                         )
 
                         if production_mode and not password_to_set and reset_code:
                             st.success(f"✅ User created successfully!")
                             # Save reset code to file instead of displaying it
                             try:
-                                with open(f"reset_code_{name.strip()}.txt", 'w') as f:
+                                with open(f"reset_code_{name.strip()}.txt", "w") as f:
                                     f.write(reset_code)
-                                st.info(f"🔑 A reset code has been saved to reset_code_{name.strip()}.txt")
+                                st.info(
+                                    f"🔑 A reset code has been saved to reset_code_{name.strip()}.txt"
+                                )
                             except Exception as e:
                                 st.error(f"Failed to save reset code: {e}")
                             st.warning("⚠️ This code will expire in 24 hours.")
@@ -676,39 +748,40 @@ def inject_ui_main_header():
             st.session_state.just_auto_logged_in = False
 
         current_user = st.session_state.current_user
-        role = current_user.get('role', 'normal')
+        role = current_user.get("role", "normal")
         role_text = {
             UserRole.ADMIN.value: "Administrator",
             UserRole.MASTER.value: "Master",
-            UserRole.NORMAL.value: "User"
+            UserRole.NORMAL.value: "User",
         }.get(role, "User")
 
         if st.session_state.just_auto_logged_in:
-            st.success(f"👋 Welcome, **{current_user['name']}**! ({role_text}) - Auto-logged in")
+            st.success(
+                f"👋 Welcome, **{current_user['name']}**! ({role_text}) - Auto-logged in"
+            )
             st.session_state.just_auto_logged_in = False
         else:
             st.success(f"✅ Logged in as: **{current_user['name']}** ({role_text})")
 
         # Show parent info if applicable
-        if current_user.get('parent_name'):
+        if current_user.get("parent_name"):
             st.caption(f"👨‍👦 Managed by: {current_user['parent_name']}")
 
         col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
-            if st.button("👤 Profile", key="profile_header_btn", width='stretch'):
-                st.session_state.edit_user_id = current_user['id']
+            if st.button("👤 Profile", key="profile_header_btn", width="stretch"):
+                st.session_state.edit_user_id = current_user["id"]
                 st.session_state.show_user_form = True
                 st.rerun()
         with col2:
-            if st.button("⚙️ Settings", key="settings_header_btn", width='stretch'):
+            if st.button("⚙️ Settings", key="settings_header_btn", width="stretch"):
                 st.session_state.current_page = "settings"
                 st.rerun()
         with col3:
-            if st.button("🚪 Logout", key="logout_header_btn", width='stretch'):
+            if st.button("🚪 Logout", key="logout_header_btn", width="stretch"):
                 user_manager = get_user_manager()
                 user_manager.log_user_action(
-                    user_id=current_user['id'],
-                    action="logout"
+                    user_id=current_user["id"], action="logout"
                 )
                 st.session_state.user_manually_logged_out = True
                 st.session_state.current_user = None
@@ -718,7 +791,9 @@ def inject_ui_main_header():
         return True
     else:
         if not production_mode:
-            st.warning("👤 Please select or create a user from the sidebar to start conversations.")
+            st.warning(
+                "👤 Please select or create a user from the sidebar to start conversations."
+            )
         return True
 
 
@@ -728,7 +803,7 @@ def inject_ui_main_content():
 
     if production_mode and not st.session_state.current_user:
         # Render login or reset form in main content area
-        if st.session_state.get('show_reset_password_form', False):
+        if st.session_state.get("show_reset_password_form", False):
             render_reset_password_form("main_reset_form")
         else:
             render_login_form("main_login_form")
