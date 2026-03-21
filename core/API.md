@@ -42,6 +42,7 @@ Simple, configurable logging with multiple severity levels and stack trace suppo
 
 **Environment Variables:**
 - `FORCE_LOG=true` or `FORCE_LOG=DEBUG`: Force logging from outside (useful for GitHub Actions)
+- `FILTER_LOG=pattern`: Highlight logs matching a pattern with bold magenta on white background. The pattern can be a simple string (case insensitive) or a regex pattern. Useful for quickly spotting specific log messages in noisy output.
 
 **Example:**
 ```python

@@ -3,24 +3,30 @@ import traceback
 import time
 import inspect
 import os
+import re
 import json
 from enum import IntEnum
 from typing import Optional, Callable, Any, Dict, List, Set, Tuple
 from datetime import datetime
 from pathlib import Path
 
+
 class LogLevel(IntEnum):
     """Log levels in increasing order of severity."""
+
     DEBUG = 10
     INFO = 20
     WARNING = 30
     ERROR = 40
     CRITICAL = 50
 
+
 class LogCapture:
     """Handles log capture functionality for a logger instance."""
 
-    def __init__(self, level: LogLevel, max_messages: int = 0, capture_file: Optional[str] = None):
+    def __init__(
+        self, level: LogLevel, max_messages: int = 0, capture_file: Optional[str] = None
+    ):
         """
         Initialize a log capture session.
 
@@ -51,15 +57,17 @@ class LogCapture:
 
             # Open file handle for writing (append mode)
             # Using 'a' mode with explicit encoding
-            self.file_handle = open(file_path, 'a', encoding='utf-8')
+            self.file_handle = open(file_path, "a", encoding="utf-8")
 
             # Write header to indicate capture start
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.file_handle.write(f"--- Log capture started at {timestamp} ---\n")
             self.file_handle.flush()  # Ensure it's written
-            #print(f"Log capture file initialized: {file_path.absolute()}")
+            # print(f"Log capture file initialized: {file_path.absolute()}")
         except Exception as e:
-            print(f"Warning: Could not initialize capture file {self.capture_file}: {e}")
+            print(
+                f"Warning: Could not initialize capture file {self.capture_file}: {e}"
+            )
             self.capture_file = None
             self.file_handle = None
 
@@ -90,11 +98,16 @@ class LogCapture:
         # Warning for large captures
         if self.max_messages == 0:  # Unlimited
             current_size = len(self.captured_logs)
-            if current_size >= self.warning_threshold and current_size % self.warning_threshold == 0:
+            if (
+                current_size >= self.warning_threshold
+                and current_size % self.warning_threshold == 0
+            ):
                 if current_size > self.warning_count * self.warning_threshold:
                     self.warning_count = current_size // self.warning_threshold
-                    print(f"Warning: Log capture has reached {current_size} messages. "
-                          f"Consider setting a max_messages limit.")
+                    print(
+                        f"Warning: Log capture has reached {current_size} messages. "
+                        f"Consider setting a max_messages limit."
+                    )
 
         # Write to file if configured
         self._write_to_file(formatted_message)
@@ -103,7 +116,7 @@ class LogCapture:
         """Write a log message to the capture file."""
         if self.file_handle and not self.file_handle.closed:
             try:
-                self.file_handle.write(formatted_message + '\n')
+                self.file_handle.write(formatted_message + "\n")
                 self.file_handle.flush()  # Ensure it's written immediately
             except Exception as e:
                 print(f"Warning: Could not write to capture file: {e}")
@@ -111,7 +124,7 @@ class LogCapture:
             # Try to reopen if file handle was lost
             self._init_capture_file()
             if self.file_handle:
-                self.file_handle.write(formatted_message + '\n')
+                self.file_handle.write(formatted_message + "\n")
                 self.file_handle.flush()
 
     def stop(self) -> Tuple[List[str], Optional[str]]:
@@ -127,7 +140,9 @@ class LogCapture:
         if self.file_handle:
             try:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.file_handle.write(f"--- Log capture ended at {timestamp} - Total messages: {len(self.captured_logs)} ---\n")
+                self.file_handle.write(
+                    f"--- Log capture ended at {timestamp} - Total messages: {len(self.captured_logs)} ---\n"
+                )
                 self.file_handle.close()
             except Exception as e:
                 print(f"Warning: Error closing capture file: {e}")
@@ -170,23 +185,42 @@ class Logger:
         self._format = "[{level}({function})] {timestamp} - {message}"  # Default format with function name
         self._handlers = []
         self._include_traceback = False
-        self._filtered_functions: Set[str] = set()  # Set of function names to filter out
+        self._filtered_functions: Set[str] = (
+            set()
+        )  # Set of function names to filter out
         self._use_filtering = True
-        self._capture_handler: Optional[LogCaptureHandler] = None  # Current capture handler
+        self._capture_handler: Optional[LogCaptureHandler] = (
+            None  # Current capture handler
+        )
         self._capture: Optional[LogCapture] = None  # Current capture instance
         self._default_capture_file: Optional[str] = None
 
         # Check FORCE_LOG environment variable
-        self._force_log = os.environ.get('FORCE_LOG', '').upper()
+        self._force_log = os.environ.get("FORCE_LOG", "").upper()
         if self._force_log:
             # If FORCE_LOG is set to any value, disable filtering
             self._use_filtering = False
             # If FORCE_LOG is set to a specific level, override the global level
-            if self._force_log in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+            if self._force_log in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
                 try:
                     self._level = LogLevel[self._force_log]
                 except KeyError:
                     pass  # Keep existing level if invalid
+
+        # Check FILTER_LOG environment variable for highlighting matching logs
+        self._filter_log_pattern = os.environ.get("FILTER_LOG", "")
+        self._filter_log_regex = None
+        if self._filter_log_pattern:
+            try:
+                # Try to compile as regex first
+                self._filter_log_regex = re.compile(
+                    self._filter_log_pattern, re.IGNORECASE
+                )
+            except re.error:
+                # If not valid regex, use as literal string (case insensitive)
+                self._filter_log_regex = re.compile(
+                    re.escape(self._filter_log_pattern), re.IGNORECASE
+                )
 
         # Add default console handler
         self.add_handler(self._console_handler)
@@ -260,7 +294,13 @@ class Logger:
                    If None, sets global level.
         """
         # If FORCE_LOG is set to a level, ignore attempts to change the global level
-        if module is None and self._force_log in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+        if module is None and self._force_log in [
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        ]:
             return  # Global level is locked by FORCE_LOG environment variable
 
         try:
@@ -356,7 +396,14 @@ class Logger:
         """Enable or disable traceback inclusion."""
         self._include_traceback = include
 
-    def _format_message(self, level: str, message: str, module: str, function: str, include_traceback: bool = False) -> str:
+    def _format_message(
+        self,
+        level: str,
+        message: str,
+        module: str,
+        function: str,
+        include_traceback: bool = False,
+    ) -> str:
         """Format log message according to current format."""
         base_message = self._format.format(
             level=level.upper(),
@@ -364,11 +411,11 @@ class Logger:
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             message=message,
             logger=self.name,
-            module=module  # Add module to format options
+            module=module,  # Add module to format options
         )
 
         if include_traceback and level.upper() in ["ERROR", "CRITICAL"]:
-            tb_lines = traceback.format_exc().strip().split('\n')
+            tb_lines = traceback.format_exc().strip().split("\n")
             if tb_lines and tb_lines[-1] and not tb_lines[-1].startswith("Traceback"):
                 tb_str = "\n".join(tb_lines)
                 return f"{base_message}\nTraceback: {tb_str}"
@@ -378,15 +425,23 @@ class Logger:
     def _console_handler(self, level: str, formatted_message: str):
         """Default console output handler."""
         colors = {
-            "DEBUG": "\033[36m",    # Cyan
-            "INFO": "\033[32m",     # Green
+            "DEBUG": "\033[36m",  # Cyan
+            "INFO": "\033[32m",  # Green
             "WARNING": "\033[33m",  # Yellow
-            "ERROR": "\033[31m",    # Red
-            "CRITICAL": "\033[41m"  # Red background
+            "ERROR": "\033[31m",  # Red
+            "CRITICAL": "\033[41m",  # Red background
         }
         reset = "\033[0m"
 
-        color = colors.get(level.upper(), "")
+        # Check if this message matches FILTER_LOG pattern
+        highlight_color = (
+            "\033[1;35;47m"  # Bold magenta on white background for maximum visibility
+        )
+        if self._filter_log_regex and self._filter_log_regex.search(formatted_message):
+            color = highlight_color
+        else:
+            color = colors.get(level.upper(), "")
+
         full_message = f"{color}{formatted_message}{reset}"
 
         try:
@@ -415,18 +470,27 @@ class Logger:
 
         if disengaged:
             # Log this once using print since logging is disabled
-            print(f"🔇 LOGGING DISENGAGED for {self.name} - All logging calls are now no-ops")
+            print(
+                f"🔇 LOGGING DISENGAGED for {self.name} - All logging calls are now no-ops"
+            )
         else:
             print(f"🔊 LOGGING RE-ENGAGED for {self.name}")
 
     def is_disengaged(self) -> bool:
         """Check if logging is currently disengaged."""
-        return getattr(self, '_disengaged', False)
+        return getattr(self, "_disengaged", False)
 
-    def _log(self, level: LogLevel, level_name: str, message: str, *args: Any, include_traceback: bool = False):
+    def _log(
+        self,
+        level: LogLevel,
+        level_name: str,
+        message: str,
+        *args: Any,
+        include_traceback: bool = False,
+    ):
         """Internal logging method with disengagement support."""
         # FAST PATH: If logging is disengaged, return immediately (no-op)
-        if getattr(self, '_disengaged', False):
+        if getattr(self, "_disengaged", False):
             return
         # Get calling module and function
         module, function = self.get_calling_info()
@@ -441,7 +505,9 @@ class Logger:
             formatted_msg = message % args
 
         # Format according to configuration
-        formatted_output = self._format_message(level_name, formatted_msg, module, function, include_traceback)
+        formatted_output = self._format_message(
+            level_name, formatted_msg, module, function, include_traceback
+        )
 
         # ALWAYS send to capture handler if active - this bypasses normal level checks
         # The capture handler itself will filter based on its own level
@@ -482,7 +548,9 @@ class Logger:
 
     def critical(self, message: str, *args: Any, stacktrace: bool = False):
         """Log critical message with optional exception info."""
-        self._log(LogLevel.CRITICAL, "CRITICAL", message, *args, include_traceback=stacktrace)
+        self._log(
+            LogLevel.CRITICAL, "CRITICAL", message, *args, include_traceback=stacktrace
+        )
 
     def log(self, level: str, message: str, *args: Any, stacktrace: bool = False):
         """
@@ -511,7 +579,9 @@ class Logger:
             self.info(message, *args)
 
     # New methods for log capture
-    def capture_start(self, level: str, max_messages: int = 0, capture_file: Optional[str] = None):
+    def capture_start(
+        self, level: str, max_messages: int = 0, capture_file: Optional[str] = None
+    ):
         """
         Start capturing logs above a certain level.
         Capture works independently of the normal logging level.
@@ -545,7 +615,9 @@ class Logger:
         self._capture_handler = LogCaptureHandler(self._capture)
 
         file_info = f", File: {capture_file}" if capture_file else ""
-        print(f"Log capture started - Level: {level}, Max messages: {'unlimited' if max_messages == 0 else max_messages}{file_info}")
+        print(
+            f"Log capture started - Level: {level}, Max messages: {'unlimited' if max_messages == 0 else max_messages}{file_info}"
+        )
 
         return self
 
@@ -565,7 +637,7 @@ class Logger:
 
         if capture_file:
             abs_path = str(Path(capture_file).absolute())
-            #print(f"Captured logs written to: {abs_path}")
+            # print(f"Captured logs written to: {abs_path}")
 
         # Clear the capture references
         self._capture = None
@@ -585,12 +657,14 @@ class Logger:
 # Global logger instance
 _logger_instance = None
 
+
 def get_logger(name: str = "app") -> Logger:
     """Get or create a logger instance."""
     global _logger_instance
     if _logger_instance is None:
         _logger_instance = Logger(name)
     return _logger_instance
+
 
 def log(level: str, message: str, *args: Any, stacktrace: bool = False):
     """
@@ -600,25 +674,31 @@ def log(level: str, message: str, *args: Any, stacktrace: bool = False):
     logger = get_logger()
     logger.log(level, message, *args, stacktrace=stacktrace)
 
+
 def debug(message: str, *args: Any):
     """Convenience function for debug logging."""
     log("DEBUG", message, *args)
+
 
 def info(message: str, *args: Any):
     """Convenience function for info logging."""
     log("INFO", message, *args)
 
+
 def warning(message: str, *args: Any):
     """Convenience function for warning logging."""
     log("WARNING", message, *args)
+
 
 def error(message: str, *args: Any, stacktrace: bool = False):
     """Convenience function for error logging."""
     log("ERROR", message, *args, stacktrace=stacktrace)
 
+
 def critical(message: str, *args: Any, stacktrace: bool = False):
     """Convenience function for critical logging."""
     log("CRITICAL", message, *args, stacktrace=stacktrace)
+
 
 def set_level(level: str, module: Optional[str] = None):
     """
@@ -630,6 +710,7 @@ def set_level(level: str, module: Optional[str] = None):
     """
     logger = get_logger()
     logger.set_level(level, module)
+
 
 def set_log_module_level(level: str):
     """
@@ -649,20 +730,24 @@ def set_log_module_level(level: str):
     logger = get_logger()
     logger.set_log_module_level(level)
 
+
 def get_log_level(module: Optional[str] = None) -> str:
     """Get current log level globally or for a specific module."""
     logger = get_logger()
     return logger.get_level(module)
+
 
 def get_all_module_levels() -> Dict[str, str]:
     """Get all module-specific log levels."""
     logger = get_logger()
     return logger.get_all_module_levels()
 
+
 def reset_module_level(module: str):
     """Reset a module's log level to use the global level."""
     logger = get_logger()
     logger.reset_module_level(module)
+
 
 def log_filter_out_caller(function_names: List[str]):
     """
@@ -687,6 +772,7 @@ def log_filter_out_caller(function_names: List[str]):
     logger = get_logger()
     logger.log_filter_out_caller(function_names)
 
+
 def configure_logging_from_dict(config_dict: dict):
     """
     Configure logging from a dictionary.
@@ -699,7 +785,9 @@ def configure_logging_from_dict(config_dict: dict):
     if "level" in config_dict:
         logger.set_level(config_dict["level"])
 
-    if "module_levels" in config_dict and isinstance(config_dict["module_levels"], dict):
+    if "module_levels" in config_dict and isinstance(
+        config_dict["module_levels"], dict
+    ):
         for module, level in config_dict["module_levels"].items():
             logger.set_level(level, module)
 
@@ -709,7 +797,9 @@ def configure_logging_from_dict(config_dict: dict):
     if "include_traceback" in config_dict:
         logger.include_traceback(config_dict["include_traceback"])
 
-    if "filtered_functions" in config_dict and isinstance(config_dict["filtered_functions"], list):
+    if "filtered_functions" in config_dict and isinstance(
+        config_dict["filtered_functions"], list
+    ):
         logger.log_filter_out_caller(config_dict["filtered_functions"])
 
     # Handle use_filtering configuration
@@ -723,7 +813,9 @@ def configure_logging_from_dict(config_dict: dict):
 
 
 # New convenience functions for log capture
-def capture_log_start(level: str, max_messages: int = 0, capture_file: Optional[str] = None):
+def capture_log_start(
+    level: str, max_messages: int = 0, capture_file: Optional[str] = None
+):
     """
     Start capturing logs above a certain level.
     Capture works independently of the normal logging level.
@@ -737,6 +829,7 @@ def capture_log_start(level: str, max_messages: int = 0, capture_file: Optional[
     logger = get_logger()
     return logger.capture_start(level, max_messages, capture_file)
 
+
 def capture_log_end() -> Tuple[List[str], Optional[str]]:
     """
     Stop the current log capture and return captured logs and file path.
@@ -747,10 +840,12 @@ def capture_log_end() -> Tuple[List[str], Optional[str]]:
     logger = get_logger()
     return logger.capture_end()
 
+
 def is_log_capturing() -> bool:
     """Check if log capture is currently active."""
     logger = get_logger()
     return logger.is_capturing()
+
 
 def set_logging_disengaged(disengaged: bool):
     """
@@ -762,6 +857,7 @@ def set_logging_disengaged(disengaged: bool):
     """
     logger = get_logger()
     logger.set_disengaged(disengaged)
+
 
 def is_logging_disengaged() -> bool:
     """Check if logging is globally disengaged."""
