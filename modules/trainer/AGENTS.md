@@ -22,22 +22,20 @@ Single-plugin options: `memory`, `pedagogical_memory`, `student_pad`
 Combination options: `memory+student_pad`, `pedagogical_memory+student_pad`
 
 Switching is mutually exclusive within the group.
-All plugins NOT in the active option are marked inactive via `_mark_inactive()`
-and will return None from `get_memory_context` even if their callback
-is still registered.
 
 ### Actions registered by trainer:
 - `trigger_memory_analysis` — dispatches to active backend plugin(s)
 - `add_student_note` — delegates to student_pad plugin
+- `set_formation_dir` — sets the training program directory for the trainer
 
 ### LLM Context Callbacks:
 - `inject_teacher_system_prompt` — injects system prompt as system at top
 - `inject_training_program` — injects trainer's training program as system at top
 
-### Activation guard (TrainerPlugin base class):
-Every plugin has `_is_active: bool`. `get_memory_context` returns None
-immediately if `_is_active` is False. This prevents stale plugins from
-injecting context after being switched out.
+### Plugin Activation (Database as Source of Truth):
+Plugin activation state is stored in the `PluginActivation` table in the database.
+Plugin context callbacks check `trainer_manager.is_plugin_active(trainer_id, plugin_id)` 
+directly against the database - no in-memory caching.
 
 ### Registration pattern:
 Module registers, plugins implement handler methods.

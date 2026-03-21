@@ -76,7 +76,11 @@ class ScenarioRunner:
 
     ALLOWED_BY_ACTOR = {
         "student": {"user_send_message", "create_conversation", "add_student_note"},
-        "teacher": {"teacher_send_message", "trigger_memory_analysis"},
+        "teacher": {
+            "teacher_send_message",
+            "trigger_memory_analysis",
+            "set_formation_dir",
+        },
         "system": {"create_conversation", "switch_option"},
     }
 

@@ -31,6 +31,14 @@ setup:
   trainer_id: "master1"
 
 steps:
+  # ── Setup: load Nexoria training program ─────────────────────────────────
+
+  - id: "s0"
+    actor: teacher
+    action: set_formation_dir
+    params:
+      formation_dir: "scenarios:modules/benchmarker/scenarios/nexoria_program.md"
+
   # ── Conversation 1: student learns about Nexoria internal tools ────────────
 
   - id: "s1"

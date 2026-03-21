@@ -155,13 +155,7 @@ def register_trainer_driver_bindings(
             f"[CONTEXT_VERIFICATION] Getting context for plugin '{plugin.id}', trainer '{trainer_id}', student '{student_id}', step '{step_id}'",
         )
 
-        # Verify plugin is active in memory
-        if not plugin.is_active():
-            error_msg = f"Plugin '{plugin.id}' is not marked active in memory for step '{step_id}'"
-            log("error", error_msg)
-            raise RuntimeError(error_msg)
-
-        # Verify plugin is active in database
+        # Verify plugin is active in database (source of truth)
         if trainer_manager and not trainer_manager.is_plugin_active(
             trainer_id, plugin.id
         ):
@@ -257,6 +251,29 @@ def register_trainer_driver_bindings(
         )
         return result
 
+    def _action_set_formation_dir(context: DriverContext, **params) -> Dict:
+        """Set the formation directory for the current trainer."""
+        formation_dir = params.get("formation_dir")
+        if not formation_dir:
+            raise ValueError("formation_dir is required")
+
+        if trainer_manager is None:
+            raise RuntimeError(
+                "trainer: trainer_manager not available for set_formation_dir"
+            )
+
+        success = trainer_manager.set_formation_dir(context.trainer_id, formation_dir)
+        if not success:
+            raise RuntimeError(
+                f"trainer: failed to set formation_dir '{formation_dir}' for trainer '{context.trainer_id}'"
+            )
+
+        log(
+            "info",
+            f"[TRAINER] Formation dir set to '{formation_dir}' for trainer '{context.trainer_id}'",
+        )
+        return {"trainer_id": context.trainer_id, "formation_dir": formation_dir}
+
     for name, description in [
         ("memory", "LLM-summarised pedagogical memory (SQL backend)"),
         ("pedagogical_memory", "Atomic fact memory with semantic retrieval"),
@@ -328,6 +345,12 @@ def register_trainer_driver_bindings(
         handler_fn=_action_add_student_note,
         description="Add a personal note for the current student (student_pad)",
         required_context=["student_id"],
+    )
+    driver.register_action(
+        name="set_formation_dir",
+        handler_fn=_action_set_formation_dir,
+        description="Set the formation directory for the current trainer",
+        required_context=["trainer_id"],
     )
 
     register_trainer_driver_assertions(driver.register_assertion)
