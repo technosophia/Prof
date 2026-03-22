@@ -1,0 +1,249 @@
+# Nexoria Context Fulfillment Test Scenario
+# Tests all 5 context sources: RAG, Memory, Student Pad, Training Program, Teacher System Prompt
+meta:
+  name: "nexoria_context_fulfillment"
+  description: >
+    Tests that all 5 context sources are properly injected and fulfilled.
+    Round 1: Student learns about Nexoria internal tools (RAG triggers)
+    Memory analysis captures student understanding
+    Student adds a pad note
+    Round 2: Student asks a question requiring all 5 contexts:
+    - RAG: Nexoria-specific facts (RouteForge, voss_index, secret code)
+    - Memory: Context from previous conversation
+    - Student Pad: Student's personal note
+    - Training Program: Formation content
+    - Teacher System Prompt: System prompt context
+  version: "1.0"
+  fixture_doc: "modules/benchmarker/scenarios/fixtures/nexoria_onboarding.md"
+  prerequisite: >
+    Before running this scenario, the fixture document must be ingested into
+    the RAG system for trainer master1.
+    Add to config.json rag_manager.auto_import for user master1:
+      source_path: modules/benchmarker/scenarios/fixtures/nexoria_onboarding.md
+      original_filename: nexoria_onboarding.md
+      is_public: false
+      engines: ["classic"]
+
+options:
+  memory_backend: "pedagogical_memory+student_pad"
+  rag_engine: "classic"
+  llm: "ollama_qwen"
+
+setup:
+  student_id: "normal2_m1"
+  trainer_id: "master1"
+
+steps:
+  # ── Setup: load Nexoria training program ─────────────────────────────────
+  - id: "s0"
+    actor: teacher
+    action: set_formation_dir
+    params:
+      formation_dir: "scenarios:modules/benchmarker/scenarios/nexoria_program.md"
+
+  # ── Round 1: Conversation 1 ───────────────────────────────────────────────
+
+  - id: "s1"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Nexoria onboarding - Round 1"
+
+  - id: "s2"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        I just started at Nexoria and I'm in Phase 2 of the Zephyr Protocol.
+        Can you explain what RouteForge is and how it relates to the NXG format?
+
+  - id: "s3"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        What is the voss_index in DepotDB? What happens when it goes above 0.85?
+
+  # ── Memory Analysis: capture what the student learned ───────────────────
+
+  - id: "s4"
+    actor: teacher
+    action: trigger_memory_analysis
+    params: {}
+
+  # ── Student adds a pad note ─────────────────────────────────────────────
+
+  - id: "s5"
+    actor: teacher
+    action: add_student_note
+    params:
+      content: >
+        Remember: The secret code for RouteForge access is OWL-7X4.
+        This was mentioned during onboarding and I need to use it for the Canopy Dashboard.
+      topic: "nexoria_access"
+
+  # ── Round 2: Conversation 2 - Verification ─────────────────────────────
+
+  - id: "s6"
+    actor: system
+    action: create_conversation
+    params:
+      title: "Nexoria onboarding - Context Verification"
+
+  - id: "s7"
+    actor: student
+    action: user_send_message
+    params:
+      content: >
+        Quick question: I'm about to work on the FleetOS routing module.
+        I changed about 450 lines and my voss_index might be affected.
+        I also need the secret code for the Canopy Dashboard.
+        Can you remind me about the Voss Review threshold and confirm my understanding
+        of what we discussed in our previous conversation?
+        What code should I use for RouteForge access?
+
+  # This message should trigger all 5 contexts:
+  # - RAG: retrieves Voss Review (400+ lines), voss_index (>0.85), secret code OWL-7X4
+  # - Memory: injects student's previous questions about RouteForge/NXG/voss_index
+  # - Student Pad: injects the student's note about the secret code OWL-7X4
+  # - Training Program: injects Nexoria formation content
+  # - Teacher System Prompt: injects trainer's system prompt context
+
+assertions:
+  # ── Basic execution assertions ───────────────────────────────────────────
+
+  - id: "a1"
+    type: action_succeeded
+    description: "Training program was set"
+    params:
+      step_id: "s0"
+
+  - id: "a2"
+    type: action_succeeded
+    description: "Round 1 conversation created"
+    params:
+      step_id: "s1"
+
+  - id: "a3"
+    type: action_succeeded
+    description: "Student asked about RouteForge/NXG"
+    params:
+      step_id: "s2"
+
+  - id: "a4"
+    type: action_succeeded
+    description: "Student asked about voss_index"
+    params:
+      step_id: "s3"
+
+  - id: "a5"
+    type: action_succeeded
+    description: "Memory analysis completed"
+    params:
+      step_id: "s4"
+
+  - id: "a6"
+    type: plugin_event_occurred
+    description: "Memory analysis was recorded"
+    params:
+      plugin_id: "pedagogical_memory"
+      event: "analysis_complete"
+
+  - id: "a7"
+    type: action_succeeded
+    description: "Student pad note was saved"
+    params:
+      step_id: "s5"
+
+  - id: "a8"
+    type: plugin_event_occurred
+    description: "Pad note was recorded"
+    params:
+      plugin_id: "student_pad"
+      event: "note_added"
+
+  - id: "a9"
+    type: action_succeeded
+    description: "Round 2 conversation created"
+    params:
+      step_id: "s6"
+
+  - id: "a10"
+    type: action_succeeded
+    description: "Student asked context verification question"
+    params:
+      step_id: "s7"
+
+  # ── Context Source Verification: All 5 contexts must be injected ──────────
+
+  - id: "a11"
+    type: injected_context_contains
+    description: "RAG context injected for verification step"
+    params:
+      step_id: "s7"
+      contains: "RouteForge"
+      source_contains: "rag"
+
+  - id: "a12"
+    type: injected_context_contains
+    description: "Memory context injected for verification step"
+    params:
+      step_id: "s7"
+      source_contains: "memory"
+
+  - id: "a13"
+    type: injected_context_contains
+    description: "Student Pad context injected for verification step"
+    params:
+      step_id: "s7"
+      source_contains: "student_pad"
+
+  - id: "a14"
+    type: injected_context_contains
+    description: "Training Program context injected for verification step"
+    params:
+      step_id: "s7"
+      source_contains: "training_program"
+
+  - id: "a15"
+    type: injected_context_contains
+    description: "Teacher System Prompt context injected for verification step"
+    params:
+      step_id: "s7"
+      source_contains: "teacher_system_prompt"
+
+  # ── RAG Content Verification ─────────────────────────────────────────────
+
+  - id: "a16"
+    type: injected_context_contains
+    description: "RAG contains secret code from fixture"
+    params:
+      step_id: "s7"
+      contains: "OWL-7X4"
+      source_contains: "rag"
+
+  - id: "a17"
+    type: injected_context_contains
+    description: "RAG contains Voss Review threshold"
+    params:
+      step_id: "s7"
+      contains: "400"
+      source_contains: "rag"
+
+  # ── Student Pad Content Verification ───────────────────────────────────
+
+  - id: "a18"
+    type: injected_context_contains
+    description: "Student Pad contains secret code from note"
+    params:
+      step_id: "s7"
+      contains: "OWL-7X4"
+      source_contains: "student_pad"
+
+  # ── LLM call volume sanity check ────────────────────────────────────────
+
+  - id: "a19"
+    type: llm_calls_made
+    description: "At least 4 LLM calls were made (3 student messages + 1 analysis)"
+    params:
+      min: 4

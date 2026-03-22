@@ -39,6 +39,7 @@ def anyio_backend():
 @pytest.fixture(scope="session")
 def api_app():
     from api import app
+
     return app
 
 
@@ -51,7 +52,11 @@ async def client(api_app):
 
 @pytest.fixture(scope="session")
 def users() -> dict[str, dict]:
-    raw = json.loads((Path(__file__).resolve().parents[1] / "initial_users.json").read_text(encoding="utf-8"))
+    raw = json.loads(
+        (Path(__file__).resolve().parents[1] / "initial_users.json").read_text(
+            encoding="utf-8"
+        )
+    )
     by_id = {u["id"]: u for u in raw["users"]}
     for user_id, user in by_id.items():
         role = user.get("role")
@@ -71,11 +76,47 @@ def ensure_test_passwords(users):
         user_manager.set_password(user_id, user["password"], requesting_user_id="admin")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def setup_nexoria_formation():
+    """Set Nexoria training program and memory backend for master1 trainer.
+
+    This allows tests to verify that the training program and memory context
+    are properly injected when students (with master1 as trainer) chat about
+    Nexoria topics.
+    """
+    try:
+        from modules.trainer.manager import get_trainer_manager
+
+        tm = get_trainer_manager()
+        formation_path = "scenarios:modules/benchmarker/scenarios/nexoria_program.md"
+        success = tm.set_formation_dir("master1", formation_path)
+        if success:
+            log("debug", f"[SETUP] Nexoria formation set for master1: {formation_path}")
+        else:
+            log("warning", f"[SETUP] Failed to set Nexoria formation for master1")
+    except Exception as e:
+        log("warning", f"[SETUP] Could not set Nexoria formation: {e}")
+
+    try:
+        from shared.common import get_driver
+
+        driver = get_driver()
+        driver.set_context(trainer_id="master1")
+        driver.switch_option("memory_backend", "memory")
+        log("debug", "[SETUP] Memory backend set to 'memory'")
+    except Exception as e:
+        log("warning", f"[SETUP] Could not set memory backend: {e}")
+
+
 @pytest.fixture
 def login(client):
     async def _login(user_id: str, password: str) -> str:
-        response = await client.post("/api/auth/login", json={"user_id": user_id, "password": password})
-        assert response.status_code == 200, f"Login failed for {user_id}: {response.text}"
+        response = await client.post(
+            "/api/auth/login", json={"user_id": user_id, "password": password}
+        )
+        assert response.status_code == 200, (
+            f"Login failed for {user_id}: {response.text}"
+        )
         return response.json()["access_token"]
 
     return _login
@@ -91,11 +132,18 @@ def auth_headers(login):
 
 @pytest.fixture
 def create_conversation(client):
-    async def _create_conversation(headers: dict[str, str], title: str = "test conversation") -> str:
-        response = await client.post("/api/conversations", json={"title": title}, headers=headers)
+    async def _create_conversation(
+        headers: dict[str, str], title: str = "test conversation"
+    ) -> str:
+        response = await client.post(
+            "/api/conversations", json={"title": title}, headers=headers
+        )
         assert response.status_code == 200, response.text
         conversation_id = response.json()["id"]
-        log("debug", f"Created conversation {conversation_id} for frontend API integration test")
+        log(
+            "debug",
+            f"Created conversation {conversation_id} for frontend API integration test",
+        )
         return conversation_id
 
     return _create_conversation
@@ -141,7 +189,9 @@ def issue_reset_code():
     user_manager = get_user_manager()
 
     def _issue_reset_code(user_id: str, requesting_user_id: str | None = None) -> str:
-        reset_code = user_manager.generate_reset_code(user_id, requesting_user_id=requesting_user_id)
+        reset_code = user_manager.generate_reset_code(
+            user_id, requesting_user_id=requesting_user_id
+        )
         assert reset_code, f"Could not generate reset code for {user_id}"
         return reset_code
 
