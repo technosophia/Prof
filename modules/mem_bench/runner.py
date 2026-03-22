@@ -151,6 +151,9 @@ class MemBenchRunner:
             if training_program:
                 temp_dir = self._create_temp_formation_dir(training_program)
                 if temp_dir:
+                    from modules.trainer.manager import get_trainer_manager
+
+                    trainer_manager = get_trainer_manager()
                     trainer_manager.set_formation_dir(trainer_id, temp_dir)
                     self._refresh_plugin_trainer_managers(trainer_id)
                     log(
