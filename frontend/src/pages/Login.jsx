@@ -20,15 +20,19 @@ export default function Login() {
   const [activeTab, setActiveTab] = useState('login')
   const [loginForm, setLoginForm] = useState({ userId: '', password: '' })
   const [registerForm, setRegisterForm] = useState({ email: '', password: '', confirmPassword: '', userId: '' })
+  const [resetForm, setResetForm] = useState({ userId: '', resetCode: '', newPassword: '', confirmPassword: '' })
+  const [resetStep, setResetStep] = useState(1)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [registrationPending, setRegistrationPending] = useState(false)
+  const [resetPending, setResetPending] = useState(false)
   const navigate = useNavigate()
 
   const emailDerivedId = useMemo(() => deriveUserIdFromEmail(registerForm.email), [registerForm.email])
 
   const setLogin = (k, v) => setLoginForm((s) => ({ ...s, [k]: v }))
   const setRegister = (k, v) => setRegisterForm((s) => ({ ...s, [k]: v }))
+  const setReset = (k, v) => setResetForm((s) => ({ ...s, [k]: v }))
 
   async function submitLogin(e) {
     e.preventDefault()
@@ -95,17 +99,85 @@ export default function Login() {
     }
   }
 
+  async function requestResetCode(e) {
+    e.preventDefault()
+    setError('')
+    setInfo('')
+    if (!resetForm.userId.trim()) {
+      setError('Please enter your username.')
+      return
+    }
+    setResetPending(true)
+    try {
+      const data = await auth.requestPasswordReset(resetForm.userId.trim())
+      if (data?.reset_code) {
+        setInfo(`Reset code: ${data.reset_code}`)
+        setResetStep(2)
+      } else {
+        setInfo('If the user exists, a reset code has been sent.')
+        setResetStep(2)
+      }
+    } catch (err) {
+      setError('Failed to request reset code')
+    } finally {
+      setResetPending(false)
+    }
+  }
+
+  async function submitResetPassword(e) {
+    e.preventDefault()
+    setError('')
+    setInfo('')
+    if (!resetForm.resetCode.trim()) {
+      setError('Please enter the reset code.')
+      return
+    }
+    if (resetForm.newPassword.length < 8) {
+      setError('Password must contain at least 8 characters.')
+      return
+    }
+    if (resetForm.newPassword !== resetForm.confirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+    setResetPending(true)
+    try {
+      const data = await auth.initPassword(resetForm.userId.trim(), resetForm.resetCode.trim(), resetForm.newPassword)
+      localStorage.setItem('token', data.access_token)
+      navigate('/chat')
+    } catch (err) {
+      const status = parseStatusCode(err?.message)
+      if (status === 400) {
+        setError('Invalid reset code')
+      } else {
+        setError('Password reset failed')
+      }
+    } finally {
+      setResetPending(false)
+    }
+  }
+
+  function cancelReset() {
+    setResetForm({ userId: '', resetCode: '', newPassword: '', confirmPassword: '' })
+    setResetStep(1)
+    setError('')
+    setInfo('')
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md space-y-4">
         <h1 className="text-xl font-semibold">Student Access</h1>
 
         <div className="flex gap-2">
-          <Button type="button" variant={activeTab === 'login' ? 'default' : 'secondary'} className="flex-1" onClick={() => setActiveTab('login')}>
+          <Button type="button" variant={activeTab === 'login' ? 'default' : 'secondary'} className="flex-1" onClick={() => { setActiveTab('login'); cancelReset() }}>
             Login
           </Button>
-          <Button type="button" variant={activeTab === 'register' ? 'default' : 'secondary'} className="flex-1" onClick={() => setActiveTab('register')}>
+          <Button type="button" variant={activeTab === 'register' ? 'default' : 'secondary'} className="flex-1" onClick={() => { setActiveTab('register'); cancelReset() }}>
             Register
+          </Button>
+          <Button type="button" variant={activeTab === 'forgot' ? 'default' : 'secondary'} className="flex-1" onClick={() => setActiveTab('forgot')}>
+            Forgot
           </Button>
         </div>
 
@@ -117,6 +189,27 @@ export default function Login() {
             {error ? <p className="text-sm text-red-400">{error}</p> : null}
             <Button className="w-full" type="submit">Login</Button>
           </form>
+        ) : activeTab === 'forgot' ? (
+          resetStep === 1 ? (
+            <form className="space-y-3" onSubmit={requestResetCode}>
+              <p className="text-sm text-slate-400">Enter your username to request a reset code.</p>
+              <div><Label>Username</Label><Input value={resetForm.userId} onChange={(e) => setReset('userId', e.target.value)} placeholder="john_doe" /></div>
+              {info ? <p className="text-sm text-blue-400">{info}</p> : null}
+              {error ? <p className="text-sm text-red-400">{error}</p> : null}
+              <Button className="w-full" type="submit" disabled={resetPending}>{resetPending ? 'Sending...' : 'Request Reset Code'}</Button>
+              <Button type="button" variant="secondary" className="w-full" onClick={() => { setActiveTab('login'); cancelReset() }}>Back to Login</Button>
+            </form>
+          ) : (
+            <form className="space-y-3" onSubmit={submitResetPassword}>
+              <p className="text-sm text-slate-400">Enter the reset code and your new password.</p>
+              <div><Label>Reset Code</Label><Input value={resetForm.resetCode} onChange={(e) => setReset('resetCode', e.target.value)} placeholder="ABC123" /></div>
+              <div><Label>New Password</Label><Input type="password" value={resetForm.newPassword} onChange={(e) => setReset('newPassword', e.target.value)} /></div>
+              <div><Label>Confirm Password</Label><Input type="password" value={resetForm.confirmPassword} onChange={(e) => setReset('confirmPassword', e.target.value)} /></div>
+              {error ? <p className="text-sm text-red-400">{error}</p> : null}
+              <Button className="w-full" type="submit" disabled={resetPending}>{resetPending ? 'Resetting...' : 'Reset Password'}</Button>
+              <Button type="button" variant="secondary" className="w-full" onClick={cancelReset}>Back</Button>
+            </form>
+          )
         ) : registrationPending ? (
           <p className="text-sm text-emerald-400">Registration submitted! Your account is pending approval by an administrator.</p>
         ) : (

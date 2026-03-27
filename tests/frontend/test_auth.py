@@ -23,12 +23,16 @@ async def test_login_success(client, users):
 
 
 async def test_login_wrong_password(client):
-    response = await client.post("/api/auth/login", json={"user_id": "normal1_m1", "password": "wrong"})
+    response = await client.post(
+        "/api/auth/login", json={"user_id": "normal1_m1", "password": "wrong"}
+    )
     assert response.status_code == 401
 
 
 async def test_login_unknown_user(client):
-    response = await client.post("/api/auth/login", json={"user_id": "ghost", "password": "none"})
+    response = await client.post(
+        "/api/auth/login", json={"user_id": "ghost", "password": "none"}
+    )
     assert response.status_code == 401
 
 
@@ -38,7 +42,10 @@ async def test_login_missing_fields(client):
 
 
 async def test_me_with_valid_token(client, auth_headers, users):
-    response = await client.get("/api/auth/me", headers=await auth_headers("normal1_m1", users["normal1_m1"]["password"]))
+    response = await client.get(
+        "/api/auth/me",
+        headers=await auth_headers("normal1_m1", users["normal1_m1"]["password"]),
+    )
     assert response.status_code == 200
     assert response.json()["id"] == "normal1_m1"
 
@@ -49,7 +56,9 @@ async def test_me_without_header(client):
 
 
 async def test_me_with_malformed_token(client):
-    response = await client.get("/api/auth/me", headers={"Authorization": "Bearer badly.formed.token"})
+    response = await client.get(
+        "/api/auth/me", headers={"Authorization": "Bearer badly.formed.token"}
+    )
     assert response.status_code == 401
 
 
@@ -60,7 +69,9 @@ async def test_me_with_expired_token(client):
         "exp": int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp()),
     }
     token = jwt.encode(payload, os.environ["JWT_SECRET"], algorithm="HS256")
-    response = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    response = await client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
     assert response.status_code == 401
 
 
@@ -93,7 +104,11 @@ async def test_masquerade_targets_by_role(client, auth_headers, users):
 
 async def test_masquerade_lifecycle(client, auth_headers, users):
     master_headers = await auth_headers("master1", users["master1"]["password"])
-    response = await client.post("/api/auth/masquerade", json={"target_user_id": "normal1_m1"}, headers=master_headers)
+    response = await client.post(
+        "/api/auth/masquerade",
+        json={"target_user_id": "normal1_m1"},
+        headers=master_headers,
+    )
     assert response.status_code == 200
     token = response.json()["access_token"]
 
@@ -101,12 +116,16 @@ async def test_masquerade_lifecycle(client, auth_headers, users):
     assert payload["sub"] == "normal1_m1"
     assert payload["masquerader_id"] == "master1"
 
-    me_response = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    me_response = await client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
     assert me_response.status_code == 200
     assert me_response.json()["id"] == "normal1_m1"
     assert me_response.json()["masquerader_id"] == "master1"
 
-    targets_response = await client.get("/api/auth/masquerade-targets", headers={"Authorization": f"Bearer {token}"})
+    targets_response = await client.get(
+        "/api/auth/masquerade-targets", headers={"Authorization": f"Bearer {token}"}
+    )
     assert targets_response.status_code == 200
     assert "master1" not in {item["id"] for item in targets_response.json()}
 
@@ -117,18 +136,28 @@ async def test_masquerade_lifecycle(client, auth_headers, users):
     )
     assert switch_back_response.status_code == 200
 
-    switched_payload = jwt.get_unverified_claims(switch_back_response.json()["access_token"])
+    switched_payload = jwt.get_unverified_claims(
+        switch_back_response.json()["access_token"]
+    )
     assert switched_payload["sub"] == "master1"
     assert switched_payload.get("masquerader_id") == "master1"
 
 
 async def test_masquerade_forbidden_cases(client, auth_headers, users):
     master_headers = await auth_headers("master1", users["master1"]["password"])
-    cross_tree = await client.post("/api/auth/masquerade", json={"target_user_id": "normal1_m2"}, headers=master_headers)
+    cross_tree = await client.post(
+        "/api/auth/masquerade",
+        json={"target_user_id": "normal1_m2"},
+        headers=master_headers,
+    )
     assert cross_tree.status_code == 403
 
     normal_headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])
-    as_normal = await client.post("/api/auth/masquerade", json={"target_user_id": "normal2_m1"}, headers=normal_headers)
+    as_normal = await client.post(
+        "/api/auth/masquerade",
+        json={"target_user_id": "normal2_m1"},
+        headers=normal_headers,
+    )
     assert as_normal.status_code == 403
 
 
@@ -136,7 +165,11 @@ async def test_init_password_success(client, issue_reset_code):
     code = issue_reset_code("normal2_m2", requesting_user_id="admin")
     response = await client.post(
         "/api/auth/init-password",
-        json={"user_id": "normal2_m2", "reset_code": code, "new_password": "normal2-new-pass"},
+        json={
+            "user_id": "normal2_m2",
+            "reset_code": code,
+            "new_password": "normal2-new-pass",
+        },
     )
     assert response.status_code == 200
     assert response.json()["access_token"]
@@ -145,6 +178,28 @@ async def test_init_password_success(client, issue_reset_code):
 async def test_init_password_invalid_code(client):
     response = await client.post(
         "/api/auth/init-password",
-        json={"user_id": "normal2_m2", "reset_code": "invalid", "new_password": "some-pass"},
+        json={
+            "user_id": "normal2_m2",
+            "reset_code": "invalid",
+            "new_password": "some-pass",
+        },
     )
     assert response.status_code == 400
+
+
+async def test_request_password_reset_success(client):
+    response = await client.post(
+        "/api/auth/request-password-reset",
+        json={"user_id": "normal1_m1"},
+    )
+    assert response.status_code == 200
+    assert response.json()["reset_code"]
+
+
+async def test_request_password_reset_unknown_user(client):
+    response = await client.post(
+        "/api/auth/request-password-reset",
+        json={"user_id": "nonexistent_user"},
+    )
+    assert response.status_code == 200
+    assert "reset_code" not in response.json()

@@ -24,6 +24,10 @@ class InitPasswordRequest(BaseModel):
     new_password: str
 
 
+class RequestPasswordResetRequest(BaseModel):
+    user_id: str
+
+
 class RegisterRequest(BaseModel):
     email: str
     password: str
@@ -242,6 +246,18 @@ async def init_password(payload: InitPasswordRequest):
 
     token = _create_token(user)
     return TokenResponse(access_token=token, user=_to_user_dto(user))
+
+
+@router.post("/request-password-reset")
+async def request_password_reset(payload: RequestPasswordResetRequest):
+    user_manager = get_user_manager()
+    user = user_manager.get_user(payload.user_id)
+    if not user:
+        return {"message": "If the user exists, a reset code has been sent"}
+    reset_code = user_manager.generate_reset_code(payload.user_id, payload.user_id)
+    if not reset_code:
+        return {"message": "If the user exists, a reset code has been sent"}
+    return {"message": "Reset code generated", "reset_code": reset_code}
 
 
 @router.get("/me", response_model=UserDTO)

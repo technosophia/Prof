@@ -1312,7 +1312,17 @@ class UserManager:
         self._ensure_table_exists()
 
         with self.db.get_session() as session:
-            user = session.query(UserTable).filter_by(id=user_id).first()
+            user = (
+                session.query(UserTable)
+                .filter(func.lower(UserTable.id) == user_id.lower())
+                .first()
+            )
+            if not user:
+                user = (
+                    session.query(UserTable)
+                    .filter(func.lower(UserTable.email) == user_id.lower())
+                    .first()
+                )
             if not user:
                 return None
 
@@ -1334,8 +1344,11 @@ class UserManager:
                         and user.parent_id != requesting_user_id
                     ):
                         return None
+                # Users can request reset code for themselves
+                elif user_id == requesting_user_id:
+                    pass
                 else:
-                    # Normal users cannot generate reset codes
+                    # Normal users cannot generate reset codes for others
                     return None
 
             # Generate reset code
@@ -1380,6 +1393,13 @@ class UserManager:
                 .filter(func.lower(UserTable.id) == user_id.lower())
                 .first()
             )
+
+            if not user:
+                user = (
+                    session.query(UserTable)
+                    .filter(func.lower(UserTable.email) == user_id.lower())
+                    .first()
+                )
 
             if not user:
                 self.log_user_action(
