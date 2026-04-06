@@ -165,6 +165,19 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
             )
 
         with st.expander("Or paste emails directly (comma or newline separated)"):
+            default_deadline_months = st.number_input(
+                "Default deadline (months)",
+                min_value=1,
+                max_value=36,
+                value=6,
+                step=1,
+                key="preregistered_default_deadline_months",
+            )
+            default_expiry_message = st.text_input(
+                "Custom expiry message (optional)",
+                key="preregistered_default_expiry_message",
+                placeholder="Your training period has ended. Contact your teacher for extension.",
+            )
             manual_emails = st.text_area(
                 "Paste emails here",
                 placeholder="alice@example.com, bob@company.org\nor one email per line",
@@ -184,7 +197,10 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
                     for email in emails:
                         if re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
                             if user_manager.add_preregistered_email(
-                                email, requesting_user_id=current_user.get("id")
+                                email,
+                                requesting_user_id=current_user.get("id"),
+                                deadline_months=default_deadline_months,
+                                expiry_message=default_expiry_message,
                             ):
                                 imported += 1
                             else:
@@ -217,11 +233,15 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
             return
 
         for row in preregistered:
-            cols = st.columns([4, 2, 2, 1])
+            cols = st.columns([3, 2, 2, 2, 1])
             cols[0].write(row["email"])
             cols[1].caption(row.get("added_at") or "-")
             cols[2].caption(row.get("added_by") or "-")
-            if cols[3].button(
+            cols[3].caption(
+                f"{row.get('deadline_months', 6)} month(s) "
+                f"{'- ' + row.get('expiry_message') if row.get('expiry_message') else ''}"
+            )
+            if cols[4].button(
                 "🗑️ Remove", key=f"remove_preregistered_{row['email']}", width="stretch"
             ):
                 if user_manager.delete_preregistered_email(row["email"]):

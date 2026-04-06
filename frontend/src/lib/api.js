@@ -64,6 +64,7 @@ export const auth = {
       confirm_password: confirmPassword,
       ...(suggestedId ? { suggested_id: suggestedId } : {}),
     }),
+  waitlist: (email) => post('/api/auth/waitlist', { email }),
   me: () => get('/api/auth/me'),
 }
 

@@ -82,6 +82,7 @@ from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
 from core.config import get_config
 from core.callback import register_callback, unregister_callback, clear_callbacks
+from shared.mailer_lite import notify_account_approved
 
 
 class UserRole(Enum):
@@ -144,6 +145,8 @@ class PreregisteredEmail(Base):
     email = Column(String(255), primary_key=True)
     added_at = Column(DateTime, default=datetime.utcnow)
     added_by = Column(String(36), nullable=True)
+    deadline_months = Column(Integer, nullable=False, default=6)
+    expiry_message = Column(Text, nullable=True)
 
 
 class UserActionLog(Base):
@@ -228,10 +231,85 @@ class UserManager:
 
         try:
             PreregisteredEmail.__table__.create(bind=self.db._engine, checkfirst=True)
+            inspector = inspect(self.db._engine)
+            columns = {
+                column["name"] for column in inspector.get_columns("preregistered_emails")
+            }
+
+            if "deadline_months" not in columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE preregistered_emails "
+                            "ADD COLUMN deadline_months INTEGER DEFAULT 6"
+                        )
+                    )
+                log("info", "Added missing preregistered_emails.deadline_months column")
+
+            if "expiry_message" not in columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE preregistered_emails "
+                            "ADD COLUMN expiry_message TEXT"
+                        )
+                    )
+                log("info", "Added missing preregistered_emails.expiry_message column")
             return True
         except Exception as e:
             log("error", f"Failed to ensure preregistered emails table exists: {e}")
             return False
+
+    @staticmethod
+    def compute_deadline_at(deadline_months: int) -> str:
+        """Compute deadline datetime as ISO string."""
+        safe_months = max(1, int(deadline_months))
+        deadline = datetime.utcnow() + timedelta(days=safe_months * 30)
+        return deadline.isoformat()
+
+    @staticmethod
+    def _deadline_message_prefix(message: Optional[str]) -> str:
+        custom_message = (message or "").strip()
+        if custom_message:
+            return custom_message
+        return "Your access period has ended. Please contact your teacher."
+
+    def _check_deadline_expiry(self, session: Session, user: UserTable) -> Optional[str]:
+        """Deactivate user if preregistered deadline has passed.
+
+        Returns the message to display when access is expired, otherwise None.
+        """
+        metadata = user.user_metadata or {}
+        deadline_iso = metadata.get("preregistered_deadline_at")
+        if not deadline_iso:
+            return None
+
+        try:
+            deadline_at = dt_datetime.fromisoformat(deadline_iso)
+        except ValueError:
+            log(
+                "warning",
+                f"Invalid preregistered_deadline_at for user {user.id}: {deadline_iso}",
+            )
+            return None
+
+        if dt_datetime.utcnow() < deadline_at:
+            return None
+
+        if user.is_active:
+            user.is_active = False
+            session.commit()
+
+        return self._deadline_message_prefix(metadata.get("preregistered_expiry_message"))
+
+    def enforce_deadline_for_user(self, user_id: str) -> Optional[str]:
+        """Enforce deadline policy and return expiry message if expired."""
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return None
+            return self._check_deadline_expiry(session, user)
 
     def _hash_password(self, password: str) -> str:
         """Hash a password using SHA-256 with salt."""
@@ -970,6 +1048,15 @@ class UserManager:
                 return None, "invalid_credentials"
 
             if not user.is_active:
+                expiry_message = self._check_deadline_expiry(session, user)
+                if expiry_message:
+                    self.log_user_action(
+                        user_id=user.id,
+                        action=UserAction.LOGIN_FAILED.value,
+                        details={"reason": "deadline_expired"},
+                        success=False,
+                    )
+                    return None, f"deadline_expired::{expiry_message}"
                 self.log_user_action(
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
@@ -995,6 +1082,16 @@ class UserManager:
                     success=False,
                 )
                 return None, "invalid_credentials"
+
+            expiry_message = self._check_deadline_expiry(session, user)
+            if expiry_message:
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"reason": "deadline_expired"},
+                    success=False,
+                )
+                return None, f"deadline_expired::{expiry_message}"
 
             if (user.registration_status or "approved") != "approved":
                 self.log_user_action(
@@ -1051,8 +1148,11 @@ class UserManager:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if not user:
                 return False
+            previous_status = user.registration_status or "approved"
             user.registration_status = status
             session.commit()
+            if previous_status != "approved" and status == "approved":
+                notify_account_approved(user.email, user.name)
             return True
 
     def import_preregistered_emails(
@@ -1181,6 +1281,32 @@ class UserManager:
 
         return None
 
+    def get_preregistered_email_policy(self, email: str) -> Dict[str, Any]:
+        """Return preregistration policy for an email."""
+        default_policy = {"deadline_months": 6, "expiry_message": None}
+        if not email:
+            return default_policy
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return default_policy
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            db_match = (
+                session.query(PreregisteredEmail)
+                .filter(func.lower(PreregisteredEmail.email) == normalized_email)
+                .first()
+            )
+            if not db_match:
+                return default_policy
+
+            return {
+                "deadline_months": db_match.deadline_months or 6,
+                "expiry_message": db_match.expiry_message,
+            }
+
     def is_email_registered(self, email: str) -> bool:
         """Check if an email is already registered to a user."""
         if not email:
@@ -1215,6 +1341,8 @@ class UserManager:
                     "email": row.email,
                     "added_at": row.added_at.isoformat() if row.added_at else None,
                     "added_by": row.added_by,
+                    "deadline_months": row.deadline_months or 6,
+                    "expiry_message": row.expiry_message,
                 }
                 for row in rows
             ]
@@ -1254,7 +1382,11 @@ class UserManager:
             return count
 
     def add_preregistered_email(
-        self, email: str, requesting_user_id: Optional[str] = None
+        self,
+        email: str,
+        requesting_user_id: Optional[str] = None,
+        deadline_months: int = 6,
+        expiry_message: Optional[str] = None,
     ) -> bool:
         """Add a single pre-registered email.
 
@@ -1276,6 +1408,9 @@ class UserManager:
         if not email_regex.match(normalized_email):
             return False
 
+        safe_deadline_months = max(1, int(deadline_months or 6))
+        normalized_message = (expiry_message or "").strip() or None
+
         self._ensure_preregistered_emails_table()
 
         with self.db.get_session() as session:
@@ -1292,6 +1427,8 @@ class UserManager:
                     email=normalized_email,
                     added_at=datetime.utcnow(),
                     added_by=requesting_user_id,
+                    deadline_months=safe_deadline_months,
+                    expiry_message=normalized_message,
                 )
             )
             session.commit()
@@ -1644,6 +1781,7 @@ class UserManager:
         user_id: Optional[str] = None,
         allow_orphan_normal: bool = False,
         registration_status: str = "approved",
+        user_metadata: Optional[Dict] = None,
     ) -> Tuple[Optional[str], Optional[str]]:
         """Create a new user with validation.
 
@@ -1722,7 +1860,7 @@ class UserManager:
                 created_at=datetime.utcnow(),
                 is_active=True,
                 profile=profile or {"language": "en"},
-                user_metadata={"created_via": "ui"},
+                user_metadata={"created_via": "ui", **(user_metadata or {})},
                 reset_code=reset_code,
                 reset_code_expires=datetime.utcnow() + timedelta(days=1)
                 if reset_code

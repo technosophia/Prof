@@ -30,6 +30,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user = user_manager.get_user(user_id)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        expiry_message = user_manager.enforce_deadline_for_user(user_id)
+        if expiry_message:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"deadline_expired::{expiry_message}",
+            )
         masquerader_id = payload.get("masquerader_id")
         if masquerader_id:
             return {**user, "masquerader_id": masquerader_id}

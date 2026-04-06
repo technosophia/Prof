@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import os
+import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,6 +38,10 @@ class RegisterRequest(BaseModel):
 
 class PendingRegistrationResponse(BaseModel):
     status: str
+
+
+class WaitlistRequest(BaseModel):
+    email: str
 
 
 class UserDTO(BaseModel):
@@ -132,6 +137,8 @@ async def login(payload: LoginRequest):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="pending_approval"
         )
+    if auth_status.startswith("deadline_expired::"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=auth_status)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -177,6 +184,7 @@ async def register(payload: RegisterRequest):
     parent_id = (
         user_manager.get_preregistered_email_owner(email) if preregistered else None
     )
+    prereg_policy = user_manager.get_preregistered_email_policy(email)
 
     if user_manager.get_user(derived_user_id):
         return JSONResponse(
@@ -188,6 +196,17 @@ async def register(payload: RegisterRequest):
         )
 
     try:
+        user_metadata = {}
+        if preregistered:
+            deadline_months = prereg_policy.get("deadline_months", 6)
+            user_metadata = {
+                "preregistered": True,
+                "preregistered_deadline_months": deadline_months,
+                "preregistered_deadline_at": user_manager.compute_deadline_at(
+                    deadline_months
+                ),
+                "preregistered_expiry_message": prereg_policy.get("expiry_message"),
+            }
         user_manager.create_user(
             name=derived_user_id,
             role="normal",
@@ -197,6 +216,7 @@ async def register(payload: RegisterRequest):
             user_id=derived_user_id,
             allow_orphan_normal=True,
             registration_status=registration_status,
+            user_metadata=user_metadata,
         )
     except ValueError as error:
         if "already exists" in str(error):
@@ -223,6 +243,40 @@ async def register(payload: RegisterRequest):
 
     token = _create_token(user)
     return TokenResponse(access_token=token, user=_to_user_dto(user))
+
+
+@router.post("/waitlist", response_model=PendingRegistrationResponse)
+async def waitlist(payload: WaitlistRequest):
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_email"
+        )
+
+    user_manager = get_user_manager()
+    if user_manager.is_email_registered(email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="email_already_registered"
+        )
+
+    suggested_user_id = f"wait_{_sanitize_user_id(email.split('@', 1)[0])}"
+    if not suggested_user_id or suggested_user_id == "wait_":
+        suggested_user_id = f"wait_{secrets.token_hex(4)}"
+    while user_manager.get_user(suggested_user_id):
+        suggested_user_id = f"wait_{secrets.token_hex(4)}"
+
+    user_manager.create_user(
+        name=suggested_user_id,
+        role="normal",
+        email=email,
+        password=None,
+        user_id=suggested_user_id,
+        allow_orphan_normal=True,
+        registration_status="pending",
+        user_metadata={"created_via": "waitlist"},
+    )
+
+    return PendingRegistrationResponse(status="pending")
 
 
 @router.post("/init-password", response_model=TokenResponse)

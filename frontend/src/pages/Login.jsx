@@ -16,10 +16,18 @@ function deriveUserIdFromEmail(email) {
   return prefix.trim().toLowerCase().replace(/\s+/g, '_').replace(/\./g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '')
 }
 
+function extractDeadlineMessage(errorMessage) {
+  const marker = 'deadline_expired::'
+  const idx = (errorMessage || '').indexOf(marker)
+  if (idx < 0) return 'Your access period has ended.'
+  return errorMessage.slice(idx + marker.length).replace(/\]$/, '').trim() || 'Your access period has ended.'
+}
+
 export default function Login() {
   const [activeTab, setActiveTab] = useState('login')
   const [loginForm, setLoginForm] = useState({ userId: '', password: '' })
   const [registerForm, setRegisterForm] = useState({ email: '', password: '', confirmPassword: '', userId: '' })
+  const [waitlistEmail, setWaitlistEmail] = useState('')
   const [resetForm, setResetForm] = useState({ userId: '', resetCode: '', newPassword: '', confirmPassword: '' })
   const [resetStep, setResetStep] = useState(1)
   const [error, setError] = useState('')
@@ -46,6 +54,8 @@ export default function Login() {
       const status = parseStatusCode(err?.message)
       if (status === 403 && err?.message?.includes('pending_approval')) {
         setInfo('Your account is pending approval. You will be able to log in once an admin approves it.')
+      } else if (status === 403 && err?.message?.includes('deadline_expired::')) {
+        setError(extractDeadlineMessage(err.message))
       } else {
         setError('Authentication failed')
       }
@@ -157,6 +167,32 @@ export default function Login() {
     }
   }
 
+  async function submitWaitlist(e) {
+    e.preventDefault()
+    setError('')
+    setInfo('')
+    const email = waitlistEmail.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please provide a valid email address.')
+      return
+    }
+
+    try {
+      const data = await auth.waitlist(email)
+      if (data?.status === 'pending') {
+        setInfo('You have been added to the waitlist. You will receive an email when your account is approved.')
+        setWaitlistEmail('')
+      }
+    } catch (err) {
+      const status = parseStatusCode(err?.message)
+      if (status === 409 && err?.message?.includes('email_already_registered')) {
+        setError('This email is already registered. Please login instead.')
+        return
+      }
+      setError('Waitlist registration failed')
+    }
+  }
+
   function cancelReset() {
     setResetForm({ userId: '', resetCode: '', newPassword: '', confirmPassword: '' })
     setResetStep(1)
@@ -178,6 +214,9 @@ export default function Login() {
           </Button>
           <Button type="button" variant={activeTab === 'forgot' ? 'default' : 'secondary'} className="flex-1" onClick={() => setActiveTab('forgot')}>
             Forgot
+          </Button>
+          <Button type="button" variant={activeTab === 'waitlist' ? 'default' : 'secondary'} className="flex-1" onClick={() => setActiveTab('waitlist')}>
+            Waitlist
           </Button>
         </div>
 
@@ -210,6 +249,14 @@ export default function Login() {
               <Button type="button" variant="secondary" className="w-full" onClick={cancelReset}>Back</Button>
             </form>
           )
+        ) : activeTab === 'waitlist' ? (
+          <form className="space-y-3" onSubmit={submitWaitlist}>
+            <p className="text-sm text-slate-400">No account yet? Join the waitlist and get notified after approval.</p>
+            <div><Label>Email</Label><Input type="email" value={waitlistEmail} onChange={(e) => setWaitlistEmail(e.target.value)} /></div>
+            {info ? <p className="text-sm text-blue-400">{info}</p> : null}
+            {error ? <p className="text-sm text-red-400">{error}</p> : null}
+            <Button className="w-full" type="submit">Join waitlist</Button>
+          </form>
         ) : registrationPending ? (
           <p className="text-sm text-emerald-400">Registration submitted! Your account is pending approval by an administrator.</p>
         ) : (

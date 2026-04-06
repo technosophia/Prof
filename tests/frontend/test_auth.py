@@ -5,6 +5,7 @@ import os
 
 from jose import jwt
 import pytest
+from shared.common import get_user_manager
 
 pytestmark = pytest.mark.asyncio
 
@@ -203,3 +204,36 @@ async def test_request_password_reset_unknown_user(client):
     )
     assert response.status_code == 200
     assert "reset_code" not in response.json()
+
+
+async def test_login_deadline_expired_returns_custom_message(client):
+    get_user_manager().create_user(
+        name="test_front_expired",
+        role="normal",
+        email="front_expired@example.com",
+        parent_id=None,
+        password="front-expired-pass",
+        user_id="test_front_expired",
+        allow_orphan_normal=True,
+        registration_status="approved",
+        user_metadata={
+            "preregistered_deadline_at": "2000-01-01T00:00:00",
+            "preregistered_expiry_message": "Access expired in frontend.",
+        },
+    )
+
+    response = await client.post(
+        "/api/auth/login",
+        json={"user_id": "test_front_expired", "password": "front-expired-pass"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "deadline_expired::Access expired in frontend."
+
+
+async def test_waitlist_endpoint(client):
+    response = await client.post(
+        "/api/auth/waitlist",
+        json={"email": "frontend-wait@example.com"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "pending"}
