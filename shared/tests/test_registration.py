@@ -342,3 +342,27 @@ def test_waitlist_endpoint_creates_pending_user():
     users = get_user_manager().search_users("waitlist@example.com")
     assert users
     assert users[0]["registration_status"] == "pending"
+
+
+def test_deadline_retroactive_for_existing_registered_users():
+    get_user_manager().create_user(
+        name="test_reg_retroactive",
+        role="normal",
+        email="retroactive@example.com",
+        parent_id="master1",
+        password="retroactive-pass123",
+        user_id="test_reg_retroactive",
+        registration_status="approved",
+    )
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/auth/login",
+            json={"user_id": "test_reg_retroactive", "password": "retroactive-pass123"},
+        )
+    assert login.status_code == 200
+
+    user = get_user_manager().get_user("test_reg_retroactive")
+    metadata = user.get("metadata", {})
+    assert metadata.get("preregistered_deadline_at")
+    assert metadata.get("preregistered_deadline_months") == 6

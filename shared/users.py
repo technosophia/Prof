@@ -280,6 +280,27 @@ class UserManager:
         Returns the message to display when access is expired, otherwise None.
         """
         metadata = user.user_metadata or {}
+        if not metadata.get("preregistered_deadline_at"):
+            is_retroactive_candidate = (
+                user.role == UserRole.NORMAL.value
+                and (user.registration_status or "approved") == "approved"
+                and bool(user.parent_id)
+            )
+            if is_retroactive_candidate:
+                created_at = user.created_at or datetime.utcnow()
+                metadata = {
+                    **metadata,
+                    "preregistered": metadata.get("preregistered", True),
+                    "preregistered_deadline_months": metadata.get(
+                        "preregistered_deadline_months", 6
+                    ),
+                    "preregistered_deadline_at": (
+                        created_at + timedelta(days=6 * 30)
+                    ).isoformat(),
+                }
+                user.user_metadata = metadata
+                session.commit()
+
         deadline_iso = metadata.get("preregistered_deadline_at")
         if not deadline_iso:
             return None

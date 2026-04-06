@@ -66,9 +66,16 @@ def show_users_admin_content():
         pending_count = sum(
             1 for u in manageable_users if u.get("registration_status") == "pending"
         )
+        waitlist_count = sum(
+            1
+            for u in manageable_users
+            if u.get("registration_status") == "pending"
+            and (u.get("metadata") or {}).get("created_via") == "waitlist"
+        )
         tab_names = [
             "📋 Manage Users",
             f"⏳ Pending ({pending_count})" if pending_count > 0 else "⏳ Pending",
+            f"🕒 Waitlist ({waitlist_count})" if waitlist_count > 0 else "🕒 Waitlist",
             "➕ Create User",
             "📧 Pre-registered Emails",
         ]
@@ -91,18 +98,21 @@ def show_users_admin_content():
             _render_pending_approvals_tab(current_user, user_role, manageable_users)
 
         with tabs[2]:
-            _render_create_user_tab(current_user, user_role, production_mode)
+            _render_waitlist_tab(current_user, user_role, manageable_users)
 
         with tabs[3]:
+            _render_create_user_tab(current_user, user_role, production_mode)
+
+        with tabs[4]:
             _render_preregistered_emails_tab(current_user)
 
-        activity_logs_idx = 4
+        activity_logs_idx = 5
         if production_mode and len(tabs) > activity_logs_idx:
             with tabs[activity_logs_idx]:
                 _render_activity_logs_tab(current_user, user_role, user_id)
 
         if user_role == UserRole.ADMIN.value:
-            import_export_idx = activity_logs_idx + 1 if production_mode else 3
+            import_export_idx = activity_logs_idx + 1 if production_mode else 5
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
                     _render_import_export_tab(current_user)
@@ -457,6 +467,7 @@ def _render_pending_approvals_tab(
         user
         for user in manageable_users
         if user.get("registration_status") == "pending"
+        and (user.get("metadata") or {}).get("created_via") != "waitlist"
         and user.get("id") != current_user.get("id")
     ]
 
@@ -543,6 +554,90 @@ def _render_pending_approvals_tab(
                         st.error(f"❌ Failed to reject {user.get('name', user['id'])}")
 
             st.divider()
+
+
+def _render_waitlist_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+    manageable_users: List[Dict[str, Any]],
+):
+    """Render waitlist entries with single and bulk approval actions."""
+    st.subheader("🕒 Waitlist")
+    _ = user_role  # explicit for lint/readability
+
+    waitlist_users = [
+        user
+        for user in manageable_users
+        if user.get("registration_status") == "pending"
+        and (user.get("metadata") or {}).get("created_via") == "waitlist"
+        and user.get("id") != current_user.get("id")
+    ]
+
+    if not waitlist_users:
+        st.success("No users are currently waiting on the waitlist.")
+        return
+
+    st.info(f"{len(waitlist_users)} waitlist registration(s) awaiting approval.")
+
+    selected_ids = st.multiselect(
+        "Select multiple waitlist users",
+        options=[user["id"] for user in waitlist_users],
+        format_func=lambda uid: next(
+            (
+                f"{user.get('name', user['id'])} ({user.get('email') or 'no-email'})"
+                for user in waitlist_users
+                if user["id"] == uid
+            ),
+            uid,
+        ),
+        key="waitlist_bulk_selection",
+    )
+    col_bulk_approve, col_bulk_reject = st.columns(2)
+    with col_bulk_approve:
+        if st.button("✅ Approve selected", key="waitlist_bulk_approve", width="stretch"):
+            changed = 0
+            for user_id in selected_ids:
+                if get_user_manager().set_registration_status(user_id, "approved"):
+                    changed += 1
+            if changed:
+                st.success(f"Approved {changed} waitlist user(s).")
+                st.rerun()
+            st.warning("No waitlist user was approved.")
+    with col_bulk_reject:
+        if st.button("❌ Reject selected", key="waitlist_bulk_reject", width="stretch"):
+            changed = 0
+            for user_id in selected_ids:
+                if get_user_manager().set_registration_status(user_id, "rejected"):
+                    changed += 1
+            if changed:
+                st.warning(f"Rejected {changed} waitlist user(s).")
+                st.rerun()
+            st.warning("No waitlist user was rejected.")
+
+    st.divider()
+    for user in waitlist_users:
+        cols = st.columns([3, 2, 1, 1])
+        with cols[0]:
+            st.write(f"**{user.get('name', user['id'])}**")
+            st.caption(f"📧 {user.get('email') or '-'}")
+            st.caption(f"🆔 {user['id']}")
+        with cols[1]:
+            if user.get("created_at"):
+                st.caption(f"📅 Requested: {user['created_at'][:10]}")
+            st.caption("Source: waitlist")
+        with cols[2]:
+            if st.button("✅ Approve", key=f"waitlist_approve_{user['id']}", width="stretch"):
+                if get_user_manager().set_registration_status(user["id"], "approved"):
+                    st.success(f"✅ {user.get('name', user['id'])} approved.")
+                    st.rerun()
+                st.error("❌ Failed to approve user.")
+        with cols[3]:
+            if st.button("❌ Reject", key=f"waitlist_reject_{user['id']}", width="stretch"):
+                if get_user_manager().set_registration_status(user["id"], "rejected"):
+                    st.warning(f"❌ {user.get('name', user['id'])} rejected.")
+                    st.rerun()
+                st.error("❌ Failed to reject user.")
+        st.divider()
 
 
 def _generate_reset_code(target_user_id: str, requesting_user_id: str):
