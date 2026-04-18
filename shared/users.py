@@ -131,6 +131,7 @@ class UserTable(Base):
     user_metadata = Column(JSON, default={})
     reset_code = Column(String(64), nullable=True)
     reset_code_expires = Column(DateTime, nullable=True)
+    expiration_date = Column(DateTime, nullable=True)
 
     # Relationships - define them explicitly
     parent = relationship("UserTable", remote_side=[id], back_populates="children")
@@ -191,6 +192,16 @@ class WaitlistEntry(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
 
+class SystemSettings(Base):
+    """System-wide key-value configuration settings."""
+
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 class UserManager:
     """Manages user operations."""
 
@@ -230,6 +241,11 @@ class UserManager:
                         )
                     )
                 log("info", "Added missing users.registration_status column")
+
+            if "expiration_date" not in user_columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN expiration_date DATETIME"))
+                log("info", "Added missing users.expiration_date column")
 
             log("debug", "Users table ensured to exist")
             return True
@@ -300,10 +316,22 @@ class UserManager:
         return "Your access period has ended. Please contact your teacher."
 
     def _check_deadline_expiry(self, session: Session, user: UserTable) -> Optional[str]:
-        """Deactivate user if preregistered deadline has passed.
+        """Deactivate user if expiration date has passed.
 
         Returns the message to display when access is expired, otherwise None.
         """
+        # Check the expiration_date column (new mechanism)
+        if user.expiration_date:
+            if dt_datetime.utcnow() >= user.expiration_date:
+                if user.is_active:
+                    user.is_active = False
+                    session.commit()
+                return self._deadline_message_prefix(
+                    (user.user_metadata or {}).get("expiry_message")
+                )
+            return None
+
+        # Legacy: fall back to metadata-based deadline
         metadata = user.user_metadata or {}
         if not metadata.get("preregistered_deadline_at"):
             is_retroactive_candidate = (
@@ -356,6 +384,89 @@ class UserManager:
             if not user:
                 return None
             return self._check_deadline_expiry(session, user)
+
+    def get_default_activation_duration_days(self) -> Optional[int]:
+        """Return the default activation duration in days, or None if not set."""
+        self._ensure_system_settings_table()
+        with self.db.get_session() as session:
+            setting = session.query(SystemSettings).filter_by(
+                key="default_activation_duration_days"
+            ).first()
+            if setting and setting.value is not None:
+                return int(setting.value)
+            return None
+
+    def set_default_activation_duration_days(self, days: Optional[int]) -> bool:
+        """Set the default activation duration in days (None to disable)."""
+        self._ensure_system_settings_table()
+        with self.db.get_session() as session:
+            setting = session.query(SystemSettings).filter_by(
+                key="default_activation_duration_days"
+            ).first()
+            if setting:
+                setting.value = days
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = SystemSettings(
+                    key="default_activation_duration_days", value=days
+                )
+                session.add(setting)
+            session.commit()
+        return True
+
+    def set_expiration_date(self, user_id: str, expiration_date: Optional[datetime]) -> bool:
+        """Set or clear the expiration date for a user."""
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return False
+            user.expiration_date = expiration_date
+            if expiration_date and expiration_date > datetime.utcnow() and not user.is_active:
+                user.is_active = True
+            session.commit()
+        return True
+
+    def set_expiration_date_bulk(
+        self, user_ids: List[str], expiration_date: Optional[datetime]
+    ) -> int:
+        """Set or clear the expiration date for multiple users. Returns count updated."""
+        self._ensure_table_exists()
+        count = 0
+        with self.db.get_session() as session:
+            for user_id in user_ids:
+                user = session.query(UserTable).filter_by(id=user_id).first()
+                if user:
+                    user.expiration_date = expiration_date
+                    if expiration_date and expiration_date > datetime.utcnow() and not user.is_active:
+                        user.is_active = True
+                    count += 1
+            if count:
+                session.commit()
+        return count
+
+    def deactivate_expired_users(self) -> int:
+        """Deactivate all users whose expiration_date has passed. Returns count."""
+        self._ensure_table_exists()
+        count = 0
+        now = datetime.utcnow()
+        with self.db.get_session() as session:
+            expired = (
+                session.query(UserTable)
+                .filter(
+                    UserTable.expiration_date.isnot(None),
+                    UserTable.expiration_date <= now,
+                    UserTable.is_active == True,
+                )
+                .all()
+            )
+            for user in expired:
+                user.is_active = False
+                count += 1
+            if count:
+                session.commit()
+                log("info", f"Deactivated {count} expired user(s)")
+        return count
 
     def _hash_password(self, password: str) -> str:
         """Hash a password using SHA-256 with salt."""
@@ -984,6 +1095,7 @@ class UserManager:
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "is_active": user.is_active,
+            "expiration_date": user.expiration_date.isoformat() if user.expiration_date else None,
             "profile": user.profile or {},
             "metadata": user.user_metadata or {},
             "parent_name": user.parent.name if user.parent else None,
@@ -1199,7 +1311,9 @@ class UserManager:
             )
             return [self._user_to_dict(user) for user in users]
 
-    def set_registration_status(self, user_id: str, status: str) -> bool:
+    def set_registration_status(
+        self, user_id: str, status: str, duration_days: Optional[int] = None
+    ) -> bool:
         """Set registration status for a user."""
         if status not in {"approved", "pending", "rejected"}:
             raise ValueError("Invalid registration status")
@@ -1211,6 +1325,10 @@ class UserManager:
                 return False
             previous_status = user.registration_status or "approved"
             user.registration_status = status
+            if previous_status != "approved" and status == "approved":
+                days = duration_days if duration_days is not None else self.get_default_activation_duration_days()
+                if days is not None:
+                    user.expiration_date = datetime.utcnow() + timedelta(days=days)
             session.commit()
             if previous_status != "approved" and status == "approved":
                 notify_account_approved(user.email, user.name)
@@ -1453,6 +1571,18 @@ class UserManager:
             return True
         except Exception as e:
             log("error", f"Failed to ensure waitlist tables: {e}")
+            return False
+
+    def _ensure_system_settings_table(self):
+        """Ensure the system_settings table exists."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            SystemSettings.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure system_settings table: {e}")
             return False
 
     def create_waitlist_list(self, name: str, created_by: Optional[str] = None) -> Optional[str]:
@@ -1725,12 +1855,14 @@ class UserManager:
         self,
         entry_id: str,
         master_id: str,
+        duration_days: Optional[int] = None,
     ) -> Optional[str]:
         """Approve a waitlist entry and create a user for the assigned master.
 
         Args:
             entry_id: ID of the waitlist entry
             master_id: ID of the master to assign the user to
+            duration_days: Activation duration in days (uses default if None)
 
         Returns:
             Created user ID if successful, None otherwise
@@ -1754,6 +1886,9 @@ class UserManager:
                 existing_user = session.query(UserTable).filter_by(id=entry.user_id).first()
                 if existing_user:
                     existing_user.is_active = True
+                    days = duration_days if duration_days is not None else self.get_default_activation_duration_days()
+                    if days is not None:
+                        existing_user.expiration_date = datetime.utcnow() + timedelta(days=days)
                     log("info", f"Reactivating existing user {entry.user_id}")
                     entry.status = "approved"
                     entry.master_id = master_id
@@ -1773,6 +1908,7 @@ class UserManager:
                 counter += 1
                 derived_user_id = f"{original_id}_{counter}"
 
+            days = duration_days if duration_days is not None else self.get_default_activation_duration_days()
             new_user = UserTable(
                 id=derived_user_id,
                 name=derived_user_id,
@@ -1783,6 +1919,7 @@ class UserManager:
                 registration_status="approved",
                 profile={"language": "en"},
                 user_metadata={"created_via": "waitlist", "waitlist_entry_id": entry_id},
+                expiration_date=datetime.utcnow() + timedelta(days=days) if days is not None else None,
             )
             session.add(new_user)
 
@@ -1870,12 +2007,14 @@ class UserManager:
         self,
         entry_ids: List[str],
         master_id: str,
+        duration_days: Optional[int] = None,
     ) -> List[str]:
         """Approve multiple waitlist entries.
 
         Args:
             entry_ids: List of entry IDs to approve
             master_id: ID of the master to assign users to
+            duration_days: Activation duration in days (uses default if None)
 
         Returns:
             List of created user IDs
@@ -1883,7 +2022,7 @@ class UserManager:
         created_users = []
 
         for entry_id in entry_ids:
-            user_id = self.approve_waitlist_entry(entry_id, master_id)
+            user_id = self.approve_waitlist_entry(entry_id, master_id, duration_days=duration_days)
             if user_id:
                 created_users.append(user_id)
 

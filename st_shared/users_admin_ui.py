@@ -58,23 +58,47 @@ def show_users_admin_content():
     st.header("👥 User Administration")
     st.caption(f"Role: {user_role.capitalize()} | Viewing users you can manage")
 
+    # Deactivate any users whose expiration date has passed
+    get_user_manager().deactivate_expired_users()
+
+    # Default activation duration config
+    with st.expander("⚙️ Default Activation Duration"):
+        current_default = get_user_manager().get_default_activation_duration_days()
+        col_dur1, col_dur2 = st.columns([3, 1])
+        with col_dur1:
+            new_default = st.number_input(
+                "Default duration (days) when activating a user",
+                min_value=0,
+                max_value=3650,
+                value=current_default or 0,
+                step=1,
+                help="Set to 0 to disable automatic expiration. Applied when approving waitlist or pre-registered pending users.",
+                key="default_activation_duration_input",
+            )
+        with col_dur2:
+            st.write("")
+            st.write("")
+            if st.button("💾 Save", key="save_default_duration", width="stretch"):
+                get_user_manager().set_default_activation_duration_days(
+                    int(new_default) if new_default > 0 else None
+                )
+                st.success("✅ Saved")
+                st.rerun()
+
     # Get manageable users based on role
     manageable_users = get_user_manager().get_manageable_users(user_id)
 
     # Create main tabs
     if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-        pending_count = sum(
-            1 for u in manageable_users if u.get("registration_status") == "pending"
-        )
-        waitlist_count = sum(
+        prereg_pending_count = sum(
             1
             for u in manageable_users
             if u.get("registration_status") == "pending"
-            and (u.get("metadata") or {}).get("created_via") == "waitlist"
+            and (u.get("metadata") or {}).get("created_via") != "waitlist"
         )
         tab_names = [
             "📋 Manage Users",
-            f"⏳ Pending ({pending_count})" if pending_count > 0 else "⏳ Pending",
+            f"⏳ Pre-reg. Pending ({prereg_pending_count})" if prereg_pending_count > 0 else "⏳ Pre-reg. Pending",
             "📝 Waitlist Lists",
             "🕒 Waitlist Entries",
             "➕ Create User",
@@ -397,6 +421,69 @@ def _render_activity_logs_tab(
         )
 
 
+def _render_bulk_expiration_section(
+    current_user: Dict[str, Any],
+    user_role: str,
+    manageable_users: List[Dict[str, Any]],
+):
+    """Render a collapsible section for bulk expiration date updates."""
+    eligible = [
+        u for u in manageable_users
+        if u.get("id") != current_user.get("id")
+        and u.get("registration_status") != "rejected"
+        and u.get("role") == "normal"
+    ]
+    if not eligible:
+        return
+
+    with st.expander("📅 Bulk Update Expiration Dates"):
+        selected_ids = st.multiselect(
+            "Select users",
+            options=[u["id"] for u in eligible],
+            format_func=lambda uid: next(
+                (f"{u.get('name', u['id'])} ({u.get('email') or 'no-email'})" for u in eligible if u["id"] == uid),
+                uid,
+            ),
+            key="bulk_exp_user_select",
+        )
+
+        col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
+        with col_b1:
+            new_exp_date = st.date_input(
+                "New expiration date",
+                value=None,
+                key="bulk_exp_date_input",
+            )
+        with col_b2:
+            st.write("")
+            if st.button(
+                "📅 Apply",
+                key="bulk_exp_apply",
+                disabled=not selected_ids,
+                width="stretch",
+            ):
+                if new_exp_date:
+                    import datetime as _dt
+                    exp_dt = _dt.datetime.combine(new_exp_date, _dt.time.min)
+                    count = get_user_manager().set_expiration_date_bulk(selected_ids, exp_dt)
+                    st.success(f"✅ Updated expiration date for {count} user(s).")
+                    st.rerun()
+                else:
+                    st.warning("Please select a date first.")
+        with col_b3:
+            st.write("")
+            if st.button(
+                "🗑️ Clear",
+                key="bulk_exp_clear",
+                disabled=not selected_ids,
+                width="stretch",
+                help="Remove expiration date from selected users",
+            ):
+                count = get_user_manager().set_expiration_date_bulk(selected_ids, None)
+                st.success(f"✅ Cleared expiration date for {count} user(s).")
+                st.rerun()
+
+
 def _render_user_management_tab(
     current_user: Dict[str, Any],
     user_role: str,
@@ -445,6 +532,9 @@ def _render_user_management_tab(
         if user_role == UserRole.MASTER.value:
             _render_master_account_section(current_user, user_id, production_mode)
 
+        # Bulk expiration date update
+        _render_bulk_expiration_section(current_user, user_role, manageable_users)
+
         # Delete confirmation dialog
         _render_delete_confirmation(current_user, production_mode)
 
@@ -464,8 +554,8 @@ def _render_pending_approvals_tab(
     user_role: str,
     manageable_users: List[Dict[str, Any]],
 ):
-    """Render a dedicated tab for pending user approvals."""
-    st.subheader("⏳ Pending Registrations")
+    """Render a dedicated tab for pre-registered pending user approvals."""
+    st.subheader("⏳ Pre-registered Pending Registrations")
 
     pending_users = [
         user
@@ -511,9 +601,11 @@ def _render_pending_approvals_tab(
         else:
             st.success("No pending registrations to review.")
 
+    default_days = get_user_manager().get_default_activation_duration_days()
+
     for user in pending_users:
         with st.container():
-            cols = st.columns([3, 2, 1, 1])
+            cols = st.columns([3, 2, 1, 1, 1])
 
             with cols[0]:
                 st.write(f"**{user.get('name', user['id'])}**")
@@ -528,21 +620,34 @@ def _render_pending_approvals_tab(
                     st.caption(f"🌐 Language: {user['profile']['language']}")
 
             with cols[2]:
+                duration_val = st.number_input(
+                    "Days",
+                    min_value=0,
+                    max_value=3650,
+                    value=default_days or 0,
+                    step=1,
+                    key=f"pending_duration_{user['id']}",
+                    help="Activation duration in days (0 = no expiration)",
+                    label_visibility="collapsed",
+                )
+
+            with cols[3]:
                 if st.button(
                     "✅ Approve",
                     key=f"approve_pending_{user['id']}",
                     help=f"Approve registration for {user.get('name', user['id'])}",
                     width="stretch",
                 ):
+                    days_to_use = int(duration_val) if duration_val > 0 else None
                     if get_user_manager().set_registration_status(
-                        user["id"], "approved"
+                        user["id"], "approved", duration_days=days_to_use
                     ):
                         st.success(f"✅ {user.get('name', user['id'])} approved!")
                         st.rerun()
                     else:
                         st.error(f"❌ Failed to approve {user.get('name', user['id'])}")
 
-            with cols[3]:
+            with cols[4]:
                 if st.button(
                     "❌ Reject",
                     key=f"reject_pending_{user['id']}",
@@ -711,10 +816,11 @@ def _render_waitlist_entries_tab(
         default=valid_default,
     )
 
-    col_bulk_actions = st.columns([2, 2, 2])
+    col_bulk_actions = st.columns([2, 1, 2, 2])
     masters = user_manager.get_users_by_role(UserRole.MASTER.value)
     master_ids = [m["id"] for m in masters]
     master_names = {m["id"]: m["name"] for m in masters}
+    default_days = user_manager.get_default_activation_duration_days()
 
     with col_bulk_actions[0]:
         selected_master = st.selectbox(
@@ -724,13 +830,24 @@ def _render_waitlist_entries_tab(
             key="bulk_approve_master_select",
         )
     with col_bulk_actions[1]:
+        bulk_duration = st.number_input(
+            "Days",
+            min_value=0,
+            max_value=3650,
+            value=default_days or 0,
+            step=1,
+            key="waitlist_bulk_duration",
+            help="Activation duration in days (0 = use default / no expiration)",
+        )
+    with col_bulk_actions[2]:
         if st.button("✅ Approve selected", key="waitlist_bulk_approve_entries", width="stretch", disabled=not selected_master or not selected_entry_ids):
-            created = user_manager.bulk_approve_waitlist_entries(selected_entry_ids, selected_master)
+            days_to_use = int(bulk_duration) if bulk_duration > 0 else None
+            created = user_manager.bulk_approve_waitlist_entries(selected_entry_ids, selected_master, duration_days=days_to_use)
             if created:
                 st.success(f"✅ Approved {len(created)} user(s).")
                 st.rerun()
             st.warning("No entries were approved.")
-    with col_bulk_actions[2]:
+    with col_bulk_actions[3]:
         if st.button("❌ Reject selected", key="waitlist_bulk_reject_entries", width="stretch", disabled=not selected_entry_ids):
             rejected = user_manager.bulk_reject_waitlist_entries(selected_entry_ids)
             if rejected:
@@ -748,7 +865,7 @@ def _render_waitlist_entries_tab(
             if master:
                 master_name = master["name"]
 
-        cols = st.columns([3, 2, 2, 1, 1, 1])
+        cols = st.columns([3, 2, 1, 1, 1, 1])
         with cols[0]:
             st.write(f"**{entry['email']}**")
             st.caption(f"List: {list_name}")
@@ -759,16 +876,28 @@ def _render_waitlist_entries_tab(
             st.caption(f"Status: {status_color} {entry['status']}")
             if master_name:
                 st.caption(f"Master: {master_name}")
-        with cols[2]:
             if entry.get("user_id"):
-                st.caption(f"User ID: {entry['user_id']}")
+                st.caption(f"User: {entry['user_id']}")
+        with cols[2]:
+            if entry["status"] == "pending":
+                entry_duration = st.number_input(
+                    "Days",
+                    min_value=0,
+                    max_value=3650,
+                    value=default_days or 0,
+                    step=1,
+                    key=f"entry_duration_{entry['id']}",
+                    help="Activation duration in days (0 = no expiration)",
+                    label_visibility="collapsed",
+                )
         with cols[3]:
             if entry["status"] == "pending":
                 if st.button("✅ Approve", key=f"approve_entry_{entry['id']}", width="stretch"):
                     if masters:
                         default_master_id = masters[0]["id"] if masters else None
                         if default_master_id:
-                            created_user = user_manager.approve_waitlist_entry(entry["id"], default_master_id)
+                            days_to_use = int(entry_duration) if entry_duration > 0 else None
+                            created_user = user_manager.approve_waitlist_entry(entry["id"], default_master_id, duration_days=days_to_use)
                             if created_user:
                                 st.success(f"✅ Approved! User: {created_user}")
                                 st.rerun()
@@ -1263,6 +1392,38 @@ def _render_edit_form_fields(
     else:
         edit_active = user_to_edit.get("is_active", True)
 
+    # Expiration date (admin/master only, can't edit self)
+    edit_expiration_date = user_to_edit.get("expiration_date")
+    resolved_exp = "unchanged"
+    if (
+        current_user["role"] in [UserRole.ADMIN.value, UserRole.MASTER.value]
+        and not is_editing_self
+    ):
+        st.subheader("Expiration Date")
+        exp_val = None
+        if edit_expiration_date:
+            try:
+                exp_val = datetime.fromisoformat(edit_expiration_date).date()
+            except Exception:
+                pass
+        has_exp = st.checkbox(
+            "Set expiration date",
+            value=exp_val is not None,
+            key=f"has_exp_{user_to_edit['id']}",
+        )
+        if has_exp:
+            from datetime import date as _date_type
+            new_exp_date = st.date_input(
+                "Expires on",
+                value=exp_val or datetime.today().date(),
+                min_value=datetime.today().date(),
+                key=f"edit_exp_date_{user_to_edit['id']}",
+                help="User will be deactivated on this date.",
+            )
+            resolved_exp = new_exp_date
+        else:
+            resolved_exp = None
+
     return {
         "name": edit_name,
         "email": edit_email,
@@ -1271,6 +1432,7 @@ def _render_edit_form_fields(
         "parent_id": selected_parent,
         "profile": profile_updates,
         "is_active": edit_active,
+        "expiration_date": resolved_exp,
     }
 
 
@@ -1613,6 +1775,19 @@ def _process_edit_submission(
             )
 
             if success:
+                # Handle expiration date update separately
+                if not is_editing_self:
+                    exp = edit_data.get("expiration_date")
+                    if exp != "unchanged":
+                        if exp is None:
+                            get_user_manager().set_expiration_date(user_id_to_edit, None)
+                        else:
+                            import datetime as _dt
+                            from datetime import date as _date_type
+                            if isinstance(exp, _date_type):
+                                exp_dt = _dt.datetime.combine(exp, _dt.time.min)
+                                get_user_manager().set_expiration_date(user_id_to_edit, exp_dt)
+
                 # If ID was changed, show a message about the new ID
                 if updates.get("new_id") and updates["new_id"] != user_id_to_edit:
                     st.success(
@@ -1924,6 +2099,18 @@ def _render_user_row(
             # Language
             if user.get("profile", {}).get("language"):
                 st.caption(f"🌐 {user['profile']['language']}")
+
+            # Expiration date
+            exp_date = user.get("expiration_date")
+            if exp_date:
+                try:
+                    exp_dt = datetime.fromisoformat(exp_date)
+                    if exp_dt < datetime.utcnow():
+                        st.caption(f"⏰ Expired: {exp_date[:10]}")
+                    else:
+                        st.caption(f"⏰ Expires: {exp_date[:10]}")
+                except Exception:
+                    pass
 
         with cols[2]:
             # View details button
