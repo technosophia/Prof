@@ -75,7 +75,8 @@ def show_users_admin_content():
         tab_names = [
             "📋 Manage Users",
             f"⏳ Pending ({pending_count})" if pending_count > 0 else "⏳ Pending",
-            f"🕒 Waitlist ({waitlist_count})" if waitlist_count > 0 else "🕒 Waitlist",
+            "📝 Waitlist Lists",
+            "🕒 Waitlist Entries",
             "➕ Create User",
             "📧 Pre-registered Emails",
         ]
@@ -98,21 +99,24 @@ def show_users_admin_content():
             _render_pending_approvals_tab(current_user, user_role, manageable_users)
 
         with tabs[2]:
-            _render_waitlist_tab(current_user, user_role, manageable_users)
+            _render_waitlist_lists_tab(current_user, user_role)
 
         with tabs[3]:
-            _render_create_user_tab(current_user, user_role, production_mode)
+            _render_waitlist_entries_tab(current_user, user_role, manageable_users)
 
         with tabs[4]:
+            _render_create_user_tab(current_user, user_role, production_mode)
+
+        with tabs[5]:
             _render_preregistered_emails_tab(current_user)
 
-        activity_logs_idx = 5
+        activity_logs_idx = 6
         if production_mode and len(tabs) > activity_logs_idx:
             with tabs[activity_logs_idx]:
                 _render_activity_logs_tab(current_user, user_role, user_id)
 
         if user_role == UserRole.ADMIN.value:
-            import_export_idx = activity_logs_idx + 1 if production_mode else 5
+            import_export_idx = activity_logs_idx + 1 if production_mode else 6
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
                     _render_import_export_tab(current_user)
@@ -554,6 +558,238 @@ def _render_pending_approvals_tab(
                         st.error(f"❌ Failed to reject {user.get('name', user['id'])}")
 
             st.divider()
+
+
+def _render_waitlist_lists_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+):
+    """Render waitlist lists management tab."""
+    st.subheader("📝 Waitlist Lists")
+    _ = user_role  # explicit for lint/readability
+
+    user_manager = get_user_manager()
+    lists = user_manager.get_all_waitlist_lists()
+
+    col_create, col_refresh = st.columns([4, 1])
+    with col_create:
+        new_list_name = st.text_input("Create new waitlist list", placeholder="e.g., Spring 2026 Cohort")
+    with col_refresh:
+        st.write("")
+        if st.button("➕ Create", key="create_waitlist_list", type="primary"):
+            if new_list_name and new_list_name.strip():
+                list_id = user_manager.create_waitlist_list(new_list_name.strip(), current_user["id"])
+                if list_id:
+                    st.success(f"✅ Created list: {new_list_name}")
+                    st.rerun()
+                else:
+                    st.error("❌ List already exists or invalid name")
+            else:
+                st.error("Please enter a list name")
+
+    st.divider()
+
+    if not lists:
+        st.info("No waitlist lists yet. Create one above.")
+        return
+
+    st.write(f"**Existing Lists ({len(lists)}):**")
+
+    for wl_list in lists:
+        cols = st.columns([3, 2, 2, 1])
+        with cols[0]:
+            st.write(f"**{wl_list['name']}**")
+            if wl_list.get("created_at"):
+                st.caption(f"Created: {wl_list['created_at'][:10]}")
+        with cols[1]:
+            if wl_list.get("created_by"):
+                creator = user_manager.get_user(wl_list["created_by"])
+                if creator:
+                    st.caption(f"By: {creator['name']}")
+        with cols[2]:
+            entry_count = len(user_manager.get_waitlist_entries(list_id=wl_list["id"]))
+            st.caption(f"{entry_count} entries")
+        with cols[3]:
+            if st.button("🗑️ Delete", key=f"delete_waitlist_list_{wl_list['id']}", width="stretch"):
+                if user_manager.delete_waitlist_list(wl_list["id"]):
+                    st.warning(f"⚠️ Deleted list: {wl_list['name']}")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to delete list")
+
+    st.divider()
+
+    st.write("**Rename a list:**")
+    rename_ids = [""] + list([l["id"] for l in lists])
+    rename_names = {l["id"]: l["name"] for l in lists}
+    selected_rename = st.selectbox(
+        "Select list to rename",
+        options=rename_ids,
+        format_func=lambda x: rename_names.get(x, "Select a list...") if x else "Select a list...",
+        key="rename_waitlist_list_select",
+    )
+
+    if selected_rename:
+        current_name = rename_names.get(selected_rename, "")
+        new_name = st.text_input("New name", value=current_name, key="new_waitlist_name")
+        if st.button("✏️ Rename", key="rename_waitlist_list_btn"):
+            if new_name and new_name.strip() and new_name != current_name:
+                if user_manager.rename_waitlist_list(selected_rename, new_name.strip()):
+                    st.success(f"✅ Renamed to: {new_name}")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to rename (name may already exist)")
+            else:
+                st.warning("Please enter a different name")
+
+
+def _render_waitlist_entries_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+    manageable_users: List[Dict[str, Any]],
+):
+    """Render waitlist entries with filtering by list and master approval."""
+    st.subheader("🕒 Waitlist Entries")
+    _ = user_role  # explicit for lint/readability
+
+    user_manager = get_user_manager()
+    lists = user_manager.get_all_waitlist_lists()
+
+    col_filter1, col_filter2 = st.columns(2)
+    list_ids = [""] + list([l["id"] for l in lists])
+    list_names = {l["id"]: l["name"] for l in lists}
+    with col_filter1:
+        selected_list = st.selectbox(
+            "Filter by list",
+            options=list_ids,
+            format_func=lambda x: list_names.get(x, "All lists") if x else "All lists",
+            key="waitlist_entries_filter_list",
+        )
+    with col_filter2:
+        selected_status = st.selectbox(
+            "Filter by status",
+            options=["", "pending", "approved", "rejected"],
+            format_func=lambda x: x.capitalize() if x else "All statuses",
+            key="waitlist_entries_filter_status",
+        )
+
+    entries = user_manager.get_waitlist_entries(
+        list_id=selected_list if selected_list else None,
+        status=selected_status if selected_status else None,
+    )
+
+    if not entries:
+        st.success("No waitlist entries found.")
+        return
+
+    st.info(f"{len(entries)} entry(s) found.")
+
+    pending_entries = [e["id"] for e in entries if e["status"] == "pending"]
+
+    col_select_all, col_select_pending = st.columns(2)
+    with col_select_all:
+        if st.button("Select All", key="select_all_entries", width="stretch"):
+            st.session_state.waitlist_entries_bulk_selection = [e["id"] for e in entries]
+            st.rerun()
+    with col_select_pending:
+        if st.button("Select All Pending", key="select_pending_entries", width="stretch", disabled=not pending_entries):
+            st.session_state.waitlist_entries_bulk_selection = pending_entries
+            st.rerun()
+
+    current_entry_ids = [e["id"] for e in entries]
+    saved_selection = st.session_state.get("waitlist_entries_bulk_selection", [])
+    valid_default = [eid for eid in saved_selection if eid in current_entry_ids]
+
+    selected_entry_ids = st.multiselect(
+        "Select multiple entries",
+        options=current_entry_ids,
+        format_func=lambda eid: next(
+            (f"{e['email']} - {e['status']}" for e in entries if e["id"] == eid),
+            eid,
+        ),
+        key="waitlist_entries_bulk_selection",
+        default=valid_default,
+    )
+
+    col_bulk_actions = st.columns([2, 2, 2])
+    masters = user_manager.get_users_by_role(UserRole.MASTER.value)
+    master_ids = [m["id"] for m in masters]
+    master_names = {m["id"]: m["name"] for m in masters}
+
+    with col_bulk_actions[0]:
+        selected_master = st.selectbox(
+            "Assign to master",
+            options=master_ids,
+            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+            key="bulk_approve_master_select",
+        )
+    with col_bulk_actions[1]:
+        if st.button("✅ Approve selected", key="waitlist_bulk_approve_entries", width="stretch", disabled=not selected_master or not selected_entry_ids):
+            created = user_manager.bulk_approve_waitlist_entries(selected_entry_ids, selected_master)
+            if created:
+                st.success(f"✅ Approved {len(created)} user(s).")
+                st.rerun()
+            st.warning("No entries were approved.")
+    with col_bulk_actions[2]:
+        if st.button("❌ Reject selected", key="waitlist_bulk_reject_entries", width="stretch", disabled=not selected_entry_ids):
+            rejected = user_manager.bulk_reject_waitlist_entries(selected_entry_ids)
+            if rejected:
+                st.warning(f"Rejected {rejected} entry(s).")
+                st.rerun()
+            st.warning("No entries were rejected.")
+
+    st.divider()
+
+    for entry in entries:
+        list_name = next((l["name"] for l in lists if l["id"] == entry["list_id"]), entry["list_id"])
+        master_name = ""
+        if entry.get("master_id"):
+            master = user_manager.get_user(entry["master_id"])
+            if master:
+                master_name = master["name"]
+
+        cols = st.columns([3, 2, 2, 1, 1, 1])
+        with cols[0]:
+            st.write(f"**{entry['email']}**")
+            st.caption(f"List: {list_name}")
+            if entry.get("created_at"):
+                st.caption(f"Added: {entry['created_at'][:10]}")
+        with cols[1]:
+            status_color = "🟡" if entry["status"] == "pending" else "🟢" if entry["status"] == "approved" else "🔴"
+            st.caption(f"Status: {status_color} {entry['status']}")
+            if master_name:
+                st.caption(f"Master: {master_name}")
+        with cols[2]:
+            if entry.get("user_id"):
+                st.caption(f"User ID: {entry['user_id']}")
+        with cols[3]:
+            if entry["status"] == "pending":
+                if st.button("✅ Approve", key=f"approve_entry_{entry['id']}", width="stretch"):
+                    if masters:
+                        default_master_id = masters[0]["id"] if masters else None
+                        if default_master_id:
+                            created_user = user_manager.approve_waitlist_entry(entry["id"], default_master_id)
+                            if created_user:
+                                st.success(f"✅ Approved! User: {created_user}")
+                                st.rerun()
+                            st.error("❌ Failed to approve")
+                    else:
+                        st.error("No masters available")
+        with cols[4]:
+            if entry["status"] == "pending":
+                if st.button("❌ Reject", key=f"reject_entry_{entry['id']}", width="stretch"):
+                    if user_manager.reject_waitlist_entry(entry["id"]):
+                        st.warning("❌ Rejected")
+                        st.rerun()
+                    st.error("❌ Failed to reject")
+        with cols[5]:
+            if entry["status"] == "rejected":
+                if st.button("🔄 Re-approve", key=f"reetry_entry_{entry['id']}", width="stretch"):
+                    if user_manager.reapprove_waitlist_entry(entry["id"]):
+                        st.success("✅ Re-approved! Set back to pending.")
+                        st.rerun()
+                    st.error("❌ Failed to re-approve")
+        st.divider()
 
 
 def _render_waitlist_tab(

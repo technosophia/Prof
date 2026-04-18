@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -28,6 +28,8 @@ export default function Login() {
   const [loginForm, setLoginForm] = useState({ userId: '', password: '' })
   const [registerForm, setRegisterForm] = useState({ email: '', password: '', confirmPassword: '', userId: '' })
   const [waitlistEmail, setWaitlistEmail] = useState('')
+  const [selectedList, setSelectedList] = useState('')
+  const [availableLists, setAvailableLists] = useState([])
   const [resetForm, setResetForm] = useState({ userId: '', resetCode: '', newPassword: '', confirmPassword: '' })
   const [resetStep, setResetStep] = useState(1)
   const [error, setError] = useState('')
@@ -35,6 +37,17 @@ export default function Login() {
   const [registrationPending, setRegistrationPending] = useState(false)
   const [resetPending, setResetPending] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    auth.getWaitlistLists().then(lists => {
+      setAvailableLists(lists)
+      if (lists.length > 0) {
+        setSelectedList(lists[0].id)
+      }
+    }).catch(() => {
+      setAvailableLists([])
+    })
+  }, [])
 
   const emailDerivedId = useMemo(() => deriveUserIdFromEmail(registerForm.email), [registerForm.email])
 
@@ -176,9 +189,13 @@ export default function Login() {
       setError('Please provide a valid email address.')
       return
     }
+    if (!selectedList) {
+      setError('Please select a waitlist.')
+      return
+    }
 
     try {
-      const data = await auth.waitlist(email)
+      const data = await auth.waitlist(email, selectedList)
       if (data?.status === 'pending') {
         setInfo('You have been added to the waitlist. You will receive an email when your account is approved.')
         setWaitlistEmail('')
@@ -252,10 +269,27 @@ export default function Login() {
         ) : activeTab === 'waitlist' ? (
           <form className="space-y-3" onSubmit={submitWaitlist}>
             <p className="text-sm text-slate-400">No account yet? Join the waitlist and get notified after approval.</p>
+            <div>
+              <Label>Select Waitlist</Label>
+              <select
+                value={selectedList}
+                onChange={(e) => setSelectedList(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-black"
+                style={{ backgroundColor: 'white', color: 'black', border: '1px solid #ccc' }}
+              >
+                {availableLists.length === 0 ? (
+                  <option value="">No lists available</option>
+                ) : (
+                  availableLists.map(list => (
+                    <option key={list.id} value={list.id} style={{color: 'black'}}>{list.name}</option>
+                  ))
+                )}
+              </select>
+            </div>
             <div><Label>Email</Label><Input type="email" value={waitlistEmail} onChange={(e) => setWaitlistEmail(e.target.value)} /></div>
             {info ? <p className="text-sm text-blue-400">{info}</p> : null}
             {error ? <p className="text-sm text-red-400">{error}</p> : null}
-            <Button className="w-full" type="submit">Join waitlist</Button>
+            <Button className="w-full" type="submit" disabled={availableLists.length === 0}>Join waitlist</Button>
           </form>
         ) : registrationPending ? (
           <p className="text-sm text-emerald-400">Registration submitted! Your account is pending approval by an administrator.</p>

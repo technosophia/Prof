@@ -166,6 +166,31 @@ class UserActionLog(Base):
     error_message = Column(String(500), nullable=True)  # Add length
 
 
+class WaitlistList(Base):
+    """Waitlist lists for organizing email registrations."""
+
+    __tablename__ = "waitlist_lists"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+
+
+class WaitlistEntry(Base):
+    """Waitlist entries - emails registered for a specific list."""
+
+    __tablename__ = "waitlist_entries"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    list_id = Column(String(36), ForeignKey("waitlist_lists.id"), nullable=False)
+    email = Column(String(255), nullable=False)
+    status = Column(String(20), default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    master_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+
+
 class UserManager:
     """Manages user operations."""
 
@@ -1032,6 +1057,21 @@ class UserManager:
                 return self._user_to_dict(user)
             return None
 
+    @staticmethod
+    def _sanitize_user_id(raw_user_id: str) -> str:
+        """Sanitize a raw user ID string.
+
+        Args:
+            raw_user_id: Raw user ID from email prefix or input
+
+        Returns:
+            Sanitized user ID safe for database storage
+        """
+        candidate = (raw_user_id or "").strip().lower().replace(" ", "_").replace(".", "_")
+        while "__" in candidate:
+            candidate = candidate.replace("__", "_")
+        return candidate.strip("_")
+
     def authenticate_user_with_status(
         self, user_id: str, password: str
     ) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -1401,6 +1441,470 @@ class UserManager:
             count = session.query(PreregisteredEmail).delete()
             log("info", f"Deleted {count} preregistered emails")
             return count
+
+    def _ensure_waitlist_tables(self):
+        """Ensure waitlist tables exist."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            WaitlistList.__table__.create(bind=self.db._engine, checkfirst=True)
+            WaitlistEntry.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure waitlist tables: {e}")
+            return False
+
+    def create_waitlist_list(self, name: str, created_by: Optional[str] = None) -> Optional[str]:
+        """Create a new waitlist list.
+
+        Args:
+            name: Name of the list
+            created_by: User ID creating the list
+
+        Returns:
+            List ID if successful, None otherwise
+        """
+        if not name or not name.strip():
+            log("warning", "Cannot create waitlist list: empty name")
+            return None
+
+        normalized_name = name.strip()
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(WaitlistList)
+                .filter(func.lower(WaitlistList.name) == normalized_name.lower())
+                .first()
+            )
+            if existing:
+                log("warning", f"Waitlist list '{name}' already exists")
+                return None
+
+            waitlist_list = WaitlistList(
+                id=str(uuid.uuid4()),
+                name=normalized_name,
+                created_by=created_by,
+            )
+            session.add(waitlist_list)
+            session.commit()
+            log("info", f"Created waitlist list: {normalized_name}")
+            return waitlist_list.id
+
+    def delete_waitlist_list(self, list_id: str) -> bool:
+        """Delete a waitlist list and all its entries.
+
+        Args:
+            list_id: ID of the list to delete
+
+        Returns:
+            True if successful
+        """
+        if not list_id:
+            return False
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            waitlist_list = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not waitlist_list:
+                log("warning", f"Waitlist list {list_id} not found")
+                return False
+
+            session.query(WaitlistEntry).filter_by(list_id=list_id).delete()
+            session.delete(waitlist_list)
+            session.commit()
+            log("info", f"Deleted waitlist list: {list_id}")
+            return True
+
+    def rename_waitlist_list(self, list_id: str, new_name: str) -> bool:
+        """Rename a waitlist list.
+
+        Args:
+            list_id: ID of the list
+            new_name: New name for the list
+
+        Returns:
+            True if successful
+        """
+        if not list_id or not new_name or not new_name.strip():
+            return False
+
+        normalized_name = new_name.strip()
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(WaitlistList)
+                .filter(
+                    func.lower(WaitlistList.name) == normalized_name.lower(),
+                    WaitlistList.id != list_id,
+                )
+                .first()
+            )
+            if existing:
+                log("warning", f"Waitlist list name '{new_name}' already exists")
+                return False
+
+            waitlist_list = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not waitlist_list:
+                return False
+
+            waitlist_list.name = normalized_name
+            session.commit()
+            log("info", f"Renamed waitlist list {list_id} to '{normalized_name}'")
+            return True
+
+    def get_all_waitlist_lists(self) -> List[Dict[str, Any]]:
+        """Get all waitlist lists."""
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            lists = session.query(WaitlistList).order_by(WaitlistList.created_at).all()
+            return [
+                {
+                    "id": wl.id,
+                    "name": wl.name,
+                    "created_at": wl.created_at.isoformat() if wl.created_at else None,
+                    "created_by": wl.created_by,
+                }
+                for wl in lists
+            ]
+
+    def get_waitlist_list(self, list_id: str) -> Optional[Dict[str, Any]]:
+        """Get a waitlist list by ID."""
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            wl = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not wl:
+                return None
+            return {
+                "id": wl.id,
+                "name": wl.name,
+                "created_at": wl.created_at.isoformat() if wl.created_at else None,
+                "created_by": wl.created_by,
+            }
+
+    def add_waitlist_entry(
+        self,
+        email: str,
+        list_id: str,
+    ) -> Optional[str]:
+        """Add an email to a waitlist.
+
+        Args:
+            email: Email address to add
+            list_id: ID of the waitlist list
+
+        Returns:
+            Entry ID if successful, None otherwise
+        """
+        if not email or not list_id:
+            return None
+
+        normalized_email = email.strip().lower()
+        email_regex = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+        if not email_regex.match(normalized_email):
+            log("warning", f"Invalid email format: {email}")
+            return None
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            waitlist_list = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not waitlist_list:
+                log("warning", f"Waitlist list {list_id} not found")
+                return None
+
+            existing = (
+                session.query(WaitlistEntry)
+                .filter(
+                    func.lower(WaitlistEntry.email) == normalized_email,
+                    WaitlistEntry.list_id == list_id,
+                )
+                .first()
+            )
+            if existing:
+                log("info", f"Email {email} already in waitlist list {list_id}")
+                return None
+
+            entry = WaitlistEntry(
+                id=str(uuid.uuid4()),
+                list_id=list_id,
+                email=normalized_email,
+                status="pending",
+            )
+            session.add(entry)
+            session.commit()
+            log("info", f"Added {email} to waitlist list {list_id}")
+            return entry.id
+
+    def delete_waitlist_entry(self, entry_id: str) -> bool:
+        """Delete a waitlist entry.
+
+        Args:
+            entry_id: ID of the entry to delete
+
+        Returns:
+            True if successful
+        """
+        if not entry_id:
+            return False
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                return False
+
+            session.delete(entry)
+            session.commit()
+            log("info", f"Deleted waitlist entry: {entry_id}")
+            return True
+
+    def get_waitlist_entries(
+        self,
+        list_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get waitlist entries with optional filtering.
+
+        Args:
+            list_id: Filter by list ID
+            status: Filter by status (pending, approved, rejected)
+
+        Returns:
+            List of waitlist entries
+        """
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            query = session.query(WaitlistEntry)
+
+            if list_id:
+                query = query.filter(WaitlistEntry.list_id == list_id)
+            if status:
+                query = query.filter(WaitlistEntry.status == status)
+
+            entries = query.order_by(WaitlistEntry.created_at).all()
+            return [
+                {
+                    "id": e.id,
+                    "list_id": e.list_id,
+                    "email": e.email,
+                    "status": e.status,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "master_id": e.master_id,
+                    "user_id": e.user_id,
+                }
+                for e in entries
+            ]
+
+    def get_waitlist_entry(self, entry_id: str) -> Optional[Dict[str, Any]]:
+        """Get a waitlist entry by ID."""
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            e = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not e:
+                return None
+            return {
+                "id": e.id,
+                "list_id": e.list_id,
+                "email": e.email,
+                "status": e.status,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+                "master_id": e.master_id,
+                "user_id": e.user_id,
+            }
+
+    def approve_waitlist_entry(
+        self,
+        entry_id: str,
+        master_id: str,
+    ) -> Optional[str]:
+        """Approve a waitlist entry and create a user for the assigned master.
+
+        Args:
+            entry_id: ID of the waitlist entry
+            master_id: ID of the master to assign the user to
+
+        Returns:
+            Created user ID if successful, None otherwise
+        """
+        if not entry_id or not master_id:
+            return None
+
+        self._ensure_waitlist_tables()
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                log("warning", f"Waitlist entry {entry_id} not found")
+                return None
+            if entry.status not in ["pending", "rejected"]:
+                log("warning", f"Waitlist entry {entry_id} has status {entry.status}, must be pending or rejected")
+                return None
+
+            if entry.status == "rejected" and entry.user_id:
+                existing_user = session.query(UserTable).filter_by(id=entry.user_id).first()
+                if existing_user:
+                    existing_user.is_active = True
+                    log("info", f"Reactivating existing user {entry.user_id}")
+                    entry.status = "approved"
+                    entry.master_id = master_id
+                    session.commit()
+                    log("info", f"Approved waitlist entry {entry_id} (reactivated user {entry.user_id})")
+                    return entry.user_id
+
+            master = session.query(UserTable).filter_by(id=master_id).first()
+            if not master or master.role != UserRole.MASTER.value:
+                log("warning", f"Master {master_id} not found or not a master")
+                return None
+
+            derived_user_id = f"wait_{self._sanitize_user_id(entry.email.split('@')[0])}"
+            counter = 0
+            original_id = derived_user_id
+            while session.query(UserTable).filter_by(id=derived_user_id).first():
+                counter += 1
+                derived_user_id = f"{original_id}_{counter}"
+
+            new_user = UserTable(
+                id=derived_user_id,
+                name=derived_user_id,
+                email=entry.email,
+                role=UserRole.NORMAL.value,
+                parent_id=master_id,
+                is_active=True,
+                registration_status="approved",
+                profile={"language": "en"},
+                user_metadata={"created_via": "waitlist", "waitlist_entry_id": entry_id},
+            )
+            session.add(new_user)
+
+            entry.status = "approved"
+            entry.master_id = master_id
+            entry.user_id = derived_user_id
+            session.commit()
+
+            log("info", f"Approved waitlist entry {entry_id} -> user {derived_user_id}")
+            return derived_user_id
+
+    def reject_waitlist_entry(self, entry_id: str) -> bool:
+        """Reject a waitlist entry and deactivate the created user.
+
+        Args:
+            entry_id: ID of the waitlist entry
+
+        Returns:
+            True if successful
+        """
+        if not entry_id:
+            return False
+
+        self._ensure_waitlist_tables()
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                return False
+
+            if entry.user_id:
+                user = session.query(UserTable).filter_by(id=entry.user_id).first()
+                if user:
+                    user.is_active = False
+                    log("info", f"Deactivated user {entry.user_id} for waitlist entry {entry_id}")
+
+            entry.status = "rejected"
+            session.commit()
+            log("info", f"Rejected waitlist entry: {entry_id}")
+            return True
+
+    def reapprove_waitlist_entry(
+        self,
+        entry_id: str,
+    ) -> bool:
+        """Re-approve a rejected waitlist entry (reset status to pending and reactivate user).
+
+        Args:
+            entry_id: ID of the waitlist entry
+
+        Returns:
+            True if successful
+        """
+        if not entry_id:
+            return False
+
+        self._ensure_waitlist_tables()
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                log("warning", f"Cannot re-approve: entry {entry_id} not found")
+                return False
+            if entry.status == "pending":
+                log("info", f"Entry {entry_id} is already pending")
+                return True
+            if entry.status != "rejected":
+                log("warning", f"Cannot re-approve: entry {entry_id} has status {entry.status}")
+                return False
+
+            if entry.user_id:
+                user = session.query(UserTable).filter_by(id=entry.user_id).first()
+                if user:
+                    user.is_active = True
+                    log("info", f"Reactivated user {entry.user_id} for waitlist entry {entry_id}")
+
+            entry.status = "pending"
+            session.commit()
+            log("info", f"Re-approved waitlist entry: {entry_id}")
+            return True
+
+    def bulk_approve_waitlist_entries(
+        self,
+        entry_ids: List[str],
+        master_id: str,
+    ) -> List[str]:
+        """Approve multiple waitlist entries.
+
+        Args:
+            entry_ids: List of entry IDs to approve
+            master_id: ID of the master to assign users to
+
+        Returns:
+            List of created user IDs
+        """
+        created_users = []
+
+        for entry_id in entry_ids:
+            user_id = self.approve_waitlist_entry(entry_id, master_id)
+            if user_id:
+                created_users.append(user_id)
+
+        return created_users
+
+    def bulk_reject_waitlist_entries(self, entry_ids: List[str]) -> int:
+        """Reject multiple waitlist entries.
+
+        Args:
+            entry_ids: List of entry IDs to reject
+
+        Returns:
+            Number of entries rejected
+        """
+        rejected_count = 0
+
+        for entry_id in entry_ids:
+            if self.reject_waitlist_entry(entry_id):
+                rejected_count += 1
+
+        return rejected_count
 
     def add_preregistered_email(
         self,
