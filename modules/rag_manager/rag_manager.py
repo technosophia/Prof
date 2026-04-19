@@ -31,7 +31,6 @@ from core.logging import log
 
 from modules.rag_manager.rag_result_limits import ResultLimitManager, ResultLimitContext
 import uuid
-import threading
 
 
 # ---------------------------------------------------------------------------
@@ -1217,12 +1216,17 @@ class RAGManager:
         except Exception as e:
             log("error", f"Auto-import failed for user {user_id}: {str(e)}", stacktrace=True)
 
-    def reindex_all_documents(self, target_engines: Optional[List[str]] = None) -> Dict[str, Any]:
+    def reindex_all_documents(
+        self,
+        target_engines: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[float, str, int, int], None]] = None
+    ) -> Dict[str, Any]:
         """
         Re-index all documents across all users and specified engines.
 
         Args:
             target_engines: List of engine types to re-index. If None, uses all available engines.
+            progress_callback: Optional callback function(percentage, filename, current, total) called after each document.
 
         Returns:
             Dictionary with re-indexing statistics
@@ -1281,18 +1285,11 @@ class RAGManager:
             }
 
         # Re-index each document for each engine
-        total_ops = stats["total_documents"] * len(available_engines)
-        current_op = 0
-
         for user_id, documents in documents_by_user.items():
             log("debug", f"Processing user: {user_id} ({len(documents)} documents)")
 
-            for doc_idx, (filename, doc_info) in enumerate(documents):
+            for filename, doc_info in documents:
                 file_path = doc_info.get('file_path')
-
-                # Update progress tracker
-                current_op += 1
-                self._update_reindex_progress(current_op, total_ops, filename)
 
                 # Verify file still exists
                 if not file_path or not os.path.exists(file_path):
@@ -1353,6 +1350,13 @@ class RAGManager:
                         stats["errors"].append(error_msg)
                         log("error", error_msg)
 
+                # Call progress callback after each document
+                if progress_callback:
+                    total_docs = stats["total_documents"]
+                    current = stats["successful"] + stats["failed"] + stats["skipped"]
+                    percentage = (current / total_docs * 100) if total_docs > 0 else 0
+                    progress_callback(percentage, filename, current, total_docs)
+
         # Save updated metadata
         self._save_metadata()
 
@@ -1362,94 +1366,6 @@ class RAGManager:
         log("info", f"Skipped: {stats['skipped']} documents")
 
         return stats
-
-    # ---------------------------------------------------------------------------
-    # Background re-indexing with progress tracking
-    # ---------------------------------------------------------------------------
-
-    _reindex_progress_lock = threading.Lock()
-    _reindex_progress: Dict[str, Any] = {
-        "running": False,
-        "current": 0,
-        "total": 0,
-        "current_file": "",
-        "stats": None,
-        "error": None
-    }
-
-    def _update_reindex_progress(self, current: int, total: int, current_file: str) -> None:
-        """Update progress tracker from within re-indexing loop."""
-        with self._reindex_progress_lock:
-            if self._reindex_progress["running"]:
-                self._reindex_progress["current"] = current
-                self._reindex_progress["total"] = total
-                self._reindex_progress["current_file"] = current_file
-
-    def start_background_reindex(self, target_engines: Optional[List[str]] = None) -> bool:
-        """
-        Start background re-indexing and return immediately.
-        Use get_reindex_progress() to poll for progress.
-        """
-        with self._reindex_progress_lock:
-            if self._reindex_progress["running"]:
-                log("warning", "Re-indexing already in progress")
-                return False
-
-            self._reindex_progress["running"] = True
-            self._reindex_progress["current"] = 0
-            self._reindex_progress["total"] = 0
-            self._reindex_progress["current_file"] = ""
-            self._reindex_progress["stats"] = None
-            self._reindex_progress["error"] = None
-
-        thread = threading.Thread(
-            target=self._run_background_reindex,
-            args=(target_engines,),
-            daemon=True
-        )
-        thread.start()
-        return True
-
-    def _run_background_reindex(self, target_engines: Optional[List[str]] = None) -> None:
-        """Background worker for re-indexing."""
-        try:
-            stats = self.reindex_all_documents(target_engines)
-            with self._reindex_progress_lock:
-                self._reindex_progress["stats"] = stats
-        except Exception as e:
-            log("error", f"Background re-index failed: {str(e)}", stacktrace=True)
-            with self._reindex_progress_lock:
-                self._reindex_progress["error"] = str(e)
-        finally:
-            with self._reindex_progress_lock:
-                self._reindex_progress["running"] = False
-
-    def get_reindex_progress(self) -> Dict[str, Any]:
-        """
-        Get current re-indexing progress.
-        Returns dict with:
-            - running: bool
-            - current: int (current document number)
-            - total: int (total documents)
-            - current_file: str (current filename being processed)
-            - progress: float (0.0 to 1.0)
-            - stats: dict (final stats when complete)
-            - error: str (error message if failed)
-        """
-        with self._reindex_progress_lock:
-            progress = 0.0
-            if self._reindex_progress["total"] > 0:
-                progress = self._reindex_progress["current"] / self._reindex_progress["total"]
-
-            return {
-                "running": self._reindex_progress["running"],
-                "current": self._reindex_progress["current"],
-                "total": self._reindex_progress["total"],
-                "current_file": self._reindex_progress["current_file"],
-                "progress": progress,
-                "stats": self._reindex_progress["stats"],
-                "error": self._reindex_progress["error"]
-            }
 
     def clear_all_engine_indices(self) -> Dict[str, Any]:
         """

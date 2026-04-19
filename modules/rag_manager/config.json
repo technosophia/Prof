@@ -349,7 +349,7 @@
       "structured_sheet": {
         "_comment": "Optimised for the Question/Concept clé/Pertinence/Développement/Mots-clés schema. Embeds signal fields only (Question + Concept clé + Mots-clés), returns full sheet as context. HyDE disabled — the Question field already acts as a built-in query expander. BM25 full blend recommended: keywords are diverse and discriminative across sheets.",
         "type": "hybrid",
-        "enabled": true,
+        "enabled": false,
         "description": "Structured sheet parser — embeds signal fields, returns full sheet",
         "index_path": "data/hybrid_indexes/structured_sheet",
         "similarity_threshold": 0.25,
@@ -382,7 +382,7 @@
       "structured_sheet_dense_only": {
         "_comment": "Structured sheet with pure cosine search, no BM25. Baseline to measure the isolated contribution of the signal-field embedding strategy.",
         "type": "hybrid",
-        "enabled": true,
+        "enabled": false,
         "description": "Structured sheet — dense only (BM25 disabled, cosine baseline)",
         "index_path": "data/hybrid_indexes/structured_sheet_dense_only",
         "similarity_threshold": 0.25,
@@ -397,7 +397,7 @@
       "rrf_blend_sheet": {
         "_comment": "RRF fusion of hybrid_bm25_blend (strong on precise/factual queries L2-L4/L7) and structured_sheet (strong on semantic/paraphrase queries L5/L6/L9). Complementary strengths validated by benchmark.",
         "type": "rrf",
-        "enabled": true,
+        "enabled": false,
         "description": "RRF ensemble: hybrid_bm25_blend + structured_sheet",
         "engine_a": "hybrid_bm25_blend",
         "engine_b": "structured_sheet",
@@ -408,7 +408,7 @@
       "rrf_blend_sheet_heavy": {
         "_comment": "Same RRF fusion but using structured_sheet_bm25_heavy as engine_b. To benchmark once structured_sheet_bm25_heavy is correctly re-indexed.",
         "type": "rrf",
-        "enabled": true,
+        "enabled": false,
         "description": "RRF ensemble: hybrid_bm25_blend + structured_sheet_bm25_heavy",
         "engine_a": "hybrid_bm25_blend",
         "engine_b": "structured_sheet_bm25_heavy",
