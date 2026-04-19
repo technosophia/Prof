@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.deps import get_current_user
-from shared.common import get_llm_manager
+from shared.common import get_llm_manager, get_user_manager
 from core.config import get_config
 
 router = APIRouter(prefix="/api/admin/llm", tags=["admin-llm"])
@@ -35,10 +35,16 @@ async def get_llm_status(current_user: dict = Depends(get_current_user)):
     for llm in available_llms:
         llm.pop("engine", None)
 
-    # Only admin/master can change, and NOT when masquerading
-    role = current_user.get("role", "normal")
-    is_masquerading = bool(current_user.get("masquerader_id"))
-    can_change = role in {"admin", "master"} and not is_masquerading
+    user_manager = get_user_manager()
+    masquerader_id = current_user.get("masquerader_id")
+
+    if masquerader_id:
+        masquerader = user_manager.get_user(masquerader_id)
+        effective_role = masquerader.get("role", "normal") if masquerader else "normal"
+    else:
+        effective_role = current_user.get("role", "normal")
+
+    can_change = effective_role in {"admin", "master"}
 
     return LLMStatusResponse(
         current_llm=current_llm_info,
@@ -53,18 +59,18 @@ async def set_default_llm(
     payload: SetLLMRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    # Only admin/master can change, and NOT when masquerading
-    role = current_user.get("role", "normal")
-    is_masquerading = bool(current_user.get("masquerader_id"))
+    user_manager = get_user_manager()
+    masquerader_id = current_user.get("masquerader_id")
 
-    if role not in {"admin", "master"}:
+    if masquerader_id:
+        masquerader = user_manager.get_user(masquerader_id)
+        effective_role = masquerader.get("role", "normal") if masquerader else "normal"
+    else:
+        effective_role = current_user.get("role", "normal")
+
+    if effective_role not in {"admin", "master"}:
         raise HTTPException(
             status_code=403, detail="Forbidden: admin or master role required"
-        )
-
-    if is_masquerading:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: cannot change LLM while masquerading"
         )
 
     llm_manager = get_llm_manager()
