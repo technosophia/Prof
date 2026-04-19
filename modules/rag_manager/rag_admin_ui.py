@@ -515,10 +515,15 @@ def _show_engines_tab():
                         st.caption("  ·  ".join(info_parts))
 
             with col2:
-                if not engine["default"] and engine["available"]:
+                current_default = _get_rag_manager().get_default_engine_id()
+                if not engine["default"] or current_default != engine["type"]:
                     if st.button("Set as default", key=f"set_default_{engine['type']}_{i}"):
-                        st.info(f"Setting default engine requires a config file change "
-                                f"(set `default_engine` to `{engine['type']}`).")
+                        rag_manager = _get_rag_manager()
+                        success = rag_manager.set_default_engine_id(engine["type"])
+                        if success:
+                            st.success(f"Set default engine to: {engine['type']}")
+                        else:
+                            st.error(f"Failed to set engine: {engine['type']}")
 
             if engine["available"]:
                 st.divider()
@@ -526,11 +531,12 @@ def _show_engines_tab():
                 _show_engine_config_editor(engine["type"])
 
     # Default engine info
-    default_engine = _get_rag_manager().get_default_engine()
+    current_default = _get_rag_manager().get_default_engine_id()
+    default_engine = _get_rag_manager().get_engine(current_default)
     if default_engine:
         st.divider()
         st.subheader("Default Engine Info")
-        st.write(f"**Type:** {default_engine.engine_type}")
+        st.write(f"**Current Default:** {default_engine.engine_type}")
         st.write(f"**Description:** {default_engine.description}")
 
         # Show stats
@@ -943,51 +949,57 @@ def _show_index_tab():
         else:
             unindexed_documents.append(doc)
 
-    # Re-index ALL engines button
-    st.subheader("⚡ Re-index All Documents (ALL Engines)")
+# Re-index ALL engines button
+    st.subheader("⚡ Re-index All Documents (ALL Engine)")
 
-    if st.button("🔄 Re-index ALL Documents in ALL Engines", type="primary", use_container_width=True,
-                help="Re-index all your documents across ALL available RAG engines at once"):
-        if st.session_state.get("confirm_reindex_all_engines", False):
-            docs = _get_rag_manager().get_user_documents(user_id)
-            total_docs = len(docs)
-            engines = _get_rag_manager().get_available_engines()
-            available_engines = [e['type'] for e in engines if e['available']]
-            num_engines = len(available_engines)
+    progress = _get_rag_manager().get_reindex_progress()
 
-            if total_docs == 0:
-                st.info("No documents to re-index")
-                st.session_state["confirm_reindex_all_engines"] = False
+    if progress.get("running"):
+        st.progress(
+            progress.get("progress", 0),
+            text=f"Re-indexing: {progress.get('current_file', '')} ({progress.get('current', 0)}/{progress.get('total', 0)})"
+        )
+        st.rerun()
+    elif progress.get("stats") or progress.get("error"):
+        st.empty()
+        reindex_stats = progress.get("stats") or {}
+
+        if reindex_stats.get('successful', 0) > 0:
+            st.success(f"✅ Successfully re-indexed: {reindex_stats['successful']} documents")
+        if reindex_stats.get('failed', 0) > 0:
+            st.error(f"❌ Failed: {reindex_stats['failed']} documents")
+            if reindex_stats.get('errors'):
+                with st.expander("View Errors"):
+                    for error in reindex_stats['errors'][:10]:
+                        st.caption(f"- {error}")
+
+        engines_processed = reindex_stats.get('engines_processed', {})
+        if engines_processed:
+            st.write("**Per-Engine Results:**")
+            for engine_type, stats in engines_processed.items():
+                st.caption(f"- {engine_type}: {stats['successful']} successful, {stats['failed']} failed, {stats['skipped']} skipped")
+
+        if progress.get("error"):
+            st.error(f"Error: {progress['error']}")
+
+        st.session_state["confirm_reindex_all_engines"] = False
+    else:
+        if st.button("🔄 Re-index ALL Documents in ALL Engines", type="primary", use_container_width=True,
+                    help="Re-index all your documents across ALL available RAG engines at once"):
+            if st.session_state.get("confirm_reindex_all_engines", False):
+                docs = _get_rag_manager().get_user_documents(user_id)
+                total_docs = len(docs)
+
+                if total_docs == 0:
+                    st.info("No documents to re-index")
+                    st.session_state["confirm_reindex_all_engines"] = False
+                    return
+
+                _get_rag_manager().start_background_reindex()
                 st.rerun()
-                return
-
-            progress_bar = st.progress(0, text=f"Re-indexing 0/{total_docs} documents across {num_engines} engines...")
-
-            with st.spinner("Re-indexing all documents across all engines... This may take a while."):
-                reindex_stats = _get_rag_manager().reindex_all_documents()
-
-            progress_bar.empty()
-
-            if reindex_stats.get('successful', 0) > 0:
-                st.success(f"✅ Successfully re-indexed: {reindex_stats['successful']} documents")
-            if reindex_stats.get('failed', 0) > 0:
-                st.error(f"❌ Failed: {reindex_stats['failed']} documents")
-                if reindex_stats.get('errors'):
-                    with st.expander("View Errors"):
-                        for error in reindex_stats['errors'][:10]:
-                            st.caption(f"- {error}")
-
-            engines_processed = reindex_stats.get('engines_processed', {})
-            if engines_processed:
-                st.write("**Per-Engine Results:**")
-                for engine_type, stats in engines_processed.items():
-                    st.caption(f"- {engine_type}: {stats['successful']} successful, {stats['failed']} failed, {stats['skipped']} skipped")
-
-            st.session_state["confirm_reindex_all_engines"] = False
-            st.rerun()
-        else:
-            st.session_state["confirm_reindex_all_engines"] = True
-            st.warning("⚠️ This will re-index ALL your documents across ALL engines. Are you sure?")
+            else:
+                st.session_state["confirm_reindex_all_engines"] = True
+                st.warning("⚠️ This will re-index ALL your documents across ALL engines. Are you sure?")
 
     st.divider()
 

@@ -414,6 +414,29 @@ class UserManager:
             session.commit()
         return True
 
+    def get_system_setting(self, key: str) -> Optional[Any]:
+        """Get a system setting by key. Returns None if not set."""
+        self._ensure_system_settings_table()
+        with self.db.get_session() as session:
+            setting = session.query(SystemSettings).filter_by(key=key).first()
+            if setting and setting.value is not None:
+                return setting.value
+            return None
+
+    def set_system_setting(self, key: str, value: Any) -> bool:
+        """Set a system setting by key."""
+        self._ensure_system_settings_table()
+        with self.db.get_session() as session:
+            setting = session.query(SystemSettings).filter_by(key=key).first()
+            if setting:
+                setting.value = value
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = SystemSettings(key=key, value=value)
+                session.add(setting)
+            session.commit()
+        return True
+
     def set_expiration_date(self, user_id: str, expiration_date: Optional[datetime]) -> bool:
         """Set or clear the expiration date for a user."""
         self._ensure_table_exists()

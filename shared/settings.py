@@ -37,7 +37,10 @@ class UserSettingsManager:
             "max_tokens": 1000,
             "auto_save": True,
             "notifications": True,
-            "theme": "light"
+            "theme": "light",
+            "bench_dataset_dir": None,
+            "bench_judge_model": None,
+            "bench_top_k": None,
         }
 
         # Merge with defaults

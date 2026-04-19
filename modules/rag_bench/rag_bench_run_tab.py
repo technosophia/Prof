@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from core.logging import log
 from st_shared.cached import get_config
 from shared.prompt_manager import get_prompt
+from shared.settings import UserSettingsManager
 from modules.rag_bench.rag_bench_models import (
     TestCase, CaseResult, LevelSummary, aggregate_results,
     LEVEL_LABELS, FIXABLE_LEVELS, PARTIAL_LEVELS, ENGINE_LEVELS,
@@ -85,11 +86,171 @@ def render_error_log():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# YAML LOADER
+# BENCHMARK SETTINGS (via UserSettingsManager for persistence)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_bench_dir() -> str:
-    return get_config().get("dataset_dir", "data/rag_bench")
+def get_user_settings_manager() -> UserSettingsManager:
+    """Get or create the UserSettingsManager instance."""
+    if "_bench_settings_mgr" not in st.session_state:
+        st.session_state._bench_settings_mgr = UserSettingsManager()
+    return st.session_state._bench_settings_mgr
+
+
+def get_bench_dir(user_id: Optional[str] = None) -> str:
+    """Get the benchmark dataset directory with user preference support.
+
+    Resolution order:
+    1. User's personal preference
+    2. Master's preference (via parent_id inheritance)
+    3. Config default
+
+    Args:
+        user_id: Optional user ID. If None, returns config default.
+
+    Returns:
+        Directory path string
+    """
+    cfg = get_config()
+    default_dir = cfg.get("dataset_dir", "material/rag_bench")
+
+    if not user_id:
+        return default_dir
+
+    user_mgr = get_user_settings_manager()
+    settings = user_mgr.get_user_settings(user_id)
+
+    user_dir = settings.get("bench_dataset_dir")
+    if user_dir:
+        log("debug", f"Using user {user_id} bench_dataset_dir: {user_dir}")
+        return user_dir
+
+    user_info = user_mgr.user_manager.get_user(user_id)
+    if user_info:
+        parent_id = user_info.get("parent_id")
+        if parent_id:
+            master_settings = user_mgr.get_user_settings(parent_id)
+            master_dir = master_settings.get("bench_dataset_dir")
+            if master_dir:
+                log("debug", f"Using master {parent_id} bench_dataset_dir for {user_id}: {master_dir}")
+                return master_dir
+
+    log("debug", f"Using config default bench_dataset_dir: {default_dir}")
+    return default_dir
+
+
+def set_bench_dir(bench_dir: str, user_id: str) -> bool:
+    """Set the benchmark dataset directory for a user.
+
+    Args:
+        bench_dir: The directory path to set
+        user_id: User ID to set preference for
+
+    Returns:
+        True if successful
+    """
+    log("info", f"Setting bench_dataset_dir for {user_id}: {bench_dir}")
+    user_mgr = get_user_settings_manager()
+    return user_mgr.update_user_settings(user_id, {"bench_dataset_dir": bench_dir})
+
+
+def get_bench_judge_model(user_id: Optional[str] = None) -> str:
+    """Get the judge's model for benchmarking with master inheritance.
+
+    Args:
+        user_id: Optional user ID. If None, returns config default.
+
+    Returns:
+        Model name string
+    """
+    cfg = get_config()
+    default_model = cfg.get("judge_model", "qwen3:4b")
+
+    if not user_id:
+        return default_model
+
+    user_mgr = get_user_settings_manager()
+    user_settings = user_mgr.get_user_settings(user_id)
+
+    user_model = user_settings.get("bench_judge_model")
+    if user_model:
+        return user_model
+
+    user_info = user_mgr.user_manager.get_user(user_id)
+    if user_info:
+        parent_id = user_info.get("parent_id")
+        if parent_id:
+            master_settings = user_mgr.get_user_settings(parent_id)
+            master_model = master_settings.get("bench_judge_model")
+            if master_model:
+                log("debug", f"Using master {parent_id} bench_judge_model for {user_id}: {master_model}")
+                return master_model
+
+    return default_model
+
+
+def set_bench_judge_model(judge_model: str, user_id: str) -> bool:
+    """Set the judge's model for a user.
+
+    Args:
+        judge_model: Model name to set
+        user_id: User ID to set preference for
+
+    Returns:
+        True if successful
+    """
+    log("info", f"Setting bench_judge_model for {user_id}: {judge_model}")
+    user_mgr = get_user_settings_manager()
+    return user_mgr.update_user_settings(user_id, {"bench_judge_model": judge_model})
+
+
+def get_bench_top_k(user_id: Optional[str] = None) -> int:
+    """Get the top-K chunks for benchmarking with master inheritance.
+
+    Args:
+        user_id: Optional user ID. If None, returns config default.
+
+    Returns:
+        Top-K integer
+    """
+    cfg = get_config()
+    default_top_k = cfg.get("bench_top_k", 5)
+
+    if not user_id:
+        return default_top_k
+
+    user_mgr = get_user_settings_manager()
+    user_settings = user_mgr.get_user_settings(user_id)
+
+    user_top_k = user_settings.get("bench_top_k")
+    if user_top_k is not None:
+        return int(user_top_k)
+
+    user_info = user_mgr.user_manager.get_user(user_id)
+    if user_info:
+        parent_id = user_info.get("parent_id")
+        if parent_id:
+            master_settings = user_mgr.get_user_settings(parent_id)
+            master_top_k = master_settings.get("bench_top_k")
+            if master_top_k is not None:
+                log("debug", f"Using master {parent_id} bench_top_k for {user_id}: {master_top_k}")
+                return int(master_top_k)
+
+    return default_top_k
+
+
+def set_bench_top_k(top_k: int, user_id: str) -> bool:
+    """Set the top-K chunks for a user.
+
+    Args:
+        top_k: Top-K value to set
+        user_id: User ID to set preference for
+
+    Returns:
+        True if successful
+    """
+    log("info", f"Setting bench_top_k for {user_id}: {top_k}")
+    user_mgr = get_user_settings_manager()
+    return user_mgr.update_user_settings(user_id, {"bench_top_k": top_k})
 
 
 def load_yaml_datasets(bench_dir: str) -> Tuple[List[TestCase], Dict]:
@@ -521,21 +682,56 @@ def render_benchmark_run_tab():
     st.caption("Run YAML datasets against all available RAG engines.")
 
     cfg = get_config()
-    bench_dir = cfg.get("dataset_dir", "data/rag_bench")
+
+    current_user = st.session_state.get("current_user", {})
+    user_id = current_user.get("id") if current_user else None
+    user_role = current_user.get("role", "normal") if current_user else "normal"
+
+    bench_dir = get_bench_dir(user_id)
+    judge_model = get_bench_judge_model(user_id)
+    top_k = get_bench_top_k(user_id)
+
+    default_source = "default"
+    if user_id:
+        user_settings = get_user_settings_manager().get_user_settings(user_id)
+        if user_settings.get("bench_dataset_dir"):
+            default_source = "user"
+        elif current_user and current_user.get("parent_id"):
+            parent_id = current_user.get("parent_id")
+            parent_settings = get_user_settings_manager().get_user_settings(parent_id)
+            if parent_settings and parent_settings.get("bench_dataset_dir"):
+                default_source = "master"
 
     # ── Config ────────────────────────────────────────────────────────────────
     with st.expander("⚙️ Configuration", expanded=False):
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
             bench_dir = st.text_input("Dataset directory", value=bench_dir, key="rb_dir_widget")
+            if user_id and user_role in ("admin", "master"):
+                col_save, col_info = st.columns([1, 2])
+                with col_save:
+                    if st.button("💾 Set as default", key="rb_save_dir_btn", use_container_width=True):
+                        if set_bench_dir(bench_dir, user_id):
+                            st.success(f"Saved: {bench_dir}")
+                            st.rerun()
+                with col_info:
+                    st.caption(f"Source: **{default_source}**")
         with col2:
-            top_k = st.number_input("Top-K chunks", min_value=1, max_value=20, value=5, key="rb_topk_widget")
+            top_k = st.number_input("Top-K chunks", min_value=1, max_value=20, value=top_k, key="rb_topk_widget")
+            if user_id:
+                if st.button("💾", key="rb_save_topk_btn", help="Save Top-K"):
+                    if set_bench_top_k(top_k, user_id):
+                        st.success(f"Saved Top-K: {top_k}")
         with col3:
             judge_model = st.text_input(
                 "Judge model (Ollama)",
-                value=cfg.get("judge_model", "qwen3:4b"),
+                value=judge_model,
                 key="rb_judge_widget"
             )
+            if user_id:
+                if st.button("💾", key="rb_save_judge_btn", help="Save Judge model"):
+                    if set_bench_judge_model(judge_model, user_id):
+                        st.success(f"Saved Judge: {judge_model}")
         st.text_input(
             "Ollama URL",
             value=cfg.get("ollama_base_url", "http://localhost:11434"),

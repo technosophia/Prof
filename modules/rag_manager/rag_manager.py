@@ -30,7 +30,8 @@ from modules.rag_manager.rag_engine import RAGEngine
 from core.logging import log
 
 from modules.rag_manager.rag_result_limits import ResultLimitManager, ResultLimitContext
-import uuid  # Add if not already present
+import uuid
+import threading
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +432,68 @@ class RAGManager:
     def get_default_engine(self) -> Optional[RAGEngine]:
         return self.get_engine(self.default_engine)
 
+    def get_default_engine_id(self, user_id: Optional[str] = None) -> str:
+        """Get the effective default engine ID, checking system_settings first.
+
+        Resolution order:
+        1. User's personal override (if user_id provided and has setting)
+        2. Master's override (if user_id provided and has a master)
+        3. System-level setting
+        4. Config default
+
+        Args:
+            user_id: Optional user ID to resolve user-specific override from their master
+
+        Returns:
+            Engine ID string
+        """
+        if user_id:
+            user_settings_key = f"rag_manager.default_engine.{user_id}"
+            user_override = self._user_manager.get_system_setting(user_settings_key)
+            if user_override and user_override in self.engines:
+                log("debug", f"Using user override for {user_id}: {user_override}")
+                return user_override
+
+            user_info = self._user_manager.get_user(user_id)
+            if user_info:
+                parent_id = user_info.get("parent_id")
+                if parent_id:
+                    master_settings_key = f"rag_manager.default_engine.{parent_id}"
+                    master_override = self._user_manager.get_system_setting(master_settings_key)
+                    if master_override and master_override in self.engines:
+                        log("debug", f"Using master {parent_id} override for user {user_id}: {master_override}")
+                        return master_override
+
+        system_setting = self._user_manager.get_system_setting("rag_manager.default_engine")
+        if system_setting and system_setting in self.engines:
+            log("debug", f"Using system setting: {system_setting}")
+            return system_setting
+
+        return self.default_engine
+
+    def set_default_engine_id(self, engine_id: str, target: Optional[str] = None) -> bool:
+        """Set the default engine for system or a specific user/master.
+
+        Args:
+            engine_id: The engine ID to set as default
+            target: Optional user_id to set user-specific default. If None, sets system default.
+
+        Returns:
+            True if successful
+        """
+        if engine_id not in self.engines:
+            log("warning", f"Cannot set default engine: '{engine_id}' not found in available engines")
+            return False
+
+        if target:
+            key = f"rag_manager.default_engine.{target}"
+            log("info", f"Setting default engine for {target}: {engine_id}")
+        else:
+            key = "rag_manager.default_engine"
+            log("info", f"Setting system default engine: {engine_id}")
+
+        return self._user_manager.set_system_setting(key, engine_id)
+
     # ------------------------------------------------------------------
     # Enable/disable checks
     # ------------------------------------------------------------------
@@ -740,8 +803,8 @@ class RAGManager:
 
         target_engine = engine_type
         if not target_engine and not search_all:
-            target_engine = self.default_engine
-            log("debug", f"[RAG Search] Using default engine: {target_engine}")
+            target_engine = self.get_default_engine_id(user_id)
+            log("debug", f"[RAG Search] Using default engine for user {user_id}: {target_engine}")
 
         # Get accessible documents for this user
         accessible_docs = self.get_user_documents(user_id)
@@ -887,8 +950,8 @@ class RAGManager:
             return ""
 
         if not engine_type:
-            engine_type = self.default_engine
-            log("debug", f"[RAG Context] Using default engine: {engine_type}")
+            engine_type = self.get_default_engine_id(user_id)
+            log("debug", f"[RAG Context] Using default engine for user {user_id}: {engine_type}")
 
         if not self.is_engine_enabled(engine_type):
             log("debug", f"[RAG Context] Engine {engine_type} disabled in config, returning empty context")
@@ -1179,11 +1242,18 @@ class RAGManager:
             }
 
         # Re-index each document for each engine
+        total_ops = stats["total_documents"] * len(available_engines)
+        current_op = 0
+
         for user_id, documents in documents_by_user.items():
             log("debug", f"Processing user: {user_id} ({len(documents)} documents)")
 
-            for filename, doc_info in documents:
+            for doc_idx, (filename, doc_info) in enumerate(documents):
                 file_path = doc_info.get('file_path')
+
+                # Update progress tracker
+                current_op += 1
+                self._update_reindex_progress(current_op, total_ops, filename)
 
                 # Verify file still exists
                 if not file_path or not os.path.exists(file_path):
@@ -1254,6 +1324,93 @@ class RAGManager:
 
         return stats
 
+    # ---------------------------------------------------------------------------
+    # Background re-indexing with progress tracking
+    # ---------------------------------------------------------------------------
+
+    _reindex_progress_lock = threading.Lock()
+    _reindex_progress: Dict[str, Any] = {
+        "running": False,
+        "current": 0,
+        "total": 0,
+        "current_file": "",
+        "stats": None,
+        "error": None
+    }
+
+    def _update_reindex_progress(self, current: int, total: int, current_file: str) -> None:
+        """Update progress tracker from within re-indexing loop."""
+        with self._reindex_progress_lock:
+            if self._reindex_progress["running"]:
+                self._reindex_progress["current"] = current
+                self._reindex_progress["total"] = total
+                self._reindex_progress["current_file"] = current_file
+
+    def start_background_reindex(self, target_engines: Optional[List[str]] = None) -> bool:
+        """
+        Start background re-indexing and return immediately.
+        Use get_reindex_progress() to poll for progress.
+        """
+        with self._reindex_progress_lock:
+            if self._reindex_progress["running"]:
+                log("warning", "Re-indexing already in progress")
+                return False
+
+            self._reindex_progress["running"] = True
+            self._reindex_progress["current"] = 0
+            self._reindex_progress["total"] = 0
+            self._reindex_progress["current_file"] = ""
+            self._reindex_progress["stats"] = None
+            self._reindex_progress["error"] = None
+
+        thread = threading.Thread(
+            target=self._run_background_reindex,
+            args=(target_engines,),
+            daemon=True
+        )
+        thread.start()
+        return True
+
+    def _run_background_reindex(self, target_engines: Optional[List[str]] = None) -> None:
+        """Background worker for re-indexing."""
+        try:
+            stats = self.reindex_all_documents(target_engines)
+            with self._reindex_progress_lock:
+                self._reindex_progress["stats"] = stats
+        except Exception as e:
+            log("error", f"Background re-index failed: {str(e)}", stacktrace=True)
+            with self._reindex_progress_lock:
+                self._reindex_progress["error"] = str(e)
+        finally:
+            with self._reindex_progress_lock:
+                self._reindex_progress["running"] = False
+
+    def get_reindex_progress(self) -> Dict[str, Any]:
+        """
+        Get current re-indexing progress.
+        Returns dict with:
+            - running: bool
+            - current: int (current document number)
+            - total: int (total documents)
+            - current_file: str (current filename being processed)
+            - progress: float (0.0 to 1.0)
+            - stats: dict (final stats when complete)
+            - error: str (error message if failed)
+        """
+        with self._reindex_progress_lock:
+            progress = 0.0
+            if self._reindex_progress["total"] > 0:
+                progress = self._reindex_progress["current"] / self._reindex_progress["total"]
+
+            return {
+                "running": self._reindex_progress["running"],
+                "current": self._reindex_progress["current"],
+                "total": self._reindex_progress["total"],
+                "current_file": self._reindex_progress["current_file"],
+                "progress": progress,
+                "stats": self._reindex_progress["stats"],
+                "error": self._reindex_progress["error"]
+            }
 
     def clear_all_engine_indices(self) -> Dict[str, Any]:
         """
