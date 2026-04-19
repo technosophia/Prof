@@ -1058,6 +1058,8 @@ def _generate_reset_code(target_user_id: str, requesting_user_id: str):
                 "⚠️ This code will expire in 24 hours. Share it securely with the user."
             )
 
+        st.session_state.pop("_generated_reset_code", None)
+        st.session_state["_force_user_db_refresh"] = True
         st.rerun()
     else:
         st.error("❌ Failed to generate reset code")
@@ -2178,9 +2180,11 @@ def _render_user_row(
                             can_generate_reset = True
 
                 if can_generate_reset:
-                    # Check for existing reset code in database
-                    user_manager = get_user_manager()
                     from core.database import get_db_manager
+
+                    # Clear refresh flag after first use to prevent indefinite loop
+                    if st.session_state.get("_force_user_db_refresh", False):
+                        st.session_state.pop("_force_user_db_refresh", None)
 
                     # Direct database query to check for reset code
                     db_manager = get_db_manager()
