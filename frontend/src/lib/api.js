@@ -64,6 +64,8 @@ export const auth = {
       confirm_password: confirmPassword,
       ...(suggestedId ? { suggested_id: suggestedId } : {}),
     }),
+  getWaitlistLists: () => get('/api/auth/waitlist/lists'),
+  waitlist: (email, listId = null) => post('/api/auth/waitlist', { email, list_id: listId }),
   me: () => get('/api/auth/me'),
 }
 
@@ -85,6 +87,25 @@ export const admin = {
   llm: {
     get: () => get('/api/admin/llm'),
     set: (llmId) => post('/api/admin/llm', { llm_id: llmId }),
+  },
+  waitlist: {
+    lists: {
+      get: () => get('/api/auth/waitlist/lists'),
+      create: (name) => post('/api/auth/waitlist/lists', { name }),
+      update: (listId, name) => patch(`/api/auth/waitlist/lists/${listId}`, { name }),
+      delete: (listId) => del(`/api/auth/waitlist/lists/${listId}`),
+    },
+    entries: {
+      get: (listId = null, status = null) => {
+        const params = new URLSearchParams()
+        if (listId) params.append('list_id', listId)
+        if (status) params.append('status', status)
+        return get(`/api/auth/waitlist/entries?${params.toString()}`)
+      },
+      delete: (entryId) => del(`/api/auth/waitlist/${entryId}`),
+      bulkApprove: (entryIds, masterId) => post('/api/auth/waitlist/bulk-approve', { entry_ids: entryIds, master_id: masterId }),
+      bulkReject: (entryIds) => post('/api/auth/waitlist/bulk-reject', { entry_ids: entryIds }),
+    },
   },
 }
 

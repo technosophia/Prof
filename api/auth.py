@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import os
-from typing import Optional
+import secrets
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -37,6 +38,28 @@ class RegisterRequest(BaseModel):
 
 class PendingRegistrationResponse(BaseModel):
     status: str
+
+
+class WaitlistRequest(BaseModel):
+    email: str
+    list_id: Optional[str] = None
+
+
+class WaitlistListRequest(BaseModel):
+    name: str
+
+
+class WaitlistListUpdateRequest(BaseModel):
+    name: str
+
+
+class BulkApproveRequest(BaseModel):
+    entry_ids: List[str]
+    master_id: str
+
+
+class BulkRejectRequest(BaseModel):
+    entry_ids: List[str]
 
 
 class UserDTO(BaseModel):
@@ -132,6 +155,8 @@ async def login(payload: LoginRequest):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="pending_approval"
         )
+    if auth_status.startswith("deadline_expired::"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=auth_status)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -177,6 +202,7 @@ async def register(payload: RegisterRequest):
     parent_id = (
         user_manager.get_preregistered_email_owner(email) if preregistered else None
     )
+    prereg_policy = user_manager.get_preregistered_email_policy(email)
 
     if user_manager.get_user(derived_user_id):
         return JSONResponse(
@@ -188,6 +214,17 @@ async def register(payload: RegisterRequest):
         )
 
     try:
+        user_metadata = {}
+        if preregistered:
+            deadline_months = prereg_policy.get("deadline_months", 6)
+            user_metadata = {
+                "preregistered": True,
+                "preregistered_deadline_months": deadline_months,
+                "preregistered_deadline_at": user_manager.compute_deadline_at(
+                    deadline_months
+                ),
+                "preregistered_expiry_message": prereg_policy.get("expiry_message"),
+            }
         user_manager.create_user(
             name=derived_user_id,
             role="normal",
@@ -197,6 +234,7 @@ async def register(payload: RegisterRequest):
             user_id=derived_user_id,
             allow_orphan_normal=True,
             registration_status=registration_status,
+            user_metadata=user_metadata,
         )
     except ValueError as error:
         if "already exists" in str(error):
@@ -223,6 +261,183 @@ async def register(payload: RegisterRequest):
 
     token = _create_token(user)
     return TokenResponse(access_token=token, user=_to_user_dto(user))
+
+
+@router.get("/waitlist/lists")
+async def get_waitlist_lists():
+    """Get all waitlist lists (public - for frontend to show in waitlist form)."""
+    user_manager = get_user_manager()
+    lists = user_manager.get_all_waitlist_lists()
+    return lists
+
+
+@router.post("/waitlist/lists")
+async def create_waitlist_list(
+    payload: WaitlistListRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new waitlist list (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    list_id = user_manager.create_waitlist_list(
+        payload.name,
+        created_by=current_user.get("id"),
+    )
+    if not list_id:
+        raise HTTPException(
+            status_code=400, detail="List name already exists or invalid"
+        )
+
+    return {"id": list_id, "name": payload.name}
+
+
+@router.put("/waitlist/lists/{list_id}")
+async def update_waitlist_list(
+    list_id: str,
+    payload: WaitlistListUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Rename a waitlist list (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    success = user_manager.rename_waitlist_list(list_id, payload.name)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to rename list")
+
+    return {"success": True}
+
+
+@router.delete("/waitlist/lists/{list_id}")
+async def delete_waitlist_list(
+    list_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a waitlist list and all its entries (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    success = user_manager.delete_waitlist_list(list_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    return {"success": True}
+
+
+@router.get("/waitlist/entries")
+async def get_waitlist_entries(
+    list_id: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get waitlist entries (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    entries = user_manager.get_waitlist_entries(list_id=list_id, status=status)
+    return entries
+
+
+@router.post("/waitlist", response_model=PendingRegistrationResponse)
+async def waitlist(payload: WaitlistRequest):
+    """Register an email to a waitlist list."""
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_email"
+        )
+
+    user_manager = get_user_manager()
+
+    if payload.list_id:
+        entry_id = user_manager.add_waitlist_entry(email, payload.list_id)
+        if not entry_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already in this list or list not found",
+            )
+        return PendingRegistrationResponse(status="pending")
+
+    if user_manager.is_email_registered(email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="email_already_registered"
+        )
+
+    lists = user_manager.get_all_waitlist_lists()
+    if not lists:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No waitlist lists available. Please contact support.",
+        )
+
+    default_list = lists[0]
+    entry_id = user_manager.add_waitlist_entry(email, default_list["id"])
+    if not entry_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already in this list",
+        )
+
+    return PendingRegistrationResponse(status="pending")
+
+
+@router.post("/waitlist/bulk-approve")
+async def bulk_approve_waitlist(
+    payload: BulkApproveRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Approve multiple waitlist entries (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    created_users = user_manager.bulk_approve_waitlist_entries(
+        payload.entry_ids, payload.master_id
+    )
+    return {"approved": len(created_users), "user_ids": created_users}
+
+
+@router.post("/waitlist/bulk-reject")
+async def bulk_reject_waitlist(
+    payload: BulkRejectRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Reject multiple waitlist entries (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    rejected_count = user_manager.bulk_reject_waitlist_entries(payload.entry_ids)
+    return {"rejected": rejected_count}
+
+
+@router.delete("/waitlist/{entry_id}")
+async def delete_waitlist_entry(
+    entry_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a waitlist entry (admin/master only)."""
+    user_manager = get_user_manager()
+    user_role = current_user.get("role")
+    if user_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    success = user_manager.delete_waitlist_entry(entry_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    return {"success": True}
 
 
 @router.post("/init-password", response_model=TokenResponse)

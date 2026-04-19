@@ -58,17 +58,49 @@ def show_users_admin_content():
     st.header("👥 User Administration")
     st.caption(f"Role: {user_role.capitalize()} | Viewing users you can manage")
 
+    # Deactivate any users whose expiration date has passed
+    get_user_manager().deactivate_expired_users()
+
+    # Default activation duration config
+    with st.expander("⚙️ Default Activation Duration"):
+        current_default = get_user_manager().get_default_activation_duration_days()
+        col_dur1, col_dur2 = st.columns([3, 1])
+        with col_dur1:
+            new_default = st.number_input(
+                "Default duration (days) when activating a user",
+                min_value=0,
+                max_value=3650,
+                value=current_default or 0,
+                step=1,
+                help="Set to 0 to disable automatic expiration. Applied when approving waitlist or pre-registered pending users.",
+                key="default_activation_duration_input",
+            )
+        with col_dur2:
+            st.write("")
+            st.write("")
+            if st.button("💾 Save", key="save_default_duration", width="stretch"):
+                get_user_manager().set_default_activation_duration_days(
+                    int(new_default) if new_default > 0 else None
+                )
+                st.success("✅ Saved")
+                st.rerun()
+
     # Get manageable users based on role
     manageable_users = get_user_manager().get_manageable_users(user_id)
 
     # Create main tabs
     if user_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
-        pending_count = sum(
-            1 for u in manageable_users if u.get("registration_status") == "pending"
+        prereg_pending_count = sum(
+            1
+            for u in manageable_users
+            if u.get("registration_status") == "pending"
+            and (u.get("metadata") or {}).get("created_via") != "waitlist"
         )
         tab_names = [
             "📋 Manage Users",
-            f"⏳ Pending ({pending_count})" if pending_count > 0 else "⏳ Pending",
+            f"⏳ Pre-reg. Pending ({prereg_pending_count})" if prereg_pending_count > 0 else "⏳ Pre-reg. Pending",
+            "📝 Waitlist Lists",
+            "🕒 Waitlist Entries",
             "➕ Create User",
             "📧 Pre-registered Emails",
         ]
@@ -91,18 +123,24 @@ def show_users_admin_content():
             _render_pending_approvals_tab(current_user, user_role, manageable_users)
 
         with tabs[2]:
-            _render_create_user_tab(current_user, user_role, production_mode)
+            _render_waitlist_lists_tab(current_user, user_role)
 
         with tabs[3]:
+            _render_waitlist_entries_tab(current_user, user_role, manageable_users)
+
+        with tabs[4]:
+            _render_create_user_tab(current_user, user_role, production_mode)
+
+        with tabs[5]:
             _render_preregistered_emails_tab(current_user)
 
-        activity_logs_idx = 4
+        activity_logs_idx = 6
         if production_mode and len(tabs) > activity_logs_idx:
             with tabs[activity_logs_idx]:
                 _render_activity_logs_tab(current_user, user_role, user_id)
 
         if user_role == UserRole.ADMIN.value:
-            import_export_idx = activity_logs_idx + 1 if production_mode else 3
+            import_export_idx = activity_logs_idx + 1 if production_mode else 6
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
                     _render_import_export_tab(current_user)
@@ -165,6 +203,19 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
             )
 
         with st.expander("Or paste emails directly (comma or newline separated)"):
+            default_deadline_months = st.number_input(
+                "Default deadline (months)",
+                min_value=1,
+                max_value=36,
+                value=6,
+                step=1,
+                key="preregistered_default_deadline_months",
+            )
+            default_expiry_message = st.text_input(
+                "Custom expiry message (optional)",
+                key="preregistered_default_expiry_message",
+                placeholder="Your training period has ended. Contact your teacher for extension.",
+            )
             manual_emails = st.text_area(
                 "Paste emails here",
                 placeholder="alice@example.com, bob@company.org\nor one email per line",
@@ -184,7 +235,10 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
                     for email in emails:
                         if re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
                             if user_manager.add_preregistered_email(
-                                email, requesting_user_id=current_user.get("id")
+                                email,
+                                requesting_user_id=current_user.get("id"),
+                                deadline_months=default_deadline_months,
+                                expiry_message=default_expiry_message,
                             ):
                                 imported += 1
                             else:
@@ -217,11 +271,15 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
             return
 
         for row in preregistered:
-            cols = st.columns([4, 2, 2, 1])
+            cols = st.columns([3, 2, 2, 2, 1])
             cols[0].write(row["email"])
             cols[1].caption(row.get("added_at") or "-")
             cols[2].caption(row.get("added_by") or "-")
-            if cols[3].button(
+            cols[3].caption(
+                f"{row.get('deadline_months', 6)} month(s) "
+                f"{'- ' + row.get('expiry_message') if row.get('expiry_message') else ''}"
+            )
+            if cols[4].button(
                 "🗑️ Remove", key=f"remove_preregistered_{row['email']}", width="stretch"
             ):
                 if user_manager.delete_preregistered_email(row["email"]):
@@ -363,6 +421,69 @@ def _render_activity_logs_tab(
         )
 
 
+def _render_bulk_expiration_section(
+    current_user: Dict[str, Any],
+    user_role: str,
+    manageable_users: List[Dict[str, Any]],
+):
+    """Render a collapsible section for bulk expiration date updates."""
+    eligible = [
+        u for u in manageable_users
+        if u.get("id") != current_user.get("id")
+        and u.get("registration_status") != "rejected"
+        and u.get("role") == "normal"
+    ]
+    if not eligible:
+        return
+
+    with st.expander("📅 Bulk Update Expiration Dates"):
+        selected_ids = st.multiselect(
+            "Select users",
+            options=[u["id"] for u in eligible],
+            format_func=lambda uid: next(
+                (f"{u.get('name', u['id'])} ({u.get('email') or 'no-email'})" for u in eligible if u["id"] == uid),
+                uid,
+            ),
+            key="bulk_exp_user_select",
+        )
+
+        col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
+        with col_b1:
+            new_exp_date = st.date_input(
+                "New expiration date",
+                value=None,
+                key="bulk_exp_date_input",
+            )
+        with col_b2:
+            st.write("")
+            if st.button(
+                "📅 Apply",
+                key="bulk_exp_apply",
+                disabled=not selected_ids,
+                width="stretch",
+            ):
+                if new_exp_date:
+                    import datetime as _dt
+                    exp_dt = _dt.datetime.combine(new_exp_date, _dt.time.min)
+                    count = get_user_manager().set_expiration_date_bulk(selected_ids, exp_dt)
+                    st.success(f"✅ Updated expiration date for {count} user(s).")
+                    st.rerun()
+                else:
+                    st.warning("Please select a date first.")
+        with col_b3:
+            st.write("")
+            if st.button(
+                "🗑️ Clear",
+                key="bulk_exp_clear",
+                disabled=not selected_ids,
+                width="stretch",
+                help="Remove expiration date from selected users",
+            ):
+                count = get_user_manager().set_expiration_date_bulk(selected_ids, None)
+                st.success(f"✅ Cleared expiration date for {count} user(s).")
+                st.rerun()
+
+
 def _render_user_management_tab(
     current_user: Dict[str, Any],
     user_role: str,
@@ -411,6 +532,9 @@ def _render_user_management_tab(
         if user_role == UserRole.MASTER.value:
             _render_master_account_section(current_user, user_id, production_mode)
 
+        # Bulk expiration date update
+        _render_bulk_expiration_section(current_user, user_role, manageable_users)
+
         # Delete confirmation dialog
         _render_delete_confirmation(current_user, production_mode)
 
@@ -430,13 +554,14 @@ def _render_pending_approvals_tab(
     user_role: str,
     manageable_users: List[Dict[str, Any]],
 ):
-    """Render a dedicated tab for pending user approvals."""
-    st.subheader("⏳ Pending Registrations")
+    """Render a dedicated tab for pre-registered pending user approvals."""
+    st.subheader("⏳ Pre-registered Pending Registrations")
 
     pending_users = [
         user
         for user in manageable_users
         if user.get("registration_status") == "pending"
+        and (user.get("metadata") or {}).get("created_via") != "waitlist"
         and user.get("id") != current_user.get("id")
     ]
 
@@ -476,9 +601,11 @@ def _render_pending_approvals_tab(
         else:
             st.success("No pending registrations to review.")
 
+    default_days = get_user_manager().get_default_activation_duration_days()
+
     for user in pending_users:
         with st.container():
-            cols = st.columns([3, 2, 1, 1])
+            cols = st.columns([3, 2, 1, 1, 1])
 
             with cols[0]:
                 st.write(f"**{user.get('name', user['id'])}**")
@@ -493,21 +620,34 @@ def _render_pending_approvals_tab(
                     st.caption(f"🌐 Language: {user['profile']['language']}")
 
             with cols[2]:
+                duration_val = st.number_input(
+                    "Days",
+                    min_value=0,
+                    max_value=3650,
+                    value=default_days or 0,
+                    step=1,
+                    key=f"pending_duration_{user['id']}",
+                    help="Activation duration in days (0 = no expiration)",
+                    label_visibility="collapsed",
+                )
+
+            with cols[3]:
                 if st.button(
                     "✅ Approve",
                     key=f"approve_pending_{user['id']}",
                     help=f"Approve registration for {user.get('name', user['id'])}",
                     width="stretch",
                 ):
+                    days_to_use = int(duration_val) if duration_val > 0 else None
                     if get_user_manager().set_registration_status(
-                        user["id"], "approved"
+                        user["id"], "approved", duration_days=days_to_use
                     ):
                         st.success(f"✅ {user.get('name', user['id'])} approved!")
                         st.rerun()
                     else:
                         st.error(f"❌ Failed to approve {user.get('name', user['id'])}")
 
-            with cols[3]:
+            with cols[4]:
                 if st.button(
                     "❌ Reject",
                     key=f"reject_pending_{user['id']}",
@@ -523,6 +663,346 @@ def _render_pending_approvals_tab(
                         st.error(f"❌ Failed to reject {user.get('name', user['id'])}")
 
             st.divider()
+
+
+def _render_waitlist_lists_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+):
+    """Render waitlist lists management tab."""
+    st.subheader("📝 Waitlist Lists")
+    _ = user_role  # explicit for lint/readability
+
+    user_manager = get_user_manager()
+    lists = user_manager.get_all_waitlist_lists()
+
+    col_create, col_refresh = st.columns([4, 1])
+    with col_create:
+        new_list_name = st.text_input("Create new waitlist list", placeholder="e.g., Spring 2026 Cohort")
+    with col_refresh:
+        st.write("")
+        if st.button("➕ Create", key="create_waitlist_list", type="primary"):
+            if new_list_name and new_list_name.strip():
+                list_id = user_manager.create_waitlist_list(new_list_name.strip(), current_user["id"])
+                if list_id:
+                    st.success(f"✅ Created list: {new_list_name}")
+                    st.rerun()
+                else:
+                    st.error("❌ List already exists or invalid name")
+            else:
+                st.error("Please enter a list name")
+
+    st.divider()
+
+    if not lists:
+        st.info("No waitlist lists yet. Create one above.")
+        return
+
+    st.write(f"**Existing Lists ({len(lists)}):**")
+
+    for wl_list in lists:
+        cols = st.columns([3, 2, 2, 1])
+        with cols[0]:
+            st.write(f"**{wl_list['name']}**")
+            if wl_list.get("created_at"):
+                st.caption(f"Created: {wl_list['created_at'][:10]}")
+        with cols[1]:
+            if wl_list.get("created_by"):
+                creator = user_manager.get_user(wl_list["created_by"])
+                if creator:
+                    st.caption(f"By: {creator['name']}")
+        with cols[2]:
+            entry_count = len(user_manager.get_waitlist_entries(list_id=wl_list["id"]))
+            st.caption(f"{entry_count} entries")
+        with cols[3]:
+            if st.button("🗑️ Delete", key=f"delete_waitlist_list_{wl_list['id']}", width="stretch"):
+                if user_manager.delete_waitlist_list(wl_list["id"]):
+                    st.warning(f"⚠️ Deleted list: {wl_list['name']}")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to delete list")
+
+    st.divider()
+
+    st.write("**Rename a list:**")
+    rename_ids = [""] + list([l["id"] for l in lists])
+    rename_names = {l["id"]: l["name"] for l in lists}
+    selected_rename = st.selectbox(
+        "Select list to rename",
+        options=rename_ids,
+        format_func=lambda x: rename_names.get(x, "Select a list...") if x else "Select a list...",
+        key="rename_waitlist_list_select",
+    )
+
+    if selected_rename:
+        current_name = rename_names.get(selected_rename, "")
+        new_name = st.text_input("New name", value=current_name, key="new_waitlist_name")
+        if st.button("✏️ Rename", key="rename_waitlist_list_btn"):
+            if new_name and new_name.strip() and new_name != current_name:
+                if user_manager.rename_waitlist_list(selected_rename, new_name.strip()):
+                    st.success(f"✅ Renamed to: {new_name}")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to rename (name may already exist)")
+            else:
+                st.warning("Please enter a different name")
+
+
+def _render_waitlist_entries_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+    manageable_users: List[Dict[str, Any]],
+):
+    """Render waitlist entries with filtering by list and master approval."""
+    st.subheader("🕒 Waitlist Entries")
+    _ = user_role  # explicit for lint/readability
+
+    user_manager = get_user_manager()
+    lists = user_manager.get_all_waitlist_lists()
+
+    col_filter1, col_filter2 = st.columns(2)
+    list_ids = [""] + list([l["id"] for l in lists])
+    list_names = {l["id"]: l["name"] for l in lists}
+    with col_filter1:
+        selected_list = st.selectbox(
+            "Filter by list",
+            options=list_ids,
+            format_func=lambda x: list_names.get(x, "All lists") if x else "All lists",
+            key="waitlist_entries_filter_list",
+        )
+    with col_filter2:
+        selected_status = st.selectbox(
+            "Filter by status",
+            options=["", "pending", "approved", "rejected"],
+            format_func=lambda x: x.capitalize() if x else "All statuses",
+            key="waitlist_entries_filter_status",
+        )
+
+    entries = user_manager.get_waitlist_entries(
+        list_id=selected_list if selected_list else None,
+        status=selected_status if selected_status else None,
+    )
+
+    if not entries:
+        st.success("No waitlist entries found.")
+        return
+
+    st.info(f"{len(entries)} entry(s) found.")
+
+    pending_entries = [e["id"] for e in entries if e["status"] == "pending"]
+
+    col_select_all, col_select_pending = st.columns(2)
+    with col_select_all:
+        if st.button("Select All", key="select_all_entries", width="stretch"):
+            st.session_state.waitlist_entries_bulk_selection = [e["id"] for e in entries]
+            st.rerun()
+    with col_select_pending:
+        if st.button("Select All Pending", key="select_pending_entries", width="stretch", disabled=not pending_entries):
+            st.session_state.waitlist_entries_bulk_selection = pending_entries
+            st.rerun()
+
+    current_entry_ids = [e["id"] for e in entries]
+    saved_selection = st.session_state.get("waitlist_entries_bulk_selection", [])
+    valid_default = [eid for eid in saved_selection if eid in current_entry_ids]
+
+    selected_entry_ids = st.multiselect(
+        "Select multiple entries",
+        options=current_entry_ids,
+        format_func=lambda eid: next(
+            (f"{e['email']} - {e['status']}" for e in entries if e["id"] == eid),
+            eid,
+        ),
+        key="waitlist_entries_bulk_selection",
+        default=valid_default,
+    )
+
+    col_bulk_actions = st.columns([2, 1, 2, 2])
+    masters = user_manager.get_users_by_role(UserRole.MASTER.value)
+    master_ids = [m["id"] for m in masters]
+    master_names = {m["id"]: m["name"] for m in masters}
+    default_days = user_manager.get_default_activation_duration_days()
+
+    with col_bulk_actions[0]:
+        selected_master = st.selectbox(
+            "Assign to master",
+            options=master_ids,
+            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+            key="bulk_approve_master_select",
+        )
+    with col_bulk_actions[1]:
+        bulk_duration = st.number_input(
+            "Days",
+            min_value=0,
+            max_value=3650,
+            value=default_days or 0,
+            step=1,
+            key="waitlist_bulk_duration",
+            help="Activation duration in days (0 = use default / no expiration)",
+        )
+    with col_bulk_actions[2]:
+        if st.button("✅ Approve selected", key="waitlist_bulk_approve_entries", width="stretch", disabled=not selected_master or not selected_entry_ids):
+            days_to_use = int(bulk_duration) if bulk_duration > 0 else None
+            created = user_manager.bulk_approve_waitlist_entries(selected_entry_ids, selected_master, duration_days=days_to_use)
+            if created:
+                st.success(f"✅ Approved {len(created)} user(s).")
+                st.rerun()
+            st.warning("No entries were approved.")
+    with col_bulk_actions[3]:
+        if st.button("❌ Reject selected", key="waitlist_bulk_reject_entries", width="stretch", disabled=not selected_entry_ids):
+            rejected = user_manager.bulk_reject_waitlist_entries(selected_entry_ids)
+            if rejected:
+                st.warning(f"Rejected {rejected} entry(s).")
+                st.rerun()
+            st.warning("No entries were rejected.")
+
+    st.divider()
+
+    for entry in entries:
+        list_name = next((l["name"] for l in lists if l["id"] == entry["list_id"]), entry["list_id"])
+        master_name = ""
+        if entry.get("master_id"):
+            master = user_manager.get_user(entry["master_id"])
+            if master:
+                master_name = master["name"]
+
+        cols = st.columns([3, 2, 1, 1, 1, 1])
+        with cols[0]:
+            st.write(f"**{entry['email']}**")
+            st.caption(f"List: {list_name}")
+            if entry.get("created_at"):
+                st.caption(f"Added: {entry['created_at'][:10]}")
+        with cols[1]:
+            status_color = "🟡" if entry["status"] == "pending" else "🟢" if entry["status"] == "approved" else "🔴"
+            st.caption(f"Status: {status_color} {entry['status']}")
+            if master_name:
+                st.caption(f"Master: {master_name}")
+            if entry.get("user_id"):
+                st.caption(f"User: {entry['user_id']}")
+        with cols[2]:
+            if entry["status"] == "pending":
+                entry_duration = st.number_input(
+                    "Days",
+                    min_value=0,
+                    max_value=3650,
+                    value=default_days or 0,
+                    step=1,
+                    key=f"entry_duration_{entry['id']}",
+                    help="Activation duration in days (0 = no expiration)",
+                    label_visibility="collapsed",
+                )
+        with cols[3]:
+            if entry["status"] == "pending":
+                if st.button("✅ Approve", key=f"approve_entry_{entry['id']}", width="stretch"):
+                    if masters:
+                        default_master_id = masters[0]["id"] if masters else None
+                        if default_master_id:
+                            days_to_use = int(entry_duration) if entry_duration > 0 else None
+                            created_user = user_manager.approve_waitlist_entry(entry["id"], default_master_id, duration_days=days_to_use)
+                            if created_user:
+                                st.success(f"✅ Approved! User: {created_user}")
+                                st.rerun()
+                            st.error("❌ Failed to approve")
+                    else:
+                        st.error("No masters available")
+        with cols[4]:
+            if entry["status"] == "pending":
+                if st.button("❌ Reject", key=f"reject_entry_{entry['id']}", width="stretch"):
+                    if user_manager.reject_waitlist_entry(entry["id"]):
+                        st.warning("❌ Rejected")
+                        st.rerun()
+                    st.error("❌ Failed to reject")
+        with cols[5]:
+            if entry["status"] == "rejected":
+                if st.button("🔄 Re-approve", key=f"reetry_entry_{entry['id']}", width="stretch"):
+                    if user_manager.reapprove_waitlist_entry(entry["id"]):
+                        st.success("✅ Re-approved! Set back to pending.")
+                        st.rerun()
+                    st.error("❌ Failed to re-approve")
+        st.divider()
+
+
+def _render_waitlist_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+    manageable_users: List[Dict[str, Any]],
+):
+    """Render waitlist entries with single and bulk approval actions."""
+    st.subheader("🕒 Waitlist")
+    _ = user_role  # explicit for lint/readability
+
+    waitlist_users = [
+        user
+        for user in manageable_users
+        if user.get("registration_status") == "pending"
+        and (user.get("metadata") or {}).get("created_via") == "waitlist"
+        and user.get("id") != current_user.get("id")
+    ]
+
+    if not waitlist_users:
+        st.success("No users are currently waiting on the waitlist.")
+        return
+
+    st.info(f"{len(waitlist_users)} waitlist registration(s) awaiting approval.")
+
+    selected_ids = st.multiselect(
+        "Select multiple waitlist users",
+        options=[user["id"] for user in waitlist_users],
+        format_func=lambda uid: next(
+            (
+                f"{user.get('name', user['id'])} ({user.get('email') or 'no-email'})"
+                for user in waitlist_users
+                if user["id"] == uid
+            ),
+            uid,
+        ),
+        key="waitlist_bulk_selection",
+    )
+    col_bulk_approve, col_bulk_reject = st.columns(2)
+    with col_bulk_approve:
+        if st.button("✅ Approve selected", key="waitlist_bulk_approve", width="stretch"):
+            changed = 0
+            for user_id in selected_ids:
+                if get_user_manager().set_registration_status(user_id, "approved"):
+                    changed += 1
+            if changed:
+                st.success(f"Approved {changed} waitlist user(s).")
+                st.rerun()
+            st.warning("No waitlist user was approved.")
+    with col_bulk_reject:
+        if st.button("❌ Reject selected", key="waitlist_bulk_reject", width="stretch"):
+            changed = 0
+            for user_id in selected_ids:
+                if get_user_manager().set_registration_status(user_id, "rejected"):
+                    changed += 1
+            if changed:
+                st.warning(f"Rejected {changed} waitlist user(s).")
+                st.rerun()
+            st.warning("No waitlist user was rejected.")
+
+    st.divider()
+    for user in waitlist_users:
+        cols = st.columns([3, 2, 1, 1])
+        with cols[0]:
+            st.write(f"**{user.get('name', user['id'])}**")
+            st.caption(f"📧 {user.get('email') or '-'}")
+            st.caption(f"🆔 {user['id']}")
+        with cols[1]:
+            if user.get("created_at"):
+                st.caption(f"📅 Requested: {user['created_at'][:10]}")
+            st.caption("Source: waitlist")
+        with cols[2]:
+            if st.button("✅ Approve", key=f"waitlist_approve_{user['id']}", width="stretch"):
+                if get_user_manager().set_registration_status(user["id"], "approved"):
+                    st.success(f"✅ {user.get('name', user['id'])} approved.")
+                    st.rerun()
+                st.error("❌ Failed to approve user.")
+        with cols[3]:
+            if st.button("❌ Reject", key=f"waitlist_reject_{user['id']}", width="stretch"):
+                if get_user_manager().set_registration_status(user["id"], "rejected"):
+                    st.warning(f"❌ {user.get('name', user['id'])} rejected.")
+                    st.rerun()
+                st.error("❌ Failed to reject user.")
+        st.divider()
 
 
 def _generate_reset_code(target_user_id: str, requesting_user_id: str):
@@ -912,6 +1392,38 @@ def _render_edit_form_fields(
     else:
         edit_active = user_to_edit.get("is_active", True)
 
+    # Expiration date (admin/master only, can't edit self)
+    edit_expiration_date = user_to_edit.get("expiration_date")
+    resolved_exp = "unchanged"
+    if (
+        current_user["role"] in [UserRole.ADMIN.value, UserRole.MASTER.value]
+        and not is_editing_self
+    ):
+        st.subheader("Expiration Date")
+        exp_val = None
+        if edit_expiration_date:
+            try:
+                exp_val = datetime.fromisoformat(edit_expiration_date).date()
+            except Exception:
+                pass
+        has_exp = st.checkbox(
+            "Set expiration date",
+            value=exp_val is not None,
+            key=f"has_exp_{user_to_edit['id']}",
+        )
+        if has_exp:
+            from datetime import date as _date_type
+            new_exp_date = st.date_input(
+                "Expires on",
+                value=exp_val or datetime.today().date(),
+                min_value=datetime.today().date(),
+                key=f"edit_exp_date_{user_to_edit['id']}",
+                help="User will be deactivated on this date.",
+            )
+            resolved_exp = new_exp_date
+        else:
+            resolved_exp = None
+
     return {
         "name": edit_name,
         "email": edit_email,
@@ -920,6 +1432,7 @@ def _render_edit_form_fields(
         "parent_id": selected_parent,
         "profile": profile_updates,
         "is_active": edit_active,
+        "expiration_date": resolved_exp,
     }
 
 
@@ -1262,6 +1775,19 @@ def _process_edit_submission(
             )
 
             if success:
+                # Handle expiration date update separately
+                if not is_editing_self:
+                    exp = edit_data.get("expiration_date")
+                    if exp != "unchanged":
+                        if exp is None:
+                            get_user_manager().set_expiration_date(user_id_to_edit, None)
+                        else:
+                            import datetime as _dt
+                            from datetime import date as _date_type
+                            if isinstance(exp, _date_type):
+                                exp_dt = _dt.datetime.combine(exp, _dt.time.min)
+                                get_user_manager().set_expiration_date(user_id_to_edit, exp_dt)
+
                 # If ID was changed, show a message about the new ID
                 if updates.get("new_id") and updates["new_id"] != user_id_to_edit:
                     st.success(
@@ -1573,6 +2099,18 @@ def _render_user_row(
             # Language
             if user.get("profile", {}).get("language"):
                 st.caption(f"🌐 {user['profile']['language']}")
+
+            # Expiration date
+            exp_date = user.get("expiration_date")
+            if exp_date:
+                try:
+                    exp_dt = datetime.fromisoformat(exp_date)
+                    if exp_dt < datetime.utcnow():
+                        st.caption(f"⏰ Expired: {exp_date[:10]}")
+                    else:
+                        st.caption(f"⏰ Expires: {exp_date[:10]}")
+                except Exception:
+                    pass
 
         with cols[2]:
             # View details button

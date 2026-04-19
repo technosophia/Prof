@@ -82,6 +82,7 @@ from core.logging import log, set_log_module_level
 from core.database import get_db_manager, Base
 from core.config import get_config
 from core.callback import register_callback, unregister_callback, clear_callbacks
+from shared.mailer_lite import notify_account_approved
 
 
 class UserRole(Enum):
@@ -130,6 +131,7 @@ class UserTable(Base):
     user_metadata = Column(JSON, default={})
     reset_code = Column(String(64), nullable=True)
     reset_code_expires = Column(DateTime, nullable=True)
+    expiration_date = Column(DateTime, nullable=True)
 
     # Relationships - define them explicitly
     parent = relationship("UserTable", remote_side=[id], back_populates="children")
@@ -144,6 +146,8 @@ class PreregisteredEmail(Base):
     email = Column(String(255), primary_key=True)
     added_at = Column(DateTime, default=datetime.utcnow)
     added_by = Column(String(36), nullable=True)
+    deadline_months = Column(Integer, nullable=False, default=6)
+    expiry_message = Column(Text, nullable=True)
 
 
 class UserActionLog(Base):
@@ -161,6 +165,41 @@ class UserActionLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     success = Column(Boolean, default=True)
     error_message = Column(String(500), nullable=True)  # Add length
+
+
+class WaitlistList(Base):
+    """Waitlist lists for organizing email registrations."""
+
+    __tablename__ = "waitlist_lists"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+
+
+class WaitlistEntry(Base):
+    """Waitlist entries - emails registered for a specific list."""
+
+    __tablename__ = "waitlist_entries"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    list_id = Column(String(36), ForeignKey("waitlist_lists.id"), nullable=False)
+    email = Column(String(255), nullable=False)
+    status = Column(String(20), default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    master_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+
+
+class SystemSettings(Base):
+    """System-wide key-value configuration settings."""
+
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 
 class UserManager:
@@ -203,6 +242,11 @@ class UserManager:
                     )
                 log("info", "Added missing users.registration_status column")
 
+            if "expiration_date" not in user_columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN expiration_date DATETIME"))
+                log("info", "Added missing users.expiration_date column")
+
             log("debug", "Users table ensured to exist")
             return True
         except Exception as e:
@@ -228,10 +272,201 @@ class UserManager:
 
         try:
             PreregisteredEmail.__table__.create(bind=self.db._engine, checkfirst=True)
+            inspector = inspect(self.db._engine)
+            columns = {
+                column["name"] for column in inspector.get_columns("preregistered_emails")
+            }
+
+            if "deadline_months" not in columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE preregistered_emails "
+                            "ADD COLUMN deadline_months INTEGER DEFAULT 6"
+                        )
+                    )
+                log("info", "Added missing preregistered_emails.deadline_months column")
+
+            if "expiry_message" not in columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE preregistered_emails "
+                            "ADD COLUMN expiry_message TEXT"
+                        )
+                    )
+                log("info", "Added missing preregistered_emails.expiry_message column")
             return True
         except Exception as e:
             log("error", f"Failed to ensure preregistered emails table exists: {e}")
             return False
+
+    @staticmethod
+    def compute_deadline_at(deadline_months: int) -> str:
+        """Compute deadline datetime as ISO string."""
+        safe_months = max(1, int(deadline_months))
+        deadline = datetime.utcnow() + timedelta(days=safe_months * 30)
+        return deadline.isoformat()
+
+    @staticmethod
+    def _deadline_message_prefix(message: Optional[str]) -> str:
+        custom_message = (message or "").strip()
+        if custom_message:
+            return custom_message
+        return "Your access period has ended. Please contact your teacher."
+
+    def _check_deadline_expiry(self, session: Session, user: UserTable) -> Optional[str]:
+        """Deactivate user if expiration date has passed.
+
+        Returns the message to display when access is expired, otherwise None.
+        """
+        # Check the expiration_date column (new mechanism)
+        if user.expiration_date:
+            if dt_datetime.utcnow() >= user.expiration_date:
+                if user.is_active:
+                    user.is_active = False
+                    session.commit()
+                return self._deadline_message_prefix(
+                    (user.user_metadata or {}).get("expiry_message")
+                )
+            return None
+
+        # Legacy: fall back to metadata-based deadline
+        metadata = user.user_metadata or {}
+        if not metadata.get("preregistered_deadline_at"):
+            is_retroactive_candidate = (
+                user.role == UserRole.NORMAL.value
+                and (user.registration_status or "approved") == "approved"
+                and bool(user.parent_id)
+            )
+            if is_retroactive_candidate:
+                created_at = user.created_at or datetime.utcnow()
+                metadata = {
+                    **metadata,
+                    "preregistered": metadata.get("preregistered", True),
+                    "preregistered_deadline_months": metadata.get(
+                        "preregistered_deadline_months", 6
+                    ),
+                    "preregistered_deadline_at": (
+                        created_at + timedelta(days=6 * 30)
+                    ).isoformat(),
+                }
+                user.user_metadata = metadata
+                session.commit()
+
+        deadline_iso = metadata.get("preregistered_deadline_at")
+        if not deadline_iso:
+            return None
+
+        try:
+            deadline_at = dt_datetime.fromisoformat(deadline_iso)
+        except ValueError:
+            log(
+                "warning",
+                f"Invalid preregistered_deadline_at for user {user.id}: {deadline_iso}",
+            )
+            return None
+
+        if dt_datetime.utcnow() < deadline_at:
+            return None
+
+        if user.is_active:
+            user.is_active = False
+            session.commit()
+
+        return self._deadline_message_prefix(metadata.get("preregistered_expiry_message"))
+
+    def enforce_deadline_for_user(self, user_id: str) -> Optional[str]:
+        """Enforce deadline policy and return expiry message if expired."""
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return None
+            return self._check_deadline_expiry(session, user)
+
+    def get_default_activation_duration_days(self) -> Optional[int]:
+        """Return the default activation duration in days, or None if not set."""
+        self._ensure_system_settings_table()
+        with self.db.get_session() as session:
+            setting = session.query(SystemSettings).filter_by(
+                key="default_activation_duration_days"
+            ).first()
+            if setting and setting.value is not None:
+                return int(setting.value)
+            return None
+
+    def set_default_activation_duration_days(self, days: Optional[int]) -> bool:
+        """Set the default activation duration in days (None to disable)."""
+        self._ensure_system_settings_table()
+        with self.db.get_session() as session:
+            setting = session.query(SystemSettings).filter_by(
+                key="default_activation_duration_days"
+            ).first()
+            if setting:
+                setting.value = days
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = SystemSettings(
+                    key="default_activation_duration_days", value=days
+                )
+                session.add(setting)
+            session.commit()
+        return True
+
+    def set_expiration_date(self, user_id: str, expiration_date: Optional[datetime]) -> bool:
+        """Set or clear the expiration date for a user."""
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return False
+            user.expiration_date = expiration_date
+            if expiration_date and expiration_date > datetime.utcnow() and not user.is_active:
+                user.is_active = True
+            session.commit()
+        return True
+
+    def set_expiration_date_bulk(
+        self, user_ids: List[str], expiration_date: Optional[datetime]
+    ) -> int:
+        """Set or clear the expiration date for multiple users. Returns count updated."""
+        self._ensure_table_exists()
+        count = 0
+        with self.db.get_session() as session:
+            for user_id in user_ids:
+                user = session.query(UserTable).filter_by(id=user_id).first()
+                if user:
+                    user.expiration_date = expiration_date
+                    if expiration_date and expiration_date > datetime.utcnow() and not user.is_active:
+                        user.is_active = True
+                    count += 1
+            if count:
+                session.commit()
+        return count
+
+    def deactivate_expired_users(self) -> int:
+        """Deactivate all users whose expiration_date has passed. Returns count."""
+        self._ensure_table_exists()
+        count = 0
+        now = datetime.utcnow()
+        with self.db.get_session() as session:
+            expired = (
+                session.query(UserTable)
+                .filter(
+                    UserTable.expiration_date.isnot(None),
+                    UserTable.expiration_date <= now,
+                    UserTable.is_active == True,
+                )
+                .all()
+            )
+            for user in expired:
+                user.is_active = False
+                count += 1
+            if count:
+                session.commit()
+                log("info", f"Deactivated {count} expired user(s)")
+        return count
 
     def _hash_password(self, password: str) -> str:
         """Hash a password using SHA-256 with salt."""
@@ -860,6 +1095,7 @@ class UserManager:
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "is_active": user.is_active,
+            "expiration_date": user.expiration_date.isoformat() if user.expiration_date else None,
             "profile": user.profile or {},
             "metadata": user.user_metadata or {},
             "parent_name": user.parent.name if user.parent else None,
@@ -933,6 +1169,21 @@ class UserManager:
                 return self._user_to_dict(user)
             return None
 
+    @staticmethod
+    def _sanitize_user_id(raw_user_id: str) -> str:
+        """Sanitize a raw user ID string.
+
+        Args:
+            raw_user_id: Raw user ID from email prefix or input
+
+        Returns:
+            Sanitized user ID safe for database storage
+        """
+        candidate = (raw_user_id or "").strip().lower().replace(" ", "_").replace(".", "_")
+        while "__" in candidate:
+            candidate = candidate.replace("__", "_")
+        return candidate.strip("_")
+
     def authenticate_user_with_status(
         self, user_id: str, password: str
     ) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -970,6 +1221,15 @@ class UserManager:
                 return None, "invalid_credentials"
 
             if not user.is_active:
+                expiry_message = self._check_deadline_expiry(session, user)
+                if expiry_message:
+                    self.log_user_action(
+                        user_id=user.id,
+                        action=UserAction.LOGIN_FAILED.value,
+                        details={"reason": "deadline_expired"},
+                        success=False,
+                    )
+                    return None, f"deadline_expired::{expiry_message}"
                 self.log_user_action(
                     user_id=user.id,
                     action=UserAction.LOGIN_FAILED.value,
@@ -995,6 +1255,16 @@ class UserManager:
                     success=False,
                 )
                 return None, "invalid_credentials"
+
+            expiry_message = self._check_deadline_expiry(session, user)
+            if expiry_message:
+                self.log_user_action(
+                    user_id=user.id,
+                    action=UserAction.LOGIN_FAILED.value,
+                    details={"reason": "deadline_expired"},
+                    success=False,
+                )
+                return None, f"deadline_expired::{expiry_message}"
 
             if (user.registration_status or "approved") != "approved":
                 self.log_user_action(
@@ -1041,7 +1311,9 @@ class UserManager:
             )
             return [self._user_to_dict(user) for user in users]
 
-    def set_registration_status(self, user_id: str, status: str) -> bool:
+    def set_registration_status(
+        self, user_id: str, status: str, duration_days: Optional[int] = None
+    ) -> bool:
         """Set registration status for a user."""
         if status not in {"approved", "pending", "rejected"}:
             raise ValueError("Invalid registration status")
@@ -1051,8 +1323,15 @@ class UserManager:
             user = session.query(UserTable).filter_by(id=user_id).first()
             if not user:
                 return False
+            previous_status = user.registration_status or "approved"
             user.registration_status = status
+            if previous_status != "approved" and status == "approved":
+                days = duration_days if duration_days is not None else self.get_default_activation_duration_days()
+                if days is not None:
+                    user.expiration_date = datetime.utcnow() + timedelta(days=days)
             session.commit()
+            if previous_status != "approved" and status == "approved":
+                notify_account_approved(user.email, user.name)
             return True
 
     def import_preregistered_emails(
@@ -1181,6 +1460,32 @@ class UserManager:
 
         return None
 
+    def get_preregistered_email_policy(self, email: str) -> Dict[str, Any]:
+        """Return preregistration policy for an email."""
+        default_policy = {"deadline_months": 6, "expiry_message": None}
+        if not email:
+            return default_policy
+
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return default_policy
+
+        self._ensure_preregistered_emails_table()
+
+        with self.db.get_session() as session:
+            db_match = (
+                session.query(PreregisteredEmail)
+                .filter(func.lower(PreregisteredEmail.email) == normalized_email)
+                .first()
+            )
+            if not db_match:
+                return default_policy
+
+            return {
+                "deadline_months": db_match.deadline_months or 6,
+                "expiry_message": db_match.expiry_message,
+            }
+
     def is_email_registered(self, email: str) -> bool:
         """Check if an email is already registered to a user."""
         if not email:
@@ -1215,6 +1520,8 @@ class UserManager:
                     "email": row.email,
                     "added_at": row.added_at.isoformat() if row.added_at else None,
                     "added_by": row.added_by,
+                    "deadline_months": row.deadline_months or 6,
+                    "expiry_message": row.expiry_message,
                 }
                 for row in rows
             ]
@@ -1253,8 +1560,497 @@ class UserManager:
             log("info", f"Deleted {count} preregistered emails")
             return count
 
+    def _ensure_waitlist_tables(self):
+        """Ensure waitlist tables exist."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            WaitlistList.__table__.create(bind=self.db._engine, checkfirst=True)
+            WaitlistEntry.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure waitlist tables: {e}")
+            return False
+
+    def _ensure_system_settings_table(self):
+        """Ensure the system_settings table exists."""
+        if not self.db.is_initialized():
+            return False
+
+        try:
+            SystemSettings.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure system_settings table: {e}")
+            return False
+
+    def create_waitlist_list(self, name: str, created_by: Optional[str] = None) -> Optional[str]:
+        """Create a new waitlist list.
+
+        Args:
+            name: Name of the list
+            created_by: User ID creating the list
+
+        Returns:
+            List ID if successful, None otherwise
+        """
+        if not name or not name.strip():
+            log("warning", "Cannot create waitlist list: empty name")
+            return None
+
+        normalized_name = name.strip()
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(WaitlistList)
+                .filter(func.lower(WaitlistList.name) == normalized_name.lower())
+                .first()
+            )
+            if existing:
+                log("warning", f"Waitlist list '{name}' already exists")
+                return None
+
+            waitlist_list = WaitlistList(
+                id=str(uuid.uuid4()),
+                name=normalized_name,
+                created_by=created_by,
+            )
+            session.add(waitlist_list)
+            session.commit()
+            log("info", f"Created waitlist list: {normalized_name}")
+            return waitlist_list.id
+
+    def delete_waitlist_list(self, list_id: str) -> bool:
+        """Delete a waitlist list and all its entries.
+
+        Args:
+            list_id: ID of the list to delete
+
+        Returns:
+            True if successful
+        """
+        if not list_id:
+            return False
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            waitlist_list = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not waitlist_list:
+                log("warning", f"Waitlist list {list_id} not found")
+                return False
+
+            session.query(WaitlistEntry).filter_by(list_id=list_id).delete()
+            session.delete(waitlist_list)
+            session.commit()
+            log("info", f"Deleted waitlist list: {list_id}")
+            return True
+
+    def rename_waitlist_list(self, list_id: str, new_name: str) -> bool:
+        """Rename a waitlist list.
+
+        Args:
+            list_id: ID of the list
+            new_name: New name for the list
+
+        Returns:
+            True if successful
+        """
+        if not list_id or not new_name or not new_name.strip():
+            return False
+
+        normalized_name = new_name.strip()
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(WaitlistList)
+                .filter(
+                    func.lower(WaitlistList.name) == normalized_name.lower(),
+                    WaitlistList.id != list_id,
+                )
+                .first()
+            )
+            if existing:
+                log("warning", f"Waitlist list name '{new_name}' already exists")
+                return False
+
+            waitlist_list = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not waitlist_list:
+                return False
+
+            waitlist_list.name = normalized_name
+            session.commit()
+            log("info", f"Renamed waitlist list {list_id} to '{normalized_name}'")
+            return True
+
+    def get_all_waitlist_lists(self) -> List[Dict[str, Any]]:
+        """Get all waitlist lists."""
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            lists = session.query(WaitlistList).order_by(WaitlistList.created_at).all()
+            return [
+                {
+                    "id": wl.id,
+                    "name": wl.name,
+                    "created_at": wl.created_at.isoformat() if wl.created_at else None,
+                    "created_by": wl.created_by,
+                }
+                for wl in lists
+            ]
+
+    def get_waitlist_list(self, list_id: str) -> Optional[Dict[str, Any]]:
+        """Get a waitlist list by ID."""
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            wl = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not wl:
+                return None
+            return {
+                "id": wl.id,
+                "name": wl.name,
+                "created_at": wl.created_at.isoformat() if wl.created_at else None,
+                "created_by": wl.created_by,
+            }
+
+    def add_waitlist_entry(
+        self,
+        email: str,
+        list_id: str,
+    ) -> Optional[str]:
+        """Add an email to a waitlist.
+
+        Args:
+            email: Email address to add
+            list_id: ID of the waitlist list
+
+        Returns:
+            Entry ID if successful, None otherwise
+        """
+        if not email or not list_id:
+            return None
+
+        normalized_email = email.strip().lower()
+        email_regex = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+        if not email_regex.match(normalized_email):
+            log("warning", f"Invalid email format: {email}")
+            return None
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            waitlist_list = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not waitlist_list:
+                log("warning", f"Waitlist list {list_id} not found")
+                return None
+
+            existing = (
+                session.query(WaitlistEntry)
+                .filter(
+                    func.lower(WaitlistEntry.email) == normalized_email,
+                    WaitlistEntry.list_id == list_id,
+                )
+                .first()
+            )
+            if existing:
+                log("info", f"Email {email} already in waitlist list {list_id}")
+                return None
+
+            entry = WaitlistEntry(
+                id=str(uuid.uuid4()),
+                list_id=list_id,
+                email=normalized_email,
+                status="pending",
+            )
+            session.add(entry)
+            session.commit()
+            log("info", f"Added {email} to waitlist list {list_id}")
+            return entry.id
+
+    def delete_waitlist_entry(self, entry_id: str) -> bool:
+        """Delete a waitlist entry.
+
+        Args:
+            entry_id: ID of the entry to delete
+
+        Returns:
+            True if successful
+        """
+        if not entry_id:
+            return False
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                return False
+
+            session.delete(entry)
+            session.commit()
+            log("info", f"Deleted waitlist entry: {entry_id}")
+            return True
+
+    def get_waitlist_entries(
+        self,
+        list_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get waitlist entries with optional filtering.
+
+        Args:
+            list_id: Filter by list ID
+            status: Filter by status (pending, approved, rejected)
+
+        Returns:
+            List of waitlist entries
+        """
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            query = session.query(WaitlistEntry)
+
+            if list_id:
+                query = query.filter(WaitlistEntry.list_id == list_id)
+            if status:
+                query = query.filter(WaitlistEntry.status == status)
+
+            entries = query.order_by(WaitlistEntry.created_at).all()
+            return [
+                {
+                    "id": e.id,
+                    "list_id": e.list_id,
+                    "email": e.email,
+                    "status": e.status,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "master_id": e.master_id,
+                    "user_id": e.user_id,
+                }
+                for e in entries
+            ]
+
+    def get_waitlist_entry(self, entry_id: str) -> Optional[Dict[str, Any]]:
+        """Get a waitlist entry by ID."""
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            e = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not e:
+                return None
+            return {
+                "id": e.id,
+                "list_id": e.list_id,
+                "email": e.email,
+                "status": e.status,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+                "master_id": e.master_id,
+                "user_id": e.user_id,
+            }
+
+    def approve_waitlist_entry(
+        self,
+        entry_id: str,
+        master_id: str,
+        duration_days: Optional[int] = None,
+    ) -> Optional[str]:
+        """Approve a waitlist entry and create a user for the assigned master.
+
+        Args:
+            entry_id: ID of the waitlist entry
+            master_id: ID of the master to assign the user to
+            duration_days: Activation duration in days (uses default if None)
+
+        Returns:
+            Created user ID if successful, None otherwise
+        """
+        if not entry_id or not master_id:
+            return None
+
+        self._ensure_waitlist_tables()
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                log("warning", f"Waitlist entry {entry_id} not found")
+                return None
+            if entry.status not in ["pending", "rejected"]:
+                log("warning", f"Waitlist entry {entry_id} has status {entry.status}, must be pending or rejected")
+                return None
+
+            if entry.status == "rejected" and entry.user_id:
+                existing_user = session.query(UserTable).filter_by(id=entry.user_id).first()
+                if existing_user:
+                    existing_user.is_active = True
+                    days = duration_days if duration_days is not None else self.get_default_activation_duration_days()
+                    if days is not None:
+                        existing_user.expiration_date = datetime.utcnow() + timedelta(days=days)
+                    log("info", f"Reactivating existing user {entry.user_id}")
+                    entry.status = "approved"
+                    entry.master_id = master_id
+                    session.commit()
+                    log("info", f"Approved waitlist entry {entry_id} (reactivated user {entry.user_id})")
+                    return entry.user_id
+
+            master = session.query(UserTable).filter_by(id=master_id).first()
+            if not master or master.role != UserRole.MASTER.value:
+                log("warning", f"Master {master_id} not found or not a master")
+                return None
+
+            derived_user_id = f"wait_{self._sanitize_user_id(entry.email.split('@')[0])}"
+            counter = 0
+            original_id = derived_user_id
+            while session.query(UserTable).filter_by(id=derived_user_id).first():
+                counter += 1
+                derived_user_id = f"{original_id}_{counter}"
+
+            days = duration_days if duration_days is not None else self.get_default_activation_duration_days()
+            new_user = UserTable(
+                id=derived_user_id,
+                name=derived_user_id,
+                email=entry.email,
+                role=UserRole.NORMAL.value,
+                parent_id=master_id,
+                is_active=True,
+                registration_status="approved",
+                profile={"language": "en"},
+                user_metadata={"created_via": "waitlist", "waitlist_entry_id": entry_id},
+                expiration_date=datetime.utcnow() + timedelta(days=days) if days is not None else None,
+            )
+            session.add(new_user)
+
+            entry.status = "approved"
+            entry.master_id = master_id
+            entry.user_id = derived_user_id
+            session.commit()
+
+            log("info", f"Approved waitlist entry {entry_id} -> user {derived_user_id}")
+            return derived_user_id
+
+    def reject_waitlist_entry(self, entry_id: str) -> bool:
+        """Reject a waitlist entry and deactivate the created user.
+
+        Args:
+            entry_id: ID of the waitlist entry
+
+        Returns:
+            True if successful
+        """
+        if not entry_id:
+            return False
+
+        self._ensure_waitlist_tables()
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                return False
+
+            if entry.user_id:
+                user = session.query(UserTable).filter_by(id=entry.user_id).first()
+                if user:
+                    user.is_active = False
+                    log("info", f"Deactivated user {entry.user_id} for waitlist entry {entry_id}")
+
+            entry.status = "rejected"
+            session.commit()
+            log("info", f"Rejected waitlist entry: {entry_id}")
+            return True
+
+    def reapprove_waitlist_entry(
+        self,
+        entry_id: str,
+    ) -> bool:
+        """Re-approve a rejected waitlist entry (reset status to pending and reactivate user).
+
+        Args:
+            entry_id: ID of the waitlist entry
+
+        Returns:
+            True if successful
+        """
+        if not entry_id:
+            return False
+
+        self._ensure_waitlist_tables()
+        self._ensure_table_exists()
+
+        with self.db.get_session() as session:
+            entry = session.query(WaitlistEntry).filter_by(id=entry_id).first()
+            if not entry:
+                log("warning", f"Cannot re-approve: entry {entry_id} not found")
+                return False
+            if entry.status == "pending":
+                log("info", f"Entry {entry_id} is already pending")
+                return True
+            if entry.status != "rejected":
+                log("warning", f"Cannot re-approve: entry {entry_id} has status {entry.status}")
+                return False
+
+            if entry.user_id:
+                user = session.query(UserTable).filter_by(id=entry.user_id).first()
+                if user:
+                    user.is_active = True
+                    log("info", f"Reactivated user {entry.user_id} for waitlist entry {entry_id}")
+
+            entry.status = "pending"
+            session.commit()
+            log("info", f"Re-approved waitlist entry: {entry_id}")
+            return True
+
+    def bulk_approve_waitlist_entries(
+        self,
+        entry_ids: List[str],
+        master_id: str,
+        duration_days: Optional[int] = None,
+    ) -> List[str]:
+        """Approve multiple waitlist entries.
+
+        Args:
+            entry_ids: List of entry IDs to approve
+            master_id: ID of the master to assign users to
+            duration_days: Activation duration in days (uses default if None)
+
+        Returns:
+            List of created user IDs
+        """
+        created_users = []
+
+        for entry_id in entry_ids:
+            user_id = self.approve_waitlist_entry(entry_id, master_id, duration_days=duration_days)
+            if user_id:
+                created_users.append(user_id)
+
+        return created_users
+
+    def bulk_reject_waitlist_entries(self, entry_ids: List[str]) -> int:
+        """Reject multiple waitlist entries.
+
+        Args:
+            entry_ids: List of entry IDs to reject
+
+        Returns:
+            Number of entries rejected
+        """
+        rejected_count = 0
+
+        for entry_id in entry_ids:
+            if self.reject_waitlist_entry(entry_id):
+                rejected_count += 1
+
+        return rejected_count
+
     def add_preregistered_email(
-        self, email: str, requesting_user_id: Optional[str] = None
+        self,
+        email: str,
+        requesting_user_id: Optional[str] = None,
+        deadline_months: int = 6,
+        expiry_message: Optional[str] = None,
     ) -> bool:
         """Add a single pre-registered email.
 
@@ -1276,6 +2072,9 @@ class UserManager:
         if not email_regex.match(normalized_email):
             return False
 
+        safe_deadline_months = max(1, int(deadline_months or 6))
+        normalized_message = (expiry_message or "").strip() or None
+
         self._ensure_preregistered_emails_table()
 
         with self.db.get_session() as session:
@@ -1292,6 +2091,8 @@ class UserManager:
                     email=normalized_email,
                     added_at=datetime.utcnow(),
                     added_by=requesting_user_id,
+                    deadline_months=safe_deadline_months,
+                    expiry_message=normalized_message,
                 )
             )
             session.commit()
@@ -1644,6 +2445,7 @@ class UserManager:
         user_id: Optional[str] = None,
         allow_orphan_normal: bool = False,
         registration_status: str = "approved",
+        user_metadata: Optional[Dict] = None,
     ) -> Tuple[Optional[str], Optional[str]]:
         """Create a new user with validation.
 
@@ -1722,7 +2524,7 @@ class UserManager:
                 created_at=datetime.utcnow(),
                 is_active=True,
                 profile=profile or {"language": "en"},
-                user_metadata={"created_via": "ui"},
+                user_metadata={"created_via": "ui", **(user_metadata or {})},
                 reset_code=reset_code,
                 reset_code_expires=datetime.utcnow() + timedelta(days=1)
                 if reset_code

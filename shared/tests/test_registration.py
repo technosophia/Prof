@@ -277,3 +277,92 @@ def test_login_approved_user():
 
     assert login.status_code == 200
     assert login.json()["access_token"]
+
+
+def test_register_preregistered_sets_default_deadline_metadata():
+    get_user_manager().add_preregistered_email("deadline@example.com")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "deadline@example.com",
+                "password": "strongpass123",
+                "confirm_password": "strongpass123",
+                "suggested_id": "test_reg_deadline",
+            },
+        )
+
+    assert response.status_code == 200
+    user = get_user_manager().get_user("test_reg_deadline")
+    metadata = user.get("metadata", {})
+    assert metadata.get("preregistered") is True
+    assert metadata.get("preregistered_deadline_months") == 6
+    assert metadata.get("preregistered_deadline_at")
+
+
+def test_deadline_expired_revokes_credentials_with_custom_message():
+    get_user_manager().create_user(
+        name="test_reg_expired",
+        role="normal",
+        email="expired@example.com",
+        parent_id=None,
+        password="expiredpass123",
+        user_id="test_reg_expired",
+        allow_orphan_normal=True,
+        registration_status="approved",
+        user_metadata={
+            "preregistered_deadline_at": "2000-01-01T00:00:00",
+            "preregistered_expiry_message": "Custom deadline reached.",
+        },
+    )
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/auth/login",
+            json={"user_id": "test_reg_expired", "password": "expiredpass123"},
+        )
+
+    assert login.status_code == 403
+    assert login.json()["detail"] == "deadline_expired::Custom deadline reached."
+    user = get_user_manager().get_user("test_reg_expired")
+    assert user["is_active"] is False
+
+
+def test_waitlist_endpoint_creates_pending_user():
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/auth/waitlist",
+            json={"email": "waitlist@example.com"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "pending"}
+
+    users = get_user_manager().search_users("waitlist@example.com")
+    assert users
+    assert users[0]["registration_status"] == "pending"
+
+
+def test_deadline_retroactive_for_existing_registered_users():
+    get_user_manager().create_user(
+        name="test_reg_retroactive",
+        role="normal",
+        email="retroactive@example.com",
+        parent_id="master1",
+        password="retroactive-pass123",
+        user_id="test_reg_retroactive",
+        registration_status="approved",
+    )
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/auth/login",
+            json={"user_id": "test_reg_retroactive", "password": "retroactive-pass123"},
+        )
+    assert login.status_code == 200
+
+    user = get_user_manager().get_user("test_reg_retroactive")
+    metadata = user.get("metadata", {})
+    assert metadata.get("preregistered_deadline_at")
+    assert metadata.get("preregistered_deadline_months") == 6
