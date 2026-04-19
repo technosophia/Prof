@@ -77,6 +77,9 @@ def render_error_log():
                 elif err['type'] == 'search_error':
                     st.error(f"Search Error: {err.get('exception', 'Unknown')}")
 
+                elif err['type'] == 'scoring_error':
+                    st.error(f"Scoring Error: {err.get('exception', 'Unknown')}")
+
                 elif err['type'] == 'unexpected_error':
                     st.error(f"Unexpected Error: {err.get('exception', 'Unknown')}")
                     if 'stacktrace' in err:
@@ -832,12 +835,18 @@ def render_benchmark_run_tab():
         st.session_state["rb_timestamp"] = datetime.now().strftime("%H:%M:%S")
         st.rerun()
 
-    # ── Display error log if any errors occurred ─────────────────────────────
+    # ── Results ───────────────────────────────────────────────────────────────
+    # Display errors FIRST with a prominent banner
+    if BENCH_ERROR_LOG:
+        st.error(f"⚠️ {len(BENCH_ERROR_LOG)} error(s) occurred during benchmark. See details below.")
+
     render_error_log()
 
-    # ── Results ───────────────────────────────────────────────────────────────
     if "rb_results" not in st.session_state:
-        st.info("Run the benchmark to see results.")
+        if BENCH_ERROR_LOG:
+            st.warning("Errors occurred but no results were generated.")
+        else:
+            st.info("Run the benchmark to see results.")
         return
 
     bench_results: List[CaseResult] = st.session_state["rb_results"]
