@@ -363,6 +363,21 @@ def _show_documents_tab():
                 help="Public documents are visible to all users"
             )
 
+        clean_wiki = st.checkbox(
+            "Clean wiki (strip frontmatter + section)",
+            key="clean_wiki_checkbox",
+            help="Strip frontmatter and the specified section from markdown files"
+        )
+
+        wiki_section = "## Voir aussi"
+        if clean_wiki:
+            wiki_section = st.text_input(
+                "Section to strip",
+                value="## Voir aussi",
+                key="wiki_section_input",
+                help="The section heading to strip from markdown files (e.g., ## Voir aussi, ## See also)"
+            )
+
         if uploaded_files and st.button("📤 Upload", type="primary", key="upload_button"):
             success_count = 0
             error_count = 0
@@ -379,7 +394,9 @@ def _show_documents_tab():
                         tmp_path,
                         uploaded_file.name,
                         user_id,
-                        is_public
+                        is_public,
+                        clean_wiki,
+                        wiki_section
                     )
 
                     # Clean up temp file
@@ -405,6 +422,28 @@ def _show_documents_tab():
     st.subheader("Your Documents")
 
     documents = _get_rag_manager().get_user_documents(user_id)
+
+    if documents and user_role in ['admin', 'master']:
+        btn_col1, btn_col2 = st.columns([1, 4])
+        with btn_col1:
+            if st.button("🗑️ Delete all", key="delete_all_docs_btn", help="Delete all your documents"):
+                if st.session_state.get("confirm_delete_all", False):
+                    progress_bar = st.progress(0)
+                    count = 0
+                    total = len(documents)
+                    for i, doc in enumerate(documents):
+                        if _get_rag_manager().delete_document(doc['filename'], user_id):
+                            count += 1
+                        progress_bar.progress((i + 1) / total)
+                    progress_bar.empty()
+                    st.success(f"Deleted {count} document(s)")
+                    st.session_state["confirm_delete_all"] = False
+                    st.rerun()
+                else:
+                    st.session_state["confirm_delete_all"] = True
+                    st.warning("Click again to confirm delete all")
+        with btn_col2:
+            st.write("")
 
     if not documents:
         st.info("No documents uploaded yet.")

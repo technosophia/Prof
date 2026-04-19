@@ -566,7 +566,7 @@ class RAGManager:
             return True
 
         if user_info['role'] == master_val:
-            if owner_id == user_id:
+            if user_id == owner_id:
                 return True
             children = self._user_manager.get_children(user_id)
             return any(child['id'] == owner_id for child in children)
@@ -575,8 +575,38 @@ class RAGManager:
             parent_id = user_info.get('parent_id')
             if parent_id and owner_id == parent_id:
                 return True
-
         return False
+
+    def _clean_wiki_content(self, content: str, wiki_section: str) -> str:
+        lines = content.split('\n')
+        result_lines = []
+        in_frontmatter = False
+        frontmatter_count = 0
+        found_section = False
+
+        for line in lines:
+            if line.strip() == '---':
+                frontmatter_count += 1
+                if frontmatter_count == 1:
+                    in_frontmatter = True
+                elif frontmatter_count == 2:
+                    in_frontmatter = False
+                continue
+
+            if in_frontmatter:
+                continue
+
+            if wiki_section and line.strip().startswith(wiki_section):
+                found_section = True
+                break
+
+            if not found_section:
+                result_lines.append(line)
+
+        while result_lines and result_lines[-1].strip() == '':
+            result_lines.pop()
+
+        return '\n'.join(result_lines)
 
     # ------------------------------------------------------------------
     # Upload / delete
@@ -588,6 +618,8 @@ class RAGManager:
         original_filename: str,
         user_id: str,
         is_public: bool = False,
+        clean_wiki: bool = False,
+        wiki_section: str = "## Voir aussi",
     ) -> Optional[str]:
         try:
             is_valid, error_msg = self.is_valid_file(source_path)
@@ -616,6 +648,13 @@ class RAGManager:
             dest_path = self.data_dir / unique_filename
 
             shutil.copy2(source_path, dest_path)
+
+            if clean_wiki and file_ext == ".md":
+                with open(dest_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                cleaned = self._clean_wiki_content(content, wiki_section)
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    f.write(cleaned)
 
             if is_public:
                 visible_to = ["admin", "master", "normal"]
