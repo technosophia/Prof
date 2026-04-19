@@ -113,7 +113,7 @@ class GeminiEngine(LLMEngine):
             if stream_callback:
                 text = ""
                 try:
-                    async for chunk in conversation.send_message_stream(last_message):
+                    async for chunk in await conversation.send_message_stream(last_message):
                         if chunk.text:
                             text += chunk.text
                             stream_callback(chunk.text)
