@@ -1,0 +1,13 @@
+{
+  "name": "Payhip Webhook",
+  "version": "1.0.0",
+  "description": "Auto-subscription webhook for Payhip that creates users associated with masters based on product keys",
+  "author": "System",
+  "category": "integration",
+  "dependencies": [],
+  "inject_points": {
+    "admin_tab": "payhip_webhook.inject_ui_admin_tab"
+  },
+  "ui_files": ["payhip_webhook_ui.py"],
+  "priority": 10
+}

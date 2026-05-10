@@ -106,6 +106,7 @@ from api.conversations import router as conversations_router
 from api.feedback import router as feedback_router
 from api.admin_llm import router as admin_llm_router
 from api.settings import router as settings_router
+from api.webhooks import router as webhooks_router
 
 
 def create_app(services: ServiceLocator | None = None) -> FastAPI:
@@ -128,6 +129,7 @@ def create_app(services: ServiceLocator | None = None) -> FastAPI:
     app.include_router(feedback_router)
     app.include_router(admin_llm_router)
     app.include_router(settings_router)
+    app.include_router(webhooks_router)
 
     frontend_dist = Path(__file__).parent.parent / "frontend_dist"
     assets_dir = frontend_dist / "assets"

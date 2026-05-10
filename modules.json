@@ -6,11 +6,12 @@
     "feedback",
     "llm_monitor",
     "mem_bench",
+    "payhip_webhook",
     "rag_bench",
     "rag_manager",
     "semantic_calibrator",
     "test",
     "trainer"
   ],
-  "total_modules": 11
+  "total_modules": 12
 }

@@ -1,0 +1,4 @@
+{
+  "enabled": true,
+  "webhook_secret_header": "x-payhip-signature"
+}
