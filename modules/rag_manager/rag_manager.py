@@ -571,8 +571,9 @@ class RAGManager:
             return any(child['id'] == owner_id for child in children)
 
         if user_info['role'] == normal_val:
-            parent_id = user_info.get('parent_id')
-            if parent_id and owner_id == parent_id:
+            profile = user_info.get('profile') or {}
+            effective_master_id = profile.get('active_master_id') or user_info.get('parent_id')
+            if effective_master_id and owner_id == effective_master_id:
                 return True
         return False
 

@@ -21,7 +21,8 @@ export default function Chat() {
   const [masqueraderId, setMasqueraderId] = useState(null)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [llmStatus, setLlmStatus] = useState(null)
-  const [enrollmentCount, setEnrollmentCount] = useState(0)
+  const [enrollments, setEnrollments] = useState([])
+  const [activeMasterId, setActiveMasterId] = useState(null)
   const navigate = useNavigate()
   const isPowerUser = user?.role === 'admin' || user?.role === 'master' || !!user?.masquerader_id
 
@@ -55,8 +56,11 @@ export default function Chat() {
         const status = await admin.llm.get()
         setLlmStatus(status)
 
-        // Load enrollments count for "Switch Training" button
-        auth.enrollments().then((data) => setEnrollmentCount((data?.enrollments ?? []).length)).catch(() => {})
+        // Load enrollments for training switcher
+        auth.enrollments().then((data) => {
+          setEnrollments(data?.enrollments ?? [])
+          setActiveMasterId(data?.active_master_id ?? null)
+        }).catch(() => {})
 
         await loadConversations()
       })
@@ -276,13 +280,24 @@ export default function Chat() {
             </span>
           )}
 
-          {enrollmentCount > 1 && (
-            <button
-              onClick={() => navigate('/select-training')}
-              className="text-xs px-2 py-1 rounded bg-indigo-700 hover:bg-indigo-600 text-white shrink-0"
-            >
-              Switch Training
-            </button>
+          {enrollments.length > 1 && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-slate-400 hidden sm:inline">Training:</span>
+              <select
+                className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 max-w-[150px]"
+                value={activeMasterId ?? ''}
+                onChange={async (e) => {
+                  const masterId = e.target.value
+                  if (!masterId || masterId === activeMasterId) return
+                  await auth.selectTraining(masterId)
+                  setActiveMasterId(masterId)
+                }}
+              >
+                {enrollments.map((e) => (
+                  <option key={e.master_id} value={e.master_id}>{e.master_name}</option>
+                ))}
+              </select>
+            </div>
           )}
 
           {isPowerUser && (

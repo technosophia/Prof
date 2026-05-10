@@ -446,6 +446,64 @@ class TestRealRAG:
         assert avg_time < 2.0, f"RAG callback too slow: {avg_time:.3f}s average"
 
 
+    def test_rag_context_switches_with_active_master(self, rag_test_setup):
+        """Switching active_master_id routes RAG to that master's documents.
+
+        normal1_m1 has parent_id=master1 (nexoria indexed).
+        After set_active_master("master2"), the same query returns nothing
+        because master2 has no documents.
+        """
+        rag_manager = rag_test_setup["rag_manager"]
+        user_manager = rag_test_setup["user_manager"]
+
+        student_id = "normal1_m1"
+        engine = rag_manager.default_engine
+        query = "What is Nexoria? Tell me about FleetOS and the Zephyr Protocol."
+        messages = [{"role": "user", "content": query}]
+
+        nexoria_terms = ["nexoria", "fleetOS", "zephyr", "brno", "fleetOS".lower()]
+
+        def _has_nexoria(results):
+            items = results.get(engine, [])
+            return any(
+                any(t in r.get("content", "").lower() for t in nexoria_terms)
+                for r in items
+            )
+
+        # ── Step 1: active_master_id not set → falls back to parent_id=master1
+        student = user_manager.get_user(student_id)
+        original_active = (student.get("profile") or {}).get("active_master_id")
+        if original_active is not None:
+            user_manager.set_active_master(student_id, "master1")
+
+        try:
+            results = rag_manager.search(student_id, query, engine_type=engine)
+            assert _has_nexoria(results), (
+                "Student whose effective master is master1 should see Nexoria content; "
+                f"got {[r.get('content', '')[:80] for r in results.get(engine, [])]}"
+            )
+            logger.info("✓ Step 1: master1 → Nexoria content present")
+
+            # ── Step 2: switch to master2 (no documents) ──────────────────────
+            user_manager.set_active_master(student_id, "master2")
+            student = user_manager.get_user(student_id)
+            assert (student.get("profile") or {}).get("active_master_id") == "master2"
+
+            results = rag_manager.search(student_id, query, engine_type=engine)
+            assert not _has_nexoria(results), (
+                "Student whose effective master is master2 should NOT see Nexoria content; "
+                f"got {[r.get('content', '')[:80] for r in results.get(engine, [])]}"
+            )
+            logger.info("✓ Step 2: master2 → Nexoria content absent")
+
+        finally:
+            # Restore original state
+            if original_active is None:
+                user_manager.set_active_master(student_id, "master1")
+            else:
+                user_manager.set_active_master(student_id, original_active)
+
+
 if __name__ == "__main__":
     # Allow running the test directly for debugging
     pytest.main([__file__, "-vvs", "--log-cli-level=DEBUG"])

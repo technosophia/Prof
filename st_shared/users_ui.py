@@ -390,6 +390,30 @@ def inject_ui_sidebar():
         if current_user.get("parent_name"):
             col2.caption(f"Parent: {current_user['parent_name']}")
 
+        # Training switcher — only for normal users enrolled in multiple masters
+        if role == UserRole.NORMAL.value:
+            enrollments = get_user_manager().get_user_enrollments(current_user["id"])
+            if len(enrollments) > 1:
+                profile = current_user.get("profile") or {}
+                active_master_id = profile.get("active_master_id") or current_user.get("parent_id")
+                master_ids = [e["master_id"] for e in enrollments]
+                master_names = {e["master_id"]: e["master_name"] for e in enrollments}
+                current_idx = master_ids.index(active_master_id) if active_master_id in master_ids else 0
+
+                selected = st.selectbox(
+                    "🎓 Training",
+                    options=master_ids,
+                    format_func=lambda x: master_names.get(x, x),
+                    index=current_idx,
+                    key="training_switcher",
+                )
+                if selected != active_master_id:
+                    get_user_manager().set_active_master(current_user["id"], selected)
+                    updated = get_user_manager().get_user(current_user["id"])
+                    if updated:
+                        st.session_state.current_user = updated
+                    st.rerun()
+
         # Logout button
         if st.button("🚪 Logout", width="stretch"):
             user_manager = get_user_manager()
