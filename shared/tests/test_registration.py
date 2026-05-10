@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from api import app
 from shared.common import get_user_manager
-from shared.users import PreregisteredEmail, UserTable
+from shared.users import PreregisteredEmail, UserTable, WaitlistEntry, WaitlistList
 from st_shared.cached import get_db_manager
 
 
@@ -32,6 +32,8 @@ def isolate_registration_state(monkeypatch):
     with db_manager.get_session() as session:
         session.query(PreregisteredEmail).delete()
         session.query(UserTable).filter(UserTable.id.like("test_reg_%")).delete(synchronize_session=False)
+        session.query(WaitlistEntry).delete()
+        session.query(WaitlistList).delete()
         session.commit()
 
     yield config
@@ -39,6 +41,8 @@ def isolate_registration_state(monkeypatch):
     with db_manager.get_session() as session:
         session.query(PreregisteredEmail).delete()
         session.query(UserTable).filter(UserTable.id.like("test_reg_%")).delete(synchronize_session=False)
+        session.query(WaitlistEntry).delete()
+        session.query(WaitlistList).delete()
         session.commit()
 
 
@@ -330,6 +334,9 @@ def test_deadline_expired_revokes_credentials_with_custom_message():
 
 
 def test_waitlist_endpoint_creates_pending_user():
+    user_manager = get_user_manager()
+    user_manager.create_waitlist_list("Default", created_by="admin")
+
     with TestClient(app) as client:
         response = client.post(
             "/api/auth/waitlist",
@@ -339,9 +346,9 @@ def test_waitlist_endpoint_creates_pending_user():
     assert response.status_code == 200
     assert response.json() == {"status": "pending"}
 
-    users = get_user_manager().search_users("waitlist@example.com")
-    assert users
-    assert users[0]["registration_status"] == "pending"
+    entries = user_manager.get_waitlist_entries(status="pending")
+    assert entries
+    assert any(e["email"] == "waitlist@example.com" for e in entries)
 
 
 def test_deadline_retroactive_for_existing_registered_users():
