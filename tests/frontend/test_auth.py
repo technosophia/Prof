@@ -231,6 +231,9 @@ async def test_login_deadline_expired_returns_custom_message(client):
 
 
 async def test_waitlist_endpoint(client):
+    user_manager = get_user_manager()
+    user_manager.create_waitlist_list("Default", created_by="admin")
+
     response = await client.post(
         "/api/auth/waitlist",
         json={"email": "frontend-wait@example.com"},
