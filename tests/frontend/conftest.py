@@ -170,6 +170,10 @@ def enforce_ollama_for_marked_tests(request):
         health = requests.get("http://localhost:11434/api/tags", timeout=2)
         if health.status_code != 200:
             pytest.skip("Ollama runtime is not reachable (health check failed)")
+        installed_models = {m["name"] for m in health.json().get("models", [])}
+        required_model = ollama.get("model", "")
+        if required_model and required_model not in installed_models:
+            pytest.skip(f"Required Ollama model '{required_model}' is not installed (have: {sorted(installed_models)})")
     except Exception:
         pytest.skip("Ollama runtime is not reachable")
 

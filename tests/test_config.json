@@ -27,7 +27,7 @@
     },
     "ollama_qwen": {
       "type": "ollama",
-      "model": "qwen3:1.7b",
+      "model": "qwen2.5:7b",
       "name": "Ollama Small",
       "enabled": true,
       "description": "Local Qwen model via Ollama",
