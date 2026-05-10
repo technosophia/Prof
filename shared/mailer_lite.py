@@ -9,11 +9,23 @@ import requests
 
 from core.logging import log
 
+_BASE = "https://connect.mailerlite.com/api"
+
+
+def _headers() -> dict:
+    token = os.getenv("MAILER_LITE_API", "")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
 
 def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> bool:
-    """Push approved user into MailerLite subscribers.
+    """Push approved user into MailerLite subscribers and optionally assign to a group.
 
-    A MailerLite automation can then send the actual email message.
+    Set MAILER_LITE_GROUP_ID to the group ID shown in the Debug → MailerLite tab.
+    A MailerLite automation triggered on "subscriber joins group" will then send the email.
     """
     if not email:
         return False
@@ -23,21 +35,20 @@ def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> b
         log("warning", "MAILER_LITE_API is not configured, skipping approval email")
         return False
 
-    payload = {
+    group_id = os.getenv("MAILER_LITE_GROUP_ID")
+
+    payload: dict = {
         "email": email,
         "fields": {"name": user_name or ""},
         "status": "active",
     }
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    if group_id:
+        payload["groups"] = [group_id]
 
     try:
         response = requests.post(
-            "https://connect.mailerlite.com/api/subscribers",
-            headers=headers,
+            f"{_BASE}/subscribers",
+            headers=_headers(),
             json=payload,
             timeout=8,
         )
@@ -48,7 +59,30 @@ def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> b
     if response.status_code >= 400:
         log(
             "error",
-            f"MailerLite returned status {response.status_code}: {response.text[:300]}",
+            f"[notify_account_approved] MailerLite returned status {response.status_code}: {response.text[:300]}",
         )
         return False
+
+    if not group_id:
+        log(
+            "warning",
+            f"[notify_account_approved] Subscriber {email} added to MailerLite but "
+            "MAILER_LITE_GROUP_ID is not set — no automation will be triggered. "
+            "Set this env var to the group ID shown in Debug → MailerLite tab.",
+        )
+
     return True
+
+
+def get_groups() -> list[dict]:
+    """Return all MailerLite groups. Empty list if not configured or on error."""
+    token = os.getenv("MAILER_LITE_API")
+    if not token:
+        return []
+    try:
+        resp = requests.get(f"{_BASE}/groups", headers=_headers(), timeout=8)
+        if resp.status_code == 200:
+            return resp.json().get("data", [])
+    except Exception:
+        pass
+    return []

@@ -138,7 +138,7 @@ class PayhipWebhookManager:
                     "product_key": r[2],
                     "product_name": r[3],
                     "is_active": r[4],
-                    "created_at": r[5].isoformat() if r[5] else None,
+                    "created_at": r[5].isoformat() if r[5] and hasattr(r[5], "isoformat") else r[5],
                     "master_name": r[6],
                 }
                 for r in results
@@ -222,7 +222,7 @@ class PayhipWebhookManager:
                     "error_message": r[7],
                     "raw_payload": r[8],
                     "transaction_id": r[9],
-                    "created_at": r[10].isoformat() if r[10] else None,
+                    "created_at": r[10].isoformat() if r[10] and hasattr(r[10], "isoformat") else r[10],
                 }
                 for r in results
             ]

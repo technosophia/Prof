@@ -159,7 +159,22 @@ def _render_simulator_tab():
         associations = all_associations
 
     if not associations:
-        st.warning("No product associations configured for your account. Add one in the Associations tab first.")
+        if current_role == "master" and all_associations:
+            st.warning(
+                f"No associations found for your master account (id: `{current_id}`). "
+                f"There are {len(all_associations)} association(s) in total but they belong to other masters. "
+                "Add one for your account in the Associations tab."
+            )
+        else:
+            st.warning("No product associations configured. Add one in the Associations tab first.")
+        with st.expander("Debug — current session info", expanded=True):
+            st.json({
+                "current_role": current_role,
+                "current_id": current_id,
+                "total_associations_in_db": len(all_associations),
+                "associations_for_this_account": len(associations),
+                "all_master_ids_in_db": list({a["master_id"] for a in all_associations}),
+            })
         return
 
     product_options = {a["product_key"]: f"{a['product_name'] or a['product_key']} → {a['master_name']}" for a in associations}

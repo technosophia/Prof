@@ -776,40 +776,50 @@ def show_quick_tests_tab():
 
 def show_mailerlite_tab():
     """Tab: MailerLite diagnostics."""
+    import os
+    import requests as _requests
+    from shared.mailer_lite import get_groups
+
     st.subheader("MailerLite Diagnostics")
 
-    import os
-    import socket
-    import requests as _requests
-
     token = os.getenv("MAILER_LITE_API")
+    group_id = os.getenv("MAILER_LITE_GROUP_ID")
+    server_ip = None
 
-    col1, col2 = st.columns(2)
+    # ── Status row ──────────────────────────────────────────────────────────
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.text("MAILER_LITE_API key")
+        st.text("MAILER_LITE_API")
         if token:
             masked = token[:6] + "…" + token[-4:]
-            st.success(f"Configured ({masked})")
+            st.success(f"Set ({masked})")
         else:
-            st.error("Not set — set MAILER_LITE_API env var")
+            st.error("Not set")
 
     with col2:
+        st.text("MAILER_LITE_GROUP_ID")
+        if group_id:
+            st.success(group_id)
+        else:
+            st.warning("Not set — no automation will fire")
+
+    with col3:
         st.text("Server public IP")
         try:
             ip_resp = _requests.get("https://api.ipify.org", timeout=5)
             server_ip = ip_resp.text.strip()
             st.info(server_ip)
         except Exception as e:
-            server_ip = None
             st.warning(f"Could not detect: {e}")
 
     st.divider()
 
+    # ── Connection test ──────────────────────────────────────────────────────
     st.markdown("**Test API connection**")
-    if st.button("Send test ping to MailerLite", disabled=not token):
+    if st.button("Ping MailerLite", disabled=not token):
         try:
             resp = _requests.get(
-                "https://connect.mailerlite.com/api/me",
+                "https://connect.mailerlite.com/api/subscribers?limit=1",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
@@ -817,31 +827,110 @@ def show_mailerlite_tab():
                 timeout=8,
             )
             if resp.status_code == 200:
-                st.success(f"Connection OK (200) — account: {resp.json().get('data', {}).get('email', '?')}")
+                total = resp.json().get("meta", {}).get("total", "?")
+                st.success(f"Connected (200) — {total} subscriber(s) in your account")
             elif resp.status_code == 403:
-                st.error(
-                    f"403 Forbidden — your server IP ({server_ip or '?'}) is not in the MailerLite allowed-IP list. "
-                    "See instructions below."
-                )
+                st.error(f"403 Forbidden — add server IP {server_ip or '?'} to the MailerLite allowlist (see below)")
             elif resp.status_code == 401:
-                st.error("401 Unauthorized — check that MAILER_LITE_API is the correct API token.")
+                st.error("401 Unauthorized — check MAILER_LITE_API value")
             else:
-                st.warning(f"Unexpected status {resp.status_code}: {resp.text[:200]}")
+                st.warning(f"Status {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
             st.error(f"Request failed: {e}")
 
     st.divider()
 
-    st.markdown("**How to fix the IP allowlist error**")
-    st.info(
-        """
-1. Log in to [app.mailerlite.com](https://app.mailerlite.com)
-2. Go to **Integrations → Developer API**
-3. Under *API settings*, find **Allowed IP addresses**
-4. Add your server IP shown above and click **Save**
+    # ── Groups ───────────────────────────────────────────────────────────────
+    st.markdown("**Your MailerLite groups**")
+    st.caption("Copy the ID of the group you want subscribers assigned to, then set MAILER_LITE_GROUP_ID.")
+    if st.button("Load groups", disabled=not token, key="ml_load_groups"):
+        groups = get_groups()
+        if not groups:
+            st.warning("No groups found (or API error). Create a group in app.mailerlite.com first.")
+        else:
+            for g in groups:
+                active_flag = " ← **current MAILER_LITE_GROUP_ID**" if g["id"] == group_id else ""
+                st.markdown(f"- **{g['name']}** — id: `{g['id']}`{active_flag}")
 
-If the server IP changes (e.g. cloud instance restart), repeat this step.
-        """.strip()
+    st.divider()
+
+    # ── Test email ───────────────────────────────────────────────────────────
+    st.markdown("**Send a test welcome email**")
+    if not group_id:
+        st.warning(
+            "MAILER_LITE_GROUP_ID is not set. The subscriber will be created in MailerLite "
+            "but **no automation will trigger** and no email will be sent. "
+            "Set this env var to the group ID above to enable automation."
+        )
+
+    user_manager = get_user_manager()
+    all_users = user_manager.get_all_users()
+    users_with_email = [u for u in all_users if u.get("email")]
+
+    if not users_with_email:
+        st.info("No users with email addresses found.")
+    else:
+        user_opts = {u["id"]: f"{u['name']} <{u['email']}>" for u in users_with_email}
+        selected_uid = st.selectbox(
+            "Target user",
+            options=list(user_opts.keys()),
+            format_func=lambda x: user_opts[x],
+            key="ml_test_email_target",
+        )
+        target = next(u for u in users_with_email if u["id"] == selected_uid)
+
+        if st.button("Send test", disabled=not token, key="ml_send_test"):
+            payload: dict = {
+                "email": target["email"],
+                "fields": {"name": target.get("name", "")},
+                "status": "active",
+            }
+            if group_id:
+                payload["groups"] = [group_id]
+
+            try:
+                resp = _requests.post(
+                    "https://connect.mailerlite.com/api/subscribers",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    json=payload,
+                    timeout=8,
+                )
+                if resp.status_code in (200, 201):
+                    data = resp.json().get("data", {})
+                    sub_groups = [g.get("name") for g in data.get("groups", [])]
+                    action = "created" if resp.status_code == 201 else "updated"
+                    if sub_groups:
+                        st.success(
+                            f"Subscriber {action} for **{target['email']}** and assigned to group(s): "
+                            f"**{', '.join(sub_groups)}**. "
+                            "If an automation is set up for this group, an email will be sent."
+                        )
+                    else:
+                        st.warning(
+                            f"Subscriber {action} for **{target['email']}** but **not assigned to any group**. "
+                            "No automation will trigger. Set MAILER_LITE_GROUP_ID."
+                        )
+                    with st.expander("Full API response"):
+                        st.json(resp.json())
+                elif resp.status_code == 403:
+                    st.error(f"403 Forbidden — server IP ({server_ip or '?'}) not in MailerLite allowlist")
+                else:
+                    st.error(f"Status {resp.status_code}: {resp.text[:300]}")
+            except Exception as e:
+                st.error(f"Request failed: {e}")
+
+    st.divider()
+
+    st.markdown("**IP allowlist — how to fix 403 errors**")
+    st.info(
+        "1. Log in to **app.mailerlite.com**\n"
+        "2. Go to **Integrations → Developer API**\n"
+        "3. Under *API settings*, find **Allowed IP addresses**\n"
+        f"4. Add `{server_ip or '<your server IP>'}` and click **Save**"
     )
 
 
