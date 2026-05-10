@@ -4,7 +4,7 @@
 
 This code implements functionnalities shared across the app. No other module have meaning without it. It would have no purpose.
 
-/shared contains common functionnalities of the app : users, conversations, llm, prompts, settings, and module handling.
+/shared contains common functionnalities of the app : users, conversations, llm, prompts, settings, module handling, and external integrations (email).
 
 It gives "managers", which are singletons objects that handle the app's data and logic.
 Managers are python classes, but they are cached in common.py.
@@ -21,6 +21,10 @@ See :
 Special : 
 - /shared/API_MODULE_HANDLER.md for module handling (main app only)
 - /shared/MODULE.md to get the list of injection points aviable for modules and directory structure
+
+Email integrations (see env var requirements in modules/payhip_webhook/AGENTS.md):
+- `shared/mailer_lite.py` — MailerLite subscriber upsert with group assignment and reset_code field; also exposes `get_groups`, `get_subscriber_by_email`, `remove_subscriber_from_group`
+- `shared/transactional_email.py` — MailerSend transactional email (welcome email with reset code link); requires `MAILERSEND_API_KEY`, `MAILERSEND_FROM`, `APP_URL`
 
 If needed (only special cases, should be avoided unless strictly necessary to access some internals) : 
 /core/API.md for logging, database, configuration, translation

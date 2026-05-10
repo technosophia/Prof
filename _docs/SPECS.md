@@ -22,3 +22,30 @@ Additional Features:
   - Retrieval of YouTube playlists and PDFs for importing RAG content.
   - mem0 advanced memory
   - semantic graph RAG
+
+# Subscription & User Onboarding
+
+Students access the app after purchasing a product on Payhip. The purchase triggers a webhook
+that auto-creates their account.
+
+## Multi-master / Multi-training
+A user can be enrolled in several training programs (one per master). After login they pick
+which training to enter; the active training context is stored in `profile.active_master_id`.
+See `shared/users.py` `UserEnrollment` and `user_enrollments` table.
+
+## Webhook-to-account flow
+```
+Payhip purchase
+  → POST /api/webhooks/payhip
+  → resolve product_key → master_id (master_product_keys table)
+  → create user OR add enrollment to existing user
+  → send welcome email with reset code (MailerSend transactional + MailerLite automation)
+  → user receives email → clicks link → sets password → enters app
+```
+
+## Email strategy
+Two complementary channels, both optional but recommended:
+- **MailerSend** (`MAILERSEND_API_KEY`) — immediate transactional email containing the reset code and a direct login link. Best for password setup.
+- **MailerLite** (`MAILER_LITE_API` + `MAILER_LITE_GROUP_ID`) — subscriber upsert that triggers an automation campaign. Best for onboarding sequences. Template variable for the reset code: `{{ subscriber.fields.reset_code }}` (new builder) or `{$reset_code}` (classic).
+
+Both are configurable and testable from **Admin → Debug → MailerLite** tab without touching `.env`.
