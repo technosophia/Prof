@@ -84,7 +84,9 @@ class TrainerManager:
             log("error", f"Student {student_id} not found")
             return {}
 
-        trainer_id = student.get('parent_id')
+        # Prefer the user's active training choice; fall back to parent_id
+        profile = student.get("profile") or {}
+        trainer_id = profile.get("active_master_id") or student.get("parent_id")
         if not trainer_id:
             log("error", f"Student {student_id} has no trainer assigned")
             return {}

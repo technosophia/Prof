@@ -21,6 +21,7 @@ export default function Chat() {
   const [masqueraderId, setMasqueraderId] = useState(null)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [llmStatus, setLlmStatus] = useState(null)
+  const [enrollmentCount, setEnrollmentCount] = useState(0)
   const navigate = useNavigate()
   const isPowerUser = user?.role === 'admin' || user?.role === 'master' || !!user?.masquerader_id
 
@@ -53,6 +54,9 @@ export default function Chat() {
         // Load LLM status for everyone
         const status = await admin.llm.get()
         setLlmStatus(status)
+
+        // Load enrollments count for "Switch Training" button
+        auth.enrollments().then((data) => setEnrollmentCount((data?.enrollments ?? []).length)).catch(() => {})
 
         await loadConversations()
       })
@@ -270,6 +274,15 @@ export default function Chat() {
             <span className="hidden sm:block shrink-0 text-slate-400">
               {user ? `${user.name} (${user.role})` : ''}
             </span>
+          )}
+
+          {enrollmentCount > 1 && (
+            <button
+              onClick={() => navigate('/select-training')}
+              className="text-xs px-2 py-1 rounded bg-indigo-700 hover:bg-indigo-600 text-white shrink-0"
+            >
+              Switch Training
+            </button>
           )}
 
           {isPowerUser && (

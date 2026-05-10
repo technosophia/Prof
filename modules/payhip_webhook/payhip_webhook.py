@@ -95,14 +95,15 @@ class PayhipWebhookManager:
                 return False, f"Product key '{product_key}' already associated"
 
             user_manager = UserManager()
-            master = user_manager.get_user_by_id(master_id)
+            master = user_manager.get_user(master_id)
             if not master or master.get("role") != UserRole.MASTER.value:
                 return False, "Master user not found or not a master"
 
             assoc_id = str(uuid.uuid4())
             session.execute(
-                text(f"INSERT INTO master_product_keys "
-                f"(id, master_id, product_key, product_name) VALUES (:id, :master_id, :product_key, :product_name)"),
+                text("INSERT INTO master_product_keys "
+                     "(id, master_id, product_key, product_name, is_active) "
+                     "VALUES (:id, :master_id, :product_key, :product_name, 1)"),
                 {"id": assoc_id, "master_id": master_id, "product_key": product_key, "product_name": product_name}
             )
             session.commit()
@@ -161,9 +162,13 @@ class PayhipWebhookManager:
 
         with db.get_session() as session:
             session.execute(
-                text(f"INSERT INTO payhip_webhook_log "
-                f"(id, event_type, customer_email, product_key, master_id, user_id, status, error_message, raw_payload, transaction_id) "
-                f"VALUES (:id, :event_type, :customer_email, :product_key, :master_id, :user_id, :status, :error_message, :raw_payload, :transaction_id)"),
+                text(
+                    "INSERT INTO payhip_webhook_log "
+                    "(id, event_type, customer_email, product_key, master_id, user_id, "
+                    " status, error_message, raw_payload, transaction_id, created_at) "
+                    "VALUES (:id, :event_type, :customer_email, :product_key, :master_id, :user_id, "
+                    "        :status, :error_message, :raw_payload, :transaction_id, :created_at)"
+                ),
                 {
                     "id": log_id,
                     "event_type": event_type,
@@ -175,6 +180,7 @@ class PayhipWebhookManager:
                     "error_message": error_message,
                     "raw_payload": raw_payload,
                     "transaction_id": transaction_id,
+                    "created_at": datetime.utcnow(),
                 }
             )
             session.commit()
@@ -239,7 +245,11 @@ class PayhipWebhookManager:
             return None
 
     def verify_signature(self, payload: bytes, signature: str) -> bool:
-        """Verify Payhip webhook signature."""
+        """Verify Payhip webhook signature.
+
+        Payhip signs requests with HMAC-SHA256 using the API key as the secret.
+        The signature is sent in the X-Payhip-Signature header.
+        """
         api_key = os.getenv("PAYHIP_API_KEY")
         if not api_key:
             log("error", "PAYHIP_API_KEY not configured")
@@ -253,7 +263,16 @@ class PayhipWebhookManager:
 
         return hmac.compare_digest(expected, signature)
 
-    def process_webhook(self, payload: Dict[str, Any], raw_payload: str) -> Tuple[int, str]:
+    def _unique_username(self, user_manager, base: str) -> str:
+        """Return a username that doesn't conflict with existing names."""
+        candidate = base
+        counter = 1
+        while user_manager.get_user_by_name(candidate):
+            candidate = f"{base}_{counter}"
+            counter += 1
+        return candidate
+
+    def process_webhook(self, payload: Dict[str, Any], raw_payload: str, force: bool = False) -> Tuple[int, str]:
         """Process a Payhip webhook and create user if needed.
 
         Returns:
@@ -310,35 +329,56 @@ class PayhipWebhookManager:
             )
             return 404, f"No master found for product: {product_key}"
 
-        duplicate = self.check_duplicate(customer_email, product_key, event_type)
-        if duplicate:
-            self.log_event(
-                event_type=event_type,
-                customer_email=customer_email,
-                product_key=product_key,
-                master_id=master_id,
-                user_id=duplicate.get("user_id"),
-                status="duplicate",
-                raw_payload=raw_payload,
-                transaction_id=transaction_id,
-            )
-            log("info", f"Duplicate webhook: {customer_email} / {product_key}")
-            return 200, "Duplicate ignored"
+        if not force:
+            duplicate = self.check_duplicate(customer_email, product_key, event_type)
+            if duplicate:
+                self.log_event(
+                    event_type=event_type,
+                    customer_email=customer_email,
+                    product_key=product_key,
+                    master_id=master_id,
+                    user_id=duplicate.get("user_id"),
+                    status="duplicate",
+                    raw_payload=raw_payload,
+                    transaction_id=transaction_id,
+                )
+                log("info", f"Duplicate webhook: {customer_email} / {product_key}")
+                return 200, "Duplicate ignored"
 
         try:
-            user_name = customer_email.split("@")[0]
-
             user_manager = UserManager()
-            user_id, reset_code = user_manager.create_user(
-                name=user_name,
-                role=UserRole.NORMAL.value,
-                email=customer_email,
-                parent_id=master_id,
-                registration_status="approved",
-            )
 
-            if reset_code:
-                self._send_reset_email(customer_email, user_name, reset_code)
+            # Check if this email is already a registered user
+            existing_user = user_manager.get_user_by_email(customer_email)
+
+            if existing_user:
+                user_id = existing_user["id"]
+                user_manager.add_enrollment(user_id, master_id, product_key=product_key)
+                log("info", f"Added enrollment for existing user {user_id} under master {master_id}")
+                action = "Enrollment added"
+            else:
+                base_name = customer_email.split("@")[0]
+                user_name = self._unique_username(user_manager, base_name)
+                master = user_manager.get_user(master_id)
+                master_lang = (master.get("profile") or {}).get("language", "en") if master else "en"
+                user_id, reset_code = user_manager.create_user(
+                    name=user_name,
+                    role=UserRole.NORMAL.value,
+                    email=customer_email,
+                    parent_id=master_id,
+                    registration_status="approved",
+                    profile={"language": master_lang},
+                    user_metadata={"created_via": "payhip_webhook"},
+                )
+                user_manager.add_enrollment(user_id, master_id, product_key=product_key)
+                # Pre-set active training so the user lands in the right context immediately
+                user_manager.set_active_master(user_id, master_id)
+
+                if reset_code:
+                    self._send_welcome_email(customer_email, user_name, reset_code)
+
+                log("info", f"Created user {user_id} ({user_name}) for {customer_email} under master {master_id}")
+                action = f"User created (id={user_id}, username={user_name})"
 
             self.log_event(
                 event_type=event_type,
@@ -351,8 +391,7 @@ class PayhipWebhookManager:
                 transaction_id=transaction_id,
             )
 
-            log("info", f"Created user {user_id} for {customer_email} under master {master_id}")
-            return 200, "User created"
+            return 200, action
 
         except Exception as e:
             error_msg = str(e)
@@ -370,13 +409,14 @@ class PayhipWebhookManager:
             )
             return 500, f"Error processing webhook: {error_msg}"
 
-    def _send_reset_email(self, email: str, name: str, reset_code: str) -> bool:
-        """Send reset code via MailerLite."""
+    def _send_welcome_email(self, email: str, name: str, reset_code: str) -> bool:
+        """Send welcome email with reset code via MailerLite."""
         from shared.mailer_lite import notify_account_approved
 
         notify_account_approved(email, name)
-
-        log("info", f"Reset code {reset_code} generated for {email} (email sending via MailerLite)")
+        # The reset_code is stored in the DB — the user can obtain it via the
+        # "Forgot Password" flow. Log it here so an admin can retrieve it if needed.
+        log("info", f"[WEBHOOK] New user created for {email}. Reset code stored in DB (use Forgot Password to receive it).")
         return True
 
 
@@ -390,7 +430,3 @@ def get_payhip_webhook_manager() -> PayhipWebhookManager:
     return _payhip_webhook_manager
 
 
-def inject_ui_admin_tab():
-    """Injection point for admin tab UI."""
-    from modules.payhip_webhook.payhip_webhook_ui import render_admin_tab
-    return render_admin_tab

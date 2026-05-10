@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -38,6 +38,16 @@ export default function Login() {
   const [resetPending, setResetPending] = useState(false)
   const navigate = useNavigate()
 
+  const redirectAfterLogin = useCallback(async () => {
+    try {
+      const data = await auth.enrollments()
+      const count = (data?.enrollments ?? []).length
+      navigate(count > 1 ? '/select-training' : '/chat', { replace: true })
+    } catch {
+      navigate('/chat', { replace: true })
+    }
+  }, [navigate])
+
   useEffect(() => {
     auth.getWaitlistLists().then(lists => {
       setAvailableLists(lists)
@@ -62,7 +72,7 @@ export default function Login() {
     try {
       const data = await auth.login(loginForm.userId, loginForm.password)
       localStorage.setItem('token', data.access_token)
-      navigate('/chat')
+      await redirectAfterLogin()
     } catch (err) {
       const status = parseStatusCode(err?.message)
       if (status === 403 && err?.message?.includes('pending_approval')) {
@@ -107,7 +117,7 @@ export default function Login() {
         return
       }
       localStorage.setItem('token', data.access_token)
-      navigate('/chat')
+      await redirectAfterLogin()
     } catch (err) {
       const status = parseStatusCode(err?.message)
       if (status === 409 && err?.message?.includes('user_id_conflict')) {
@@ -167,7 +177,7 @@ export default function Login() {
     try {
       const data = await auth.initPassword(resetForm.userId.trim(), resetForm.resetCode.trim(), resetForm.newPassword)
       localStorage.setItem('token', data.access_token)
-      navigate('/chat')
+      await redirectAfterLogin()
     } catch (err) {
       const status = parseStatusCode(err?.message)
       if (status === 400) {

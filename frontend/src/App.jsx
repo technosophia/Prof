@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Login from './pages/Login'
 import Chat from './pages/Chat'
 import Stats from './pages/Stats'
+import TrainingPicker from './pages/TrainingPicker'
 
 const authed = () => Boolean(localStorage.getItem('token'))
 
@@ -14,6 +15,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route
+        path="/select-training"
+        element={
+          <ProtectedRoute>
+            <TrainingPicker />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/chat"
         element={

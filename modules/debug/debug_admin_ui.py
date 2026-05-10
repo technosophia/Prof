@@ -774,18 +774,90 @@ def show_quick_tests_tab():
 
 # Dans debug_admin_ui.py, modifiez la fonction show_debug_admin_content:
 
+def show_mailerlite_tab():
+    """Tab: MailerLite diagnostics."""
+    st.subheader("MailerLite Diagnostics")
+
+    import os
+    import socket
+    import requests as _requests
+
+    token = os.getenv("MAILER_LITE_API")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text("MAILER_LITE_API key")
+        if token:
+            masked = token[:6] + "…" + token[-4:]
+            st.success(f"Configured ({masked})")
+        else:
+            st.error("Not set — set MAILER_LITE_API env var")
+
+    with col2:
+        st.text("Server public IP")
+        try:
+            ip_resp = _requests.get("https://api.ipify.org", timeout=5)
+            server_ip = ip_resp.text.strip()
+            st.info(server_ip)
+        except Exception as e:
+            server_ip = None
+            st.warning(f"Could not detect: {e}")
+
+    st.divider()
+
+    st.markdown("**Test API connection**")
+    if st.button("Send test ping to MailerLite", disabled=not token):
+        try:
+            resp = _requests.get(
+                "https://connect.mailerlite.com/api/me",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                st.success(f"Connection OK (200) — account: {resp.json().get('data', {}).get('email', '?')}")
+            elif resp.status_code == 403:
+                st.error(
+                    f"403 Forbidden — your server IP ({server_ip or '?'}) is not in the MailerLite allowed-IP list. "
+                    "See instructions below."
+                )
+            elif resp.status_code == 401:
+                st.error("401 Unauthorized — check that MAILER_LITE_API is the correct API token.")
+            else:
+                st.warning(f"Unexpected status {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            st.error(f"Request failed: {e}")
+
+    st.divider()
+
+    st.markdown("**How to fix the IP allowlist error**")
+    st.info(
+        """
+1. Log in to [app.mailerlite.com](https://app.mailerlite.com)
+2. Go to **Integrations → Developer API**
+3. Under *API settings*, find **Allowed IP addresses**
+4. Add your server IP shown above and click **Save**
+
+If the server IP changes (e.g. cloud instance restart), repeat this step.
+        """.strip()
+    )
+
+
 def show_debug_admin_content():
     """Main function to display the Debug Admin with tabs."""
     st.header("🔧 Debug and Testing")
 
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📝 Text & LLM",
         "⚙️ Config",
         "🎯 UI Registry",
         "⚡ Quick Tests",
         "⏱️ Profiler",
-        "📊 Memory"
+        "📊 Memory",
+        "📧 MailerLite",
     ])
 
     with tab1:
@@ -818,6 +890,9 @@ def show_debug_admin_content():
 
             if st.button("🔄 Reload", width='stretch'):
                 st.rerun()
+
+    with tab7:
+        show_mailerlite_tab()
 
 def inject_ui_admin_tab():
     """Register the Debug admin tab using the new injection mechanism.

@@ -10,7 +10,7 @@ def render_admin_tab():
     """Render the Payhip Webhook admin tab."""
     st.header("Payhip Webhook")
 
-    tab1, tab2, tab3 = st.tabs(["Associations", "Logs", "Settings"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Associations", "Logs", "Simulator", "Settings"])
 
     with tab1:
         _render_associations_tab()
@@ -19,6 +19,9 @@ def render_admin_tab():
         _render_logs_tab()
 
     with tab3:
+        _render_simulator_tab()
+
+    with tab4:
         _render_settings_tab()
 
 
@@ -31,7 +34,7 @@ def _render_associations_tab():
 
     with st.expander("Add New Association", expanded=False):
         with st.form("add_association"):
-            masters = user_manager.get_all_users(role_filter="master")
+            masters = [u for u in user_manager.get_all_users() if u.get("role") == "master"]
 
             if not masters:
                 st.warning("No masters found. Create a master user first.")
@@ -126,6 +129,91 @@ def _render_logs_tab():
 
             if log_entry.get("error_message"):
                 st.error(f"Error: {log_entry['error_message']}")
+
+            if log_entry.get("raw_payload"):
+                with st.expander("Raw JSON payload", expanded=False):
+                    import json
+                    try:
+                        parsed = json.loads(log_entry["raw_payload"])
+                        st.json(parsed)
+                    except (json.JSONDecodeError, TypeError):
+                        st.code(log_entry["raw_payload"], language="json")
+
+
+def _render_simulator_tab():
+    """Send a simulated webhook payload to test the processing pipeline."""
+    st.subheader("Webhook Simulator")
+    st.info("Simulate a Payhip purchase event without real payment. Signature verification is skipped.")
+
+    manager = get_payhip_webhook_manager()
+
+    current_user = st.session_state.get("current_user", {})
+    current_role = current_user.get("role", "")
+    current_id = current_user.get("id", "")
+
+    all_associations = manager.get_all_associations()
+    # Masters only see their own products; admins see all
+    if current_role == "master":
+        associations = [a for a in all_associations if a["master_id"] == current_id]
+    else:
+        associations = all_associations
+
+    if not associations:
+        st.warning("No product associations configured for your account. Add one in the Associations tab first.")
+        return
+
+    product_options = {a["product_key"]: f"{a['product_name'] or a['product_key']} → {a['master_name']}" for a in associations}
+
+    with st.form("simulate_webhook"):
+        email = st.text_input("Customer Email", placeholder="student@example.com")
+        product_key = st.selectbox("Product Key", options=list(product_options.keys()), format_func=lambda k: product_options[k])
+        event_type = st.selectbox("Event Type", ["paid", "subscription.created"])
+        force = st.checkbox("Force (bypass duplicate check)", value=True,
+                            help="Re-process even if the same email+product was already handled")
+
+        submitted = st.form_submit_button("Send Simulated Webhook")
+
+        if submitted:
+            if not email or "@" not in email:
+                st.error("Please enter a valid email address.")
+            else:
+                import json
+                payload = {
+                    "type": event_type,
+                    "email": email.strip(),
+                    "product_link": product_key,
+                    "id": f"sim_{email.strip().split('@')[0]}",
+                }
+                raw = json.dumps(payload)
+                status_code, message = manager.process_webhook(payload, raw, force=force)
+
+                if status_code < 400:
+                    st.success(f"Result ({status_code}): {message}")
+                else:
+                    st.error(f"Error ({status_code}): {message}")
+
+                # Show the most recent log entry for this email so the user can diagnose
+                recent = manager.get_logs(limit=5)
+                match = next((l for l in recent if l["customer_email"] == email.strip()), None)
+                if match:
+                    st.caption("Last log entry for this email:")
+                    st.json({k: v for k, v in match.items() if k != "raw_payload"})
+
+    st.divider()
+    st.markdown("**Replay a previous webhook** — paste raw payload from a log entry above.")
+
+    raw_payload = st.text_area("Raw JSON payload", height=150)
+    if st.button("Replay Payload"):
+        import json
+        try:
+            p = json.loads(raw_payload)
+            sc, msg = manager.process_webhook(p, raw_payload)
+            if sc < 400:
+                st.success(f"Result ({sc}): {msg}")
+            else:
+                st.error(f"Error ({sc}): {msg}")
+        except json.JSONDecodeError as e:
+            st.error(f"Invalid JSON: {e}")
 
 
 def _render_settings_tab():

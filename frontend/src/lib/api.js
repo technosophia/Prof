@@ -67,6 +67,8 @@ export const auth = {
   getWaitlistLists: () => get('/api/auth/waitlist/lists'),
   waitlist: (email, listId = null) => post('/api/auth/waitlist', { email, list_id: listId }),
   me: () => get('/api/auth/me'),
+  enrollments: () => get('/api/auth/enrollments'),
+  selectTraining: (masterId) => post('/api/auth/select-training', { master_id: masterId }),
 }
 
 export const conversations = {

@@ -6,8 +6,8 @@
   "category": "integration",
   "dependencies": [],
   "inject_points": {
-    "admin_tab": "payhip_webhook.inject_ui_admin_tab"
+    "admin_tab": "payhip_webhook_admin_ui.inject_ui_admin_tab"
   },
-  "ui_files": ["payhip_webhook_ui.py"],
+  "ui_files": ["payhip_webhook_ui.py", "payhip_webhook_admin_ui.py"],
   "priority": 10
 }

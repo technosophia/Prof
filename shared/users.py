@@ -202,6 +202,19 @@ class SystemSettings(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserEnrollment(Base):
+    """Many-to-many enrollment: one user can be enrolled in multiple trainings (masters)."""
+
+    __tablename__ = "user_enrollments"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    master_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    product_key = Column(String(64), nullable=True)
+    enrolled_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+
 class UserManager:
     """Manages user operations."""
 
@@ -263,6 +276,17 @@ class UserManager:
             return True
         except Exception as e:
             log("error", f"Failed to ensure action log table exists: {e}")
+            return False
+
+    def _ensure_enrollment_table_exists(self) -> bool:
+        """Ensure the user_enrollments table exists."""
+        if not self.db.is_initialized():
+            return False
+        try:
+            UserEnrollment.__table__.create(bind=self.db._engine, checkfirst=True)
+            return True
+        except Exception as e:
+            log("error", f"Failed to ensure user_enrollments table: {e}")
             return False
 
     def _ensure_preregistered_emails_table(self):
@@ -2936,6 +2960,102 @@ class UserManager:
         """Get total number of users."""
         users = self.get_all_users(current_user_id)
         return len(users)
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get a user by email address (case-insensitive)."""
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = (
+                session.query(UserTable)
+                .options(joinedload(UserTable.parent))
+                .filter(func.lower(UserTable.email) == email.strip().lower())
+                .first()
+            )
+            if user:
+                return self._user_to_dict(user)
+            return None
+
+    def add_enrollment(
+        self, user_id: str, master_id: str, product_key: Optional[str] = None
+    ) -> bool:
+        """Enroll a user in a training (master). Idempotent — skips if already enrolled."""
+        self._ensure_enrollment_table_exists()
+        with self.db.get_session() as session:
+            existing = (
+                session.query(UserEnrollment)
+                .filter_by(user_id=user_id, master_id=master_id)
+                .first()
+            )
+            if existing:
+                if not existing.is_active:
+                    existing.is_active = True
+                    session.commit()
+                return True
+            enrollment = UserEnrollment(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                master_id=master_id,
+                product_key=product_key,
+            )
+            session.add(enrollment)
+            session.commit()
+            return True
+
+    def get_user_enrollments(self, user_id: str) -> List[Dict[str, Any]]:
+        """Return all active enrollments for a user, with master name included.
+
+        Falls back to the user's parent_id when no enrollment records exist,
+        so that existing users keep working without a DB migration.
+        """
+        self._ensure_enrollment_table_exists()
+        with self.db.get_session() as session:
+            rows = (
+                session.query(UserEnrollment, UserTable)
+                .join(UserTable, UserEnrollment.master_id == UserTable.id)
+                .filter(
+                    UserEnrollment.user_id == user_id,
+                    UserEnrollment.is_active == True,
+                )
+                .order_by(UserEnrollment.enrolled_at)
+                .all()
+            )
+            if rows:
+                return [
+                    {
+                        "master_id": e.master_id,
+                        "master_name": m.name,
+                        "product_key": e.product_key,
+                        "enrolled_at": e.enrolled_at.isoformat() if e.enrolled_at else None,
+                    }
+                    for e, m in rows
+                ]
+
+        # Fallback: use parent_id for users that predate the enrollment table
+        user = self.get_user(user_id)
+        if user and user.get("parent_id"):
+            master = self.get_user(user["parent_id"])
+            return [
+                {
+                    "master_id": user["parent_id"],
+                    "master_name": master.get("name", user["parent_id"]) if master else user["parent_id"],
+                    "product_key": None,
+                    "enrolled_at": None,
+                }
+            ]
+        return []
+
+    def set_active_master(self, user_id: str, master_id: str) -> bool:
+        """Persist the user's active training choice in their profile."""
+        self._ensure_table_exists()
+        with self.db.get_session() as session:
+            user = session.query(UserTable).filter_by(id=user_id).first()
+            if not user:
+                return False
+            profile = dict(user.profile or {})
+            profile["active_master_id"] = master_id
+            user.profile = profile
+            session.commit()
+            return True
 
 
 def get_user_manager():

@@ -480,6 +480,39 @@ async def me(current_user: dict = Depends(get_current_user)):
     return _to_user_dto(current_user)
 
 
+class SelectTrainingRequest(BaseModel):
+    master_id: str
+
+
+@router.get("/enrollments")
+async def get_enrollments(current_user: dict = Depends(get_current_user)):
+    """Return the list of trainings (masters) the current user is enrolled in."""
+    user_manager = get_user_manager()
+    enrollments = user_manager.get_user_enrollments(current_user["id"])
+    active_master_id = (current_user.get("profile") or {}).get("active_master_id")
+    return {"enrollments": enrollments, "active_master_id": active_master_id}
+
+
+@router.post("/select-training")
+async def select_training(
+    payload: SelectTrainingRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Persist the user's active training (master) choice."""
+    user_manager = get_user_manager()
+    enrollments = user_manager.get_user_enrollments(current_user["id"])
+    enrolled_master_ids = {e["master_id"] for e in enrollments}
+
+    if payload.master_id not in enrolled_master_ids:
+        raise HTTPException(status_code=403, detail="Not enrolled in this training")
+
+    success = user_manager.set_active_master(current_user["id"], payload.master_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update active training")
+
+    return {"active_master_id": payload.master_id}
+
+
 @router.get("/masquerade-targets", response_model=list[UserDTO])
 async def masquerade_targets(current_user: dict = Depends(get_current_user)):
     user_manager = get_user_manager()
