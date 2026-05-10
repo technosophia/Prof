@@ -1301,6 +1301,81 @@ def _render_edit_user_form(current_user: Dict[str, Any], production_mode: bool):
             st.session_state.editing_user_id = None
             st.rerun()
 
+    if user_to_edit.get("role") == UserRole.NORMAL.value:
+        _render_enrollment_management(current_user, user_to_edit)
+
+
+def _render_enrollment_management(
+    current_user: Dict[str, Any], user_to_edit: Dict[str, Any]
+):
+    """Show and manage the list of masters a normal user is enrolled with."""
+    st.subheader("🎓 Enrolled Masters")
+    user_manager = get_user_manager()
+    caller_role = current_user.get("role")
+
+    enrollments = user_manager.get_user_enrollments(user_to_edit["id"])
+    enrolled_master_ids = {e["master_id"] for e in enrollments}
+
+    if not enrollments:
+        st.info("Not enrolled with any master.")
+    else:
+        for e in enrollments:
+            cols = st.columns([3, 1])
+            with cols[0]:
+                st.write(f"**{e['master_name']}** `{e['master_id']}`")
+                if e.get("enrolled_at"):
+                    st.caption(f"Enrolled: {e['enrolled_at'][:10]}")
+                elif e["master_id"] == user_to_edit.get("parent_id"):
+                    st.caption("Primary master (parent_id)")
+            with cols[1]:
+                can_remove = caller_role == UserRole.ADMIN.value or (
+                    caller_role == UserRole.MASTER.value
+                    and e["master_id"] == current_user["id"]
+                )
+                if can_remove and st.button(
+                    "Remove",
+                    key=f"remove_enroll_{user_to_edit['id']}_{e['master_id']}",
+                    width="stretch",
+                ):
+                    user_manager.remove_enrollment(user_to_edit["id"], e["master_id"])
+                    st.rerun()
+
+    st.divider()
+
+    all_masters = user_manager.get_users_by_role(UserRole.MASTER.value)
+    if caller_role == UserRole.ADMIN.value:
+        available = [m for m in all_masters if m["id"] not in enrolled_master_ids]
+    elif caller_role == UserRole.MASTER.value:
+        available = [
+            m
+            for m in all_masters
+            if m["id"] == current_user["id"] and m["id"] not in enrolled_master_ids
+        ]
+    else:
+        available = []
+
+    if available:
+        col_sel, col_btn = st.columns([3, 1])
+        with col_sel:
+            opts = {m["id"]: m["name"] for m in available}
+            selected = st.selectbox(
+                "Add a master",
+                options=list(opts.keys()),
+                format_func=lambda x: opts[x],
+                key=f"add_enroll_select_{user_to_edit['id']}",
+                label_visibility="collapsed",
+            )
+        with col_btn:
+            if st.button(
+                "➕ Add",
+                key=f"add_enroll_btn_{user_to_edit['id']}",
+                width="stretch",
+            ):
+                user_manager.add_enrollment(user_to_edit["id"], selected)
+                st.rerun()
+    elif caller_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+        st.caption("All masters are already enrolled.")
+
 
 def _render_edit_form_fields(
     current_user: Dict[str, Any],
@@ -1697,6 +1772,8 @@ def _process_create_user_submission(
                 password=user_data.get("password"),
                 requesting_user_id=current_user["id"],
             )
+            if user_data.get("parent_id"):
+                user_manager.add_enrollment(user_id, user_data["parent_id"])
 
             if production_mode and not user_data.get("password") and reset_code:
                 st.success(

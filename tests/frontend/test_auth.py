@@ -240,3 +240,149 @@ async def test_waitlist_endpoint(client):
     )
     assert response.status_code == 200
     assert response.json() == {"status": "pending"}
+
+
+# ---------------------------------------------------------------------------
+# Enrollment tests
+# ---------------------------------------------------------------------------
+
+import pytest as _pytest
+
+
+@_pytest.fixture
+def enroll_normal1m2_under_master1():
+    """Enroll normal1_m2 under master1 and remove the enrollment after the test."""
+    um = get_user_manager()
+    um.add_enrollment("normal1_m2", "master1")
+    yield
+    um.remove_enrollment("normal1_m2", "master1")
+
+
+@_pytest.fixture
+def normal1m1_enrolled_under_both_masters():
+    """Give normal1_m1 an explicit enrollment record under master1 and master2."""
+    um = get_user_manager()
+    um.add_enrollment("normal1_m1", "master1")
+    um.add_enrollment("normal1_m1", "master2")
+    yield
+    um.remove_enrollment("normal1_m1", "master1")
+    um.remove_enrollment("normal1_m1", "master2")
+
+
+async def test_get_enrollments_fallback_to_parent_id(client, auth_headers, users):
+    """Users with no enrollment records still see their master via parent_id fallback."""
+    headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])
+    response = await client.get("/api/auth/enrollments", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    enrollments = data["enrollments"]
+    assert len(enrollments) == 1
+    assert enrollments[0]["master_id"] == "master1"
+
+
+async def test_select_training_forbidden_for_non_enrolled_master(client, auth_headers, users):
+    """Cannot select a master not in the enrollment list."""
+    headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])
+    response = await client.post(
+        "/api/auth/select-training",
+        json={"master_id": "master2"},
+        headers=headers,
+    )
+    assert response.status_code == 403
+
+
+async def test_select_training_with_two_enrollments(
+    client, auth_headers, users, normal1m1_enrolled_under_both_masters
+):
+    """User enrolled in two trainings can switch between them."""
+    headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])
+
+    response = await client.post(
+        "/api/auth/select-training", json={"master_id": "master2"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["active_master_id"] == "master2"
+
+    response = await client.post(
+        "/api/auth/select-training", json={"master_id": "master1"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["active_master_id"] == "master1"
+
+
+async def test_enroll_existing_user_as_master(
+    client, auth_headers, users, enroll_normal1m2_under_master1
+):
+    """POST /api/auth/enroll lets a master add an existing user to their roster."""
+    headers = await auth_headers("master1", users["master1"]["password"])
+    response = await client.post(
+        "/api/auth/enroll",
+        json={"user_id": "normal1_m2"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "normal1_m2"
+    assert data["master_id"] == "master1"
+
+    enrollments = get_user_manager().get_user_enrollments("normal1_m2")
+    master_ids = {e["master_id"] for e in enrollments}
+    assert "master1" in master_ids
+    assert "master2" in master_ids
+
+
+async def test_enroll_idempotent(client, auth_headers, users, enroll_normal1m2_under_master1):
+    """Enrolling the same user twice does not error and returns 200."""
+    headers = await auth_headers("master1", users["master1"]["password"])
+    response = await client.post(
+        "/api/auth/enroll", json={"user_id": "normal1_m2"}, headers=headers
+    )
+    assert response.status_code == 200
+
+
+async def test_enroll_forbidden_for_normal_user(client, auth_headers, users):
+    headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])
+    response = await client.post(
+        "/api/auth/enroll", json={"user_id": "normal1_m2"}, headers=headers
+    )
+    assert response.status_code == 403
+
+
+async def test_enroll_nonexistent_user(client, auth_headers, users):
+    headers = await auth_headers("master1", users["master1"]["password"])
+    response = await client.post(
+        "/api/auth/enroll", json={"user_id": "ghost_xyz_999"}, headers=headers
+    )
+    assert response.status_code == 404
+
+
+async def test_enroll_non_normal_user_rejected(client, auth_headers, users):
+    """Cannot enroll a master or admin user."""
+    headers = await auth_headers("master1", users["master1"]["password"])
+    response = await client.post(
+        "/api/auth/enroll", json={"user_id": "master2"}, headers=headers
+    )
+    assert response.status_code == 400
+
+
+async def test_master_cannot_enroll_under_other_master(client, auth_headers, users):
+    """A master cannot assign an enrollment to a different master."""
+    headers = await auth_headers("master1", users["master1"]["password"])
+    response = await client.post(
+        "/api/auth/enroll",
+        json={"user_id": "normal1_m2", "master_id": "master2"},
+        headers=headers,
+    )
+    assert response.status_code == 403
+
+
+async def test_masquerade_targets_include_enrolled_user(
+    client, auth_headers, users, enroll_normal1m2_under_master1
+):
+    """After enrollment, a master sees the enrolled user in their masquerade targets."""
+    headers = await auth_headers("master1", users["master1"]["password"])
+    response = await client.get("/api/auth/masquerade-targets", headers=headers)
+    assert response.status_code == 200
+    target_ids = {t["id"] for t in response.json()}
+    assert "normal1_m2" in target_ids
+    assert "normal1_m1" in target_ids

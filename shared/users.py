@@ -1941,6 +1941,7 @@ class UserManager:
                     entry.master_id = master_id
                     session.commit()
                     log("info", f"Approved waitlist entry {entry_id} (reactivated user {entry.user_id})")
+                    self.add_enrollment(entry.user_id, master_id)
                     return entry.user_id
 
             master = session.query(UserTable).filter_by(id=master_id).first()
@@ -1976,6 +1977,7 @@ class UserManager:
             session.commit()
 
             log("info", f"Approved waitlist entry {entry_id} -> user {derived_user_id}")
+            self.add_enrollment(derived_user_id, master_id)
             return derived_user_id
 
     def reject_waitlist_entry(self, entry_id: str) -> bool:
@@ -3002,12 +3004,17 @@ class UserManager:
             return True
 
     def get_user_enrollments(self, user_id: str) -> List[Dict[str, Any]]:
-        """Return all active enrollments for a user, with master name included.
+        """Return all masters this user is enrolled with.
 
-        Falls back to the user's parent_id when no enrollment records exist,
-        so that existing users keep working without a DB migration.
+        Combines explicit enrollment records with the parent_id master so that
+        both pre-enrollment users and multi-master users are handled correctly.
+        The parent_id master is always included as long as it is not already
+        represented by an enrollment record.
         """
         self._ensure_enrollment_table_exists()
+        result = []
+        seen_master_ids: Set[str] = set()
+
         with self.db.get_session() as session:
             rows = (
                 session.query(UserEnrollment, UserTable)
@@ -3019,30 +3026,30 @@ class UserManager:
                 .order_by(UserEnrollment.enrolled_at)
                 .all()
             )
-            if rows:
-                return [
+            for e, m in rows:
+                result.append(
                     {
                         "master_id": e.master_id,
                         "master_name": m.name,
                         "product_key": e.product_key,
                         "enrolled_at": e.enrolled_at.isoformat() if e.enrolled_at else None,
                     }
-                    for e, m in rows
-                ]
+                )
+                seen_master_ids.add(e.master_id)
 
-        # Fallback: use parent_id for users that predate the enrollment table
         user = self.get_user(user_id)
-        if user and user.get("parent_id"):
+        if user and user.get("parent_id") and user["parent_id"] not in seen_master_ids:
             master = self.get_user(user["parent_id"])
-            return [
+            result.append(
                 {
                     "master_id": user["parent_id"],
                     "master_name": master.get("name", user["parent_id"]) if master else user["parent_id"],
                     "product_key": None,
                     "enrolled_at": None,
                 }
-            ]
-        return []
+            )
+
+        return result
 
     def set_active_master(self, user_id: str, master_id: str) -> bool:
         """Persist the user's active training choice in their profile."""
@@ -3056,6 +3063,47 @@ class UserManager:
             user.profile = profile
             session.commit()
             return True
+
+    def remove_enrollment(self, user_id: str, master_id: str) -> bool:
+        """Soft-delete an enrollment (mark is_active=False)."""
+        self._ensure_enrollment_table_exists()
+        with self.db.get_session() as session:
+            enrollment = (
+                session.query(UserEnrollment)
+                .filter_by(user_id=user_id, master_id=master_id, is_active=True)
+                .first()
+            )
+            if not enrollment:
+                return False
+            enrollment.is_active = False
+            session.commit()
+            return True
+
+    def get_master_students(self, master_id: str) -> set:
+        """Return IDs of all normal users who are students of this master.
+
+        Checks both the enrollment table and parent_id for full coverage.
+        """
+        self._ensure_enrollment_table_exists()
+        self._ensure_table_exists()
+        student_ids = set()
+        with self.db.get_session() as session:
+            rows = (
+                session.query(UserEnrollment.user_id)
+                .filter(
+                    UserEnrollment.master_id == master_id,
+                    UserEnrollment.is_active == True,
+                )
+                .all()
+            )
+            student_ids.update(r.user_id for r in rows)
+            rows2 = (
+                session.query(UserTable.id)
+                .filter(UserTable.parent_id == master_id)
+                .all()
+            )
+            student_ids.update(r.id for r in rows2)
+        return student_ids
 
 
 def get_user_manager():

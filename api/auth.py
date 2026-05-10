@@ -101,10 +101,11 @@ def _get_masquerade_targets(current_user: dict, user_manager) -> list[dict]:
         ]
 
     if actor_role == "master":
+        student_ids = user_manager.get_master_students(actor["id"])
         return [
             user
             for user in users_dict.values()
-            if user.get("parent_id") == actor["id"]
+            if user.get("id") in student_ids
             and user.get("id") != current_user.get("id")
         ]
 
@@ -246,6 +247,9 @@ async def register(payload: RegisterRequest):
                 },
             )
         raise
+
+    if parent_id:
+        user_manager.add_enrollment(derived_user_id, parent_id)
 
     if registration_status == "pending":
         return JSONResponse(
@@ -484,6 +488,11 @@ class SelectTrainingRequest(BaseModel):
     master_id: str
 
 
+class EnrollRequest(BaseModel):
+    user_id: str
+    master_id: Optional[str] = None
+
+
 @router.get("/enrollments")
 async def get_enrollments(current_user: dict = Depends(get_current_user)):
     """Return the list of trainings (masters) the current user is enrolled in."""
@@ -511,6 +520,40 @@ async def select_training(
         raise HTTPException(status_code=500, detail="Failed to update active training")
 
     return {"active_master_id": payload.master_id}
+
+
+@router.post("/enroll")
+async def enroll_user(
+    payload: EnrollRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Master (or admin) adds an existing normal user to their student roster."""
+    user_manager = get_user_manager()
+    caller_role = current_user.get("role")
+
+    if caller_role not in ["admin", "master"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if caller_role == "master":
+        master_id = current_user["id"]
+        if payload.master_id and payload.master_id != master_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    else:
+        if not payload.master_id:
+            raise HTTPException(status_code=400, detail="master_id required for admin")
+        master = user_manager.get_user(payload.master_id)
+        if not master or master.get("role") != "master":
+            raise HTTPException(status_code=404, detail="Master not found")
+        master_id = payload.master_id
+
+    target = user_manager.get_user(payload.user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("role") != "normal":
+        raise HTTPException(status_code=400, detail="Can only enroll normal users")
+
+    user_manager.add_enrollment(payload.user_id, master_id)
+    return {"user_id": payload.user_id, "master_id": master_id}
 
 
 @router.get("/masquerade-targets", response_model=list[UserDTO])
