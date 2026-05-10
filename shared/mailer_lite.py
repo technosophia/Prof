@@ -33,29 +33,46 @@ def get_configured_group_id() -> Optional[str]:
         return None
 
 
-def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> bool:
+def notify_account_approved(
+    email: Optional[str],
+    user_name: Optional[str],
+    reset_code: Optional[str] = None,
+) -> tuple[bool, dict]:
     """Push approved user into MailerLite subscribers and optionally assign to a group.
 
-    The group is read from config (set via Debug → MailerLite tab) or MAILER_LITE_GROUP_ID env var.
-    A MailerLite automation triggered on "subscriber joins group" will then send the email.
+    Includes reset_code as a subscriber field if provided, so MailerLite automation
+    emails can use {{ subscriber.fields.reset_code }}.
+
+    Returns (success, diagnostic_dict) so callers can log/display what was sent.
     """
     if not email:
-        return False
+        return False, {"error": "no email"}
 
     token = os.getenv("MAILER_LITE_API")
     if not token:
-        log("warning", "MAILER_LITE_API is not configured, skipping approval email")
-        return False
+        log("warning", "MAILER_LITE_API is not configured, skipping MailerLite upsert")
+        return False, {"error": "MAILER_LITE_API not set"}
 
     group_id = get_configured_group_id()
 
+    fields: dict = {"name": user_name or ""}
+    if reset_code:
+        fields["reset_code"] = reset_code
+
     payload: dict = {
         "email": email,
-        "fields": {"name": user_name or ""},
+        "fields": fields,
         "status": "active",
     }
     if group_id:
         payload["groups"] = [group_id]
+
+    diagnostic = {
+        "email": email,
+        "fields_sent": {k: (v if k != "reset_code" else f"{v[:6]}…") for k, v in fields.items()},
+        "group_id": group_id,
+        "reset_code_included": bool(reset_code),
+    }
 
     try:
         response = requests.post(
@@ -66,14 +83,16 @@ def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> b
         )
     except Exception as error:
         log("error", f"MailerLite request failed: {error}")
-        return False
+        return False, {**diagnostic, "error": str(error)}
+
+    diagnostic["http_status"] = response.status_code
 
     if response.status_code >= 400:
         log(
             "error",
-            f"[notify_account_approved] MailerLite returned status {response.status_code}: {response.text[:300]}",
+            f"[notify_account_approved] MailerLite returned {response.status_code}: {response.text[:300]}",
         )
-        return False
+        return False, {**diagnostic, "error": response.text[:300]}
 
     if not group_id:
         log(
@@ -82,7 +101,7 @@ def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> b
             "no automation will trigger. Set the group in Debug → MailerLite tab.",
         )
 
-    return True
+    return True, diagnostic
 
 
 def get_groups() -> list[dict]:
@@ -97,3 +116,41 @@ def get_groups() -> list[dict]:
     except Exception:
         pass
     return []
+
+
+def get_subscriber_by_email(email: str) -> Optional[dict]:
+    """Return MailerLite subscriber dict for an email address, or None."""
+    token = os.getenv("MAILER_LITE_API")
+    if not token:
+        return None
+    try:
+        resp = requests.get(
+            f"{_BASE}/subscribers",
+            headers=_headers(),
+            params={"filter[email]": email},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            return data[0] if data else None
+    except Exception:
+        pass
+    return None
+
+
+def remove_subscriber_from_group(subscriber_id: str, group_id: str) -> tuple[bool, str]:
+    """Remove a subscriber from a group so the 'joins group' automation can re-fire."""
+    token = os.getenv("MAILER_LITE_API")
+    if not token:
+        return False, "MAILER_LITE_API not set"
+    try:
+        resp = requests.delete(
+            f"{_BASE}/subscribers/{subscriber_id}/groups/{group_id}",
+            headers=_headers(),
+            timeout=8,
+        )
+        if resp.status_code in (200, 204):
+            return True, "Removed from group"
+        return False, f"Status {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, str(e)

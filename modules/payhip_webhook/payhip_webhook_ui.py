@@ -6,6 +6,29 @@ from modules.payhip_webhook.payhip_webhook import get_payhip_webhook_manager
 from shared.users import UserManager
 
 
+def _fetch_user_reset_info(email: str) -> dict:
+    """Return reset_code info for a user by email (admin diagnostic use only)."""
+    from core.database import get_db_manager
+    from sqlalchemy import text
+    db = get_db_manager()
+    with db.get_session() as session:
+        row = session.execute(
+            text("SELECT id, name, reset_code, reset_code_expires FROM users WHERE LOWER(email) = LOWER(:email)"),
+            {"email": email},
+        ).fetchone()
+    if not row:
+        return {}
+    code = row[2]
+    expires = row[3]
+    return {
+        "user_id": row[0],
+        "username": row[1],
+        "reset_code": code,
+        "reset_code_expires": str(expires) if expires else None,
+        "has_valid_code": bool(code),
+    }
+
+
 def render_admin_tab():
     """Render the Payhip Webhook admin tab."""
     st.header("Payhip Webhook")
@@ -203,16 +226,67 @@ def _render_simulator_tab():
                 status_code, message = manager.process_webhook(payload, raw, force=force)
 
                 if status_code < 400:
-                    st.success(f"Result ({status_code}): {message}")
+                    st.success(f"Result ({status_code}): {message.split(' | email_diag=')[0]}")
                 else:
                     st.error(f"Error ({status_code}): {message}")
 
-                # Show the most recent log entry for this email so the user can diagnose
+                # ── Reset code + email diagnostic ──────────────────────────
+                target_email = email.strip()
+                reset_info = _fetch_user_reset_info(target_email)
+
+                if reset_info:
+                    with st.expander("Reset code & email delivery", expanded=True):
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.markdown("**DB reset code**")
+                            if reset_info.get("has_valid_code"):
+                                st.success(f"`{reset_info['reset_code']}`")
+                                st.caption(f"Expires: {reset_info['reset_code_expires']}")
+                            else:
+                                st.error("No reset code in DB")
+
+                        with col_b:
+                            st.markdown("**MailerLite subscriber fields**")
+                            from shared.mailer_lite import get_configured_group_id
+                            group_id = get_configured_group_id()
+                            if group_id:
+                                st.success(f"Group: `{group_id}`")
+                            else:
+                                st.warning("No group configured — automation won't fire")
+
+                            # Parse email_diag out of the message if present
+                            if " | email_diag=" in message:
+                                import ast
+                                try:
+                                    diag_str = message.split(" | email_diag=", 1)[1]
+                                    diag = ast.literal_eval(diag_str)
+                                    ml = diag.get("mailerlite", {})
+                                    ms = diag.get("mailersend", {})
+
+                                    if ml.get("ok"):
+                                        rc_sent = ml.get("reset_code_included", False)
+                                        st.success("MailerLite upsert OK")
+                                        if rc_sent:
+                                            st.success("reset_code field sent")
+                                        else:
+                                            st.error("reset_code field NOT sent")
+                                    else:
+                                        st.error(f"MailerLite failed: {ml.get('error', '?')}")
+
+                                    st.markdown("**MailerSend (transactional)**")
+                                    if ms.get("ok"):
+                                        st.success("Email queued via MailerSend")
+                                    else:
+                                        st.warning(f"MailerSend: {ms.get('msg', 'not configured')}")
+                                except Exception:
+                                    pass
+
+                # ── Last log entry ─────────────────────────────────────────
                 recent = manager.get_logs(limit=5)
-                match = next((l for l in recent if l["customer_email"] == email.strip()), None)
+                match = next((l for l in recent if l["customer_email"] == target_email), None)
                 if match:
-                    st.caption("Last log entry for this email:")
-                    st.json({k: v for k, v in match.items() if k != "raw_payload"})
+                    with st.expander("Last webhook log entry"):
+                        st.json({k: v for k, v in match.items() if k != "raw_payload"})
 
     st.divider()
     st.markdown("**Replay a previous webhook** — paste raw payload from a log entry above.")

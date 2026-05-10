@@ -374,11 +374,14 @@ class PayhipWebhookManager:
                 # Pre-set active training so the user lands in the right context immediately
                 user_manager.set_active_master(user_id, master_id)
 
+                email_diag = None
                 if reset_code:
-                    self._send_welcome_email(customer_email, user_name, reset_code)
+                    email_diag = self._send_welcome_email(customer_email, user_name, reset_code)
 
                 log("info", f"Created user {user_id} ({user_name}) for {customer_email} under master {master_id}")
                 action = f"User created (id={user_id}, username={user_name})"
+                if email_diag:
+                    action += f" | email_diag={email_diag}"
 
             self.log_event(
                 event_type=event_type,
@@ -409,15 +412,38 @@ class PayhipWebhookManager:
             )
             return 500, f"Error processing webhook: {error_msg}"
 
-    def _send_welcome_email(self, email: str, name: str, reset_code: str) -> bool:
-        """Send welcome email with reset code via MailerLite."""
+    def _send_welcome_email(self, email: str, name: str, reset_code: str) -> dict:
+        """Send welcome email with reset code.
+
+        Tries transactional email (MailerSend) first for the actual email delivery.
+        Always upserts the subscriber in MailerLite with the reset_code field so
+        automations can also use it via {{ subscriber.fields.reset_code }}.
+
+        Returns a diagnostic dict summarising what was sent.
+        """
+        from shared.transactional_email import send_welcome_reset_code, _is_configured as _transactional_configured
         from shared.mailer_lite import notify_account_approved
 
-        notify_account_approved(email, name)
-        # The reset_code is stored in the DB — the user can obtain it via the
-        # "Forgot Password" flow. Log it here so an admin can retrieve it if needed.
-        log("info", f"[WEBHOOK] New user created for {email}. Reset code stored in DB (use Forgot Password to receive it).")
-        return True
+        result: dict = {"email": email, "mailersend": None, "mailerlite": None}
+
+        # ── MailerSend (transactional, includes reset code in email body) ──
+        if _transactional_configured():
+            ms_ok, ms_msg = send_welcome_reset_code(email, name, reset_code)
+            result["mailersend"] = {"ok": ms_ok, "msg": ms_msg}
+            if ms_ok:
+                log("info", f"[WEBHOOK] Welcome email queued via MailerSend for {email}")
+            else:
+                log("error", f"[WEBHOOK] MailerSend failed for {email}: {ms_msg}")
+        else:
+            result["mailersend"] = {"ok": False, "msg": "MAILERSEND_API_KEY not configured"}
+
+        # ── MailerLite (automation, reset_code sent as subscriber field) ──
+        ml_ok, ml_diag = notify_account_approved(email, name, reset_code=reset_code)
+        result["mailerlite"] = {**ml_diag, "ok": ml_ok}
+        if not ml_ok:
+            log("warning", f"[WEBHOOK] MailerLite upsert failed for {email}: {ml_diag.get('error')}")
+
+        return result
 
 
 _payhip_webhook_manager: Optional[PayhipWebhookManager] = None

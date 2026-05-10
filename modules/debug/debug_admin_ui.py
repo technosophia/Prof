@@ -14,6 +14,7 @@ This module adds a "Debug" tab to the admin interface.
 import streamlit as st
 import asyncio
 import json
+from typing import Optional
 
 from st_shared.cached import get_config, get_user_manager
 from shared.common import llm_conversation_generate, get_current_llm_info
@@ -774,6 +775,22 @@ def show_quick_tests_tab():
 
 # Dans debug_admin_ui.py, modifiez la fonction show_debug_admin_content:
 
+def _get_db_reset_code(user_id: str) -> Optional[str]:
+    """Fetch the current reset_code for a user directly from the DB (admin use only)."""
+    try:
+        from core.database import get_db_manager
+        from sqlalchemy import text
+        db = get_db_manager()
+        with db.get_session() as session:
+            row = session.execute(
+                text("SELECT reset_code FROM users WHERE id = :uid"),
+                {"uid": user_id},
+            ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def show_mailerlite_tab():
     """Tab: MailerLite diagnostics."""
     import os
@@ -884,11 +901,16 @@ def show_mailerlite_tab():
 
     # ── Test email ───────────────────────────────────────────────────────────
     st.markdown("**Send a test welcome email**")
+
     if not group_id:
-        st.warning(
-            "No group selected. The subscriber will be created in MailerLite "
-            "but **no automation will trigger** and no email will be sent."
-        )
+        st.warning("No group selected — automation won't fire.")
+
+    st.info(
+        "**MailerLite template variable syntax:**\n"
+        "- New drag-and-drop builder: `{{ subscriber.fields.reset_code }}`\n"
+        "- Classic / HTML builder: `{$reset_code}`\n\n"
+        "Use whichever matches your builder. The field key in both cases must be exactly `reset_code`."
+    )
 
     user_manager = get_user_manager()
     all_users = user_manager.get_all_users()
@@ -906,49 +928,131 @@ def show_mailerlite_tab():
         )
         target = next(u for u in users_with_email if u["id"] == selected_uid)
 
-        if st.button("Send test", disabled=not token, key="ml_send_test"):
-            payload: dict = {
-                "email": target["email"],
-                "fields": {"name": target.get("name", "")},
-                "status": "active",
-            }
-            if group_id:
-                payload["groups"] = [group_id]
+        # Look up real reset_code from DB
+        real_code = _get_db_reset_code(target["id"])
+        if real_code:
+            st.success(f"DB reset_code found for this user: `{real_code[:8]}…`")
+        else:
+            st.warning(
+                "This user has no reset_code in the DB. "
+                "Use the Forgot Password flow on their account to generate one first, "
+                "or pick a user created by the webhook simulator."
+            )
 
-            try:
-                resp = _requests.post(
-                    "https://connect.mailerlite.com/api/subscribers",
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                    json=payload,
-                    timeout=8,
+        col_send, col_reset = st.columns(2)
+
+        with col_send:
+            if st.button("Send test (real code)", disabled=not token or not real_code, key="ml_send_test"):
+                from shared.mailer_lite import notify_account_approved
+                ml_ok, ml_diag = notify_account_approved(
+                    email=target["email"],
+                    user_name=target.get("name", ""),
+                    reset_code=real_code,
                 )
-                if resp.status_code in (200, 201):
-                    data = resp.json().get("data", {})
-                    sub_groups = [g.get("name") for g in data.get("groups", [])]
-                    action = "created" if resp.status_code == 201 else "updated"
-                    if sub_groups:
+                if ml_ok:
+                    if group_id:
                         st.success(
-                            f"Subscriber {action} for **{target['email']}** "
-                            f"and assigned to: **{', '.join(sub_groups)}**. "
-                            "MailerLite automation will fire if configured for this group."
+                            f"Subscriber upserted for **{target['email']}**, "
+                            f"added to group `{group_id}`, "
+                            f"`reset_code` field = `{real_code[:8]}…`"
+                        )
+                        st.caption(
+                            "Check your inbox. If the template shows the literal variable "
+                            "instead of the code, verify the template syntax (see above) "
+                            "and that the MailerLite field key is exactly `reset_code`."
                         )
                     else:
-                        st.warning(
-                            f"Subscriber {action} for **{target['email']}** "
-                            "but **not assigned to any group** — no automation will trigger."
-                        )
-                    with st.expander("Full API response"):
-                        st.json(resp.json())
-                elif resp.status_code == 403:
-                    st.error(f"403 Forbidden — server IP ({server_ip or '?'}) not in MailerLite allowlist")
+                        st.warning("Upserted but no group — automation won't fire.")
+                    st.json(ml_diag)
                 else:
-                    st.error(f"Status {resp.status_code}: {resp.text[:300]}")
-            except Exception as e:
-                st.error(f"Request failed: {e}")
+                    st.error(f"Failed: {ml_diag.get('error', '?')}")
+                    st.json(ml_diag)
+
+        with col_reset:
+            st.caption("Already subscribed? Remove from group so the automation re-fires:")
+            if st.button("Remove from group", disabled=not token or not group_id, key="ml_remove_group"):
+                from shared.mailer_lite import get_subscriber_by_email, remove_subscriber_from_group
+                sub = get_subscriber_by_email(target["email"])
+                if not sub:
+                    st.warning(f"Subscriber {target['email']} not found in MailerLite.")
+                else:
+                    ok, msg = remove_subscriber_from_group(sub["id"], group_id)
+                    if ok:
+                        st.success(
+                            f"Removed **{target['email']}** from group `{group_id}`. "
+                            "You can now re-send the test and the automation will fire again."
+                        )
+                    else:
+                        st.error(f"Failed: {msg}")
+
+    st.divider()
+
+    # ── Transactional email (MailerSend) ─────────────────────────────────────
+    st.markdown("**Transactional email — MailerSend**")
+    st.caption(
+        "Used to send welcome emails with the reset code when a user is created via webhook. "
+        "Free tier: 3,000 emails/month. Requires a verified sending domain."
+    )
+
+    ms_key = os.getenv("MAILERSEND_API_KEY")
+    ms_from = os.getenv("MAILERSEND_FROM")
+    ms_from_name = os.getenv("MAILERSEND_FROM_NAME", ms_from or "")
+    app_url = os.getenv("APP_URL", "")
+
+    col_ms1, col_ms2, col_ms3 = st.columns(3)
+    with col_ms1:
+        st.text("MAILERSEND_API_KEY")
+        if ms_key:
+            st.success(ms_key[:6] + "…" + ms_key[-4:])
+        else:
+            st.error("Not set")
+    with col_ms2:
+        st.text("MAILERSEND_FROM")
+        if ms_from:
+            st.success(ms_from)
+        else:
+            st.error("Not set")
+    with col_ms3:
+        st.text("APP_URL")
+        if app_url:
+            st.success(app_url)
+        else:
+            st.warning("Not set — login link won't appear in email")
+
+    if ms_key and ms_from:
+        st.markdown("**Send a test welcome email with reset code**")
+        user_manager_ms = get_user_manager()
+        ms_users = [u for u in user_manager_ms.get_all_users() if u.get("email")]
+
+        if ms_users:
+            ms_user_opts = {u["id"]: f"{u['name']} <{u['email']}>" for u in ms_users}
+            ms_selected_uid = st.selectbox(
+                "Target user",
+                options=list(ms_user_opts.keys()),
+                format_func=lambda x: ms_user_opts[x],
+                key="ms_test_target",
+            )
+            ms_target = next(u for u in ms_users if u["id"] == ms_selected_uid)
+
+            if st.button("Send test welcome email", key="ms_send_test"):
+                from shared.transactional_email import send_welcome_reset_code
+                fake_code = "TEST-RESET-CODE-1234"
+                success, msg = send_welcome_reset_code(
+                    to_email=ms_target["email"],
+                    to_name=ms_target.get("name", "User"),
+                    reset_code=fake_code,
+                )
+                if success:
+                    st.success(
+                        f"Email queued for **{ms_target['email']}**. "
+                        f"The email contains reset code `{fake_code}` — use it to verify the template looks correct."
+                    )
+                else:
+                    st.error(f"Failed: {msg}")
+        else:
+            st.info("No users with email addresses found.")
+    else:
+        st.info("Set MAILERSEND_API_KEY and MAILERSEND_FROM to enable transactional email testing.")
 
     st.divider()
 
