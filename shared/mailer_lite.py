@@ -21,10 +21,22 @@ def _headers() -> dict:
     }
 
 
+def get_configured_group_id() -> Optional[str]:
+    """Return the MailerLite group ID from config or env var (env takes precedence)."""
+    env_val = os.getenv("MAILER_LITE_GROUP_ID")
+    if env_val:
+        return env_val
+    try:
+        from st_shared.cached import get_config
+        return get_config().get("mailer_lite.group_id") or None
+    except Exception:
+        return None
+
+
 def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> bool:
     """Push approved user into MailerLite subscribers and optionally assign to a group.
 
-    Set MAILER_LITE_GROUP_ID to the group ID shown in the Debug → MailerLite tab.
+    The group is read from config (set via Debug → MailerLite tab) or MAILER_LITE_GROUP_ID env var.
     A MailerLite automation triggered on "subscriber joins group" will then send the email.
     """
     if not email:
@@ -35,7 +47,7 @@ def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> b
         log("warning", "MAILER_LITE_API is not configured, skipping approval email")
         return False
 
-    group_id = os.getenv("MAILER_LITE_GROUP_ID")
+    group_id = get_configured_group_id()
 
     payload: dict = {
         "email": email,
@@ -66,9 +78,8 @@ def notify_account_approved(email: Optional[str], user_name: Optional[str]) -> b
     if not group_id:
         log(
             "warning",
-            f"[notify_account_approved] Subscriber {email} added to MailerLite but "
-            "MAILER_LITE_GROUP_ID is not set — no automation will be triggered. "
-            "Set this env var to the group ID shown in Debug → MailerLite tab.",
+            "[notify_account_approved] Subscriber added to MailerLite but no group is configured — "
+            "no automation will trigger. Set the group in Debug → MailerLite tab.",
         )
 
     return True

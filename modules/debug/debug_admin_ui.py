@@ -778,16 +778,17 @@ def show_mailerlite_tab():
     """Tab: MailerLite diagnostics."""
     import os
     import requests as _requests
-    from shared.mailer_lite import get_groups
+    from shared.mailer_lite import get_groups, get_configured_group_id
+    from st_shared.cached import get_config
 
     st.subheader("MailerLite Diagnostics")
 
     token = os.getenv("MAILER_LITE_API")
-    group_id = os.getenv("MAILER_LITE_GROUP_ID")
+    group_id = get_configured_group_id()
     server_ip = None
 
     # ── Status row ──────────────────────────────────────────────────────────
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         st.text("MAILER_LITE_API")
         if token:
@@ -797,13 +798,6 @@ def show_mailerlite_tab():
             st.error("Not set")
 
     with col2:
-        st.text("MAILER_LITE_GROUP_ID")
-        if group_id:
-            st.success(group_id)
-        else:
-            st.warning("Not set — no automation will fire")
-
-    with col3:
         st.text("Server public IP")
         try:
             ip_resp = _requests.get("https://api.ipify.org", timeout=5)
@@ -820,10 +814,7 @@ def show_mailerlite_tab():
         try:
             resp = _requests.get(
                 "https://connect.mailerlite.com/api/subscribers?limit=1",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/json",
-                },
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                 timeout=8,
             )
             if resp.status_code == 200:
@@ -840,17 +831,54 @@ def show_mailerlite_tab():
 
     st.divider()
 
-    # ── Groups ───────────────────────────────────────────────────────────────
-    st.markdown("**Your MailerLite groups**")
-    st.caption("Copy the ID of the group you want subscribers assigned to, then set MAILER_LITE_GROUP_ID.")
-    if st.button("Load groups", disabled=not token, key="ml_load_groups"):
-        groups = get_groups()
-        if not groups:
-            st.warning("No groups found (or API error). Create a group in app.mailerlite.com first.")
-        else:
-            for g in groups:
-                active_flag = " ← **current MAILER_LITE_GROUP_ID**" if g["id"] == group_id else ""
-                st.markdown(f"- **{g['name']}** — id: `{g['id']}`{active_flag}")
+    # ── Group selection ──────────────────────────────────────────────────────
+    st.markdown("**Subscriber group**")
+    st.caption("Subscribers added to the selected group trigger your MailerLite automation.")
+
+    if "ml_groups_cache" not in st.session_state:
+        st.session_state.ml_groups_cache = []
+
+    col_load, col_status = st.columns([1, 3])
+    with col_load:
+        if st.button("Load groups", disabled=not token, key="ml_load_groups"):
+            groups = get_groups()
+            st.session_state.ml_groups_cache = groups
+            if not groups:
+                st.warning("No groups found. Create one in app.mailerlite.com first.")
+
+    groups = st.session_state.ml_groups_cache
+    if groups:
+        group_opts = {g["id"]: f"{g['name']} (id: {g['id']})" for g in groups}
+        none_option = "__none__"
+        group_opts_with_none = {none_option: "— no group —", **group_opts}
+
+        current_selection = group_id if group_id in group_opts else none_option
+        selected_gid = st.selectbox(
+            "Select group",
+            options=list(group_opts_with_none.keys()),
+            format_func=lambda x: group_opts_with_none[x],
+            index=list(group_opts_with_none.keys()).index(current_selection),
+            key="ml_group_selectbox",
+        )
+
+        save_col, status_col = st.columns([1, 3])
+        with save_col:
+            if st.button("Save selection", key="ml_save_group"):
+                value = selected_gid if selected_gid != none_option else None
+                get_config().save_key("mailer_lite.group_id", value)
+                group_id = value
+                st.success("Saved." if value else "Group cleared.")
+                st.rerun()
+        with status_col:
+            if group_id:
+                name = group_opts.get(group_id, group_id)
+                st.info(f"Active group: **{name}**")
+            else:
+                st.warning("No group selected — automation will not trigger.")
+    elif not token:
+        st.info("Set MAILER_LITE_API first, then load groups.")
+    else:
+        st.info("Click 'Load groups' to fetch your MailerLite groups.")
 
     st.divider()
 
@@ -858,9 +886,8 @@ def show_mailerlite_tab():
     st.markdown("**Send a test welcome email**")
     if not group_id:
         st.warning(
-            "MAILER_LITE_GROUP_ID is not set. The subscriber will be created in MailerLite "
-            "but **no automation will trigger** and no email will be sent. "
-            "Set this env var to the group ID above to enable automation."
+            "No group selected. The subscriber will be created in MailerLite "
+            "but **no automation will trigger** and no email will be sent."
         )
 
     user_manager = get_user_manager()
@@ -870,11 +897,11 @@ def show_mailerlite_tab():
     if not users_with_email:
         st.info("No users with email addresses found.")
     else:
-        user_opts = {u["id"]: f"{u['name']} <{u['email']}>" for u in users_with_email}
+        user_opts_map = {u["id"]: f"{u['name']} <{u['email']}>" for u in users_with_email}
         selected_uid = st.selectbox(
             "Target user",
-            options=list(user_opts.keys()),
-            format_func=lambda x: user_opts[x],
+            options=list(user_opts_map.keys()),
+            format_func=lambda x: user_opts_map[x],
             key="ml_test_email_target",
         )
         target = next(u for u in users_with_email if u["id"] == selected_uid)
@@ -905,14 +932,14 @@ def show_mailerlite_tab():
                     action = "created" if resp.status_code == 201 else "updated"
                     if sub_groups:
                         st.success(
-                            f"Subscriber {action} for **{target['email']}** and assigned to group(s): "
-                            f"**{', '.join(sub_groups)}**. "
-                            "If an automation is set up for this group, an email will be sent."
+                            f"Subscriber {action} for **{target['email']}** "
+                            f"and assigned to: **{', '.join(sub_groups)}**. "
+                            "MailerLite automation will fire if configured for this group."
                         )
                     else:
                         st.warning(
-                            f"Subscriber {action} for **{target['email']}** but **not assigned to any group**. "
-                            "No automation will trigger. Set MAILER_LITE_GROUP_ID."
+                            f"Subscriber {action} for **{target['email']}** "
+                            "but **not assigned to any group** — no automation will trigger."
                         )
                     with st.expander("Full API response"):
                         st.json(resp.json())
