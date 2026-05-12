@@ -5,7 +5,7 @@
     "account_created": "Your account has been created and is ready to use.",
     "reset_code_label": "Your activation code",
     "instruction": "Go to {login_url} to sign in for the first time. You will be asked to choose a username and a password — use the activation code below when prompted.",
-    "validity": "This code is valid for 24 hours.",
+    "validity": "This code is valid for 7 days.",
     "cta_button": "Activate my account",
     "sign_off": "Welcome aboard!"
   },

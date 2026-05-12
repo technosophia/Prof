@@ -55,6 +55,7 @@ const patch = (path, body) => request(path, { method: 'PATCH', body: JSON.string
 export const auth = {
   login: (userId, password) => post('/api/auth/login', { user_id: userId, password }),
   checkEmail: (email) => post('/api/auth/check-email', { email }),
+  requestActivation: (email) => post('/api/auth/request-activation', { email }),
   initPassword: (userId, resetCode, newPassword, newName = null) =>
     post('/api/auth/init-password', { user_id: userId, reset_code: resetCode, new_password: newPassword, ...(newName ? { new_name: newName } : {}) }),
   requestPasswordReset: (userId) => post('/api/auth/request-password-reset', { user_id: userId }),

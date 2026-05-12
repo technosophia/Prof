@@ -27,6 +27,7 @@ export default function Login() {
   const [emailInput, setEmailInput] = useState('')
   const [password, setPassword] = useState('')
   const [authFailed, setAuthFailed] = useState(false)
+  const [activationSent, setActivationSent] = useState(false)
   const [firstTimeUserId, setFirstTimeUserId] = useState('')
   const [firstTimeForm, setFirstTimeForm] = useState({ resetCode: '', newPassword: '', confirmPassword: '', displayName: '' })
 
@@ -69,6 +70,7 @@ export default function Login() {
     setLoginMode(null)
     setPassword('')
     setAuthFailed(false)
+    setActivationSent(false)
     setFirstTimeUserId('')
     setFirstTimeForm({ resetCode: '', newPassword: '', confirmPassword: '', displayName: '' })
     setError('')
@@ -108,6 +110,11 @@ export default function Login() {
         setError('No account found for this email. Please check or contact support.')
         return
       }
+      if (data.status === 'activation_expired') {
+        setLoginMode('activation_expired')
+        setLoginStep(2)
+        return
+      }
       if (data.status === 'first_time') {
         setFirstTimeUserId(data.user_id)
         setFirstTimeForm(f => ({ ...f, displayName: data.suggested_name || '' }))
@@ -118,6 +125,17 @@ export default function Login() {
       setLoginStep(2)
     } catch {
       setError('Unable to verify. Please try again.')
+    }
+  }
+
+  async function submitRequestActivation(e) {
+    e.preventDefault()
+    setError('')
+    try {
+      await auth.requestActivation(emailInput.trim().toLowerCase())
+      setActivationSent(true)
+    } catch {
+      setError('Failed to send email. Please try again.')
     }
   }
 
@@ -278,6 +296,30 @@ export default function Login() {
               {error ? <p className="text-sm text-red-400">{error}</p> : null}
               <Button className="w-full" type="submit">Continue</Button>
             </form>
+          ) : loginMode === 'activation_expired' ? (
+            <div className="space-y-3">
+              <p className="text-sm text-amber-400 font-medium">Activation code expired</p>
+              <div>
+                <Label>{emailInput.includes('@') ? 'Email' : 'Username'}</Label>
+                <Input value={emailInput} disabled className="opacity-60" />
+              </div>
+              <p className="text-sm text-slate-400">
+                Your activation code is no longer valid. Click below to receive a new one.
+              </p>
+              {!activationSent ? (
+                <>
+                  {error ? <p className="text-sm text-red-400">{error}</p> : null}
+                  <Button className="w-full" onClick={submitRequestActivation}>
+                    Send new activation email
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm text-emerald-400">
+                  Email sent! Check your inbox, then come back and log in.
+                </p>
+              )}
+              <Button type="button" variant="secondary" className="w-full" onClick={resetLoginFlow}>Back</Button>
+            </div>
           ) : loginMode === 'first_time' ? (
             <form className="space-y-3" onSubmit={submitFirstTimeSetup}>
               <p className="text-sm text-emerald-400 font-medium">First login — set up your account</p>

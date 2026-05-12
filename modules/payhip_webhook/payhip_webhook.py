@@ -445,7 +445,7 @@ class PayhipWebhookManager:
         name = user.get("name") or user_id
         lang = (user.get("profile") or {}).get("language", "en")
 
-        reset_code = user_manager.generate_reset_code(user_id)
+        reset_code = user_manager.generate_reset_code(user_id, expiry_days=7)
         if not reset_code:
             return False, f"Failed to generate reset code for {email}"
 

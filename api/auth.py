@@ -30,6 +30,10 @@ class CheckEmailRequest(BaseModel):
     email: str
 
 
+class RequestActivationRequest(BaseModel):
+    email: str
+
+
 class RequestPasswordResetRequest(BaseModel):
     user_id: str
 
@@ -458,14 +462,43 @@ async def check_email(payload: CheckEmailRequest):
     if not user:
         return {"status": "not_found"}
     has_password = user.get("has_password", False)
+    if has_password:
+        return {"status": "normal"}
     reset_info = user.get("reset_code_info", {})
-    if reset_info.get("is_valid") and not has_password:
+    if reset_info.get("is_valid"):
         return {
             "status": "first_time",
             "user_id": user["id"],
             "suggested_name": user.get("name") or user["id"],
         }
-    return {"status": "normal"}
+    return {"status": "activation_expired"}
+
+
+@router.post("/request-activation")
+async def request_activation(payload: RequestActivationRequest):
+    """Resend activation email with a fresh 7-day reset code.
+
+    Only works for accounts that have no password yet.
+    Always returns {"status": "sent"} to avoid user enumeration.
+    """
+    email = payload.email.strip().lower()
+    user_manager = get_user_manager()
+    user = user_manager.get_user_by_email(email)
+
+    if not user or user.get("has_password"):
+        return {"status": "sent"}
+
+    user_id = user["id"]
+    lang = (user.get("profile") or {}).get("language", "en")
+    reset_code = user_manager.generate_reset_code(user_id, expiry_days=7)
+    if not reset_code:
+        return {"status": "sent"}
+
+    from shared.transactional_email import send_welcome_reset_code, _is_configured
+    if _is_configured():
+        send_welcome_reset_code(email, user.get("name") or user_id, reset_code, lang=lang)
+
+    return {"status": "sent"}
 
 
 @router.post("/init-password", response_model=TokenResponse)

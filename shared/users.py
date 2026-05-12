@@ -2148,7 +2148,7 @@ class UserManager:
             return True
 
     def generate_reset_code(
-        self, user_id: str, requesting_user_id: Optional[str] = None
+        self, user_id: str, requesting_user_id: Optional[str] = None, expiry_days: int = 1
     ) -> Optional[str]:
         """Generate a password reset code for a user.
 
@@ -2204,7 +2204,7 @@ class UserManager:
             # Generate reset code
             reset_code = self._generate_reset_code()
             user.reset_code = reset_code
-            user.reset_code_expires = datetime.utcnow() + timedelta(days=1)
+            user.reset_code_expires = datetime.utcnow() + timedelta(days=expiry_days)
 
             session.commit()
 
@@ -2575,7 +2575,7 @@ class UserManager:
                 profile=profile or {"language": "en"},
                 user_metadata={"created_via": "ui", **(user_metadata or {})},
                 reset_code=reset_code,
-                reset_code_expires=datetime.utcnow() + timedelta(days=1)
+                reset_code_expires=datetime.utcnow() + timedelta(days=7)
                 if reset_code
                 else None,
             )
