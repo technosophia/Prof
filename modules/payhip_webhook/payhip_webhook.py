@@ -413,20 +413,14 @@ class PayhipWebhookManager:
             return 500, f"Error processing webhook: {error_msg}"
 
     def _send_welcome_email(self, email: str, name: str, reset_code: str) -> dict:
-        """Send welcome email with reset code.
-
-        Tries transactional email (MailerSend) first for the actual email delivery.
-        Always upserts the subscriber in MailerLite with the reset_code field so
-        automations can also use it via {{ subscriber.fields.reset_code }}.
+        """Send welcome email with reset code via transactional email (MailerSend).
 
         Returns a diagnostic dict summarising what was sent.
         """
         from shared.transactional_email import send_welcome_reset_code, _is_configured as _transactional_configured
-        from shared.mailer_lite import notify_account_approved
 
-        result: dict = {"email": email, "mailersend": None, "mailerlite": None}
+        result: dict = {"email": email, "mailersend": None}
 
-        # ── MailerSend (transactional, includes reset code in email body) ──
         if _transactional_configured():
             ms_ok, ms_msg = send_welcome_reset_code(email, name, reset_code)
             result["mailersend"] = {"ok": ms_ok, "msg": ms_msg}
@@ -436,12 +430,6 @@ class PayhipWebhookManager:
                 log("error", f"[WEBHOOK] MailerSend failed for {email}: {ms_msg}")
         else:
             result["mailersend"] = {"ok": False, "msg": "MAILERSEND_API_KEY not configured"}
-
-        # ── MailerLite (automation, reset_code sent as subscriber field) ──
-        ml_ok, ml_diag = notify_account_approved(email, name, reset_code=reset_code)
-        result["mailerlite"] = {**ml_diag, "ok": ml_ok}
-        if not ml_ok:
-            log("warning", f"[WEBHOOK] MailerLite upsert failed for {email}: {ml_diag.get('error')}")
 
         return result
 
