@@ -6,9 +6,10 @@ This is the main entry point for agents, it helps to find autonomously the infor
 This is a LLM training compagnon application. Basically it's a specialized RAG and Memory agent. The RAG and Memory are adapted to the context of training and to the formation content. The agent can be proactive and have more sophisticated functions, but the core is just that : Training RAG + student conversation memory.
 
 # Essentials
-* `streamlit run prof.py` to launch the application backoffice
+* `streamlit run prof.py` to launch the application backoffice (coach.yoga-pro.xyz:8501)
 * `pytest` to run the all (unit and integration) tests using conftest.py
-* `uvicorn api:app --host 0.0.0.0 --port 8000 --reload` to run the frontend for endusers
+* `uvicorn api:app --host 0.0.0.0 --port 8000 --reload` to run the frontend for endusers (app.yoga-pro.xyz:8000)
+* `cd frontend && npm run build` to rebuild the React SPA after frontend changes (output → frontend_dist/)
 
 The app has agent observability via the configuratble logging system that can be changed in config.json or with FORCE_LOG=level.
 

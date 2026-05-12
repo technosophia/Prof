@@ -24,7 +24,9 @@ Special :
 
 Email integrations (see env var requirements in modules/payhip_webhook/AGENTS.md):
 - `shared/mailer_lite.py` — MailerLite subscriber upsert with group assignment and reset_code field; also exposes `get_groups`, `get_subscriber_by_email`, `remove_subscriber_from_group`
-- `shared/transactional_email.py` — MailerSend transactional email (welcome email with reset code link); requires `MAILERSEND_API_KEY`, `MAILERSEND_FROM`, `APP_URL`
+- `shared/transactional_email.py` — MailerSend transactional email; requires `MAILERSEND_API_KEY`, `MAILERSEND_FROM`, `APP_URL`
+  - `send_welcome_reset_code(email, name, reset_code, lang)` — welcome email with activation code (multilingual via core/translate.py)
+  - `send_enrollment_expired_alert(master_email, master_name, student_email)` — notifies master when a student's enrollment expires on login
 
 If needed (only special cases, should be avoided unless strictly necessary to access some internals) : 
 /core/API.md for logging, database, configuration, translation
