@@ -33,7 +33,7 @@ def render_admin_tab():
     """Render the Payhip Webhook admin tab."""
     st.header("Payhip Webhook")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Associations", "Logs", "Simulator", "Settings"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Associations", "Logs", "Simulator", "Resend Email", "Settings"])
 
     with tab1:
         _render_associations_tab()
@@ -45,6 +45,9 @@ def render_admin_tab():
         _render_simulator_tab()
 
     with tab4:
+        _render_resend_tab()
+
+    with tab5:
         _render_settings_tab()
 
 
@@ -303,6 +306,28 @@ def _render_simulator_tab():
                 st.error(f"Error ({sc}): {msg}")
         except json.JSONDecodeError as e:
             st.error(f"Invalid JSON: {e}")
+
+
+def _render_resend_tab():
+    """Resend the welcome email (with a fresh reset code) to any registered user."""
+    st.subheader("Resend Welcome Email")
+    st.info("Generates a new reset code and resends the activation email. Use this when a user lost their email or for testing.")
+
+    manager = get_payhip_webhook_manager()
+
+    with st.form("resend_welcome"):
+        email = st.text_input("Customer email", placeholder="user@example.com")
+        submitted = st.form_submit_button("Resend")
+
+        if submitted:
+            if not email or "@" not in email:
+                st.error("Please enter a valid email address.")
+            else:
+                ok, msg = manager.resend_welcome_email(email.strip())
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
 
 def _render_settings_tab():

@@ -1,4 +1,14 @@
 {
+  "welcome_email": {
+    "subject": "Bienvenue — activez votre compte",
+    "greeting": "Bonjour,",
+    "account_created": "Votre compte a été créé et est prêt à être utilisé.",
+    "reset_code_label": "Votre code d'activation",
+    "instruction": "Rendez-vous sur {login_url} pour vous connecter pour la première fois. Il vous sera demandé de choisir un nom d'utilisateur et un mot de passe — utilisez le code d'activation ci-dessous lorsqu'il vous est demandé.",
+    "validity": "Ce code est valide pendant 24 heures.",
+    "cta_button": "Activer mon compte",
+    "sign_off": "Bienvenue !"
+  },
   "module_name": "Webhook Payhip",
   "tab_associations": "Associations",
   "tab_logs": "Journaux",

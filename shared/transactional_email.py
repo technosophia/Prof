@@ -17,6 +17,28 @@ from core.logging import log
 
 _BASE = "https://api.mailersend.com/v1"
 
+_translations_cache: Optional[dict] = None
+
+
+def _get_translations() -> dict:
+    global _translations_cache
+    if _translations_cache is None:
+        from core.translate import load_all_translations
+        _translations_cache = load_all_translations()
+    return _translations_cache
+
+
+def _t(key: str, lang: str, **kwargs) -> str:
+    """Translate key in the given language, substituting any {placeholders}."""
+    from core.translate import get_translation
+    text = get_translation(key, lang, _get_translations())
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except KeyError:
+            pass
+    return text
+
 
 def _is_configured() -> bool:
     return bool(os.getenv("MAILERSEND_API_KEY")) and bool(os.getenv("MAILERSEND_FROM"))
@@ -79,42 +101,56 @@ def send_welcome_reset_code(
     to_email: str,
     to_name: str,
     reset_code: str,
+    lang: str = "en",
 ) -> tuple[bool, str]:
-    """Send welcome email with reset code so the user can set their first password."""
+    """Send welcome email with reset code so the user can set their first password.
+
+    The email body is built from translation keys under welcome_email.* so the
+    message is delivered in the master's (and thus the student's) language.
+    """
     app_url = os.getenv("APP_URL", "").rstrip("/")
     login_url = f"{app_url}/login" if app_url else "the login page"
 
-    subject = "Welcome — set your password"
+    def t(key: str, **kwargs) -> str:
+        return _t(f"welcome_email.{key}", lang, **kwargs)
+
+    subject    = t("subject")
+    greeting   = t("greeting")
+    body_intro = t("account_created")
+    lbl_code   = t("reset_code_label")
+    instruction = t("instruction", login_url=login_url)
+    validity   = t("validity")
+    cta        = t("cta_button")
+    sign_off   = t("sign_off")
 
     text_body = (
-        f"Hello {to_name},\n\n"
-        "Your account has been created.\n\n"
-        f"Your username is: {to_name}\n"
-        f"Your reset code is: {reset_code}\n\n"
-        f"Go to {login_url}, click 'Forgot Password', "
-        "enter your username and this reset code to set your password.\n\n"
-        "This code is valid for 24 hours.\n\n"
-        "Welcome aboard!"
+        f"{greeting}\n\n"
+        f"{body_intro}\n\n"
+        f"{lbl_code}: {reset_code}\n\n"
+        f"{instruction}\n\n"
+        f"{validity}\n\n"
+        f"{sign_off}"
     )
 
-    html_body = f"""
-<p>Hello <strong>{to_name}</strong>,</p>
-<p>Your account has been created.</p>
+    html_body = f"""\
+<p>{greeting}</p>
+<p>{body_intro}</p>
 <table style="border-collapse:collapse;margin:16px 0">
-  <tr><td style="padding:4px 12px 4px 0;color:#666">Username</td>
-      <td><strong>{to_name}</strong></td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#666">Reset code</td>
-      <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px">{reset_code}</code></td></tr>
+  <tr>
+    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
+    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{reset_code}</code></td>
+  </tr>
 </table>
 <p>
-  <a href="{login_url}" style="background:#4f46e5;color:#fff;padding:10px 20px;
-     border-radius:6px;text-decoration:none;display:inline-block">
-    Set my password
+  <a href="{login_url}"
+     style="background:#4f46e5;color:#fff;padding:10px 20px;
+            border-radius:6px;text-decoration:none;display:inline-block">
+    {cta}
   </a>
 </p>
 <p style="color:#666;font-size:0.9em">
-  Click "Forgot Password" on the login page, enter your username and the reset code above.<br>
-  This code is valid for <strong>24 hours</strong>.
+  {instruction}<br>
+  <strong>{validity}</strong>
 </p>
 """
 

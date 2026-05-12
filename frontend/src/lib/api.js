@@ -112,6 +112,10 @@ export const admin = {
   },
 }
 
+export const translations = {
+  get: (lang) => get(`/api/translations/${lang}`),
+}
+
 export const feedback = {
   message: (conversationId, messageIndex, sentiment, comment = '') =>
     post('/api/feedback/message', { conversation_id: conversationId, message_index: messageIndex, sentiment, comment }),

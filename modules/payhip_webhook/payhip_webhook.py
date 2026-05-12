@@ -376,7 +376,7 @@ class PayhipWebhookManager:
 
                 email_diag = None
                 if reset_code:
-                    email_diag = self._send_welcome_email(customer_email, user_name, reset_code)
+                    email_diag = self._send_welcome_email(customer_email, user_name, reset_code, master_lang)
 
                 log("info", f"Created user {user_id} ({user_name}) for {customer_email} under master {master_id}")
                 action = f"User created (id={user_id}, username={user_name})"
@@ -412,7 +412,7 @@ class PayhipWebhookManager:
             )
             return 500, f"Error processing webhook: {error_msg}"
 
-    def _send_welcome_email(self, email: str, name: str, reset_code: str) -> dict:
+    def _send_welcome_email(self, email: str, name: str, reset_code: str, lang: str = "en") -> dict:
         """Send welcome email with reset code via transactional email (MailerSend).
 
         Returns a diagnostic dict summarising what was sent.
@@ -422,7 +422,7 @@ class PayhipWebhookManager:
         result: dict = {"email": email, "mailersend": None}
 
         if _transactional_configured():
-            ms_ok, ms_msg = send_welcome_reset_code(email, name, reset_code)
+            ms_ok, ms_msg = send_welcome_reset_code(email, name, reset_code, lang=lang)
             result["mailersend"] = {"ok": ms_ok, "msg": ms_msg}
             if ms_ok:
                 log("info", f"[WEBHOOK] Welcome email queued via MailerSend for {email}")
@@ -432,6 +432,28 @@ class PayhipWebhookManager:
             result["mailersend"] = {"ok": False, "msg": "MAILERSEND_API_KEY not configured"}
 
         return result
+
+
+    def resend_welcome_email(self, email: str) -> Tuple[bool, str]:
+        """Generate a fresh reset code and resend the welcome email to a user."""
+        user_manager = UserManager()
+        user = user_manager.get_user_by_email(email)
+        if not user:
+            return False, f"No user found with email: {email}"
+
+        user_id = user["id"]
+        name = user.get("name") or user_id
+        lang = (user.get("profile") or {}).get("language", "en")
+
+        reset_code = user_manager.generate_reset_code(user_id)
+        if not reset_code:
+            return False, f"Failed to generate reset code for {email}"
+
+        diag = self._send_welcome_email(email, name, reset_code, lang)
+        ms = diag.get("mailersend", {})
+        if ms.get("ok"):
+            return True, f"Email sent to {email} (lang={lang}, code={reset_code})"
+        return False, ms.get("msg", "Unknown error")
 
 
 _payhip_webhook_manager: Optional[PayhipWebhookManager] = None
