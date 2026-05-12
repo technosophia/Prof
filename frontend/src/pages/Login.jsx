@@ -85,7 +85,19 @@ export default function Login() {
   async function submitEmailCheck(e) {
     e.preventDefault()
     setError('')
-    const email = emailInput.trim().toLowerCase()
+    const input = emailInput.trim()
+    if (!input) {
+      setError('Please enter your email or username.')
+      return
+    }
+    const isEmail = input.includes('@')
+    if (!isEmail) {
+      // Username path — skip check, always goes to normal login
+      setLoginMode('normal')
+      setLoginStep(2)
+      return
+    }
+    const email = input.toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError('Please enter a valid email address.')
       return
@@ -93,7 +105,7 @@ export default function Login() {
     try {
       const data = await auth.checkEmail(email)
       if (data.status === 'not_found') {
-        setError('No account found for this email. Please check your email or contact support.')
+        setError('No account found for this email. Please check or contact support.')
         return
       }
       if (data.status === 'first_time') {
@@ -105,7 +117,7 @@ export default function Login() {
       }
       setLoginStep(2)
     } catch {
-      setError('Unable to verify email. Please try again.')
+      setError('Unable to verify. Please try again.')
     }
   }
 
@@ -260,8 +272,8 @@ export default function Login() {
           loginStep === 1 ? (
             <form className="space-y-3" onSubmit={submitEmailCheck}>
               <div>
-                <Label>Email</Label>
-                <Input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} placeholder="you@example.com" autoFocus />
+                <Label>Email or Username</Label>
+                <Input value={emailInput} onChange={e => setEmailInput(e.target.value)} placeholder="you@example.com or john_doe" autoFocus />
               </div>
               {error ? <p className="text-sm text-red-400">{error}</p> : null}
               <Button className="w-full" type="submit">Continue</Button>
@@ -291,7 +303,7 @@ export default function Login() {
           ) : (
             <form className="space-y-3" onSubmit={submitNormalLogin}>
               <div>
-                <Label>Email</Label>
+                <Label>{emailInput.includes('@') ? 'Email' : 'Username'}</Label>
                 <Input value={emailInput} disabled className="opacity-60" />
               </div>
               <div>

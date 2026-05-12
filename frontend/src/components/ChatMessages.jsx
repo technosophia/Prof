@@ -212,7 +212,7 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
 
           return (
             <div key={`msg-${idx}-${m.role}-${m.content.length}`} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div>
+              <div className={m.role === 'user' ? 'max-w-[80%] sm:max-w-[70%]' : 'w-full'}>
                 <div
                   role={inspectable ? 'button' : undefined}
                   tabIndex={inspectable ? 0 : undefined}
@@ -224,7 +224,7 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
                       onInspect(m, idx)
                     }
                   }}
-                  className={`max-w-[85%] sm:max-w-[75%] rounded-xl px-4 py-2 text-sm leading-relaxed break-words transition ${
+                  className={`rounded-xl px-4 py-2 text-sm leading-relaxed break-words transition ${
                     m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-100'
                   } ${inspectable ? 'cursor-pointer hover:ring-1 hover:ring-slate-600' : ''}`}
                 >
@@ -259,7 +259,7 @@ export default function ChatMessages({ messages, streaming, canInspect = false, 
                 )}
 
                 {canInspect && expandedIdx === idx && currentContext && (
-                  <div className="mt-1 ml-2 text-xs bg-slate-900 border border-slate-700 rounded p-2 max-w-[85%]">
+                  <div className="mt-1 ml-2 text-xs bg-slate-900 border border-slate-700 rounded p-2">
                     {!currentContext.found ? (
                       <div className="space-y-1">
                         <span className="text-slate-500 italic">No monitor data found for this message.</span>
