@@ -23,6 +23,11 @@ class InitPasswordRequest(BaseModel):
     user_id: str
     reset_code: str
     new_password: str
+    new_name: Optional[str] = None
+
+
+class CheckEmailRequest(BaseModel):
+    email: str
 
 
 class RequestPasswordResetRequest(BaseModel):
@@ -444,9 +449,29 @@ async def delete_waitlist_entry(
     return {"success": True}
 
 
+@router.post("/check-email")
+async def check_email(payload: CheckEmailRequest):
+    """Check whether an email is registered and whether it's a first-time login."""
+    email = payload.email.strip().lower()
+    user_manager = get_user_manager()
+    user = user_manager.get_user_by_email(email)
+    if not user:
+        return {"status": "not_found"}
+    has_password = user.get("has_password", False)
+    reset_info = user.get("reset_code_info", {})
+    if reset_info.get("is_valid") and not has_password:
+        return {
+            "status": "first_time",
+            "user_id": user["id"],
+            "suggested_name": user.get("name") or user["id"],
+        }
+    return {"status": "normal"}
+
+
 @router.post("/init-password", response_model=TokenResponse)
 async def init_password(payload: InitPasswordRequest):
-    ok = get_user_manager().reset_password_with_code(
+    user_manager = get_user_manager()
+    ok = user_manager.reset_password_with_code(
         payload.user_id,
         payload.reset_code,
         payload.new_password,
@@ -456,12 +481,21 @@ async def init_password(payload: InitPasswordRequest):
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset code"
         )
 
-    user = get_user_manager().authenticate_user(payload.user_id, payload.new_password)
+    user = user_manager.authenticate_user(payload.user_id, payload.new_password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unable to authenticate user",
         )
+
+    if payload.new_name:
+        new_name = payload.new_name.strip()
+        if new_name and new_name != user.get("name"):
+            existing = user_manager.get_user_by_name(new_name)
+            if existing and existing["id"] != user["id"]:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="name_conflict")
+            user_manager.update_user(user["id"], name=new_name)
+            user = user_manager.get_user(user["id"]) or user
 
     token = _create_token(user)
     return TokenResponse(access_token=token, user=_to_user_dto(user))
