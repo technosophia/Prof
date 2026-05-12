@@ -154,6 +154,8 @@ export default function Login() {
         setInfo('Your account is pending approval.')
       } else if (statusCode === 403 && err?.message?.includes('deadline_expired::')) {
         setError(extractDeadlineMessage(err.message))
+      } else if (statusCode === 403 && err?.message?.includes('enrollment_expired')) {
+        setError('Your access has expired. Please contact your trainer to renew your subscription.')
       } else {
         setError('Wrong password.')
         setAuthFailed(true)

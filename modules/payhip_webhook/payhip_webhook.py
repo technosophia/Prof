@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import Column, DateTime, String, Text, Boolean, Table, MetaData, text
+from sqlalchemy import Column, DateTime, Integer, String, Text, Boolean, Table, MetaData, inspect, text
 from sqlalchemy.orm import Session
 
 from core.database import get_db_manager
@@ -33,6 +33,7 @@ MasterProductKeyTable = Table(
     Column("product_name", String(255), nullable=True),
     Column("is_active", Boolean, default=True),
     Column("created_at", DateTime, default=datetime.utcnow),
+    Column("enrollment_duration_days", Integer, nullable=True),
 )
 
 
@@ -58,6 +59,12 @@ def ensure_tables():
     db = get_db_manager()
     MasterProductKeyTable.create(bind=db._engine, checkfirst=True)
     PayhipWebhookLogTable.create(bind=db._engine, checkfirst=True)
+    inspector = inspect(db._engine)
+    mpk_columns = {col["name"] for col in inspector.get_columns("master_product_keys")}
+    if "enrollment_duration_days" not in mpk_columns:
+        with db._engine.begin() as conn:
+            conn.execute(text("ALTER TABLE master_product_keys ADD COLUMN enrollment_duration_days INTEGER"))
+        log("info", "Added missing master_product_keys.enrollment_duration_days column")
 
 
 class PayhipWebhookManager:
@@ -67,19 +74,23 @@ class PayhipWebhookManager:
         if check_tables:
             ensure_tables()
 
-    def _get_master_by_product_key(self, product_key: str) -> Optional[str]:
-        """Get master_id associated with a product_key."""
+    def _get_master_by_product_key(self, product_key: str) -> Optional[Tuple[str, Optional[int]]]:
+        """Get (master_id, enrollment_duration_days) for an active product_key."""
         db = get_db_manager()
         with db.get_session() as session:
             result = session.execute(
-                text(f"SELECT master_id FROM master_product_keys "
-                f"WHERE product_key = :product_key AND is_active = TRUE"),
+                text("SELECT master_id, enrollment_duration_days FROM master_product_keys "
+                     "WHERE product_key = :product_key AND is_active = TRUE"),
                 {"product_key": product_key}
             ).fetchone()
-            return result[0] if result else None
+            return (result[0], result[1]) if result else None
 
     def add_product_association(
-        self, master_id: str, product_key: str, product_name: Optional[str] = None
+        self,
+        master_id: str,
+        product_key: str,
+        product_name: Optional[str] = None,
+        enrollment_duration_days: Optional[int] = None,
     ) -> Tuple[bool, str]:
         """Add association between a master and a product key."""
         db = get_db_manager()
@@ -102,9 +113,15 @@ class PayhipWebhookManager:
             assoc_id = str(uuid.uuid4())
             session.execute(
                 text("INSERT INTO master_product_keys "
-                     "(id, master_id, product_key, product_name, is_active) "
-                     "VALUES (:id, :master_id, :product_key, :product_name, 1)"),
-                {"id": assoc_id, "master_id": master_id, "product_key": product_key, "product_name": product_name}
+                     "(id, master_id, product_key, product_name, is_active, enrollment_duration_days) "
+                     "VALUES (:id, :master_id, :product_key, :product_name, 1, :enrollment_duration_days)"),
+                {
+                    "id": assoc_id,
+                    "master_id": master_id,
+                    "product_key": product_key,
+                    "product_name": product_name,
+                    "enrollment_duration_days": enrollment_duration_days,
+                }
             )
             session.commit()
             return True, "Association created"
@@ -125,10 +142,11 @@ class PayhipWebhookManager:
         db = get_db_manager()
         with db.get_session() as session:
             results = session.execute(
-                text(f"SELECT a.id, a.master_id, a.product_key, a.product_name, a.is_active, a.created_at, u.name as master_name "
-                f"FROM master_product_keys a "
-                f"LEFT JOIN users u ON a.master_id = u.id "
-                f"ORDER BY a.created_at DESC")
+                text("SELECT a.id, a.master_id, a.product_key, a.product_name, a.is_active, a.created_at, "
+                     "u.name as master_name, a.enrollment_duration_days "
+                     "FROM master_product_keys a "
+                     "LEFT JOIN users u ON a.master_id = u.id "
+                     "ORDER BY a.created_at DESC")
             ).fetchall()
 
             return [
@@ -140,9 +158,28 @@ class PayhipWebhookManager:
                     "is_active": r[4],
                     "created_at": r[5].isoformat() if r[5] and hasattr(r[5], "isoformat") else r[5],
                     "master_name": r[6],
+                    "enrollment_duration_days": r[7],
                 }
                 for r in results
             ]
+
+    def update_product_association(
+        self,
+        association_id: str,
+        product_name: Optional[str] = None,
+        enrollment_duration_days: Optional[int] = None,
+    ) -> bool:
+        """Update product name and/or enrollment duration for an association."""
+        db = get_db_manager()
+        with db.get_session() as session:
+            result = session.execute(
+                text("UPDATE master_product_keys "
+                     "SET product_name = :product_name, enrollment_duration_days = :enrollment_duration_days "
+                     "WHERE id = :id"),
+                {"id": association_id, "product_name": product_name, "enrollment_duration_days": enrollment_duration_days}
+            )
+            session.commit()
+            return result.rowcount > 0
 
     def log_event(
         self,
@@ -316,8 +353,8 @@ class PayhipWebhookManager:
 
         transaction_id = payload.get("id") or payload.get("subscription_id")
 
-        master_id = self._get_master_by_product_key(product_key)
-        if not master_id:
+        master_result = self._get_master_by_product_key(product_key)
+        if not master_result:
             self.log_event(
                 event_type=event_type,
                 customer_email=customer_email,
@@ -328,6 +365,11 @@ class PayhipWebhookManager:
                 transaction_id=transaction_id,
             )
             return 404, f"No master found for product: {product_key}"
+
+        master_id, enrollment_duration_days = master_result
+        expires_at = None
+        if enrollment_duration_days:
+            expires_at = datetime.utcnow() + timedelta(days=enrollment_duration_days)
 
         if not force:
             duplicate = self.check_duplicate(customer_email, product_key, event_type)
@@ -353,7 +395,7 @@ class PayhipWebhookManager:
 
             if existing_user:
                 user_id = existing_user["id"]
-                user_manager.add_enrollment(user_id, master_id, product_key=product_key)
+                user_manager.add_enrollment(user_id, master_id, product_key=product_key, expires_at=expires_at)
                 log("info", f"Added enrollment for existing user {user_id} under master {master_id}")
                 action = "Enrollment added"
             else:
@@ -370,7 +412,7 @@ class PayhipWebhookManager:
                     profile={"language": master_lang},
                     user_metadata={"created_via": "payhip_webhook"},
                 )
-                user_manager.add_enrollment(user_id, master_id, product_key=product_key)
+                user_manager.add_enrollment(user_id, master_id, product_key=product_key, expires_at=expires_at)
                 # Pre-set active training so the user lands in the right context immediately
                 user_manager.set_active_master(user_id, master_id)
 

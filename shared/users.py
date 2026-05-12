@@ -213,6 +213,7 @@ class UserEnrollment(Base):
     product_key = Column(String(64), nullable=True)
     enrolled_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=True)
 
 
 class UserManager:
@@ -284,6 +285,12 @@ class UserManager:
             return False
         try:
             UserEnrollment.__table__.create(bind=self.db._engine, checkfirst=True)
+            inspector = inspect(self.db._engine)
+            columns = {col["name"] for col in inspector.get_columns("user_enrollments")}
+            if "expires_at" not in columns:
+                with self.db._engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE user_enrollments ADD COLUMN expires_at DATETIME"))
+                log("info", "Added missing user_enrollments.expires_at column")
             return True
         except Exception as e:
             log("error", f"Failed to ensure user_enrollments table: {e}")
@@ -1231,6 +1238,58 @@ class UserManager:
             candidate = candidate.replace("__", "_")
         return candidate.strip("_")
 
+    def _check_enrollment_expiry(self, user_id: str, user_email: str) -> Optional[str]:
+        """Check if all enrollments are expired for a normal user.
+
+        Returns the master_id of the (first) expired enrollment so the caller
+        can notify that master, or None if there is at least one live enrollment
+        or if the user has no enrollment records at all.
+        """
+        self._ensure_enrollment_table_exists()
+        now = datetime.utcnow()
+        with self.db.get_session() as session:
+            rows = (
+                session.query(UserEnrollment)
+                .filter(
+                    UserEnrollment.user_id == user_id,
+                    UserEnrollment.is_active == True,
+                )
+                .all()
+            )
+            if not rows:
+                return None  # No enrollment records — fall back to legacy expiry
+            # If every active enrollment has expired, return the first master_id
+            expired = [e for e in rows if e.expires_at and e.expires_at <= now]
+            live = [e for e in rows if not e.expires_at or e.expires_at > now]
+            if live:
+                return None  # At least one live enrollment
+            if expired:
+                return expired[0].master_id
+            return None
+
+    def _notify_master_enrollment_expired(self, master_id: str, student_email: str) -> None:
+        """Send an alert email to the master when a student's enrollment has expired."""
+        master = self.get_user(master_id)
+        if not master or not master.get("email"):
+            log("warning", f"Cannot notify master {master_id}: no email on record")
+            return
+        master_email = master["email"]
+        master_name = master.get("name", master_id)
+        try:
+            from shared.transactional_email import send_enrollment_expired_alert, _is_configured as _ms_configured
+            if _ms_configured():
+                ok, msg = send_enrollment_expired_alert(
+                    master_email=master_email,
+                    master_name=master_name,
+                    student_email=student_email,
+                )
+                if ok:
+                    log("info", f"Enrollment-expired alert sent to master {master_email} for student {student_email}")
+                else:
+                    log("warning", f"Failed to send enrollment-expired alert: {msg}")
+        except Exception as exc:
+            log("error", f"Error sending enrollment-expired alert: {exc}")
+
     def authenticate_user_with_status(
         self, user_id: str, password: str
     ) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -1241,6 +1300,8 @@ class UserManager:
             - success
             - pending_approval
             - invalid_credentials
+            - enrollment_expired
+            - deadline_expired::<message>
         """
         self._ensure_table_exists()
 
@@ -1324,6 +1385,19 @@ class UserManager:
                     success=False,
                 )
                 return None, "pending_approval"
+
+            # Enrollment-level expiry check (normal users only)
+            if user.role == UserRole.NORMAL.value:
+                expired_master_id = self._check_enrollment_expiry(user.id, user.email or "")
+                if expired_master_id:
+                    self.log_user_action(
+                        user_id=user.id,
+                        action=UserAction.LOGIN_FAILED.value,
+                        details={"reason": "enrollment_expired"},
+                        success=False,
+                    )
+                    self._notify_master_enrollment_expired(expired_master_id, user.email or user.id)
+                    return None, "enrollment_expired"
 
             # Update last login
             user.last_login = datetime.utcnow()
@@ -2978,9 +3052,13 @@ class UserManager:
             return None
 
     def add_enrollment(
-        self, user_id: str, master_id: str, product_key: Optional[str] = None
+        self,
+        user_id: str,
+        master_id: str,
+        product_key: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
     ) -> bool:
-        """Enroll a user in a training (master). Idempotent — skips if already enrolled."""
+        """Enroll a user in a training (master). Idempotent — reactivates if inactive."""
         self._ensure_enrollment_table_exists()
         with self.db.get_session() as session:
             existing = (
@@ -2989,22 +3067,25 @@ class UserManager:
                 .first()
             )
             if existing:
-                if not existing.is_active:
-                    existing.is_active = True
-                    session.commit()
+                existing.is_active = True
+                existing.expires_at = expires_at
+                if product_key:
+                    existing.product_key = product_key
+                session.commit()
                 return True
             enrollment = UserEnrollment(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 master_id=master_id,
                 product_key=product_key,
+                expires_at=expires_at,
             )
             session.add(enrollment)
             session.commit()
             return True
 
     def get_user_enrollments(self, user_id: str) -> List[Dict[str, Any]]:
-        """Return all masters this user is enrolled with.
+        """Return all active, non-expired enrollments for this user.
 
         Combines explicit enrollment records with the parent_id master so that
         both pre-enrollment users and multi-master users are handled correctly.
@@ -3014,6 +3095,7 @@ class UserManager:
         self._ensure_enrollment_table_exists()
         result = []
         seen_master_ids: Set[str] = set()
+        now = datetime.utcnow()
 
         with self.db.get_session() as session:
             rows = (
@@ -3027,12 +3109,15 @@ class UserManager:
                 .all()
             )
             for e, m in rows:
+                if e.expires_at and e.expires_at <= now:
+                    continue
                 result.append(
                     {
                         "master_id": e.master_id,
                         "master_name": m.name,
                         "product_key": e.product_key,
                         "enrolled_at": e.enrolled_at.isoformat() if e.enrolled_at else None,
+                        "expires_at": e.expires_at.isoformat() if e.expires_at else None,
                     }
                 )
                 seen_master_ids.add(e.master_id)
@@ -3046,6 +3131,7 @@ class UserManager:
                     "master_name": master.get("name", user["parent_id"]) if master else user["parent_id"],
                     "product_key": None,
                     "enrolled_at": None,
+                    "expires_at": None,
                 }
             )
 

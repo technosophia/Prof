@@ -71,6 +71,13 @@ def _render_associations_tab():
 
             product_key = st.text_input("Product Key (Payhip permalink)", placeholder="e.g., nb7fD")
             product_name = st.text_input("Product Name (optional)", placeholder="e.g., My Course")
+            enrollment_duration = st.number_input(
+                "Enrollment duration (days, 0 = unlimited)",
+                min_value=0,
+                value=0,
+                step=30,
+                help="Set to 0 for unlimited access. E.g. 365 for 1 year.",
+            )
 
             submitted = st.form_submit_button("Add Association")
 
@@ -79,6 +86,7 @@ def _render_associations_tab():
                     master_id=selected_master,
                     product_key=product_key.strip(),
                     product_name=product_name.strip() or None,
+                    enrollment_duration_days=int(enrollment_duration) if enrollment_duration > 0 else None,
                 )
                 if success:
                     st.success(msg)
@@ -95,22 +103,49 @@ def _render_associations_tab():
         return
 
     for assoc in associations:
-        col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+        with st.expander(
+            f"{assoc['product_name'] or assoc['product_key']} → {assoc['master_name'] or assoc['master_id']}",
+            expanded=False,
+        ):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.text(f"Product key: {assoc['product_key']}")
+                st.text(f"Status: {'Active' if assoc['is_active'] else 'Inactive'}")
+            with col2:
+                st.text(f"Master: {assoc['master_name'] or assoc['master_id']}")
+                duration = assoc.get("enrollment_duration_days")
+                st.text(f"Enrollment duration: {f'{duration} days' if duration else 'Unlimited'}")
 
-        with col1:
-            st.text(f"Product: {assoc['product_key']}")
-        with col2:
-            st.text(f"Master: {assoc['master_name'] or assoc['master_id']}")
-        with col3:
-            status = "Active" if assoc["is_active"] else "Inactive"
-            st.text(status)
-        with col4:
-            if st.button("Delete", key=f"del_{assoc['id']}"):
-                if manager.remove_product_association(assoc["id"]):
-                    st.success("Deleted")
-                    st.rerun()
-                else:
-                    st.error("Failed")
+            with st.form(f"edit_assoc_{assoc['id']}"):
+                new_name = st.text_input(
+                    "Product name",
+                    value=assoc.get("product_name") or "",
+                    key=f"name_{assoc['id']}",
+                )
+                new_duration = st.number_input(
+                    "Enrollment duration (days, 0 = unlimited)",
+                    min_value=0,
+                    value=int(assoc.get("enrollment_duration_days") or 0),
+                    step=30,
+                    key=f"dur_{assoc['id']}",
+                )
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.form_submit_button("Save"):
+                        manager.update_product_association(
+                            assoc["id"],
+                            product_name=new_name.strip() or None,
+                            enrollment_duration_days=int(new_duration) if new_duration > 0 else None,
+                        )
+                        st.success("Updated")
+                        st.rerun()
+                with c2:
+                    if st.form_submit_button("Delete", type="secondary"):
+                        if manager.remove_product_association(assoc["id"]):
+                            st.success("Deleted")
+                            st.rerun()
+                        else:
+                            st.error("Failed")
 
 
 def _render_logs_tab():

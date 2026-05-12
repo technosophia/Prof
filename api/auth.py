@@ -167,6 +167,8 @@ async def login(payload: LoginRequest):
         )
     if auth_status.startswith("deadline_expired::"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=auth_status)
+    if auth_status == "enrollment_expired":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="enrollment_expired")
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"

@@ -161,3 +161,32 @@ def send_welcome_reset_code(
         text_body=text_body,
         html_body=html_body,
     )
+
+
+def send_enrollment_expired_alert(
+    master_email: str,
+    master_name: str,
+    student_email: str,
+) -> tuple[bool, str]:
+    """Notify the master that one of their students' enrollment has expired."""
+    subject = f"[Prof] Enrollment expired — {student_email}"
+    text_body = (
+        f"Hello {master_name},\n\n"
+        f"Your student {student_email} just tried to log in but their enrollment "
+        f"has expired. You may want to contact them or renew their access.\n\n"
+        f"This is an automated notification."
+    )
+    html_body = f"""\
+<p>Hello {master_name},</p>
+<p>Your student <strong>{student_email}</strong> just tried to log in but their
+enrollment has expired.</p>
+<p>You may want to contact them or renew their access.</p>
+<p style="color:#888;font-size:0.9em">This is an automated notification.</p>
+"""
+    return send_email(
+        to_email=master_email,
+        to_name=master_name,
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+    )
