@@ -1,9 +1,10 @@
-"""Transactional email via MailerSend (free tier, verified domain required).
+"""Transactional email via Brevo (free tier, verified domain required).
 
 Configure:
-  MAILERSEND_API_KEY  — API key from app.mailersend.com
-  MAILERSEND_FROM     — verified sender address, e.g. noreply@yourdomain.com
-  APP_URL             — public URL of your app, e.g. https://app.yourdomain.com
+  BREVO_API_KEY   — API key from app.brevo.com
+  BREVO_FROM      — verified sender address, e.g. noreply@yourdomain.com
+  BREVO_FROM_NAME — optional sender display name
+  APP_URL         — public URL of your app, e.g. https://app.yourdomain.com
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import requests
 
 from core.logging import log
 
-_BASE = "https://api.mailersend.com/v1"
+_BASE = "https://api.brevo.com/v3"
 
 _translations_cache: Optional[dict] = None
 
@@ -41,12 +42,12 @@ def _t(key: str, lang: str, **kwargs) -> str:
 
 
 def _is_configured() -> bool:
-    return bool(os.getenv("MAILERSEND_API_KEY")) and bool(os.getenv("MAILERSEND_FROM"))
+    return bool(os.getenv("BREVO_API_KEY")) and bool(os.getenv("BREVO_FROM"))
 
 
 def _headers() -> dict:
     return {
-        "Authorization": f"Bearer {os.getenv('MAILERSEND_API_KEY', '')}",
+        "api-key": os.getenv("BREVO_API_KEY", ""),
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -59,28 +60,28 @@ def send_email(
     text_body: str,
     html_body: Optional[str] = None,
 ) -> tuple[bool, str]:
-    """Send a transactional email via MailerSend.
+    """Send a transactional email via Brevo.
 
     Returns (success, message).
     """
     if not _is_configured():
-        return False, "MAILERSEND_API_KEY or MAILERSEND_FROM not configured"
+        return False, "BREVO_API_KEY or BREVO_FROM not configured"
 
-    from_addr = os.getenv("MAILERSEND_FROM", "")
-    from_name = os.getenv("MAILERSEND_FROM_NAME", from_addr)
+    from_addr = os.getenv("BREVO_FROM", "")
+    from_name = os.getenv("BREVO_FROM_NAME", from_addr)
 
     payload: dict = {
-        "from": {"email": from_addr, "name": from_name},
+        "sender": {"email": from_addr, "name": from_name},
         "to": [{"email": to_email, "name": to_name}],
         "subject": subject,
-        "text": text_body,
+        "textContent": text_body,
     }
     if html_body:
-        payload["html"] = html_body
+        payload["htmlContent"] = html_body
 
     try:
         resp = requests.post(
-            f"{_BASE}/email",
+            f"{_BASE}/smtp/email",
             headers=_headers(),
             json=payload,
             timeout=10,
@@ -89,10 +90,10 @@ def send_email(
         log("error", f"[transactional_email] Request failed: {e}")
         return False, f"Request failed: {e}"
 
-    if resp.status_code == 202:
+    if resp.status_code == 201:
         return True, "Email queued successfully"
     else:
-        msg = f"MailerSend returned {resp.status_code}: {resp.text[:300]}"
+        msg = f"Brevo returned {resp.status_code}: {resp.text[:300]}"
         log("error", f"[transactional_email] {msg}")
         return False, msg
 

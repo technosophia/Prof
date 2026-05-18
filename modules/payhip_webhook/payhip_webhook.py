@@ -461,17 +461,17 @@ class PayhipWebhookManager:
         """
         from shared.transactional_email import send_welcome_reset_code, _is_configured as _transactional_configured
 
-        result: dict = {"email": email, "mailersend": None}
+        result: dict = {"email": email, "brevo": None}
 
         if _transactional_configured():
             ms_ok, ms_msg = send_welcome_reset_code(email, name, reset_code, lang=lang)
-            result["mailersend"] = {"ok": ms_ok, "msg": ms_msg}
+            result["brevo"] = {"ok": ms_ok, "msg": ms_msg}
             if ms_ok:
-                log("info", f"[WEBHOOK] Welcome email queued via MailerSend for {email}")
+                log("info", f"[WEBHOOK] Welcome email queued via Brevo for {email}")
             else:
-                log("error", f"[WEBHOOK] MailerSend failed for {email}: {ms_msg}")
+                log("error", f"[WEBHOOK] Brevo failed for {email}: {ms_msg}")
         else:
-            result["mailersend"] = {"ok": False, "msg": "MAILERSEND_API_KEY not configured"}
+            result["brevo"] = {"ok": False, "msg": "BREVO_API_KEY not configured"}
 
         return result
 

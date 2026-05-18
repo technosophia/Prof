@@ -994,20 +994,20 @@ def show_mailerlite_tab():
         "Free tier: 3,000 emails/month. Requires a verified sending domain."
     )
 
-    ms_key = os.getenv("MAILERSEND_API_KEY")
-    ms_from = os.getenv("MAILERSEND_FROM")
-    ms_from_name = os.getenv("MAILERSEND_FROM_NAME", ms_from or "")
+    ms_key = os.getenv("BREVO_API_KEY")
+    ms_from = os.getenv("BREVO_FROM")
+    ms_from_name = os.getenv("BREVO_FROM_NAME", ms_from or "")
     app_url = os.getenv("APP_URL", "")
 
     col_ms1, col_ms2, col_ms3 = st.columns(3)
     with col_ms1:
-        st.text("MAILERSEND_API_KEY")
+        st.text("BREVO_API_KEY")
         if ms_key:
             st.success(ms_key[:6] + "…" + ms_key[-4:])
         else:
             st.error("Not set")
     with col_ms2:
-        st.text("MAILERSEND_FROM")
+        st.text("BREVO_FROM")
         if ms_from:
             st.success(ms_from)
         else:
@@ -1052,7 +1052,7 @@ def show_mailerlite_tab():
         else:
             st.info("No users with email addresses found.")
     else:
-        st.info("Set MAILERSEND_API_KEY and MAILERSEND_FROM to enable transactional email testing.")
+        st.info("Set BREVO_API_KEY and BREVO_FROM to enable transactional email testing.")
 
     st.divider()
 
