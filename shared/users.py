@@ -2990,6 +2990,11 @@ class UserManager:
                 | (UserActionLog.target_user_id == user_id)
             ).delete(synchronize_session=False)
 
+            # Delete enrollments referencing this user (foreign key constraint)
+            session.query(UserEnrollment).filter_by(user_id=user_id).delete(
+                synchronize_session=False
+            )
+
             user_name = user.name
             session.delete(user)
             session.commit()
