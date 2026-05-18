@@ -423,7 +423,8 @@ class PayhipWebhookManager:
                 log("info", f"Created user {user_id} ({user_name}) for {customer_email} under master {master_id}")
                 action = f"User created (id={user_id}, username={user_name})"
                 if email_diag:
-                    action += f" | email_diag={email_diag}"
+                    brevo = email_diag.get("brevo", {})
+                    action += f" | email={'ok' if brevo.get('ok') else 'FAILED: ' + str(brevo.get('msg', '?'))}"
 
             self.log_event(
                 event_type=event_type,
@@ -455,7 +456,7 @@ class PayhipWebhookManager:
             return 500, f"Error processing webhook: {error_msg}"
 
     def _send_welcome_email(self, email: str, name: str, reset_code: str, lang: str = "en") -> dict:
-        """Send welcome email with reset code via transactional email (MailerSend).
+        """Send welcome email with reset code via Brevo transactional email.
 
         Returns a diagnostic dict summarising what was sent.
         """
@@ -471,7 +472,9 @@ class PayhipWebhookManager:
             else:
                 log("error", f"[WEBHOOK] Brevo failed for {email}: {ms_msg}")
         else:
-            result["brevo"] = {"ok": False, "msg": "BREVO_API_KEY not configured"}
+            msg = "BREVO_API_KEY or BREVO_FROM not configured — welcome email skipped"
+            log("warning", f"[WEBHOOK] {msg} (recipient: {email})")
+            result["brevo"] = {"ok": False, "msg": msg}
 
         return result
 
@@ -492,10 +495,10 @@ class PayhipWebhookManager:
             return False, f"Failed to generate reset code for {email}"
 
         diag = self._send_welcome_email(email, name, reset_code, lang)
-        ms = diag.get("mailersend", {})
-        if ms.get("ok"):
+        brevo = diag.get("brevo", {})
+        if brevo.get("ok"):
             return True, f"Email sent to {email} (lang={lang}, code={reset_code})"
-        return False, ms.get("msg", "Unknown error")
+        return False, brevo.get("msg") or f"Unknown error — full diag: {diag}"
 
 
 _payhip_webhook_manager: Optional[PayhipWebhookManager] = None
