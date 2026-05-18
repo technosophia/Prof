@@ -60,7 +60,7 @@ class TestDatabaseManager:
 
                             # Check that file URL was used
                             expected_url = db_path
-                            mock_engine.assert_called_once_with(expected_url, echo=False)
+                            mock_engine.assert_called_once_with(expected_url, echo=False, pool_pre_ping=True, pool_recycle=3600)
                             mock_sessionmaker.assert_called_once()
                             assert db._in_memory == False
 
@@ -332,10 +332,11 @@ class TestDatabaseManager:
                         with patch('core.database.log'):
                             db._initialize(use_memory=False, db_path=db_path)
 
-                            # Verify pool_pre_ping is NOT included for persistent
+                            # Verify pool_pre_ping is set for MySQL stale-connection resilience
                             call_args = mock_engine.call_args
                             assert call_args[0][0] == db_path
-                            assert 'pool_pre_ping' not in call_args[1]  # Not specified
+                            assert call_args[1]['pool_pre_ping'] == True
+                            assert call_args[1]['pool_recycle'] == 3600
                             assert call_args[1]['echo'] == False
 
 

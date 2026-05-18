@@ -361,7 +361,9 @@ class DatabaseManager:
 
             db_url = db_path
             try:
-                self._engine = create_engine(db_url, echo=False)
+                self._engine = create_engine(
+                    db_url, echo=False, pool_pre_ping=True, pool_recycle=3600
+                )
                 self._in_memory = False
                 log("info", f"Initialized database at {db_path}")
             except Exception as e:
