@@ -1,5 +1,4 @@
 {
-  "enabled": true,
   "show_in_admin": true,
   "greeting": "✅ Config loaded from modules/demo/config.json"
 }
