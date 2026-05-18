@@ -40,35 +40,43 @@ class LLMMonitor:
 
         log("info", "LLMMonitor initialized with injected dependencies")
 
-    def _ensure_tables_exist(self):
-        """Ensure monitoring tables exist, including safe column migrations."""
+    def _ensure_tables_exist(self, retries: int = 5, delay: float = 3.0):
+        """Ensure monitoring tables exist, including safe column migrations.
+
+        Retries on transient connection errors (e.g. MySQL restarting during init).
+        """
         if not self.db.is_initialized():
             return False
 
-        try:
-            LLMCallTable.__table__.create(bind=self.db._engine, checkfirst=True)
-            UserLLMStatsTable.__table__.create(bind=self.db._engine, checkfirst=True)
-            RateLimitUsageTable.__table__.create(bind=self.db._engine, checkfirst=True)
-            DailyCostSummaryTable.__table__.create(bind=self.db._engine, checkfirst=True)
+        for attempt in range(1, retries + 1):
+            try:
+                LLMCallTable.__table__.create(bind=self.db._engine, checkfirst=True)
+                UserLLMStatsTable.__table__.create(bind=self.db._engine, checkfirst=True)
+                RateLimitUsageTable.__table__.create(bind=self.db._engine, checkfirst=True)
+                DailyCostSummaryTable.__table__.create(bind=self.db._engine, checkfirst=True)
 
-            # Safe migration: add new columns to existing tables if they are absent.
-            # SQLite does not support ADD COLUMN IF NOT EXISTS, so we inspect first.
-            self._migrate_add_column_if_missing(
-                table="llm_calls",
-                column="raw_response",
-                column_def="TEXT NULL",
-            )
-            self._migrate_add_column_if_missing(
-                table="llm_calls",
-                column="no_thinking",
-                column_def="INTEGER NOT NULL DEFAULT 0",
-            )
+                # Safe migration: add new columns to existing tables if they are absent.
+                # SQLite does not support ADD COLUMN IF NOT EXISTS, so we inspect first.
+                self._migrate_add_column_if_missing(
+                    table="llm_calls",
+                    column="raw_response",
+                    column_def="TEXT NULL",
+                )
+                self._migrate_add_column_if_missing(
+                    table="llm_calls",
+                    column="no_thinking",
+                    column_def="INTEGER NOT NULL DEFAULT 0",
+                )
 
-            log("debug", "LLM monitor tables ensured")
-            return True
-        except Exception as e:
-            log("error", f"Failed to create LLM monitor tables: {e}")
-            return False
+                log("debug", "LLM monitor tables ensured")
+                return True
+            except Exception as e:
+                if attempt < retries:
+                    log("warning", f"Failed to create LLM monitor tables (attempt {attempt}/{retries}), retrying in {delay}s: {e}")
+                    time.sleep(delay)
+                else:
+                    log("error", f"Failed to create LLM monitor tables: {e}")
+                    return False
 
     def _migrate_add_column_if_missing(self, table: str, column: str, column_def: str):
         """Add a column to an existing table when it does not already exist.
