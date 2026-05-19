@@ -1020,10 +1020,70 @@ def show_mailerlite_tab():
             st.warning("Not set — login link won't appear in email")
 
     if ms_key and ms_from:
-        st.markdown("**Send a test welcome email with reset code**")
+        st.markdown("**Send a test transactional email**")
         user_manager_ms = get_user_manager()
         ms_users = [u for u in user_manager_ms.get_all_users() if u.get("email")]
 
+        # Template type selection (matches the new structure)
+        template_type = st.selectbox(
+            "Template to test",
+            options=[
+                "global_welcome",
+                "preregistered_welcome",
+                "waitlist_approval",
+                "payhip_welcome",
+            ],
+            format_func=lambda x: {
+                "global_welcome": "Global Welcome / Activation",
+                "preregistered_welcome": "Per Pre-registered Email Welcome",
+                "waitlist_approval": "Waitlist Approval",
+                "payhip_welcome": "Per Payhip Product Welcome",
+            }[x],
+            key="ms_template_type",
+        )
+
+        # Scope / scope_id selector depending on type
+        scope = "global"
+        scope_id = None
+
+        if template_type == "preregistered_welcome":
+            prereg = user_manager_ms.get_preregistered_emails()
+            if prereg:
+                scope_id = st.selectbox(
+                    "Pre-registered email",
+                    options=[p["email"] for p in prereg],
+                    key="ms_prereg_email",
+                )
+            else:
+                scope_id = st.text_input("Pre-registered email (manual)", key="ms_prereg_manual")
+            scope = "preregistered"
+
+        elif template_type == "waitlist_approval":
+            scope = "waitlist"
+            scope_id = None  # global waitlist approval template
+            st.caption("Uses the global Waitlist Approval template (no per-email variation)")
+
+        elif template_type == "payhip_welcome":
+            try:
+                from modules.payhip_webhook.payhip_webhook import get_payhip_webhook_manager
+                pm = get_payhip_webhook_manager()
+                assocs = pm.get_all_associations()
+                if assocs:
+                    scope_id = st.selectbox(
+                        "Product key",
+                        options=[a["product_key"] for a in assocs],
+                        format_func=lambda pk: next(
+                            (f"{a['product_name'] or pk} ({a['master_name']})" for a in assocs if a["product_key"] == pk), pk
+                        ),
+                        key="ms_payhip_product",
+                    )
+                else:
+                    scope_id = st.text_input("Product key (manual)", key="ms_payhip_manual")
+            except Exception:
+                scope_id = st.text_input("Product key (manual)", key="ms_payhip_manual")
+            scope = "payhip"
+
+        # Target recipient
         if ms_users:
             ms_user_opts = {u["id"]: f"{u['name']} <{u['email']}>" for u in ms_users}
             ms_selected_uid = st.selectbox(
@@ -1033,24 +1093,42 @@ def show_mailerlite_tab():
                 key="ms_test_target",
             )
             ms_target = next(u for u in ms_users if u["id"] == ms_selected_uid)
-
-            if st.button("Send test welcome email", key="ms_send_test"):
-                from shared.transactional_email import send_welcome_reset_code
-                fake_code = "TEST-RESET-CODE-1234"
-                success, msg = send_welcome_reset_code(
-                    to_email=ms_target["email"],
-                    to_name=ms_target.get("name", "User"),
-                    reset_code=fake_code,
-                )
-                if success:
-                    st.success(
-                        f"Email queued for **{ms_target['email']}**. "
-                        f"The email contains reset code `{fake_code}` — use it to verify the template looks correct."
-                    )
-                else:
-                    st.error(f"Failed: {msg}")
+            target_email = ms_target["email"]
+            target_name = ms_target.get("name", "User")
         else:
-            st.info("No users with email addresses found.")
+            target_email = st.text_input("Recipient email", key="ms_manual_email")
+            target_name = st.text_input("Recipient name", value="Test User", key="ms_manual_name")
+
+        if st.button("Send test email", key="ms_send_test"):
+            fake_code = "TEST-RESET-CODE-1234"
+
+            if template_type == "waitlist_approval":
+                from shared.transactional_email import send_waitlist_approved_email
+                success, msg = send_waitlist_approved_email(
+                    to_email=target_email,
+                    to_name=target_name,
+                    reset_code=fake_code,
+                    lang="en",
+                    waitlist_email=scope_id,  # None for global
+                )
+            else:
+                from shared.transactional_email import send_welcome_reset_code
+                success, msg = send_welcome_reset_code(
+                    to_email=target_email,
+                    to_name=target_name,
+                    reset_code=fake_code,
+                    lang="en",
+                    scope=scope,
+                    scope_id=scope_id,
+                )
+
+            if success:
+                st.success(
+                    f"Email queued for **{target_email}**. "
+                    f"Template: `{template_type}` | Scope: `{scope}` | Scope ID: `{scope_id or '—'}`"
+                )
+            else:
+                st.error(f"Failed: {msg}")
     else:
         st.info("Set BREVO_API_KEY and BREVO_FROM to enable transactional email testing.")
 
@@ -1077,7 +1155,7 @@ def show_debug_admin_content():
         "⚡ Quick Tests",
         "⏱️ Profiler",
         "📊 Memory",
-        "📧 MailerLite",
+        "📧 Email",
     ])
 
     with tab1:

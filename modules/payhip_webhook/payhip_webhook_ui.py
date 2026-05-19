@@ -3,6 +3,7 @@
 import streamlit as st
 
 from modules.payhip_webhook.payhip_webhook import get_payhip_webhook_manager
+from shared.email_template_editor import render_email_template_editor
 from shared.users import UserManager
 
 
@@ -33,7 +34,9 @@ def render_admin_tab():
     """Render the Payhip Webhook admin tab."""
     st.header("Payhip Webhook")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Associations", "Logs", "Simulator", "Resend Email", "Settings"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["Associations", "Logs", "Simulator", "Resend Email", "Email Templates", "Settings"]
+    )
 
     with tab1:
         _render_associations_tab()
@@ -48,6 +51,9 @@ def render_admin_tab():
         _render_resend_tab()
 
     with tab5:
+        _render_email_templates_tab()
+
+    with tab6:
         _render_settings_tab()
 
 
@@ -401,3 +407,32 @@ def _render_settings_tab():
     The webhook will automatically create a new user associated with the master
     linked to the product key in the purchase.
     """)
+
+
+def _render_email_templates_tab():
+    """Edit per-product transactional email templates."""
+    st.subheader("Per-Product Welcome Email Templates")
+
+    manager = get_payhip_webhook_manager()
+    associations = manager.get_all_associations()
+
+    if not associations:
+        st.info("No product associations yet. Create one in the Associations tab first.")
+        return
+
+    selected = st.selectbox(
+        "Select Product",
+        options=[a["id"] for a in associations],
+        format_func=lambda x: next(
+            (f"{a['product_name'] or a['product_key']} ({a['master_name']})" for a in associations if a["id"] == x),
+            x,
+        ),
+    )
+
+    assoc = next((a for a in associations if a["id"] == selected), None)
+    if assoc:
+        render_email_template_editor(
+            scope="payhip",
+            scope_id=assoc["product_key"],
+            template_key="welcome",
+        )

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Backend
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload   # FastAPI + React frontend (app.yoga-pro.xyz)
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload   # FastAPI + React frontend (your-app.example.com)
 streamlit run prof.py                                    # Streamlit admin backoffice (coach.yoga-pro.xyz)
 
 # Frontend — rebuild after ANY change to frontend/src/
@@ -97,7 +97,7 @@ with patch.object(te, "send_enrollment_expired_alert", return_value=(True, "ok")
 ```
 MYSQL_HOST / MYSQL_PORT / MYSQL_DATABASE / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DRIVER
 JWT_SECRET
-APP_URL                  # https://app.yoga-pro.xyz  (used in email links)
+APP_URL                  # https://your-app.example.com  (used in email links)
 BREVO_API_KEY            # transactional email
 BREVO_FROM               # verified sender address
 PAYHIP_API_KEY           # webhook HMAC secret

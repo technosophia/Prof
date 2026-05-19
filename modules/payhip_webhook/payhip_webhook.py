@@ -418,7 +418,7 @@ class PayhipWebhookManager:
 
                 email_diag = None
                 if reset_code:
-                    email_diag = self._send_welcome_email(customer_email, user_name, reset_code, master_lang)
+                    email_diag = self._send_welcome_email(customer_email, user_name, reset_code, master_lang, product_key=product_key)
 
                 log("info", f"Created user {user_id} ({user_name}) for {customer_email} under master {master_id}")
                 action = f"User created (id={user_id}, username={user_name})"
@@ -455,9 +455,12 @@ class PayhipWebhookManager:
             )
             return 500, f"Error processing webhook: {error_msg}"
 
-    def _send_welcome_email(self, email: str, name: str, reset_code: str, lang: str = "en") -> dict:
+    def _send_welcome_email(
+        self, email: str, name: str, reset_code: str, lang: str = "en", product_key: Optional[str] = None
+    ) -> dict:
         """Send welcome email with reset code via Brevo transactional email.
 
+        Uses per-product template when product_key is provided.
         Returns a diagnostic dict summarising what was sent.
         """
         from shared.transactional_email import send_welcome_reset_code, _is_configured as _transactional_configured
@@ -465,7 +468,9 @@ class PayhipWebhookManager:
         result: dict = {"email": email, "brevo": None}
 
         if _transactional_configured():
-            ms_ok, ms_msg = send_welcome_reset_code(email, name, reset_code, lang=lang)
+            ms_ok, ms_msg = send_welcome_reset_code(
+                email, name, reset_code, lang=lang, scope="payhip", scope_id=product_key
+            )
             result["brevo"] = {"ok": ms_ok, "msg": ms_msg}
             if ms_ok:
                 log("info", f"[WEBHOOK] Welcome email queued via Brevo for {email}")

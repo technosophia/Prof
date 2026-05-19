@@ -66,7 +66,7 @@ Admin can edit `enrollment_duration_days` per product in the Associations tab.
 | `MAILERSEND_API_KEY` | Recommended | MailerSend key for transactional welcome email |
 | `MAILERSEND_FROM` | If above set | Verified sender address |
 | `MAILERSEND_FROM_NAME` | Optional | Sender display name |
-| `APP_URL` | Required | Public app URL for "activate account" link — must be `https://app.yoga-pro.xyz` |
+| `APP_URL` | Required | Public app URL for "activate account" link — e.g. `https://your-app.example.com` |
 | `MAILER_LITE_API` | Optional | MailerLite API key for subscriber upsert |
 | `MAILER_LITE_GROUP_ID` | Optional | Group ID — triggers MailerLite automation email |
 

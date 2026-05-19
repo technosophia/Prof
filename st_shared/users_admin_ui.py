@@ -111,6 +111,7 @@ def show_users_admin_content():
 
         if user_role == UserRole.ADMIN.value:
             tab_names.append("📦 Import/Export")
+            tab_names.append("✉️ Email Templates")
 
         tabs = st.tabs(tab_names)
 
@@ -144,6 +145,11 @@ def show_users_admin_content():
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
                     _render_import_export_tab(current_user)
+
+            email_tpl_idx = import_export_idx + 1
+            if len(tabs) > email_tpl_idx:
+                with tabs[email_tpl_idx]:
+                    _render_email_templates_tab()
 
     else:  # Should not happen due to can_access_admin_tab check
         st.info("No users found that you can manage.")
@@ -2316,6 +2322,70 @@ def _render_user_row(
                 _render_delete_button(current_user, user)
 
         st.divider()
+
+
+def _render_email_templates_tab():
+    """Transactional email templates for different flows."""
+    from shared.email_template_editor import render_email_template_editor
+
+    st.subheader("Transactional Email Templates")
+
+    scope_choice = st.radio(
+        "Template type",
+        options=[
+            "Global (reset password / activation)",
+            "Per Pre-registered Email",
+            "Waitlist Approval",
+            "Per Payhip Product Welcome",
+        ],
+        horizontal=True,
+    )
+
+    # Show allowed placeholders depending on chosen template type
+    if scope_choice.startswith("Global"):
+        st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`")
+    elif scope_choice == "Per Pre-registered Email":
+        st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`")
+    elif scope_choice == "Waitlist Approval":
+        st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`")
+    else:  # Per Payhip Product Welcome
+        st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`, `{product_name}`")
+
+    if scope_choice.startswith("Global"):
+        render_email_template_editor(scope="global", scope_id=None, template_key="welcome")
+
+    elif scope_choice == "Per Pre-registered Email":
+        user_manager = get_user_manager()
+        prereg = user_manager.get_preregistered_emails()
+        if not prereg:
+            st.info("No pre-registered emails yet. Add them in the 'Pre-registered Emails' tab.")
+            return
+        emails = [p["email"] for p in prereg]
+        selected = st.selectbox("Pre-registered email", options=emails)
+        render_email_template_editor(scope="preregistered", scope_id=selected, template_key="welcome")
+
+    elif scope_choice == "Waitlist Approval":
+        render_email_template_editor(scope="waitlist", scope_id=None, template_key="approved")
+
+    else:  # Per Payhip Product Welcome
+        try:
+            from modules.payhip_webhook.payhip_webhook import get_payhip_webhook_manager
+            pm = get_payhip_webhook_manager()
+            assocs = pm.get_all_associations()
+            if not assocs:
+                st.info("No Payhip product associations yet. Create them in the Payhip Webhook → Associations tab.")
+                return
+            product_keys = [a["product_key"] for a in assocs]
+            selected_pk = st.selectbox(
+                "Payhip product",
+                options=product_keys,
+                format_func=lambda pk: next(
+                    (f"{a['product_name'] or pk} ({a['master_name']})" for a in assocs if a["product_key"] == pk), pk
+                ),
+            )
+            render_email_template_editor(scope="payhip", scope_id=selected_pk, template_key="welcome")
+        except Exception as e:
+            st.error(f"Could not load Payhip associations: {e}")
 
 
 def inject_ui_admin_tab():

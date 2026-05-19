@@ -96,7 +96,9 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik"
-      - "traefik.frontend.rule=Host:app.yoga-pro.xyz"
+      # APP_DOMAIN must be the bare hostname only (no protocol), e.g. your-app.example.com
+      # Do NOT use APP_URL here — Traefik Host rules expect a domain, not a full URL.
+      - "traefik.frontend.rule=Host:${APP_DOMAIN}"
       - "traefik.port=8000"
       - "traefik.frontend.entryPoints=https,http"
 

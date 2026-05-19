@@ -1454,6 +1454,21 @@ class UserManager:
             session.commit()
             if previous_status != "approved" and status == "approved":
                 notify_account_approved(user.email, user.name)
+                # Send transactional waitlist approval email with reset code
+                if not user.reset_code or not user.reset_code_expires or user.reset_code_expires < datetime.utcnow():
+                    reset_code = self.generate_reset_code(user.id, expiry_days=7)
+                else:
+                    reset_code = user.reset_code
+                if reset_code and user.email:
+                    from shared.transactional_email import send_waitlist_approved_email, _is_configured as _tx_configured
+                    if _tx_configured():
+                        send_waitlist_approved_email(
+                            user.email,
+                            user.name or user.id,
+                            reset_code,
+                            lang=(user.profile or {}).get("language", "en"),
+                            waitlist_email=None,  # global waitlist approval template
+                        )
             return True
 
     def import_preregistered_emails(
