@@ -1468,6 +1468,7 @@ class UserManager:
                             reset_code,
                             lang=(user.profile or {}).get("language", "en"),
                             waitlist_email=None,  # global waitlist approval template
+                            waitlist_name=user.email,  # or a custom name if you want
                         )
             return True
 

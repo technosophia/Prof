@@ -155,10 +155,10 @@ def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str,
     """
     Return the original default template content (as it was before editable templates).
     Used by "Reset to default".
-    """
-    app_url = os.getenv("APP_URL", "").rstrip("/")
-    login_url = f"{app_url}/login" if app_url else "the login page"
 
+    IMPORTANT: The returned templates must contain placeholders {app_url} and {login_url}
+    (not resolved URLs) so that the current APP_URL is used at send time.
+    """
     if template_key in ("welcome", "welcome_email"):
         def t(key: str, **kwargs: Any) -> str:
             return _t(f"welcome_email.{key}", lang, **kwargs)
@@ -167,7 +167,8 @@ def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str,
         greeting = t("greeting")
         body_intro = t("account_created")
         lbl_code = t("reset_code_label")
-        instruction = t("instruction", login_url=login_url)
+        # Use placeholder instead of resolved URL
+        instruction = t("instruction", login_url="{login_url}")
         validity = t("validity")
         cta = t("cta_button")
         sign_off = t("sign_off")
@@ -187,7 +188,7 @@ def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str,
   </tr>
 </table>
 <p>
-  <a href="{login_url}"
+  <a href="{{login_url}}"
      style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
     {cta}
   </a>
@@ -204,18 +205,20 @@ def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str,
         }
 
     if template_key == "approved":
-        # Waitlist approval default
+        # Waitlist approval default - must use placeholders
         subject = "Your account has been approved"
         text_body = (
             "Hello {name},\n\n"
             "Your registration has been approved.\n"
+            "Waitlist: {waitlist_name}\n"
             "Reset code: {reset_code}\n\n"
-            f"Please go to {login_url} to set your password."
+            "Please go to {login_url} to set your password."
         )
-        html_body = f"""\
-<p>Hello {{name}},</p>
+        html_body = """\
+<p>Hello {name},</p>
 <p>Your registration has been approved.</p>
-<p>Reset code: <code>{{reset_code}}</code></p>
+<p><strong>Waitlist:</strong> {waitlist_name}</p>
+<p>Reset code: <code>{reset_code}</code></p>
 <p><a href="{login_url}">Set your password</a></p>
 """
         return {
@@ -402,6 +405,7 @@ def send_waitlist_approved_email(
     reset_code: str,
     lang: str = "en",
     waitlist_email: Optional[str] = None,
+    waitlist_name: Optional[str] = None,
 ) -> tuple[bool, str]:
     """
     Send the approval email when a waiting-list user is approved.
@@ -411,16 +415,26 @@ def send_waitlist_approved_email(
     app_url = os.getenv("APP_URL", "").rstrip("/")
     login_url = f"{app_url}/login" if app_url else "the login page"
 
+    # Use provided waitlist_name, fallback to waitlist_email or empty
+    effective_waitlist_name = waitlist_name or waitlist_email or ""
+
     tpl = get_email_template("waitlist", waitlist_email, "approved", lang)
 
     if tpl.get("body_text") or tpl.get("body_html"):
-        subject = _render_template(tpl.get("subject", ""), reset_code=reset_code, app_url=app_url, name=to_name)
+        subject = _render_template(
+            tpl.get("subject", ""), 
+            reset_code=reset_code, 
+            app_url=app_url, 
+            name=to_name,
+            waitlist_name=effective_waitlist_name,
+        )
         text_body = _render_template(
             tpl.get("body_text", ""),
             reset_code=reset_code,
             app_url=app_url,
             login_url=login_url,
             name=to_name,
+            waitlist_name=effective_waitlist_name,
         )
         html_body = _render_template(
             tpl.get("body_html", ""),
@@ -428,6 +442,7 @@ def send_waitlist_approved_email(
             app_url=app_url,
             login_url=login_url,
             name=to_name,
+            waitlist_name=effective_waitlist_name,
         ) or None
     else:
         # Minimal default if no custom template

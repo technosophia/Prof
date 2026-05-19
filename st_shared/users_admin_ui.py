@@ -2347,7 +2347,7 @@ def _render_email_templates_tab():
     elif scope_choice == "Per Pre-registered Email":
         st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`")
     elif scope_choice == "Waitlist Approval":
-        st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`")
+        st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`, `{waitlist_name}`")
     else:  # Per Payhip Product Welcome
         st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`, `{product_name}`")
 

@@ -1095,6 +1095,7 @@ def show_mailerlite_tab():
             ms_target = next(u for u in ms_users if u["id"] == ms_selected_uid)
             target_email = ms_target["email"]
             target_name = ms_target.get("name", "User")
+            user_lang = (ms_target.get("profile") or {}).get("language", "en") if isinstance(ms_target.get("profile"), dict) else "en"
         else:
             target_email = st.text_input("Recipient email", key="ms_manual_email")
             target_name = st.text_input("Recipient name", value="Test User", key="ms_manual_name")
@@ -1108,8 +1109,8 @@ def show_mailerlite_tab():
                     to_email=target_email,
                     to_name=target_name,
                     reset_code=fake_code,
-                    lang="en",
-                    waitlist_email=scope_id,  # None for global
+                    lang=user_lang,
+                    waitlist_email=scope_id,
                 )
             else:
                 from shared.transactional_email import send_welcome_reset_code
@@ -1117,7 +1118,7 @@ def show_mailerlite_tab():
                     to_email=target_email,
                     to_name=target_name,
                     reset_code=fake_code,
-                    lang="en",
+                    lang=user_lang,
                     scope=scope,
                     scope_id=scope_id,
                 )
