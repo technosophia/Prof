@@ -200,3 +200,25 @@ def issue_reset_code():
         return reset_code
 
     return _issue_reset_code
+
+
+@pytest.fixture
+def enroll_normal1m2_under_master1():
+    """Enroll normal1_m2 under master1 and remove the enrollment after the test."""
+    from shared.common import get_user_manager
+    um = get_user_manager()
+    um.add_enrollment("normal1_m2", "master1")
+    yield
+    um.remove_enrollment("normal1_m2", "master1")
+
+
+@pytest.fixture
+def normal1m1_enrolled_under_both_masters():
+    """Give normal1_m1 an explicit enrollment record under master1 and master2."""
+    from shared.common import get_user_manager
+    um = get_user_manager()
+    um.add_enrollment("normal1_m1", "master1")
+    um.add_enrollment("normal1_m1", "master2")
+    yield
+    um.remove_enrollment("normal1_m1", "master1")
+    um.remove_enrollment("normal1_m1", "master2")

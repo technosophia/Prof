@@ -249,26 +249,6 @@ async def test_waitlist_endpoint(client):
 import pytest as _pytest
 
 
-@_pytest.fixture
-def enroll_normal1m2_under_master1():
-    """Enroll normal1_m2 under master1 and remove the enrollment after the test."""
-    um = get_user_manager()
-    um.add_enrollment("normal1_m2", "master1")
-    yield
-    um.remove_enrollment("normal1_m2", "master1")
-
-
-@_pytest.fixture
-def normal1m1_enrolled_under_both_masters():
-    """Give normal1_m1 an explicit enrollment record under master1 and master2."""
-    um = get_user_manager()
-    um.add_enrollment("normal1_m1", "master1")
-    um.add_enrollment("normal1_m1", "master2")
-    yield
-    um.remove_enrollment("normal1_m1", "master1")
-    um.remove_enrollment("normal1_m1", "master2")
-
-
 async def test_get_enrollments_fallback_to_parent_id(client, auth_headers, users):
     """Users with no enrollment records still see their master via parent_id fallback."""
     headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])

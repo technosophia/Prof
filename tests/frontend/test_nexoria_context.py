@@ -284,3 +284,35 @@ class TestNexoriaContextFulfillment:
 
         rag_count = sum(1 for s in sources.keys() if "rag_context_callback" in s)
         assert rag_count > 0, "RAG context should be present in multi-turn conversation"
+
+
+class TestActiveMasterTrainingProgram:
+    """Tests that active_master_id correctly routes the training program context."""
+
+    async def test_training_program_uses_active_master(
+        self, client, auth_headers, users, normal1m1_enrolled_under_both_masters
+    ):
+        """After selecting a different master, inject_training_program returns that master's program."""
+        from modules.trainer.context_callbacks import inject_training_program
+        from modules.trainer.manager import get_trainer_manager
+
+        headers = await auth_headers("normal1_m1", users["normal1_m1"]["password"])
+
+        # Configure master2 with the same test scenario program used for master1
+        tm = get_trainer_manager()
+        formation_path = "scenarios:modules/benchmarker/scenarios/nexoria_program.md"
+        tm.set_formation_dir("master2", formation_path)
+
+        # Switch active training to master2
+        response = await client.post(
+            "/api/auth/select-training", json={"master_id": "master2"}, headers=headers
+        )
+        assert response.status_code == 200
+
+        # Verify the context callback now uses master2's program
+        result = inject_training_program("normal1_m1", [])
+        assert result is not None
+        formatted, role, position = result
+        assert "No training program has been configured for this coach." not in formatted
+        assert role == "system"
+        assert position == "top"

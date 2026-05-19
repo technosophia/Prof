@@ -25,9 +25,10 @@ def _get_trainer_id_for_user(user_id: str) -> Optional[str]:
         if not user:
             log("debug", f"[TRAINER_CALLBACK] User {user_id} not found")
             return None
-        parent_id = user.get("parent_id")
-        log("debug", f"[TRAINER_CALLBACK] User {user_id} has parent_id={parent_id}")
-        return parent_id
+        profile = user.get("profile") or {}
+        trainer_id = profile.get("active_master_id") or user.get("parent_id")
+        log("debug", f"[TRAINER_CALLBACK] User {user_id} resolved trainer_id={trainer_id}")
+        return trainer_id
     except Exception as e:
         log("warning", f"trainer: could not get trainer for user {user_id}: {e}")
         return None
