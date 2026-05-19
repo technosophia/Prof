@@ -53,6 +53,7 @@ Manages user-specific configuration and preferences with database persistence.
 import uuid
 import hashlib
 import secrets
+import string
 import json
 import os
 import csv
@@ -538,7 +539,7 @@ class UserManager:
 
     def _generate_reset_code(self) -> str:
         """Generate a secure random reset code."""
-        return secrets.token_urlsafe(32)  # 32 characters, URL-safe
+        return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(6))
 
     def log_user_action(
         self,
