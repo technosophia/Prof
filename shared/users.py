@@ -54,7 +54,6 @@ import uuid
 import hashlib
 import secrets
 import string
-import json
 import os
 import csv
 import io
@@ -79,7 +78,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session, relationship, joinedload
 
-from core.logging import log, set_log_module_level
+from core.logging import log
 from core.database import get_db_manager, Base
 from core.config import get_config
 from core.callback import register_callback, unregister_callback, clear_callbacks
@@ -177,6 +176,8 @@ class WaitlistList(Base):
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    default_master_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    default_duration_days = Column(Integer, nullable=True)
 
 
 class WaitlistEntry(Base):
@@ -426,7 +427,7 @@ class UserManager:
             ).first()
             if setting and setting.value is not None:
                 return int(setting.value)
-            return None
+            return 365
 
     def set_default_activation_duration_days(self, days: Optional[int]) -> bool:
         """Set the default activation duration in days (None to disable)."""
@@ -521,6 +522,32 @@ class UserManager:
             if count:
                 session.commit()
                 log("info", f"Deactivated {count} expired user(s)")
+            return count
+
+    def backfill_missing_expiration_dates(self) -> int:
+        """Ensure all existing normal users have an expiration_date.
+        If missing, set to registration_date + default duration (or 365).
+        Returns number of users updated."""
+        self._ensure_table_exists()
+        count = 0
+        default_days = self.get_default_activation_duration_days() or 365
+        with self.db.get_session() as session:
+            users = (
+                session.query(UserTable)
+                .filter(
+                    UserTable.role == UserRole.NORMAL.value,
+                    UserTable.expiration_date.is_(None),
+                    UserTable.created_at.isnot(None),
+                )
+                .all()
+            )
+            for user in users:
+                base_date = user.created_at or datetime.utcnow()
+                user.expiration_date = base_date + timedelta(days=default_days)
+                count += 1
+            if count:
+                session.commit()
+                log("info", f"Backfilled expiration_date for {count} user(s)")
         return count
 
     def _hash_password(self, password: str) -> str:
@@ -1126,7 +1153,7 @@ class UserManager:
 
                     log(
                         "info",
-                        f"Created 7 default users with passwords: 1 admin, 2 masters, 4 normal users",
+                        "Created 7 default users with passwords: 1 admin, 2 masters, 4 normal users",
                     )
                     return True
                 else:
@@ -1338,6 +1365,24 @@ class UserManager:
                         details={"reason": "deadline_expired"},
                         success=False,
                     )
+                    # Notify student about expiration (respect user language)
+                    try:
+                        from shared.transactional_email import send_expiration_email
+                        master_name = ""
+                        if user.parent_id:
+                            m = self.get_user(user.parent_id)
+                            master_name = m.get("name", "") if m else ""
+                        user_lang = (user.profile or {}).get("language", "en") if isinstance(user.profile, dict) else "en"
+                        send_expiration_email(
+                            to_email=user.email or "",
+                            to_name=user.name,
+                            master_name=master_name,
+                            expiry_date=datetime.utcnow().strftime("%Y-%m-%d"),
+                            lang=user_lang,
+                        )
+                    except Exception:
+                        pass
+
                     return None, f"deadline_expired::{expiry_message}"
                 self.log_user_action(
                     user_id=user.id,
@@ -1373,6 +1418,24 @@ class UserManager:
                     details={"reason": "deadline_expired"},
                     success=False,
                 )
+                # Notify student (respect user language)
+                try:
+                    from shared.transactional_email import send_expiration_email
+                    master_name = ""
+                    if user.parent_id:
+                        m = self.get_user(user.parent_id)
+                        master_name = m.get("name", "") if m else ""
+                    user_lang = (user.profile or {}).get("language", "en") if isinstance(user.profile, dict) else "en"
+                    send_expiration_email(
+                        to_email=user.email or "",
+                        to_name=user.name,
+                        master_name=master_name,
+                        expiry_date=datetime.utcnow().strftime("%Y-%m-%d"),
+                        lang=user_lang,
+                    )
+                except Exception:
+                    pass
+
                 return None, f"deadline_expired::{expiry_message}"
 
             if (user.registration_status or "approved") != "approved":
@@ -1398,6 +1461,24 @@ class UserManager:
                         success=False,
                     )
                     self._notify_master_enrollment_expired(expired_master_id, user.email or user.id)
+
+                    # Also notify the student (respect user language)
+                    try:
+                        from shared.transactional_email import send_expiration_email
+                        master = self.get_user(expired_master_id)
+                        master_name = master.get("name", "") if master else ""
+                        expiry_str = datetime.utcnow().strftime("%Y-%m-%d")
+                        user_lang = (user.profile or {}).get("language", "en") if isinstance(user.profile, dict) else "en"
+                        send_expiration_email(
+                            to_email=user.email or "",
+                            to_name=user.name,
+                            master_name=master_name,
+                            expiry_date=expiry_str,
+                            lang=user_lang,
+                        )
+                    except Exception:
+                        pass
+
                     return None, "enrollment_expired"
 
             # Update last login
@@ -1473,7 +1554,11 @@ class UserManager:
             return True
 
     def import_preregistered_emails(
-        self, csv_content: str, requesting_user_id: str = None
+        self,
+        csv_content: str,
+        requesting_user_id: str = None,
+        default_master_id: Optional[str] = None,
+        default_duration_days: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Import pre-registered emails from CSV content."""
         self._ensure_preregistered_emails_table()
@@ -1534,11 +1619,13 @@ class UserManager:
                     result["skipped"] += 1
                     continue
 
+                months = max(1, (default_duration_days or 365) // 30)
                 session.add(
                     PreregisteredEmail(
                         email=email,
                         added_at=datetime.utcnow(),
                         added_by=requesting_user_id,
+                        deadline_months=months,
                     )
                 )
                 result["imported"] += 1
@@ -1699,13 +1786,28 @@ class UserManager:
             return count
 
     def _ensure_waitlist_tables(self):
-        """Ensure waitlist tables exist."""
+        """Ensure waitlist tables exist (with migration for new columns)."""
         if not self.db.is_initialized():
             return False
 
         try:
             WaitlistList.__table__.create(bind=self.db._engine, checkfirst=True)
             WaitlistEntry.__table__.create(bind=self.db._engine, checkfirst=True)
+
+            # Migrate new columns for WaitlistList if missing
+            with self.db.get_session() as session:
+                conn = session.connection()
+                inspector = inspect(conn)
+                columns = {col["name"] for col in inspector.get_columns("waitlist_lists")}
+
+                if "default_master_id" not in columns:
+                    conn.execute(text("ALTER TABLE waitlist_lists ADD COLUMN default_master_id VARCHAR(36)"))
+                    log("info", "Added missing waitlist_lists.default_master_id column")
+
+                if "default_duration_days" not in columns:
+                    conn.execute(text("ALTER TABLE waitlist_lists ADD COLUMN default_duration_days INTEGER"))
+                    log("info", "Added missing waitlist_lists.default_duration_days column")
+
             return True
         except Exception as e:
             log("error", f"Failed to ensure waitlist tables: {e}")
@@ -1723,12 +1825,20 @@ class UserManager:
             log("error", f"Failed to ensure system_settings table: {e}")
             return False
 
-    def create_waitlist_list(self, name: str, created_by: Optional[str] = None) -> Optional[str]:
+    def create_waitlist_list(
+        self,
+        name: str,
+        created_by: Optional[str] = None,
+        default_master_id: Optional[str] = None,
+        default_duration_days: Optional[int] = None,
+    ) -> Optional[str]:
         """Create a new waitlist list.
 
         Args:
             name: Name of the list
             created_by: User ID creating the list
+            default_master_id: Default master for approvals from this list
+            default_duration_days: Default expiration duration in days
 
         Returns:
             List ID if successful, None otherwise
@@ -1751,9 +1861,10 @@ class UserManager:
                 return None
 
             waitlist_list = WaitlistList(
-                id=str(uuid.uuid4()),
                 name=normalized_name,
                 created_by=created_by,
+                default_master_id=default_master_id,
+                default_duration_days=default_duration_days,
             )
             session.add(waitlist_list)
             session.commit()
@@ -1824,6 +1935,33 @@ class UserManager:
             log("info", f"Renamed waitlist list {list_id} to '{normalized_name}'")
             return True
 
+    def update_waitlist_list_defaults(
+        self,
+        list_id: str,
+        default_master_id: Optional[str] = None,
+        default_duration_days: Optional[int] = None,
+    ) -> bool:
+        """Update default master and/or duration for an existing waitlist list."""
+        if not list_id:
+            return False
+
+        self._ensure_waitlist_tables()
+
+        with self.db.get_session() as session:
+            wl = session.query(WaitlistList).filter_by(id=list_id).first()
+            if not wl:
+                log("warning", f"Waitlist list {list_id} not found for update")
+                return False
+
+            if default_master_id is not None:
+                wl.default_master_id = default_master_id
+            if default_duration_days is not None:
+                wl.default_duration_days = default_duration_days
+
+            session.commit()
+            log("info", f"Updated defaults for waitlist list {list_id}")
+            return True
+
     def get_all_waitlist_lists(self) -> List[Dict[str, Any]]:
         """Get all waitlist lists."""
         self._ensure_waitlist_tables()
@@ -1836,6 +1974,8 @@ class UserManager:
                     "name": wl.name,
                     "created_at": wl.created_at.isoformat() if wl.created_at else None,
                     "created_by": wl.created_by,
+                    "default_master_id": wl.default_master_id,
+                    "default_duration_days": wl.default_duration_days,
                 }
                 for wl in lists
             ]
@@ -2670,6 +2810,9 @@ class UserManager:
                 if reset_code
                 else None,
             )
+            if role == UserRole.NORMAL.value:
+                days = self.get_default_activation_duration_days() or 365
+                user.expiration_date = datetime.utcnow() + timedelta(days=days)
             session.add(user)
 
         log("info", f"Created user: {name.strip()} (ID: {user_id}, Role: {role})")

@@ -204,22 +204,137 @@ def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str,
             "body_html": html_body,
         }
 
-    if template_key == "approved":
-        # Waitlist approval default - must use placeholders
-        subject = "Your account has been approved"
+    if template_key == "preregistration_welcome":
+        def t(key: str, **kwargs: Any) -> str:
+            return _t(f"preregistration_welcome_email.{key}", lang, **kwargs)
+
+        subject = t("subject")
+        greeting = t("greeting")
+        body = t("body")
+        expiry_info = t("expiry_info", expiry_date="{expiry_date}")
+        lbl_code = t("reset_code_label")
+        instruction = t("instruction", login_url="{login_url}")
+
         text_body = (
-            "Hello {name},\n\n"
-            "Your registration has been approved.\n"
-            "Waitlist: {waitlist_name}\n"
-            "Reset code: {reset_code}\n\n"
-            "Please go to {login_url} to set your password."
+            f"{greeting}\n\n{body}\n\n{expiry_info}\n\n"
+            f"{lbl_code}: {{reset_code}}\n\n{instruction}"
         )
-        html_body = """\
-<p>Hello {name},</p>
-<p>Your registration has been approved.</p>
-<p><strong>Waitlist:</strong> {waitlist_name}</p>
-<p>Reset code: <code>{reset_code}</code></p>
-<p><a href="{login_url}">Set your password</a></p>
+
+        html_body = f"""\
+<p>{greeting}</p>
+<p>{body}</p>
+<p>{expiry_info}</p>
+<table style="border-collapse:collapse;margin:16px 0">
+  <tr>
+    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
+    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{{reset_code}}</code></td>
+  </tr>
+</table>
+<p>
+  <a href="{{login_url}}"
+     style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
+    Activate my account
+  </a>
+</p>
+<p style="color:#666;font-size:0.9em">{instruction}</p>
+"""
+        return {
+            "subject": subject,
+            "body_text": text_body,
+            "body_html": html_body,
+        }
+
+    if template_key == "payhip_welcome":
+        def t(key: str, **kwargs: Any) -> str:
+            return _t(f"payhip_welcome_email.{key}", lang, **kwargs)
+
+        subject = t("subject")
+        greeting = t("greeting")
+        body = t("body")
+        expiry_info = t("expiry_info", expiry_date="{expiry_date}")
+        lbl_code = t("reset_code_label")
+        instruction = t("instruction", login_url="{login_url}")
+
+        text_body = (
+            f"{greeting}\n\n{body}\n\n{expiry_info}\n\n"
+            f"{lbl_code}: {{reset_code}}\n\n{instruction}"
+        )
+
+        html_body = f"""\
+<p>{greeting}</p>
+<p>{body}</p>
+<p>{expiry_info}</p>
+<table style="border-collapse:collapse;margin:16px 0">
+  <tr>
+    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
+    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{{reset_code}}</code></td>
+  </tr>
+</table>
+<p>
+  <a href="{{login_url}}"
+     style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
+    Activate my account
+  </a>
+</p>
+<p style="color:#666;font-size:0.9em">{instruction}</p>
+"""
+        return {
+            "subject": subject,
+            "body_text": text_body,
+            "body_html": html_body,
+        }
+
+    if template_key == "approved":
+        def t(key: str, **kwargs: Any) -> str:
+            return _t(f"waitlist_approval_email.{key}", lang, **kwargs)
+
+        subject = t("subject")
+        greeting = t("greeting")
+        body = t("body")
+        expiry_info = t("expiry_info", expiry_date="{expiry_date}")
+        waitlist_label = t("waitlist_label")
+        reset_code_label = t("reset_code_label")
+        instruction = t("instruction", login_url="{login_url}")
+
+        text_body = (
+            f"{greeting}\n\n{body}\n{expiry_info}\n\n"
+            f"{waitlist_label}: {{waitlist_name}}\n"
+            f"{reset_code_label}: {{reset_code}}\n\n{instruction}"
+        )
+
+        html_body = f"""\
+<p>{greeting}</p>
+<p>{body}</p>
+<p>{expiry_info}</p>
+<p><strong>{waitlist_label}:</strong> {{waitlist_name}}</p>
+<p>{reset_code_label}: <code>{{reset_code}}</code></p>
+<p><a href="{{login_url}}">Set your password</a></p>
+"""
+        return {
+            "subject": subject,
+            "body_text": text_body,
+            "body_html": html_body,
+        }
+
+    if template_key == "expiration":
+        def t(key: str, **kwargs: Any) -> str:
+            return _t(f"expiration_email.{key}", lang, **kwargs)
+
+        subject = t("subject")
+        greeting = t("greeting")
+        body = t("body")
+        instruction = t("instruction")
+        sign_off = t("sign_off")
+
+        text_body = (
+            f"{greeting}\n\n{body}\n\n{instruction}\n\n{sign_off}"
+        )
+
+        html_body = f"""\
+<p>{greeting}</p>
+<p>{body}</p>
+<p>{instruction}</p>
+<p>{sign_off}</p>
 """
         return {
             "subject": subject,
@@ -291,17 +406,20 @@ def send_welcome_reset_code(
     lang: str = "en",
     scope: str = "global",
     scope_id: Optional[str] = None,
+    template_key: str = "welcome",
+    expiry_date: str = "",
 ) -> tuple[bool, str]:
     """
     Send welcome/activation email with reset code.
 
     If a custom template exists for the given scope/scope_id it is used;
     otherwise falls back to the default translation-based template.
+    The template_key can be "welcome", "preregistration_welcome", or "payhip_welcome".
     """
     app_url = os.getenv("APP_URL", "").rstrip("/")
     login_url = f"{app_url}/login" if app_url else "the login page"
 
-    tpl = get_email_template(scope, scope_id, "welcome", lang)
+    tpl = get_email_template(scope, scope_id, template_key, lang)
 
     if tpl.get("body_text") or tpl.get("body_html"):
         # Custom template found
@@ -312,6 +430,7 @@ def send_welcome_reset_code(
             app_url=app_url,
             login_url=login_url,
             name=to_name,
+            expiry_date=expiry_date,
         )
         html_body = _render_template(
             tpl.get("body_html", ""),
@@ -319,42 +438,34 @@ def send_welcome_reset_code(
             app_url=app_url,
             login_url=login_url,
             name=to_name,
+            expiry_date=expiry_date,
         ) or None
     else:
-        # Fallback to translation keys (original behaviour)
-        def t(key: str, **kwargs: Any) -> str:
-            return _t(f"welcome_email.{key}", lang, **kwargs)
+        # Use the new default template system (supports payhip_welcome, preregistration_welcome, approved, expiration, etc.)
+        default_tpl = get_default_email_template(template_key, lang)
 
-        subject = t("subject")
-        greeting = t("greeting")
-        body_intro = t("account_created")
-        lbl_code = t("reset_code_label")
-        instruction = t("instruction", login_url=login_url)
-        validity = t("validity")
-        cta = t("cta_button")
-        sign_off = t("sign_off")
-
-        text_body = (
-            f"{greeting}\n\n{body_intro}\n\n{lbl_code}: {reset_code}\n\n"
-            f"{instruction}\n\n{validity}\n\n{sign_off}"
+        subject = _render_template(
+            default_tpl.get("subject", ""),
+            reset_code=reset_code,
+            app_url=app_url,
+            name=to_name,
         )
-        html_body = f"""\
-<p>{greeting}</p>
-<p>{body_intro}</p>
-<table style="border-collapse:collapse;margin:16px 0">
-  <tr>
-    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
-    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{reset_code}</code></td>
-  </tr>
-</table>
-<p>
-  <a href="{login_url}"
-     style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
-    {cta}
-  </a>
-</p>
-<p style="color:#666;font-size:0.9em">{instruction}<br><strong>{validity}</strong></p>
-"""
+        text_body = _render_template(
+            default_tpl.get("body_text", ""),
+            reset_code=reset_code,
+            app_url=app_url,
+            login_url=login_url,
+            name=to_name,
+            expiry_date=expiry_date,
+        )
+        html_body = _render_template(
+            default_tpl.get("body_html", ""),
+            reset_code=reset_code,
+            app_url=app_url,
+            login_url=login_url,
+            name=to_name,
+            expiry_date=expiry_date,
+        ) or None
 
     return send_email(
         to_email=to_email,
@@ -388,6 +499,44 @@ enrollment has expired.</p>
     return send_email(
         to_email=master_email,
         to_name=master_name,
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+    )
+
+
+def send_expiration_email(
+    to_email: str,
+    to_name: str,
+    master_name: str = "",
+    expiry_date: str = "",
+    lang: str = "en",
+) -> tuple[bool, str]:
+    """Send expiration notification to the student using the 'expiration' template."""
+    app_url = os.getenv("APP_URL", "").rstrip("/")
+    login_url = f"{app_url}/login" if app_url else "the login page"
+
+    tpl = get_email_template("global", None, "expiration", lang)
+    subject = tpl.get("subject") or "Your access has expired"
+    text_body = tpl.get("body_text") or "Your access has expired."
+    html_body = tpl.get("body_html") or text_body
+
+    # Replace placeholders
+    replacements = {
+        "{name}": to_name or "",
+        "{master_name}": master_name or "your coach",
+        "{expiry_date}": expiry_date or "recently",
+        "{login_url}": login_url,
+        "{app_url}": app_url,
+    }
+
+    for ph, val in replacements.items():
+        text_body = text_body.replace(ph, val)
+        html_body = html_body.replace(ph, val)
+
+    return send_email(
+        to_email=to_email,
+        to_name=to_name,
         subject=subject,
         text_body=text_body,
         html_body=html_body,

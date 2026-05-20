@@ -11,15 +11,14 @@ Provides admin interface for user management with hierarchical roles:
 
 import streamlit as st
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import json
 import re
 from shared.common import UserRole
 from st_shared.cached import get_config, get_user_manager
 
 
-from core.logging import log, set_log_module_level
-from st_shared.cached import _
+from core.logging import log
 
 
 def is_production_mode() -> bool:
@@ -160,139 +159,129 @@ def _render_preregistered_emails_tab(current_user: Dict[str, Any]):
     st.subheader("📧 Pre-registered Emails")
 
     user_manager = get_user_manager()
-    import_tab, manage_tab = st.tabs(["📥 Import CSV", "📋 Manage List"])
 
-    with import_tab:
-        uploaded_file = st.file_uploader(
-            "Upload a CSV file with pre-registered emails",
-            type=["csv"],
-            key="preregistered_emails_csv_uploader",
+    # === Master + Duration on top (applies to both import methods) ===
+    all_users = user_manager.get_all_users() if hasattr(user_manager, "get_all_users") else []
+    masters = [u for u in all_users if u.get("role") == "master"]
+    master_options = [""] + [m["id"] for m in masters]
+    master_names = {m["id"]: m["name"] for m in masters}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_master = st.selectbox(
+            "Master for pre-registered users",
+            options=master_options,
+            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+            key="prereg_master_top",
+        )
+    with col2:
+        duration_days = st.number_input(
+            "Expiration duration (days, 0 = unlimited)",
+            min_value=0,
+            value=365,
+            step=30,
+            key="prereg_duration_top",
         )
 
-        if uploaded_file is not None and st.button(
-            "📥 Import CSV", key="import_preregistered_csv"
-        ):
+    st.divider()
+
+    # === Two import methods side by side ===
+    csv_col, paste_col = st.columns(2)
+
+    with csv_col:
+        st.markdown("**📥 Import CSV**")
+        uploaded_file = st.file_uploader(
+            "Upload CSV file",
+            type=["csv"],
+            key="preregistered_emails_csv_uploader",
+            label_visibility="collapsed",
+        )
+        if uploaded_file is not None and st.button("Import CSV", key="import_preregistered_csv"):
             try:
                 csv_content = uploaded_file.getvalue().decode("utf-8")
             except UnicodeDecodeError:
                 st.error("❌ Could not decode CSV file as UTF-8")
             else:
+                dur = duration_days if duration_days > 0 else None
                 result = user_manager.import_preregistered_emails(
                     csv_content,
                     requesting_user_id=current_user.get("id"),
+                    default_master_id=selected_master if selected_master else None,
+                    default_duration_days=dur,
                 )
-
                 st.session_state.prereg_csv_result = result
                 st.rerun()
 
-        if "prereg_csv_result" in st.session_state:
-            result = st.session_state.prereg_csv_result
-            del st.session_state.prereg_csv_result
-            st.success(
-                f"Imported: {result['imported']} | Skipped duplicates: {result['skipped']}"
-            )
-            if result["invalid"]:
-                st.warning("Invalid emails skipped:")
-                for invalid_email in result["invalid"]:
-                    st.caption(f"- {invalid_email}")
-            if result["errors"]:
-                for error in result["errors"]:
-                    st.error(error)
+    with paste_col:
+        st.markdown("**✍️ Paste emails directly**")
+        manual_emails = st.text_area(
+            "Emails (one per line or comma separated)",
+            placeholder="alice@example.com\nbob@company.org",
+            key="manual_emails_input",
+            label_visibility="collapsed",
+        )
+        if st.button("Add Emails", key="import_manual_emails"):
+            if manual_emails.strip():
+                emails = re.split(r"[,\n]+", manual_emails)
+                emails = [e.strip().lower() for e in emails if e.strip()]
 
-        with st.expander("Expected CSV format"):
-            st.code(
-                "email\n"
-                "alice@example.com\n"
-                "bob@company.org\n\n"
-                "Accepted headers: email, e-mail, mail, email address, e-mail address, courriel",
-                language="text",
-            )
+                imported = 0
+                skipped = 0
+                invalid = []
+                dur = duration_days if duration_days > 0 else None
 
-        with st.expander("Or paste emails directly (comma or newline separated)"):
-            default_deadline_months = st.number_input(
-                "Default deadline (months)",
-                min_value=1,
-                max_value=36,
-                value=6,
-                step=1,
-                key="preregistered_default_deadline_months",
-            )
-            default_expiry_message = st.text_input(
-                "Custom expiry message (optional)",
-                key="preregistered_default_expiry_message",
-                placeholder="Your training period has ended. Contact your teacher for extension.",
-            )
-            manual_emails = st.text_area(
-                "Paste emails here",
-                placeholder="alice@example.com, bob@company.org\nor one email per line",
-                key="manual_emails_input",
-                label_visibility="collapsed",
-            )
-            if manual_emails:
-                if st.button("📥 Import Emails", key="import_manual_emails"):
-                    emails = re.split(r"[,\n]+", manual_emails)
-                    emails = [e.strip().lower() for e in emails if e.strip()]
-
-                    user_manager = get_user_manager()
-                    imported = 0
-                    skipped = 0
-                    invalid = []
-
-                    for email in emails:
-                        if re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
-                            if user_manager.add_preregistered_email(
-                                email,
-                                requesting_user_id=current_user.get("id"),
-                                deadline_months=default_deadline_months,
-                                expiry_message=default_expiry_message,
-                            ):
-                                imported += 1
-                            else:
-                                skipped += 1
+                for email in emails:
+                    if re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+                        if user_manager.add_preregistered_email(
+                            email,
+                            requesting_user_id=current_user.get("id"),
+                            deadline_months=(dur or 365) // 30,
+                        ):
+                            imported += 1
                         else:
-                            invalid.append(email)
+                            skipped += 1
+                    else:
+                        invalid.append(email)
 
-                    if imported:
-                        st.success(
-                            f"✅ Imported: {imported} | Skipped duplicates: {skipped}"
-                        )
-                    if invalid:
-                        st.warning(f"Invalid emails: {', '.join(invalid)}")
-                    if imported:
-                        st.rerun()
-
-    with manage_tab:
-        preregistered = user_manager.get_preregistered_emails()
-        st.caption(f"Total pre-registered emails: {len(preregistered)}")
-
-        if preregistered:
-            if st.button(
-                "🗑️ Remove All", key="remove_all_preregistered_emails", type="primary"
-            ):
-                user_manager.delete_all_preregistered_emails()
-                st.rerun()
-
-        if not preregistered:
-            st.info("No pre-registered emails yet. Use the Import CSV tab to add some.")
-            return
-
-        for row in preregistered:
-            cols = st.columns([3, 2, 2, 2, 1])
-            cols[0].write(row["email"])
-            cols[1].caption(row.get("added_at") or "-")
-            cols[2].caption(row.get("added_by") or "-")
-            cols[3].caption(
-                f"{row.get('deadline_months', 6)} month(s) "
-                f"{'- ' + row.get('expiry_message') if row.get('expiry_message') else ''}"
-            )
-            if cols[4].button(
-                "🗑️ Remove", key=f"remove_preregistered_{row['email']}", width="stretch"
-            ):
-                if user_manager.delete_preregistered_email(row["email"]):
+                if imported:
+                    st.success(f"✅ Added: {imported} | Skipped: {skipped}")
+                if invalid:
+                    st.warning(f"Invalid: {', '.join(invalid)}")
+                if imported:
                     st.rerun()
-                else:
-                    st.error("❌ Failed to remove email")
 
+    # Result feedback
+    if "prereg_csv_result" in st.session_state:
+        result = st.session_state.prereg_csv_result
+        del st.session_state.prereg_csv_result
+        st.success(f"Imported: {result['imported']} | Skipped: {result['skipped']}")
+        if result.get("invalid"):
+            st.warning("Invalid emails: " + ", ".join(result["invalid"]))
+
+    st.divider()
+
+    # Manage list
+    st.markdown("**📋 Current Pre-registered Emails**")
+    preregistered = user_manager.get_preregistered_emails()
+    st.caption(f"Total: {len(preregistered)}")
+
+    if preregistered:
+        if st.button("🗑️ Remove All", key="remove_all_preregistered_emails", type="primary"):
+            user_manager.delete_all_preregistered_emails()
+            st.rerun()
+
+    if not preregistered:
+        st.info("No pre-registered emails yet.")
+        return
+
+    for row in preregistered:
+        cols = st.columns([4, 2, 2, 1])
+        cols[0].write(row["email"])
+        cols[1].caption(row.get("added_at") or "-")
+        cols[2].caption(row.get("added_by") or "-")
+        if st.button("🗑️", key=f"remove_prereg_{row['email']}", width="stretch"):
+            user_manager.delete_preregistered_email(row["email"])
+            st.rerun()
 
 def _render_activity_logs_tab(
     current_user: Dict[str, Any], user_role: str, user_id: str
@@ -685,11 +674,40 @@ def _render_waitlist_lists_tab(
     col_create, col_refresh = st.columns([4, 1])
     with col_create:
         new_list_name = st.text_input("Create new waitlist list", placeholder="e.g., Spring 2026 Cohort")
+
+        # Master selector
+        all_users = user_manager.get_all_users() if hasattr(user_manager, "get_all_users") else []
+        masters = [u for u in all_users if u.get("role") == "master"]
+        master_options = [""] + [m["id"] for m in masters]
+        master_names = {m["id"]: m["name"] for m in masters}
+        selected_master = st.selectbox(
+            "Default master for this list",
+            options=master_options,
+            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+            key="new_waitlist_master",
+        )
+
+        # Duration
+        default_dur = st.number_input(
+            "Default expiration (days, 0 = unlimited)",
+            min_value=0,
+            value=365,
+            step=30,
+            key="new_waitlist_duration",
+        )
+
     with col_refresh:
         st.write("")
         if st.button("➕ Create", key="create_waitlist_list", type="primary"):
             if new_list_name and new_list_name.strip():
-                list_id = user_manager.create_waitlist_list(new_list_name.strip(), current_user["id"])
+                master_id = selected_master if selected_master else None
+                dur = default_dur if default_dur > 0 else None
+                list_id = user_manager.create_waitlist_list(
+                    new_list_name.strip(),
+                    current_user["id"],
+                    default_master_id=master_id,
+                    default_duration_days=dur,
+                )
                 if list_id:
                     st.success(f"✅ Created list: {new_list_name}")
                     st.rerun()
@@ -720,6 +738,12 @@ def _render_waitlist_lists_tab(
         with cols[2]:
             entry_count = len(user_manager.get_waitlist_entries(list_id=wl_list["id"]))
             st.caption(f"{entry_count} entries")
+            if wl_list.get("default_duration_days"):
+                st.caption(f"⏱️ {wl_list['default_duration_days']} days")
+            if wl_list.get("default_master_id"):
+                m = user_manager.get_user(wl_list["default_master_id"])
+                if m:
+                    st.caption(f"⭐ {m['name']}")
         with cols[3]:
             if st.button("🗑️ Delete", key=f"delete_waitlist_list_{wl_list['id']}", width="stretch"):
                 if user_manager.delete_waitlist_list(wl_list["id"]):
@@ -730,29 +754,56 @@ def _render_waitlist_lists_tab(
 
     st.divider()
 
-    st.write("**Rename a list:**")
-    rename_ids = [""] + list([l["id"] for l in lists])
-    rename_names = {l["id"]: l["name"] for l in lists}
-    selected_rename = st.selectbox(
-        "Select list to rename",
-        options=rename_ids,
-        format_func=lambda x: rename_names.get(x, "Select a list...") if x else "Select a list...",
-        key="rename_waitlist_list_select",
+    # Edit existing list defaults
+    st.write("**Edit list defaults (master + expiration duration):**")
+    edit_ids = [""] + [wl["id"] for wl in lists]
+    edit_names = {wl["id"]: wl["name"] for wl in lists}
+    selected_edit = st.selectbox(
+        "Select list to edit",
+        options=edit_ids,
+        format_func=lambda x: edit_names.get(x, "Select a list...") if x else "Select a list...",
+        key="edit_waitlist_list_select",
     )
 
-    if selected_rename:
-        current_name = rename_names.get(selected_rename, "")
-        new_name = st.text_input("New name", value=current_name, key="new_waitlist_name")
-        if st.button("✏️ Rename", key="rename_waitlist_list_btn"):
-            if new_name and new_name.strip() and new_name != current_name:
-                if user_manager.rename_waitlist_list(selected_rename, new_name.strip()):
-                    st.success(f"✅ Renamed to: {new_name}")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to rename (name may already exist)")
-            else:
-                st.warning("Please enter a different name")
+    if selected_edit:
+        current_list = next((wl for wl in lists if wl["id"] == selected_edit), None)
+        current_master = current_list.get("default_master_id") if current_list else None
+        current_duration = current_list.get("default_duration_days") or 365
 
+        # Masters for selection
+        all_users = user_manager.get_all_users() if hasattr(user_manager, "get_all_users") else []
+        masters = [u for u in all_users if u.get("role") == "master"]
+        master_options = [""] + [m["id"] for m in masters]
+        master_names = {m["id"]: m["name"] for m in masters}
+
+        new_master = st.selectbox(
+            "Default master",
+            options=master_options,
+            index=master_options.index(current_master) if current_master in master_options else 0,
+            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+            key="edit_waitlist_master",
+        )
+
+        new_duration = st.number_input(
+            "Expiration duration (days, 0 = unlimited)",
+            min_value=0,
+            value=current_duration,
+            step=30,
+            key="edit_waitlist_duration",
+        )
+
+        if st.button("💾 Save defaults", key="save_waitlist_defaults"):
+            master_val = new_master if new_master else None
+            dur_val = new_duration if new_duration > 0 else None
+            if user_manager.update_waitlist_list_defaults(
+                selected_edit,
+                default_master_id=master_val,
+                default_duration_days=dur_val,
+            ):
+                st.success("✅ Defaults updated")
+                st.rerun()
+            else:
+                st.error("❌ Failed to update")
 
 def _render_waitlist_entries_tab(
     current_user: Dict[str, Any],
@@ -1145,7 +1196,7 @@ def _render_delete_confirmation(current_user: Dict[str, Any], production_mode: b
     ):
         user_to_delete = st.session_state.user_to_delete
 
-        st.warning(f"⚠️ **Confirm Deletion**")
+        st.warning("⚠️ **Confirm Deletion**")
         st.error(f"Are you sure you want to delete user **{user_to_delete['name']}**?")
 
         if user_to_delete.get("role") == UserRole.MASTER.value:
@@ -1495,7 +1546,6 @@ def _render_edit_form_fields(
             key=f"has_exp_{user_to_edit['id']}",
         )
         if has_exp:
-            from datetime import date as _date_type
             new_exp_date = st.date_input(
                 "Expires on",
                 value=exp_val or datetime.today().date(),
@@ -2142,6 +2192,15 @@ def _render_user_row(
             if user.get("parent_name"):
                 st.caption(f"👨‍👦 Parent: {user['parent_name']}")
 
+            # Show expiration
+            exp = user.get("expiration_date")
+            if exp:
+                try:
+                    exp_date = exp[:10] if isinstance(exp, str) else exp.strftime("%Y-%m-%d")
+                    st.caption(f"📅 Expires: {exp_date}")
+                except Exception:
+                    st.caption(f"📅 Expires: {exp}")
+
         with cols[1]:
             # Status and role
             status = "🟢 Active" if user.get("is_active", True) else "🔴 Inactive"
@@ -2337,6 +2396,7 @@ def _render_email_templates_tab():
             "Per Pre-registered Email",
             "Waitlist Approval",
             "Per Payhip Product Welcome",
+            "Expiration Notification",
         ],
         horizontal=True,
     )
@@ -2348,8 +2408,10 @@ def _render_email_templates_tab():
         st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`")
     elif scope_choice == "Waitlist Approval":
         st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`, `{waitlist_name}`")
-    else:  # Per Payhip Product Welcome
+    elif scope_choice == "Per Payhip Product Welcome":
         st.caption("**Allowed placeholders:** `{reset_code}`, `{app_url}`, `{login_url}`, `{name}`, `{email}`, `{product_name}`")
+    else:  # Expiration Notification
+        st.caption("**Allowed placeholders:** `{name}`, `{master_name}`, `{expiry_date}`, `{login_url}`, `{app_url}`")
 
     if scope_choice.startswith("Global"):
         render_email_template_editor(scope="global", scope_id=None, template_key="welcome")
@@ -2362,12 +2424,12 @@ def _render_email_templates_tab():
             return
         emails = [p["email"] for p in prereg]
         selected = st.selectbox("Pre-registered email", options=emails)
-        render_email_template_editor(scope="preregistered", scope_id=selected, template_key="welcome")
+        render_email_template_editor(scope="preregistered", scope_id=selected, template_key="preregistration_welcome")
 
     elif scope_choice == "Waitlist Approval":
         render_email_template_editor(scope="waitlist", scope_id=None, template_key="approved")
 
-    else:  # Per Payhip Product Welcome
+    elif scope_choice == "Per Payhip Product Welcome":
         try:
             from modules.payhip_webhook.payhip_webhook import get_payhip_webhook_manager
             pm = get_payhip_webhook_manager()
@@ -2383,9 +2445,12 @@ def _render_email_templates_tab():
                     (f"{a['product_name'] or pk} ({a['master_name']})" for a in assocs if a["product_key"] == pk), pk
                 ),
             )
-            render_email_template_editor(scope="payhip", scope_id=selected_pk, template_key="welcome")
+            render_email_template_editor(scope="payhip", scope_id=selected_pk, template_key="payhip_welcome")
         except Exception as e:
             st.error(f"Could not load Payhip associations: {e}")
+
+    else:  # Expiration Notification
+        render_email_template_editor(scope="global", scope_id=None, template_key="expiration")
 
 
 def inject_ui_admin_tab():

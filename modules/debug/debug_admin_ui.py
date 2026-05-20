@@ -13,7 +13,6 @@ This module adds a "Debug" tab to the admin interface.
 
 import streamlit as st
 import asyncio
-import json
 from typing import Optional
 
 from st_shared.cached import get_config, get_user_manager
@@ -22,8 +21,7 @@ from modules.debug.debug_profiler_tab import show_profiler_tab
 
 
 # Try to import ui_registry for injection point debugging
-from core.logging import log, set_log_module_level
-from st_shared.cached import _
+from core.logging import log
 try:
     from shared.ui_registry import UIRegistry
     UI_REGISTRY_AVAILABLE = True
@@ -645,7 +643,7 @@ def show_ui_registry_tab():
                 # In reality, modules would define functions like inject_ui_test_custom_point
                 st.info(f"To create injection point '{test_point_name}', a module should define a function named:")
                 st.code(f"def inject_ui_{test_point_name}():")
-                st.code(f"    # Implementation")
+                st.code("    # Implementation")
                 st.code(f"    return 'Content for {test_point_name}'")
 
         with col_test2:
@@ -1032,12 +1030,14 @@ def show_mailerlite_tab():
                 "preregistered_welcome",
                 "waitlist_approval",
                 "payhip_welcome",
+                "expiration",
             ],
             format_func=lambda x: {
                 "global_welcome": "Global Welcome / Activation",
                 "preregistered_welcome": "Per Pre-registered Email Welcome",
                 "waitlist_approval": "Waitlist Approval",
                 "payhip_welcome": "Per Payhip Product Welcome",
+                "expiration": "Expiration Notification",
             }[x],
             key="ms_template_type",
         )
@@ -1083,6 +1083,11 @@ def show_mailerlite_tab():
                 scope_id = st.text_input("Product key (manual)", key="ms_payhip_manual")
             scope = "payhip"
 
+        elif template_type == "expiration":
+            scope = "global"
+            scope_id = None
+            st.caption("Uses the global Expiration template")
+
         # Target recipient
         if ms_users:
             ms_user_opts = {u["id"]: f"{u['name']} <{u['email']}>" for u in ms_users}
@@ -1111,6 +1116,39 @@ def show_mailerlite_tab():
                     reset_code=fake_code,
                     lang=user_lang,
                     waitlist_email=scope_id,
+                )
+            elif template_type == "expiration":
+                from shared.transactional_email import send_expiration_email
+                success, msg = send_expiration_email(
+                    to_email=target_email,
+                    to_name=target_name,
+                    master_name="Test Master",
+                    expiry_date="2026-06-01",
+                    lang=user_lang,
+                )
+            elif template_type == "payhip_welcome":
+                from shared.transactional_email import send_welcome_reset_code
+                success, msg = send_welcome_reset_code(
+                    to_email=target_email,
+                    to_name=target_name,
+                    reset_code=fake_code,
+                    lang=user_lang,
+                    scope=scope,
+                    scope_id=scope_id,
+                    template_key="payhip_welcome",
+                    expiry_date="2026-12-31",
+                )
+            elif template_type == "preregistered_welcome":
+                from shared.transactional_email import send_welcome_reset_code
+                success, msg = send_welcome_reset_code(
+                    to_email=target_email,
+                    to_name=target_name,
+                    reset_code=fake_code,
+                    lang=user_lang,
+                    scope=scope,
+                    scope_id=scope_id,
+                    template_key="preregistration_welcome",
+                    expiry_date="2026-12-31",
                 )
             else:
                 from shared.transactional_email import send_welcome_reset_code

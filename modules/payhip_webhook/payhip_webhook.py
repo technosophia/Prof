@@ -2,14 +2,12 @@
 
 import hashlib
 import hmac
-import json
 import os
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, Boolean, Table, MetaData, inspect, text
-from sqlalchemy.orm import Session
 
 from core.database import get_db_manager
 from core.logging import log
@@ -97,8 +95,8 @@ class PayhipWebhookManager:
 
         with db.get_session() as session:
             existing = session.execute(
-                text(f"SELECT id FROM master_product_keys "
-                f"WHERE product_key = :product_key"),
+                text("SELECT id FROM master_product_keys "
+                "WHERE product_key = :product_key"),
                 {"product_key": product_key}
             ).fetchone()
 
@@ -131,7 +129,7 @@ class PayhipWebhookManager:
         db = get_db_manager()
         with db.get_session() as session:
             result = session.execute(
-                text(f"DELETE FROM master_product_keys WHERE id = :id"),
+                text("DELETE FROM master_product_keys WHERE id = :id"),
                 {"id": association_id}
             )
             session.commit()
@@ -231,7 +229,7 @@ class PayhipWebhookManager:
         """Get webhook logs with optional filters."""
         db = get_db_manager()
 
-        query = f"SELECT * FROM payhip_webhook_log WHERE 1=1"
+        query = "SELECT * FROM payhip_webhook_log WHERE 1=1"
         params = {}
 
         if status:
@@ -271,9 +269,9 @@ class PayhipWebhookManager:
         db = get_db_manager()
         with db.get_session() as session:
             result = session.execute(
-                text(f"SELECT id, user_id, status FROM payhip_webhook_log "
-                f"WHERE customer_email = :email AND product_key = :product_key AND event_type = :event_type AND status = 'success' "
-                f"ORDER BY created_at DESC LIMIT 1"),
+                text("SELECT id, user_id, status FROM payhip_webhook_log "
+                "WHERE customer_email = :email AND product_key = :product_key AND event_type = :event_type AND status = 'success' "
+                "ORDER BY created_at DESC LIMIT 1"),
                 {"email": customer_email, "product_key": product_key, "event_type": event_type}
             ).fetchone()
 
@@ -469,7 +467,8 @@ class PayhipWebhookManager:
 
         if _transactional_configured():
             ms_ok, ms_msg = send_welcome_reset_code(
-                email, name, reset_code, lang=lang, scope="payhip", scope_id=product_key
+                email, name, reset_code, lang=lang, scope="payhip", scope_id=product_key,
+                template_key="payhip_welcome"
             )
             result["brevo"] = {"ok": ms_ok, "msg": ms_msg}
             if ms_ok:

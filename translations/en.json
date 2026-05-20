@@ -87,5 +87,43 @@
   "waitlist_approve_selected": "Approve selected",
   "waitlist_reject_selected": "Reject selected",
   "waitlist_entries_count": "{count} entry(s) found",
-  "waitlist_no_entries": "No waitlist entries found."
+   "waitlist_no_entries": "No waitlist entries found.",
+
+   "waitlist_approval_email": {
+     "subject": "Your account has been approved",
+     "greeting": "Hello {name},",
+     "body": "Your registration has been approved.",
+     "expiry_info": "Your access is valid until {expiry_date}.",
+     "waitlist_label": "Waitlist",
+     "reset_code_label": "Your activation code",
+     "instruction": "Please go to {login_url} to set your password."
+   },
+
+   "expiration_email": {
+     "subject": "Your access has expired",
+     "greeting": "Hello {name},",
+     "body": "Your enrollment with {master_name} has expired on {expiry_date}.",
+     "instruction": "Please contact your coach to renew your access.",
+     "sign_off": "Best regards"
+   },
+
+   "preregistration_welcome_email": {
+     "subject": "Welcome — activate your pre-registered account",
+     "greeting": "Hello {name},",
+     "body": "Your pre-registered account has been created.",
+     "expiry_info": "Your access is valid until {expiry_date}.",
+     "reset_code_label": "Your activation code",
+     "instruction": "Go to {login_url} to set your password. This code is valid for 7 days.",
+     "sign_off": "Welcome aboard!"
+   },
+
+   "payhip_welcome_email": {
+     "subject": "Welcome — activate your account",
+     "greeting": "Hello {name},",
+     "body": "Your account has been created via Payhip purchase.",
+     "expiry_info": "Your access is valid until {expiry_date}.",
+     "reset_code_label": "Your activation code",
+     "instruction": "Go to {login_url} to set your password. This code is valid for 7 days.",
+     "sign_off": "Welcome aboard!"
+   }
 }

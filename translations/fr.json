@@ -87,5 +87,43 @@
   "waitlist_approve_selected": "Approuver la sélection",
   "waitlist_reject_selected": "Rejeter la sélection",
   "waitlist_entries_count": "{count} entrée(s) trouvée(s)",
-  "waitlist_no_entries": "Aucune entrée trouvée."
+   "waitlist_no_entries": "Aucune entrée trouvée.",
+
+   "waitlist_approval_email": {
+     "subject": "Votre compte a été approuvé",
+     "greeting": "Bonjour {name},",
+     "body": "Votre inscription a été approuvée.",
+     "expiry_info": "Votre accès est valable jusqu'au {expiry_date}.",
+     "waitlist_label": "Liste d'attente",
+     "reset_code_label": "Votre code d'activation",
+     "instruction": "Veuillez vous rendre sur {login_url} pour définir votre mot de passe."
+   },
+
+   "expiration_email": {
+     "subject": "Votre accès a expiré",
+     "greeting": "Bonjour {name},",
+     "body": "Votre inscription avec {master_name} a expiré le {expiry_date}.",
+     "instruction": "Veuillez contacter votre coach pour renouveler votre accès.",
+     "sign_off": "Cordialement"
+   },
+
+   "preregistration_welcome_email": {
+     "subject": "Bienvenue — activez votre compte pré-enregistré",
+     "greeting": "Bonjour {name},",
+     "body": "Votre compte pré-enregistré a été créé.",
+     "expiry_info": "Votre accès est valable jusqu'au {expiry_date}.",
+     "reset_code_label": "Votre code d'activation",
+     "instruction": "Rendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.",
+     "sign_off": "Bienvenue à bord !"
+   },
+
+   "payhip_welcome_email": {
+     "subject": "Bienvenue — activez votre compte",
+     "greeting": "Bonjour {name},",
+     "body": "Votre compte a été créé suite à votre achat Payhip.",
+     "expiry_info": "Votre accès est valable jusqu'au {expiry_date}.",
+     "reset_code_label": "Votre code d'activation",
+     "instruction": "Rendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.",
+     "sign_off": "Bienvenue à bord !"
+   }
 }
