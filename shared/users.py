@@ -359,9 +359,9 @@ class UserManager:
                 if user.is_active:
                     user.is_active = False
                     session.commit()
-                return self._deadline_message_prefix(
-                    (user.user_metadata or {}).get("expiry_message")
-                )
+                meta = user.user_metadata or {}
+                msg = meta.get("expiry_message") or meta.get("preregistered_expiry_message")
+                return self._deadline_message_prefix(msg)
             return None
 
         # Legacy: fall back to metadata-based deadline
@@ -1367,18 +1367,19 @@ class UserManager:
                     )
                     # Notify student about expiration (respect user language)
                     try:
-                        from shared.transactional_email import send_expiration_email
+                        from shared.transactional_email import send_transactional_email
                         master_name = ""
                         if user.parent_id:
                             m = self.get_user(user.parent_id)
                             master_name = m.get("name", "") if m else ""
                         user_lang = (user.profile or {}).get("language", "en") if isinstance(user.profile, dict) else "en"
-                        send_expiration_email(
-                            to_email=user.email or "",
-                            to_name=user.name,
+                        send_transactional_email(
+                            "expiration",
+                            user.email or "",
+                            user.name,
+                            lang=user_lang,
                             master_name=master_name,
                             expiry_date=datetime.utcnow().strftime("%Y-%m-%d"),
-                            lang=user_lang,
                         )
                     except Exception:
                         pass
@@ -1420,18 +1421,19 @@ class UserManager:
                 )
                 # Notify student (respect user language)
                 try:
-                    from shared.transactional_email import send_expiration_email
+                    from shared.transactional_email import send_transactional_email
                     master_name = ""
                     if user.parent_id:
                         m = self.get_user(user.parent_id)
                         master_name = m.get("name", "") if m else ""
                     user_lang = (user.profile or {}).get("language", "en") if isinstance(user.profile, dict) else "en"
-                    send_expiration_email(
-                        to_email=user.email or "",
-                        to_name=user.name,
+                    send_transactional_email(
+                        "expiration",
+                        user.email or "",
+                        user.name,
+                        lang=user_lang,
                         master_name=master_name,
                         expiry_date=datetime.utcnow().strftime("%Y-%m-%d"),
-                        lang=user_lang,
                     )
                 except Exception:
                     pass
@@ -1464,17 +1466,17 @@ class UserManager:
 
                     # Also notify the student (respect user language)
                     try:
-                        from shared.transactional_email import send_expiration_email
+                        from shared.transactional_email import send_transactional_email
                         master = self.get_user(expired_master_id)
                         master_name = master.get("name", "") if master else ""
-                        expiry_str = datetime.utcnow().strftime("%Y-%m-%d")
                         user_lang = (user.profile or {}).get("language", "en") if isinstance(user.profile, dict) else "en"
-                        send_expiration_email(
-                            to_email=user.email or "",
-                            to_name=user.name,
-                            master_name=master_name,
-                            expiry_date=expiry_str,
+                        send_transactional_email(
+                            "expiration",
+                            user.email or "",
+                            user.name,
                             lang=user_lang,
+                            master_name=master_name,
+                            expiry_date=datetime.utcnow().strftime("%Y-%m-%d"),
                         )
                     except Exception:
                         pass
@@ -1541,15 +1543,16 @@ class UserManager:
                 else:
                     reset_code = user.reset_code
                 if reset_code and user.email:
-                    from shared.transactional_email import send_waitlist_approved_email, _is_configured as _tx_configured
+                    from shared.transactional_email import send_transactional_email, _is_configured as _tx_configured
                     if _tx_configured():
-                        send_waitlist_approved_email(
+                        send_transactional_email(
+                            "approved",
                             user.email,
                             user.name or user.id,
-                            reset_code,
+                            scope="waitlist",
                             lang=(user.profile or {}).get("language", "en"),
-                            waitlist_email=None,  # global waitlist approval template
-                            waitlist_name=user.email,  # or a custom name if you want
+                            reset_code=reset_code,
+                            waitlist_name=user.email,
                         )
             return True
 
@@ -2811,8 +2814,16 @@ class UserManager:
                 else None,
             )
             if role == UserRole.NORMAL.value:
-                days = self.get_default_activation_duration_days() or 365
-                user.expiration_date = datetime.utcnow() + timedelta(days=days)
+                deadline_iso = (user_metadata or {}).get("preregistered_deadline_at")
+                if deadline_iso:
+                    try:
+                        user.expiration_date = dt_datetime.fromisoformat(deadline_iso)
+                    except ValueError:
+                        days = self.get_default_activation_duration_days() or 365
+                        user.expiration_date = datetime.utcnow() + timedelta(days=days)
+                else:
+                    days = self.get_default_activation_duration_days() or 365
+                    user.expiration_date = datetime.utcnow() + timedelta(days=days)
             session.add(user)
 
         log("info", f"Created user: {name.strip()} (ID: {user_id}, Role: {role})")

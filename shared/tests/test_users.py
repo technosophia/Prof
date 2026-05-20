@@ -219,15 +219,16 @@ class TestUserManager:
 
         # Mock get_user_by_name to return None (username doesn't exist)
         with patch.object(self.user_manager, 'get_user_by_name', return_value=None):
-            with patch('uuid.uuid4', return_value=mock_uuid):
-                with patch('shared.users.log'):
-                    user_id, reset_code = self.user_manager.create_user(
-                        name="New User",
-                        role=UserRole.NORMAL.value,
-                        email="new@example.com",
-                        parent_id="master1",
-                        profile={"language": "fr"}
-                    )
+            with patch.object(self.user_manager, 'get_default_activation_duration_days', return_value=None):
+                with patch('uuid.uuid4', return_value=mock_uuid):
+                    with patch('shared.users.log'):
+                        user_id, reset_code = self.user_manager.create_user(
+                            name="New User",
+                            role=UserRole.NORMAL.value,
+                            email="new@example.com",
+                            parent_id="master1",
+                            profile={"language": "fr"}
+                        )
 
         # Verify the user ID matches
         assert user_id == test_uuid_str

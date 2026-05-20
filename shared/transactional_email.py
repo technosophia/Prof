@@ -5,11 +5,16 @@ Configure:
   BREVO_FROM      — verified sender address, e.g. noreply@yourdomain.com
   BREVO_FROM_NAME — optional sender display name
   APP_URL         — public URL of your app, e.g. https://app.yourdomain.com
+
+Default templates are defined in translations/{en,fr}.json under the
+``email_tpl`` key (one entry per template with subject / body_text / body_html).
+Admins may override any template per scope via the email_templates DB table.
 """
 
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from typing import Any, Dict, Optional
 
 import requests
@@ -29,24 +34,33 @@ def _get_translations() -> dict:
     return _translations_cache
 
 
-def _t(key: str, lang: str, **kwargs) -> str:
-    """Translate key in the given language, substituting any {placeholders}."""
+def _t(key: str, lang: str) -> str:
     from core.translate import get_translation
-    text = get_translation(key, lang, _get_translations())
-    if kwargs:
-        try:
-            text = text.format(**kwargs)
-        except KeyError:
-            pass
-    return text
+    return get_translation(key, lang, _get_translations())
 
 
 def _is_configured() -> bool:
     return bool(os.getenv("BREVO_API_KEY")) and bool(os.getenv("BREVO_FROM"))
 
 
+def _headers() -> dict:
+    return {
+        "api-key": os.getenv("BREVO_API_KEY", ""),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def _render(template: str, **ctx: Any) -> str:
+    """Render a template string, silently replacing unknown placeholders with ''."""
+    try:
+        return template.format_map(defaultdict(str, ctx))
+    except Exception:
+        return template
+
+
 # ---------------------------------------------------------------------------
-# Editable email template support
+# DB template store
 # ---------------------------------------------------------------------------
 
 
@@ -82,7 +96,6 @@ def _ensure_email_templates_table() -> None:
 def _get_template_from_db(
     scope: str, scope_id: Optional[str], template_key: str, lang: str
 ) -> Optional[Dict[str, Any]]:
-    """Return stored template or None."""
     from core.database import get_db_manager
     from sqlalchemy import text
 
@@ -108,250 +121,44 @@ def _get_template_from_db(
     return None
 
 
-def _render_template(template: str, **kwargs: Any) -> str:
-    """Safely render a template string with provided kwargs."""
-    try:
-        return template.format(**kwargs)
-    except KeyError:
-        return template  # fall back to raw template if placeholder missing
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str, str]:
+    """Return the built-in default for a template key, read from translations.
+
+    Keys live at ``email_tpl.<template_key>.{subject,body_text,body_html}``.
+    """
+    prefix = f"email_tpl.{template_key}"
+    return {
+        "subject": _t(f"{prefix}.subject", lang),
+        "body_text": _t(f"{prefix}.body_text", lang),
+        "body_html": _t(f"{prefix}.body_html", lang),
+    }
 
 
 def get_email_template(
     scope: str, scope_id: Optional[str], template_key: str, lang: str = "en"
 ) -> Dict[str, str]:
-    """
-    Return the best matching template for the given scope/scope_id/key/lang.
+    """Return the best matching template for the given scope / key / lang.
 
-    Falls back in this order:
-      1. exact (scope, scope_id, key, lang)
-      2. (scope, NULL, key, lang)                — global default for that scope
-      3. translation key (welcome_email.* etc.)
+    Lookup order:
+      1. DB exact  (scope, scope_id, key, lang)
+      2. DB scope-level default  (scope, NULL, key, lang)
+      3. Translation default  (email_tpl.<key>.*)
     """
-    # 1. exact match
     tpl = _get_template_from_db(scope, scope_id, template_key, lang)
-    if tpl:
+    if tpl and (tpl.get("body_text") or tpl.get("body_html")):
         return tpl
 
-    # 2. scope-level default (scope_id = None)
-    tpl = _get_template_from_db(scope, None, template_key, lang)
-    if tpl:
-        return tpl
+    if scope_id is not None:
+        tpl = _get_template_from_db(scope, None, template_key, lang)
+        if tpl and (tpl.get("body_text") or tpl.get("body_html")):
+            return tpl
 
-    # 3. fallback to translation system (current behaviour)
-    def t(key: str, **kw: Any) -> str:
-        return _t(f"{template_key}.{key}", lang, **kw)
-
-    subject = t("subject")
-    body_intro = t("account_created") if template_key == "welcome_email" else ""
-    # For simplicity we keep the existing translation fallback for now
-    return {
-        "subject": subject,
-        "body_text": "",
-        "body_html": "",
-    }
-
-
-def get_default_email_template(template_key: str, lang: str = "en") -> Dict[str, str]:
-    """
-    Return the original default template content (as it was before editable templates).
-    Used by "Reset to default".
-
-    IMPORTANT: The returned templates must contain placeholders {app_url} and {login_url}
-    (not resolved URLs) so that the current APP_URL is used at send time.
-    """
-    if template_key in ("welcome", "welcome_email"):
-        def t(key: str, **kwargs: Any) -> str:
-            return _t(f"welcome_email.{key}", lang, **kwargs)
-
-        subject = t("subject")
-        greeting = t("greeting")
-        body_intro = t("account_created")
-        lbl_code = t("reset_code_label")
-        # Use placeholder instead of resolved URL
-        instruction = t("instruction", login_url="{login_url}")
-        validity = t("validity")
-        cta = t("cta_button")
-        sign_off = t("sign_off")
-
-        text_body = (
-            f"{greeting}\n\n{body_intro}\n\n{lbl_code}: {{reset_code}}\n\n"
-            f"{instruction}\n\n{validity}\n\n{sign_off}"
-        )
-
-        html_body = f"""\
-<p>{greeting}</p>
-<p>{body_intro}</p>
-<table style="border-collapse:collapse;margin:16px 0">
-  <tr>
-    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
-    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{{reset_code}}</code></td>
-  </tr>
-</table>
-<p>
-  <a href="{{login_url}}"
-     style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
-    {cta}
-  </a>
-</p>
-<p style="color:#666;font-size:0.9em">
-  {instruction}<br>
-  <strong>{validity}</strong>
-</p>
-"""
-        return {
-            "subject": subject,
-            "body_text": text_body,
-            "body_html": html_body,
-        }
-
-    if template_key == "preregistration_welcome":
-        def t(key: str, **kwargs: Any) -> str:
-            return _t(f"preregistration_welcome_email.{key}", lang, **kwargs)
-
-        subject = t("subject")
-        greeting = t("greeting")
-        body = t("body")
-        expiry_info = t("expiry_info", expiry_date="{expiry_date}")
-        lbl_code = t("reset_code_label")
-        instruction = t("instruction", login_url="{login_url}")
-
-        text_body = (
-            f"{greeting}\n\n{body}\n\n{expiry_info}\n\n"
-            f"{lbl_code}: {{reset_code}}\n\n{instruction}"
-        )
-
-        html_body = f"""\
-<p>{greeting}</p>
-<p>{body}</p>
-<p>{expiry_info}</p>
-<table style="border-collapse:collapse;margin:16px 0">
-  <tr>
-    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
-    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{{reset_code}}</code></td>
-  </tr>
-</table>
-<p>
-  <a href="{{login_url}}"
-     style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
-    Activate my account
-  </a>
-</p>
-<p style="color:#666;font-size:0.9em">{instruction}</p>
-"""
-        return {
-            "subject": subject,
-            "body_text": text_body,
-            "body_html": html_body,
-        }
-
-    if template_key == "payhip_welcome":
-        def t(key: str, **kwargs: Any) -> str:
-            return _t(f"payhip_welcome_email.{key}", lang, **kwargs)
-
-        subject = t("subject")
-        greeting = t("greeting")
-        body = t("body")
-        expiry_info = t("expiry_info", expiry_date="{expiry_date}")
-        lbl_code = t("reset_code_label")
-        instruction = t("instruction", login_url="{login_url}")
-
-        text_body = (
-            f"{greeting}\n\n{body}\n\n{expiry_info}\n\n"
-            f"{lbl_code}: {{reset_code}}\n\n{instruction}"
-        )
-
-        html_body = f"""\
-<p>{greeting}</p>
-<p>{body}</p>
-<p>{expiry_info}</p>
-<table style="border-collapse:collapse;margin:16px 0">
-  <tr>
-    <td style="padding:4px 12px 4px 0;color:#666">{lbl_code}</td>
-    <td><code style="background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em">{{reset_code}}</code></td>
-  </tr>
-</table>
-<p>
-  <a href="{{login_url}}"
-     style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
-    Activate my account
-  </a>
-</p>
-<p style="color:#666;font-size:0.9em">{instruction}</p>
-"""
-        return {
-            "subject": subject,
-            "body_text": text_body,
-            "body_html": html_body,
-        }
-
-    if template_key == "approved":
-        def t(key: str, **kwargs: Any) -> str:
-            return _t(f"waitlist_approval_email.{key}", lang, **kwargs)
-
-        subject = t("subject")
-        greeting = t("greeting")
-        body = t("body")
-        expiry_info = t("expiry_info", expiry_date="{expiry_date}")
-        waitlist_label = t("waitlist_label")
-        reset_code_label = t("reset_code_label")
-        instruction = t("instruction", login_url="{login_url}")
-
-        text_body = (
-            f"{greeting}\n\n{body}\n{expiry_info}\n\n"
-            f"{waitlist_label}: {{waitlist_name}}\n"
-            f"{reset_code_label}: {{reset_code}}\n\n{instruction}"
-        )
-
-        html_body = f"""\
-<p>{greeting}</p>
-<p>{body}</p>
-<p>{expiry_info}</p>
-<p><strong>{waitlist_label}:</strong> {{waitlist_name}}</p>
-<p>{reset_code_label}: <code>{{reset_code}}</code></p>
-<p><a href="{{login_url}}">Set your password</a></p>
-"""
-        return {
-            "subject": subject,
-            "body_text": text_body,
-            "body_html": html_body,
-        }
-
-    if template_key == "expiration":
-        def t(key: str, **kwargs: Any) -> str:
-            return _t(f"expiration_email.{key}", lang, **kwargs)
-
-        subject = t("subject")
-        greeting = t("greeting")
-        body = t("body")
-        instruction = t("instruction")
-        sign_off = t("sign_off")
-
-        text_body = (
-            f"{greeting}\n\n{body}\n\n{instruction}\n\n{sign_off}"
-        )
-
-        html_body = f"""\
-<p>{greeting}</p>
-<p>{body}</p>
-<p>{instruction}</p>
-<p>{sign_off}</p>
-"""
-        return {
-            "subject": subject,
-            "body_text": text_body,
-            "body_html": html_body,
-        }
-
-    # Fallback empty
-    return {"subject": "", "body_text": "", "body_html": ""}
-
-
-def _headers() -> dict:
-    return {
-        "api-key": os.getenv("BREVO_API_KEY", ""),
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    return get_default_email_template(template_key, lang)
 
 
 def send_email(
@@ -361,10 +168,7 @@ def send_email(
     text_body: str,
     html_body: Optional[str] = None,
 ) -> tuple[bool, str]:
-    """Send a transactional email via Brevo.
-
-    Returns (success, message).
-    """
+    """Send a transactional email via Brevo. Returns (success, message)."""
     if not _is_configured():
         return False, "BREVO_API_KEY or BREVO_FROM not configured"
 
@@ -393,79 +197,34 @@ def send_email(
 
     if resp.status_code == 201:
         return True, "Email queued successfully"
-    else:
-        msg = f"Brevo returned {resp.status_code}: {resp.text[:300]}"
-        log("error", f"[transactional_email] {msg}")
-        return False, msg
+    msg = f"Brevo returned {resp.status_code}: {resp.text[:300]}"
+    log("error", f"[transactional_email] {msg}")
+    return False, msg
 
 
-def send_welcome_reset_code(
+def send_transactional_email(
+    template_key: str,
     to_email: str,
     to_name: str,
-    reset_code: str,
-    lang: str = "en",
     scope: str = "global",
     scope_id: Optional[str] = None,
-    template_key: str = "welcome",
-    expiry_date: str = "",
+    lang: str = "en",
+    **ctx: Any,
 ) -> tuple[bool, str]:
-    """
-    Send welcome/activation email with reset code.
+    """Resolve a template, render placeholders, and send via Brevo.
 
-    If a custom template exists for the given scope/scope_id it is used;
-    otherwise falls back to the default translation-based template.
-    The template_key can be "welcome", "preregistration_welcome", or "payhip_welcome".
+    Always-available context variables: {name}, {app_url}, {login_url}.
+    Pass additional variables (reset_code, expiry_date, master_name, …) as
+    keyword arguments; unknown placeholders in the template render as ''.
     """
     app_url = os.getenv("APP_URL", "").rstrip("/")
-    login_url = f"{app_url}/login" if app_url else "the login page"
+    login_url = f"{app_url}/login" if app_url else ""
+    full_ctx = {"name": to_name, "app_url": app_url, "login_url": login_url, **ctx}
 
     tpl = get_email_template(scope, scope_id, template_key, lang)
-
-    if tpl.get("body_text") or tpl.get("body_html"):
-        # Custom template found
-        subject = _render_template(tpl.get("subject", ""), reset_code=reset_code, app_url=app_url, name=to_name)
-        text_body = _render_template(
-            tpl.get("body_text", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            login_url=login_url,
-            name=to_name,
-            expiry_date=expiry_date,
-        )
-        html_body = _render_template(
-            tpl.get("body_html", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            login_url=login_url,
-            name=to_name,
-            expiry_date=expiry_date,
-        ) or None
-    else:
-        # Use the new default template system (supports payhip_welcome, preregistration_welcome, approved, expiration, etc.)
-        default_tpl = get_default_email_template(template_key, lang)
-
-        subject = _render_template(
-            default_tpl.get("subject", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            name=to_name,
-        )
-        text_body = _render_template(
-            default_tpl.get("body_text", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            login_url=login_url,
-            name=to_name,
-            expiry_date=expiry_date,
-        )
-        html_body = _render_template(
-            default_tpl.get("body_html", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            login_url=login_url,
-            name=to_name,
-            expiry_date=expiry_date,
-        ) or None
+    subject = _render(tpl.get("subject", ""), **full_ctx)
+    text_body = _render(tpl.get("body_text", ""), **full_ctx)
+    html_body = _render(tpl.get("body_html", ""), **full_ctx) or None
 
     return send_email(
         to_email=to_email,
@@ -499,119 +258,6 @@ enrollment has expired.</p>
     return send_email(
         to_email=master_email,
         to_name=master_name,
-        subject=subject,
-        text_body=text_body,
-        html_body=html_body,
-    )
-
-
-def send_expiration_email(
-    to_email: str,
-    to_name: str,
-    master_name: str = "",
-    expiry_date: str = "",
-    lang: str = "en",
-) -> tuple[bool, str]:
-    """Send expiration notification to the student using the 'expiration' template."""
-    app_url = os.getenv("APP_URL", "").rstrip("/")
-    login_url = f"{app_url}/login" if app_url else "the login page"
-
-    tpl = get_email_template("global", None, "expiration", lang)
-    subject = tpl.get("subject") or "Your access has expired"
-    text_body = tpl.get("body_text") or "Your access has expired."
-    html_body = tpl.get("body_html") or text_body
-
-    # Replace placeholders
-    replacements = {
-        "{name}": to_name or "",
-        "{master_name}": master_name or "your coach",
-        "{expiry_date}": expiry_date or "recently",
-        "{login_url}": login_url,
-        "{app_url}": app_url,
-    }
-
-    for ph, val in replacements.items():
-        text_body = text_body.replace(ph, val)
-        html_body = html_body.replace(ph, val)
-
-    return send_email(
-        to_email=to_email,
-        to_name=to_name,
-        subject=subject,
-        text_body=text_body,
-        html_body=html_body,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Waitlist approval email (new requirement)
-# ---------------------------------------------------------------------------
-
-
-def send_waitlist_approved_email(
-    to_email: str,
-    to_name: str,
-    reset_code: str,
-    lang: str = "en",
-    waitlist_email: Optional[str] = None,
-    waitlist_name: Optional[str] = None,
-) -> tuple[bool, str]:
-    """
-    Send the approval email when a waiting-list user is approved.
-
-    Uses per-waitlist template if one exists (scope='waitlist', scope_id=waitlist_email).
-    """
-    app_url = os.getenv("APP_URL", "").rstrip("/")
-    login_url = f"{app_url}/login" if app_url else "the login page"
-
-    # Use provided waitlist_name, fallback to waitlist_email or empty
-    effective_waitlist_name = waitlist_name or waitlist_email or ""
-
-    tpl = get_email_template("waitlist", waitlist_email, "approved", lang)
-
-    if tpl.get("body_text") or tpl.get("body_html"):
-        subject = _render_template(
-            tpl.get("subject", ""), 
-            reset_code=reset_code, 
-            app_url=app_url, 
-            name=to_name,
-            waitlist_name=effective_waitlist_name,
-        )
-        text_body = _render_template(
-            tpl.get("body_text", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            login_url=login_url,
-            name=to_name,
-            waitlist_name=effective_waitlist_name,
-        )
-        html_body = _render_template(
-            tpl.get("body_html", ""),
-            reset_code=reset_code,
-            app_url=app_url,
-            login_url=login_url,
-            name=to_name,
-            waitlist_name=effective_waitlist_name,
-        ) or None
-    else:
-        # Minimal default if no custom template
-        subject = "Your account has been approved"
-        text_body = (
-            f"Hello {to_name},\n\n"
-            f"Your registration has been approved.\n"
-            f"Reset code: {reset_code}\n\n"
-            f"Please go to {login_url} to set your password."
-        )
-        html_body = f"""\
-<p>Hello {to_name},</p>
-<p>Your registration has been approved.</p>
-<p>Reset code: <code>{reset_code}</code></p>
-<p><a href="{login_url}">Set your password</a></p>
-"""
-
-    return send_email(
-        to_email=to_email,
-        to_name=to_name,
         subject=subject,
         text_body=text_body,
         html_body=html_body,

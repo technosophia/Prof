@@ -89,41 +89,31 @@
   "waitlist_entries_count": "{count} entry(s) found",
    "waitlist_no_entries": "No waitlist entries found.",
 
-   "waitlist_approval_email": {
-     "subject": "Your account has been approved",
-     "greeting": "Hello {name},",
-     "body": "Your registration has been approved.",
-     "expiry_info": "Your access is valid until {expiry_date}.",
-     "waitlist_label": "Waitlist",
-     "reset_code_label": "Your activation code",
-     "instruction": "Please go to {login_url} to set your password."
-   },
-
-   "expiration_email": {
-     "subject": "Your access has expired",
-     "greeting": "Hello {name},",
-     "body": "Your enrollment with {master_name} has expired on {expiry_date}.",
-     "instruction": "Please contact your coach to renew your access.",
-     "sign_off": "Best regards"
-   },
-
-   "preregistration_welcome_email": {
-     "subject": "Welcome — activate your pre-registered account",
-     "greeting": "Hello {name},",
-     "body": "Your pre-registered account has been created.",
-     "expiry_info": "Your access is valid until {expiry_date}.",
-     "reset_code_label": "Your activation code",
-     "instruction": "Go to {login_url} to set your password. This code is valid for 7 days.",
-     "sign_off": "Welcome aboard!"
-   },
-
-   "payhip_welcome_email": {
-     "subject": "Welcome — activate your account",
-     "greeting": "Hello {name},",
-     "body": "Your account has been created via Payhip purchase.",
-     "expiry_info": "Your access is valid until {expiry_date}.",
-     "reset_code_label": "Your activation code",
-     "instruction": "Go to {login_url} to set your password. This code is valid for 7 days.",
-     "sign_off": "Welcome aboard!"
-   }
+  "email_tpl": {
+    "welcome": {
+      "subject": "Welcome — activate your account",
+      "body_text": "Hello {name},\n\nYour account has been created.\n\nYour activation code: {reset_code}\n\nGo to {login_url} to set your password. This code is valid for 7 days.\n\nWelcome aboard!",
+      "body_html": "<p>Hello {name},</p>\n<p>Your account has been created.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Activation code</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Activate my account</a></p>\n<p style=\"color:#666;font-size:0.9em\">Go to {login_url} to set your password.<br><strong>This code is valid for 7 days.</strong></p>"
+    },
+    "preregistration_welcome": {
+      "subject": "Welcome — activate your pre-registered account",
+      "body_text": "Hello {name},\n\nYour pre-registered account has been created. Your access is valid until {expiry_date}.\n\nYour activation code: {reset_code}\n\nGo to {login_url} to set your password. This code is valid for 7 days.\n\nPlease note: your AI conversations are visible to your coach, who may consult them to better support your progress.",
+      "body_html": "<p>Hello {name},</p>\n<p>Your pre-registered account has been created.</p>\n<p>Your access is valid until <strong>{expiry_date}</strong>.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Activation code</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Activate my account</a></p>\n<p style=\"color:#666;font-size:0.9em\">This code is valid for 7 days.</p>\n<p style=\"color:#888;font-size:0.85em;font-style:italic\">Please note: your AI conversations are visible to your coach, who may consult them to better support your progress.</p>"
+    },
+    "payhip_welcome": {
+      "subject": "Welcome — activate your account",
+      "body_text": "Hello {name},\n\nYour account has been created following your Payhip purchase. Your access is valid until {expiry_date}.\n\nYour activation code: {reset_code}\n\nGo to {login_url} to set your password. This code is valid for 7 days.\n\nWelcome aboard!\n\nPlease note: your AI conversations are visible to your coach, who may consult them to better support your progress.",
+      "body_html": "<p>Hello {name},</p>\n<p>Your account has been created following your Payhip purchase.</p>\n<p>Your access is valid until <strong>{expiry_date}</strong>.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Activation code</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Activate my account</a></p>\n<p style=\"color:#666;font-size:0.9em\">This code is valid for 7 days.</p>\n<p style=\"color:#888;font-size:0.85em;font-style:italic\">Please note: your AI conversations are visible to your coach, who may consult them to better support your progress.</p>"
+    },
+    "approved": {
+      "subject": "Your account has been approved",
+      "body_text": "Hello {name},\n\nYour registration has been approved. Your access is valid until {expiry_date}.\n\nYour activation code: {reset_code}\n\nGo to {login_url} to set your password.\n\nPlease note: your AI conversations are visible to your coach, who may consult them to better support your progress.",
+      "body_html": "<p>Hello {name},</p>\n<p>Your registration has been approved.</p>\n<p>Your access is valid until <strong>{expiry_date}</strong>.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Activation code</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Set my password</a></p>\n<p style=\"color:#888;font-size:0.85em;font-style:italic\">Please note: your AI conversations are visible to your coach, who may consult them to better support your progress.</p>"
+    },
+    "expiration": {
+      "subject": "Your access has expired",
+      "body_text": "Hello {name},\n\nYour enrollment with {master_name} has expired on {expiry_date}.\n\nPlease contact your coach to renew your access.\n\nBest regards",
+      "body_html": "<p>Hello {name},</p>\n<p>Your enrollment with <strong>{master_name}</strong> has expired on {expiry_date}.</p>\n<p>Please contact your coach to renew your access.</p>\n<p style=\"color:#888;font-size:0.9em\">This is an automated notification.</p>"
+    }
+  }
 }

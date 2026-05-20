@@ -496,9 +496,9 @@ async def request_activation(payload: RequestActivationRequest):
     if not reset_code:
         return {"status": "sent"}
 
-    from shared.transactional_email import send_welcome_reset_code, _is_configured
+    from shared.transactional_email import send_transactional_email, _is_configured
     if _is_configured():
-        send_welcome_reset_code(email, user.get("name") or user_id, reset_code, lang=lang)
+        send_transactional_email("welcome", email, user.get("name") or user_id, lang=lang, reset_code=reset_code)
 
     return {"status": "sent"}
 

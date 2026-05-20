@@ -351,7 +351,8 @@ def test_waitlist_endpoint_creates_pending_user():
     assert any(e["email"] == "waitlist@example.com" for e in entries)
 
 
-def test_deadline_retroactive_for_existing_registered_users():
+def test_deadline_set_at_creation_for_normal_users():
+    """Normal users created via the UI get expiration_date set at creation time."""
     get_user_manager().create_user(
         name="test_reg_retroactive",
         role="normal",
@@ -370,6 +371,4 @@ def test_deadline_retroactive_for_existing_registered_users():
     assert login.status_code == 200
 
     user = get_user_manager().get_user("test_reg_retroactive")
-    metadata = user.get("metadata", {})
-    assert metadata.get("preregistered_deadline_at")
-    assert metadata.get("preregistered_deadline_months") == 6
+    assert user.get("expiration_date") is not None

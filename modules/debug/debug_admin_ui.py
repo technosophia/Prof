@@ -1107,59 +1107,30 @@ def show_mailerlite_tab():
 
         if st.button("Send test email", key="ms_send_test"):
             fake_code = "TEST-RESET-CODE-1234"
+            from shared.transactional_email import send_transactional_email
 
-            if template_type == "waitlist_approval":
-                from shared.transactional_email import send_waitlist_approved_email
-                success, msg = send_waitlist_approved_email(
-                    to_email=target_email,
-                    to_name=target_name,
-                    reset_code=fake_code,
-                    lang=user_lang,
-                    waitlist_email=scope_id,
-                )
-            elif template_type == "expiration":
-                from shared.transactional_email import send_expiration_email
-                success, msg = send_expiration_email(
-                    to_email=target_email,
-                    to_name=target_name,
-                    master_name="Test Master",
-                    expiry_date="2026-06-01",
-                    lang=user_lang,
-                )
-            elif template_type == "payhip_welcome":
-                from shared.transactional_email import send_welcome_reset_code
-                success, msg = send_welcome_reset_code(
-                    to_email=target_email,
-                    to_name=target_name,
-                    reset_code=fake_code,
-                    lang=user_lang,
-                    scope=scope,
-                    scope_id=scope_id,
-                    template_key="payhip_welcome",
-                    expiry_date="2026-12-31",
-                )
-            elif template_type == "preregistered_welcome":
-                from shared.transactional_email import send_welcome_reset_code
-                success, msg = send_welcome_reset_code(
-                    to_email=target_email,
-                    to_name=target_name,
-                    reset_code=fake_code,
-                    lang=user_lang,
-                    scope=scope,
-                    scope_id=scope_id,
-                    template_key="preregistration_welcome",
-                    expiry_date="2026-12-31",
-                )
-            else:
-                from shared.transactional_email import send_welcome_reset_code
-                success, msg = send_welcome_reset_code(
-                    to_email=target_email,
-                    to_name=target_name,
-                    reset_code=fake_code,
-                    lang=user_lang,
-                    scope=scope,
-                    scope_id=scope_id,
-                )
+            tpl_key_map = {
+                "global_welcome": "welcome",
+                "preregistered_welcome": "preregistration_welcome",
+                "waitlist_approval": "approved",
+                "payhip_welcome": "payhip_welcome",
+                "expiration": "expiration",
+            }
+            tpl_key = tpl_key_map[template_type]
+
+            extra: dict = {"reset_code": fake_code, "expiry_date": "2026-12-31"}
+            if template_type == "expiration":
+                extra = {"master_name": "Test Master", "expiry_date": "2026-06-01"}
+
+            success, msg = send_transactional_email(
+                tpl_key,
+                target_email,
+                target_name,
+                scope=scope,
+                scope_id=scope_id,
+                lang=user_lang,
+                **extra,
+            )
 
             if success:
                 st.success(

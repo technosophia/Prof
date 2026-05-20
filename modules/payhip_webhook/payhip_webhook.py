@@ -416,7 +416,11 @@ class PayhipWebhookManager:
 
                 email_diag = None
                 if reset_code:
-                    email_diag = self._send_welcome_email(customer_email, user_name, reset_code, master_lang, product_key=product_key)
+                    expiry_date_str = expires_at.strftime("%Y-%m-%d") if expires_at else ""
+                    email_diag = self._send_welcome_email(
+                        customer_email, user_name, reset_code, master_lang,
+                        product_key=product_key, expiry_date=expiry_date_str,
+                    )
 
                 log("info", f"Created user {user_id} ({user_name}) for {customer_email} under master {master_id}")
                 action = f"User created (id={user_id}, username={user_name})"
@@ -454,21 +458,25 @@ class PayhipWebhookManager:
             return 500, f"Error processing webhook: {error_msg}"
 
     def _send_welcome_email(
-        self, email: str, name: str, reset_code: str, lang: str = "en", product_key: Optional[str] = None
+        self, email: str, name: str, reset_code: str, lang: str = "en",
+        product_key: Optional[str] = None, expiry_date: str = "",
     ) -> dict:
         """Send welcome email with reset code via Brevo transactional email.
 
         Uses per-product template when product_key is provided.
         Returns a diagnostic dict summarising what was sent.
         """
-        from shared.transactional_email import send_welcome_reset_code, _is_configured as _transactional_configured
+        from shared.transactional_email import send_transactional_email, _is_configured as _transactional_configured
 
         result: dict = {"email": email, "brevo": None}
 
         if _transactional_configured():
-            ms_ok, ms_msg = send_welcome_reset_code(
-                email, name, reset_code, lang=lang, scope="payhip", scope_id=product_key,
-                template_key="payhip_welcome"
+            ms_ok, ms_msg = send_transactional_email(
+                "payhip_welcome", email, name,
+                scope="payhip", scope_id=product_key,
+                lang=lang,
+                reset_code=reset_code,
+                expiry_date=expiry_date,
             )
             result["brevo"] = {"ok": ms_ok, "msg": ms_msg}
             if ms_ok:

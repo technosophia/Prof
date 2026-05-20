@@ -89,41 +89,31 @@
   "waitlist_entries_count": "{count} entrée(s) trouvée(s)",
    "waitlist_no_entries": "Aucune entrée trouvée.",
 
-   "waitlist_approval_email": {
-     "subject": "Votre compte a été approuvé",
-     "greeting": "Bonjour {name},",
-     "body": "Votre inscription a été approuvée.",
-     "expiry_info": "Votre accès est valable jusqu'au {expiry_date}.",
-     "waitlist_label": "Liste d'attente",
-     "reset_code_label": "Votre code d'activation",
-     "instruction": "Veuillez vous rendre sur {login_url} pour définir votre mot de passe."
-   },
-
-   "expiration_email": {
-     "subject": "Votre accès a expiré",
-     "greeting": "Bonjour {name},",
-     "body": "Votre inscription avec {master_name} a expiré le {expiry_date}.",
-     "instruction": "Veuillez contacter votre coach pour renouveler votre accès.",
-     "sign_off": "Cordialement"
-   },
-
-   "preregistration_welcome_email": {
-     "subject": "Bienvenue — activez votre compte pré-enregistré",
-     "greeting": "Bonjour {name},",
-     "body": "Votre compte pré-enregistré a été créé.",
-     "expiry_info": "Votre accès est valable jusqu'au {expiry_date}.",
-     "reset_code_label": "Votre code d'activation",
-     "instruction": "Rendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.",
-     "sign_off": "Bienvenue à bord !"
-   },
-
-   "payhip_welcome_email": {
-     "subject": "Bienvenue — activez votre compte",
-     "greeting": "Bonjour {name},",
-     "body": "Votre compte a été créé suite à votre achat Payhip.",
-     "expiry_info": "Votre accès est valable jusqu'au {expiry_date}.",
-     "reset_code_label": "Votre code d'activation",
-     "instruction": "Rendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.",
-     "sign_off": "Bienvenue à bord !"
-   }
+  "email_tpl": {
+    "welcome": {
+      "subject": "Bienvenue — activez votre compte",
+      "body_text": "Bonjour {name},\n\nVotre compte a été créé.\n\nVotre code d'activation : {reset_code}\n\nRendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.\n\nBienvenue à bord !",
+      "body_html": "<p>Bonjour {name},</p>\n<p>Votre compte a été créé.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Code d'activation</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Activer mon compte</a></p>\n<p style=\"color:#666;font-size:0.9em\">Rendez-vous sur {login_url} pour définir votre mot de passe.<br><strong>Ce code est valable 7 jours.</strong></p>"
+    },
+    "preregistration_welcome": {
+      "subject": "Bienvenue — activez votre compte pré-enregistré",
+      "body_text": "Bonjour {name},\n\nVotre compte pré-enregistré a été créé. Votre accès est valable jusqu'au {expiry_date}.\n\nVotre code d'activation : {reset_code}\n\nRendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.\n\nÀ noter : vos échanges avec l'IA sont accessibles à votre responsable, qui peut les consulter pour mieux vous accompagner.",
+      "body_html": "<p>Bonjour {name},</p>\n<p>Votre compte pré-enregistré a été créé.</p>\n<p>Votre accès est valable jusqu'au <strong>{expiry_date}</strong>.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Code d'activation</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Activer mon compte</a></p>\n<p style=\"color:#666;font-size:0.9em\">Ce code est valable 7 jours.</p>\n<p style=\"color:#888;font-size:0.85em;font-style:italic\">À noter : vos échanges avec l'IA sont accessibles à votre responsable, qui peut les consulter pour mieux vous accompagner.</p>"
+    },
+    "payhip_welcome": {
+      "subject": "Bienvenue — activez votre compte",
+      "body_text": "Bonjour {name},\n\nVotre compte a été créé suite à votre achat Payhip. Votre accès est valable jusqu'au {expiry_date}.\n\nVotre code d'activation : {reset_code}\n\nRendez-vous sur {login_url} pour définir votre mot de passe. Ce code est valable 7 jours.\n\nBienvenue à bord !\n\nÀ noter : vos échanges avec l'IA sont accessibles à votre responsable, qui peut les consulter pour mieux vous accompagner.",
+      "body_html": "<p>Bonjour {name},</p>\n<p>Votre compte a été créé suite à votre achat Payhip.</p>\n<p>Votre accès est valable jusqu'au <strong>{expiry_date}</strong>.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Code d'activation</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Activer mon compte</a></p>\n<p style=\"color:#666;font-size:0.9em\">Ce code est valable 7 jours.</p>\n<p style=\"color:#888;font-size:0.85em;font-style:italic\">À noter : vos échanges avec l'IA sont accessibles à votre responsable, qui peut les consulter pour mieux vous accompagner.</p>"
+    },
+    "approved": {
+      "subject": "Votre compte a été approuvé",
+      "body_text": "Bonjour {name},\n\nVotre inscription a été approuvée. Votre accès est valable jusqu'au {expiry_date}.\n\nVotre code d'activation : {reset_code}\n\nRendez-vous sur {login_url} pour définir votre mot de passe.\n\nÀ noter : vos échanges avec l'IA sont accessibles à votre responsable, qui peut les consulter pour mieux vous accompagner.",
+      "body_html": "<p>Bonjour {name},</p>\n<p>Votre inscription a été approuvée.</p>\n<p>Votre accès est valable jusqu'au <strong>{expiry_date}</strong>.</p>\n<table style=\"border-collapse:collapse;margin:16px 0\"><tr><td style=\"padding:4px 12px 4px 0;color:#666\">Code d'activation</td><td><code style=\"background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:1.1em\">{reset_code}</code></td></tr></table>\n<p><a href=\"{login_url}\" style=\"background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block\">Définir mon mot de passe</a></p>\n<p style=\"color:#888;font-size:0.85em;font-style:italic\">À noter : vos échanges avec l'IA sont accessibles à votre responsable, qui peut les consulter pour mieux vous accompagner.</p>"
+    },
+    "expiration": {
+      "subject": "Votre accès a expiré",
+      "body_text": "Bonjour {name},\n\nVotre inscription avec {master_name} a expiré le {expiry_date}.\n\nVeuillez contacter votre responsable pour renouveler votre accès.\n\nCordialement",
+      "body_html": "<p>Bonjour {name},</p>\n<p>Votre inscription avec <strong>{master_name}</strong> a expiré le {expiry_date}.</p>\n<p>Veuillez contacter votre responsable pour renouveler votre accès.</p>\n<p style=\"color:#888;font-size:0.9em\">Ceci est une notification automatique.</p>"
+    }
+  }
 }
