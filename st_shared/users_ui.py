@@ -474,19 +474,8 @@ def render_user_form():
         st.error("You must be logged in to create users.")
         return
 
-    can_create = False
-    if production_mode:
-        # In production mode, only admin and master can create users
-        can_create = current_user and current_user.get("role") in [
-            UserRole.ADMIN.value,
-            UserRole.MASTER.value,
-        ]
-    else:
-        # In local/test mode, anyone with admin/master role can create
-        can_create = current_user and current_user.get("role") in [
-            UserRole.ADMIN.value,
-            UserRole.MASTER.value,
-        ]
+    from st_shared.permissions import can_access_admin_tab
+    can_create = can_access_admin_tab(current_user)
 
     if not can_create and not st.session_state.edit_user_id:
         st.error("You don't have permission to create users.")

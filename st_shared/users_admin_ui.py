@@ -16,6 +16,16 @@ import json
 import re
 from shared.common import UserRole
 from st_shared.cached import get_config, get_user_manager
+from st_shared.permissions import (
+    can_access_admin_tab,
+    can_see_admin_only_tabs,
+    can_delete_user,
+    can_generate_reset_code,
+    can_remove_enrollment,
+    get_enrollable_masters,
+    can_edit_role_and_id,
+    can_toggle_active_status,
+)
 
 
 from core.logging import log
@@ -30,12 +40,6 @@ def is_production_mode() -> bool:
     # Production mode = not local and not test
     return prod_mode and not test_mode
 
-
-def can_access_admin_tab(user: Dict[str, Any]) -> bool:
-    """Check if user can access the admin tab."""
-    if not user:
-        return False
-    return user.get("role") in [UserRole.ADMIN.value, UserRole.MASTER.value]
 
 
 def show_users_admin_content():
@@ -108,7 +112,7 @@ def show_users_admin_content():
         if production_mode:
             tab_names.append("📊 Activity Logs")
 
-        if user_role == UserRole.ADMIN.value:
+        if can_see_admin_only_tabs(current_user):
             tab_names.append("📦 Import/Export")
             tab_names.append("✉️ Email Templates")
 
@@ -139,7 +143,7 @@ def show_users_admin_content():
             with tabs[activity_logs_idx]:
                 _render_activity_logs_tab(current_user, user_role, user_id)
 
-        if user_role == UserRole.ADMIN.value:
+        if can_see_admin_only_tabs(current_user):
             import_export_idx = activity_logs_idx + 1 if production_mode else 6
             if len(tabs) > import_export_idx:
                 with tabs[import_export_idx]:
@@ -1124,18 +1128,7 @@ def _generate_reset_code(target_user_id: str, requesting_user_id: str):
 
 def _render_delete_button(current_user: Dict[str, Any], user: Dict[str, Any]):
     """Render delete button with appropriate permissions and tooltip."""
-    can_delete = True
-    tooltip = f"Delete user {user['name']}"
-
-    if user["id"] == current_user["id"]:
-        can_delete = False
-        tooltip = "Cannot delete yourself"
-    elif (
-        user["role"] == UserRole.ADMIN.value
-        and current_user["role"] != UserRole.ADMIN.value
-    ):
-        can_delete = False
-        tooltip = "Only admin can delete other admins"
+    can_delete, tooltip = can_delete_user(current_user, user)
 
     st.button(
         "❌ Delete",
@@ -1368,7 +1361,6 @@ def _render_enrollment_management(
     """Show and manage the list of masters a normal user is enrolled with."""
     st.subheader("🎓 Enrolled Masters")
     user_manager = get_user_manager()
-    caller_role = current_user.get("role")
 
     enrollments = user_manager.get_user_enrollments(user_to_edit["id"])
     enrolled_master_ids = {e["master_id"] for e in enrollments}
@@ -1385,11 +1377,7 @@ def _render_enrollment_management(
                 elif e["master_id"] == user_to_edit.get("parent_id"):
                     st.caption("Primary master (parent_id)")
             with cols[1]:
-                can_remove = caller_role == UserRole.ADMIN.value or (
-                    caller_role == UserRole.MASTER.value
-                    and e["master_id"] == current_user["id"]
-                )
-                if can_remove and st.button(
+                if can_remove_enrollment(current_user, e) and st.button(
                     "Remove",
                     key=f"remove_enroll_{user_to_edit['id']}_{e['master_id']}",
                     width="stretch",
@@ -1400,16 +1388,7 @@ def _render_enrollment_management(
     st.divider()
 
     all_masters = user_manager.get_users_by_role(UserRole.MASTER.value)
-    if caller_role == UserRole.ADMIN.value:
-        available = [m for m in all_masters if m["id"] not in enrolled_master_ids]
-    elif caller_role == UserRole.MASTER.value:
-        available = [
-            m
-            for m in all_masters
-            if m["id"] == current_user["id"] and m["id"] not in enrolled_master_ids
-        ]
-    else:
-        available = []
+    available = get_enrollable_masters(current_user, all_masters, enrolled_master_ids)
 
     if available:
         col_sel, col_btn = st.columns([3, 1])
@@ -1430,7 +1409,7 @@ def _render_enrollment_management(
             ):
                 user_manager.add_enrollment(user_to_edit["id"], selected)
                 st.rerun()
-    elif caller_role in [UserRole.ADMIN.value, UserRole.MASTER.value]:
+    elif can_access_admin_tab(current_user):
         st.caption("All masters are already enrolled.")
 
 
@@ -1449,7 +1428,7 @@ def _render_edit_form_fields(
 
     # User ID editing - only for admin users and not editing self
     new_id = None
-    if current_user["role"] == UserRole.ADMIN.value and not is_editing_self:
+    if can_edit_role_and_id(current_user, user_to_edit):
         st.subheader("User ID")
         st.caption(
             "⚠️ Changing user ID is a sensitive operation that may affect relationships"
@@ -1493,7 +1472,7 @@ def _render_edit_form_fields(
                 st.warning("Passwords do not match")
 
     # Role editing (only for admin editing other users)
-    if current_user["role"] == UserRole.ADMIN.value and not is_editing_self:
+    if can_edit_role_and_id(current_user, user_to_edit):
         edit_role, selected_parent = _render_role_parent_edit_fields(
             user_to_edit, edit_role
         )
@@ -1514,10 +1493,7 @@ def _render_edit_form_fields(
     )
 
     # Status toggle (admin/master only, can't deactivate self)
-    if (
-        current_user["role"] in [UserRole.ADMIN.value, UserRole.MASTER.value]
-        and not is_editing_self
-    ):
+    if can_toggle_active_status(current_user, user_to_edit):
         edit_active = st.toggle(
             "Active",
             value=user_to_edit.get("is_active", True),
@@ -1529,10 +1505,7 @@ def _render_edit_form_fields(
     # Expiration date (admin/master only, can't edit self)
     edit_expiration_date = user_to_edit.get("expiration_date")
     resolved_exp = "unchanged"
-    if (
-        current_user["role"] in [UserRole.ADMIN.value, UserRole.MASTER.value]
-        and not is_editing_self
-    ):
+    if can_toggle_active_status(current_user, user_to_edit):
         st.subheader("Expiration Date")
         exp_val = None
         if edit_expiration_date:
@@ -2308,18 +2281,7 @@ def _render_user_row(
                     st.error("❌ Failed to reject user")
             else:
                 # Check if current user can generate reset code for this user
-                can_generate_reset = False
-
-                # Admin can generate for anyone
-                if user_role == UserRole.ADMIN.value:
-                    can_generate_reset = True
-                # Master can generate for their children (normal users)
-                elif user_role == UserRole.MASTER.value:
-                    # Master can generate for normal users that are their children
-                    if user.get("role") == UserRole.NORMAL.value:
-                        # Check if this user is a child of the current master
-                        if user.get("parent_id") == current_user["id"]:
-                            can_generate_reset = True
+                can_generate_reset = can_generate_reset_code(current_user, user)
 
                 if can_generate_reset:
                     from core.database import get_db_manager
