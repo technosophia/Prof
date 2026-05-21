@@ -7,6 +7,7 @@ import streamlit as st
 from typing import Any, Dict, Optional
 from shared.common import UserRole
 from st_shared.cached import get_user_manager
+from st_shared.user_form_actions import _handle_user_update, _handle_user_create
 
 from st_shared.cached import get_config
 from shared.common import set_current_llm, get_current_llm_info
@@ -484,66 +485,16 @@ def _handle_user_form_submit(
     if role == UserRole.NORMAL.value and not selected_parent:
         st.error("Normal users must have a parent!")
         return
-
     try:
-        profile = {"language": language}
-        user_manager = get_user_manager()
-
         if is_editing:
-            updates: Dict[str, Any] = {
-                "name": name.strip(),
-                "email": email.strip() if email else None,
-                "profile": profile,
-            }
-            if current_user and current_user.get("role") == UserRole.ADMIN.value:
-                updates["role"] = role
-                updates["parent_id"] = selected_parent if role == UserRole.NORMAL.value else None
-
-            if production_mode and current_user.get("role") == UserRole.ADMIN.value:
-                if st.session_state.get(f"reset_pw_check_{edit_user_id}", False):
-                    new_pw = st.session_state.get(f"admin_new_pw_{edit_user_id}", "")
-                    confirm_new_pw = st.session_state.get(f"admin_confirm_pw_{edit_user_id}", "")
-                    if new_pw and new_pw == confirm_new_pw:
-                        user_manager.set_password(edit_user_id, new_pw, current_user["id"])
-                        st.success("✅ Password updated!")
-
-            success = user_manager.update_user(
-                edit_user_id,
-                current_user["id"] if current_user else None,
-                **updates,
-            )
-            if success:
-                st.success("✅ Profile updated successfully!")
-                if current_user and current_user["id"] == edit_user_id:
-                    updated_user = user_manager.get_user(edit_user_id)
-                    if updated_user:
-                        st.session_state.current_user = updated_user
-                        apply_user_preferences(updated_user)
-                log("info", f"User profile updated: {name}")
-            else:
-                st.error("❌ Failed to update user (permission denied)")
+            success, updated_user = _handle_user_update(name, email, role, selected_parent, language, edit_user_id, current_user, production_mode)
+            if not success:
+                return
+            if updated_user:
+                st.session_state.current_user = updated_user
+                apply_user_preferences(updated_user)
         else:
-            password_to_set = set_password if production_mode and set_password else None
-            user_id, reset_code = user_manager.create_user(
-                name=name.strip(),
-                role=role,
-                email=email.strip() if email else None,
-                parent_id=selected_parent or None,
-                profile=profile,
-                password=password_to_set,
-                requesting_user_id=current_user["id"] if current_user else None,
-            )
-            if production_mode and not password_to_set and reset_code:
-                st.success("✅ User created successfully!")
-                try:
-                    with open(f"reset_code_{name.strip()}.txt", "w") as f:
-                        f.write(reset_code)
-                    st.info(f"🔑 A reset code has been saved to reset_code_{name.strip()}.txt")
-                except Exception as e:
-                    st.error(f"Failed to save reset code: {e}")
-                st.warning("⚠️ This code will expire in 24 hours.")
-            log("info", f"User created: {name} (ID: {user_id})")
-
+            _handle_user_create(name, email, role, selected_parent, language, set_password, current_user, production_mode)
         st.session_state.show_user_form = False
         st.session_state.edit_user_id = None
         st.rerun()
