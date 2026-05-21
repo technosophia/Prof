@@ -809,6 +809,143 @@ def _render_waitlist_lists_tab(
             else:
                 st.error("❌ Failed to update")
 
+def _render_waitlist_entry_row(
+    entry: Dict[str, Any],
+    lists: List[Dict[str, Any]],
+    masters: List[Dict[str, Any]],
+    user_manager,
+    default_days,
+) -> None:
+    list_name = next((l["name"] for l in lists if l["id"] == entry["list_id"]), entry["list_id"])
+    master_name = ""
+    if entry.get("master_id"):
+        master = user_manager.get_user(entry["master_id"])
+        if master:
+            master_name = master["name"]
+
+    entry_duration = 0
+    cols = st.columns([3, 2, 1, 1, 1, 1])
+    with cols[0]:
+        st.write(f"**{entry['email']}**")
+        st.caption(f"List: {list_name}")
+        if entry.get("created_at"):
+            st.caption(f"Added: {entry['created_at'][:10]}")
+    with cols[1]:
+        status_color = "🟡" if entry["status"] == "pending" else "🟢" if entry["status"] == "approved" else "🔴"
+        st.caption(f"Status: {status_color} {entry['status']}")
+        if master_name:
+            st.caption(f"Master: {master_name}")
+        if entry.get("user_id"):
+            st.caption(f"User: {entry['user_id']}")
+    with cols[2]:
+        if entry["status"] == "pending":
+            entry_duration = st.number_input(
+                "Days",
+                min_value=0,
+                max_value=3650,
+                value=default_days or 0,
+                step=1,
+                key=f"entry_duration_{entry['id']}",
+                help="Activation duration in days (0 = no expiration)",
+                label_visibility="collapsed",
+            )
+    with cols[3]:
+        if entry["status"] == "pending":
+            if st.button("✅ Approve", key=f"approve_entry_{entry['id']}", width="stretch"):
+                if masters:
+                    default_master_id = masters[0]["id"]
+                    days_to_use = int(entry_duration) if entry_duration > 0 else None
+                    created_user = user_manager.approve_waitlist_entry(entry["id"], default_master_id, duration_days=days_to_use)
+                    if created_user:
+                        st.success(f"✅ Approved! User: {created_user}")
+                        st.rerun()
+                    st.error("❌ Failed to approve")
+                else:
+                    st.error("No masters available")
+    with cols[4]:
+        if entry["status"] == "pending":
+            if st.button("❌ Reject", key=f"reject_entry_{entry['id']}", width="stretch"):
+                if user_manager.reject_waitlist_entry(entry["id"]):
+                    st.warning("❌ Rejected")
+                    st.rerun()
+                st.error("❌ Failed to reject")
+    with cols[5]:
+        if entry["status"] == "rejected":
+            if st.button("🔄 Re-approve", key=f"reetry_entry_{entry['id']}", width="stretch"):
+                if user_manager.reapprove_waitlist_entry(entry["id"]):
+                    st.success("✅ Re-approved! Set back to pending.")
+                    st.rerun()
+                st.error("❌ Failed to re-approve")
+    st.divider()
+
+
+def _render_waitlist_bulk_actions(
+    entries: List[Dict[str, Any]],
+    masters: List[Dict[str, Any]],
+    user_manager,
+    default_days,
+) -> None:
+    pending_entries = [e["id"] for e in entries if e["status"] == "pending"]
+
+    col_select_all, col_select_pending = st.columns(2)
+    with col_select_all:
+        if st.button("Select All", key="select_all_entries", width="stretch"):
+            st.session_state.waitlist_entries_bulk_selection = [e["id"] for e in entries]
+            st.rerun()
+    with col_select_pending:
+        if st.button("Select All Pending", key="select_pending_entries", width="stretch", disabled=not pending_entries):
+            st.session_state.waitlist_entries_bulk_selection = pending_entries
+            st.rerun()
+
+    current_entry_ids = [e["id"] for e in entries]
+    valid_default = [eid for eid in st.session_state.get("waitlist_entries_bulk_selection", []) if eid in current_entry_ids]
+    selected_entry_ids = st.multiselect(
+        "Select multiple entries",
+        options=current_entry_ids,
+        format_func=lambda eid: next(
+            (f"{e['email']} - {e['status']}" for e in entries if e["id"] == eid), eid
+        ),
+        key="waitlist_entries_bulk_selection",
+        default=valid_default,
+    )
+
+    master_ids = [m["id"] for m in masters]
+    master_names = {m["id"]: m["name"] for m in masters}
+    col_bulk_actions = st.columns([2, 1, 2, 2])
+    with col_bulk_actions[0]:
+        selected_master = st.selectbox(
+            "Assign to master",
+            options=master_ids,
+            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+            key="bulk_approve_master_select",
+        )
+    with col_bulk_actions[1]:
+        bulk_duration = st.number_input(
+            "Days",
+            min_value=0,
+            max_value=3650,
+            value=default_days or 0,
+            step=1,
+            key="waitlist_bulk_duration",
+            help="Activation duration in days (0 = use default / no expiration)",
+        )
+    with col_bulk_actions[2]:
+        if st.button("✅ Approve selected", key="waitlist_bulk_approve_entries", width="stretch", disabled=not selected_master or not selected_entry_ids):
+            days_to_use = int(bulk_duration) if bulk_duration > 0 else None
+            created = user_manager.bulk_approve_waitlist_entries(selected_entry_ids, selected_master, duration_days=days_to_use)
+            if created:
+                st.success(f"✅ Approved {len(created)} user(s).")
+                st.rerun()
+            st.warning("No entries were approved.")
+    with col_bulk_actions[3]:
+        if st.button("❌ Reject selected", key="waitlist_bulk_reject_entries", width="stretch", disabled=not selected_entry_ids):
+            rejected = user_manager.bulk_reject_waitlist_entries(selected_entry_ids)
+            if rejected:
+                st.warning(f"Rejected {rejected} entry(s).")
+                st.rerun()
+            st.warning("No entries were rejected.")
+
+
 def _render_waitlist_entries_tab(
     current_user: Dict[str, Any],
     user_role: str,
@@ -850,136 +987,15 @@ def _render_waitlist_entries_tab(
 
     st.info(f"{len(entries)} entry(s) found.")
 
-    pending_entries = [e["id"] for e in entries if e["status"] == "pending"]
-
-    col_select_all, col_select_pending = st.columns(2)
-    with col_select_all:
-        if st.button("Select All", key="select_all_entries", width="stretch"):
-            st.session_state.waitlist_entries_bulk_selection = [e["id"] for e in entries]
-            st.rerun()
-    with col_select_pending:
-        if st.button("Select All Pending", key="select_pending_entries", width="stretch", disabled=not pending_entries):
-            st.session_state.waitlist_entries_bulk_selection = pending_entries
-            st.rerun()
-
-    current_entry_ids = [e["id"] for e in entries]
-    saved_selection = st.session_state.get("waitlist_entries_bulk_selection", [])
-    valid_default = [eid for eid in saved_selection if eid in current_entry_ids]
-
-    selected_entry_ids = st.multiselect(
-        "Select multiple entries",
-        options=current_entry_ids,
-        format_func=lambda eid: next(
-            (f"{e['email']} - {e['status']}" for e in entries if e["id"] == eid),
-            eid,
-        ),
-        key="waitlist_entries_bulk_selection",
-        default=valid_default,
-    )
-
-    col_bulk_actions = st.columns([2, 1, 2, 2])
     masters = user_manager.get_users_by_role(UserRole.MASTER.value)
-    master_ids = [m["id"] for m in masters]
-    master_names = {m["id"]: m["name"] for m in masters}
     default_days = user_manager.get_default_activation_duration_days()
 
-    with col_bulk_actions[0]:
-        selected_master = st.selectbox(
-            "Assign to master",
-            options=master_ids,
-            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
-            key="bulk_approve_master_select",
-        )
-    with col_bulk_actions[1]:
-        bulk_duration = st.number_input(
-            "Days",
-            min_value=0,
-            max_value=3650,
-            value=default_days or 0,
-            step=1,
-            key="waitlist_bulk_duration",
-            help="Activation duration in days (0 = use default / no expiration)",
-        )
-    with col_bulk_actions[2]:
-        if st.button("✅ Approve selected", key="waitlist_bulk_approve_entries", width="stretch", disabled=not selected_master or not selected_entry_ids):
-            days_to_use = int(bulk_duration) if bulk_duration > 0 else None
-            created = user_manager.bulk_approve_waitlist_entries(selected_entry_ids, selected_master, duration_days=days_to_use)
-            if created:
-                st.success(f"✅ Approved {len(created)} user(s).")
-                st.rerun()
-            st.warning("No entries were approved.")
-    with col_bulk_actions[3]:
-        if st.button("❌ Reject selected", key="waitlist_bulk_reject_entries", width="stretch", disabled=not selected_entry_ids):
-            rejected = user_manager.bulk_reject_waitlist_entries(selected_entry_ids)
-            if rejected:
-                st.warning(f"Rejected {rejected} entry(s).")
-                st.rerun()
-            st.warning("No entries were rejected.")
+    _render_waitlist_bulk_actions(entries, masters, user_manager, default_days)
 
     st.divider()
 
     for entry in entries:
-        list_name = next((l["name"] for l in lists if l["id"] == entry["list_id"]), entry["list_id"])
-        master_name = ""
-        if entry.get("master_id"):
-            master = user_manager.get_user(entry["master_id"])
-            if master:
-                master_name = master["name"]
-
-        cols = st.columns([3, 2, 1, 1, 1, 1])
-        with cols[0]:
-            st.write(f"**{entry['email']}**")
-            st.caption(f"List: {list_name}")
-            if entry.get("created_at"):
-                st.caption(f"Added: {entry['created_at'][:10]}")
-        with cols[1]:
-            status_color = "🟡" if entry["status"] == "pending" else "🟢" if entry["status"] == "approved" else "🔴"
-            st.caption(f"Status: {status_color} {entry['status']}")
-            if master_name:
-                st.caption(f"Master: {master_name}")
-            if entry.get("user_id"):
-                st.caption(f"User: {entry['user_id']}")
-        with cols[2]:
-            if entry["status"] == "pending":
-                entry_duration = st.number_input(
-                    "Days",
-                    min_value=0,
-                    max_value=3650,
-                    value=default_days or 0,
-                    step=1,
-                    key=f"entry_duration_{entry['id']}",
-                    help="Activation duration in days (0 = no expiration)",
-                    label_visibility="collapsed",
-                )
-        with cols[3]:
-            if entry["status"] == "pending":
-                if st.button("✅ Approve", key=f"approve_entry_{entry['id']}", width="stretch"):
-                    if masters:
-                        default_master_id = masters[0]["id"] if masters else None
-                        if default_master_id:
-                            days_to_use = int(entry_duration) if entry_duration > 0 else None
-                            created_user = user_manager.approve_waitlist_entry(entry["id"], default_master_id, duration_days=days_to_use)
-                            if created_user:
-                                st.success(f"✅ Approved! User: {created_user}")
-                                st.rerun()
-                            st.error("❌ Failed to approve")
-                    else:
-                        st.error("No masters available")
-        with cols[4]:
-            if entry["status"] == "pending":
-                if st.button("❌ Reject", key=f"reject_entry_{entry['id']}", width="stretch"):
-                    if user_manager.reject_waitlist_entry(entry["id"]):
-                        st.warning("❌ Rejected")
-                        st.rerun()
-                    st.error("❌ Failed to reject")
-        with cols[5]:
-            if entry["status"] == "rejected":
-                if st.button("🔄 Re-approve", key=f"reetry_entry_{entry['id']}", width="stretch"):
-                    if user_manager.reapprove_waitlist_entry(entry["id"]):
-                        st.success("✅ Re-approved! Set back to pending.")
-                        st.rerun()
-                    st.error("❌ Failed to re-approve")
-        st.divider()
+        _render_waitlist_entry_row(entry, lists, masters, user_manager, default_days)
 
 
 def _render_waitlist_tab(

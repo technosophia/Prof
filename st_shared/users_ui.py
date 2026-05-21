@@ -4,6 +4,7 @@ User Management UI Module
 """
 
 import streamlit as st
+from typing import Any, Dict, Optional
 from shared.common import UserRole
 from st_shared.cached import get_user_manager
 
@@ -465,6 +466,94 @@ def inject_ui_sidebar():
     return True
 
 
+def _handle_user_form_submit(
+    name: str,
+    email: str,
+    role: str,
+    selected_parent: Optional[str],
+    language: str,
+    set_password: Optional[str],
+    is_editing: bool,
+    edit_user_id: Optional[str],
+    current_user: Dict[str, Any],
+    production_mode: bool,
+) -> None:
+    if not name.strip():
+        st.error("Username is required")
+        return
+    if role == UserRole.NORMAL.value and not selected_parent:
+        st.error("Normal users must have a parent!")
+        return
+
+    try:
+        profile = {"language": language}
+        user_manager = get_user_manager()
+
+        if is_editing:
+            updates: Dict[str, Any] = {
+                "name": name.strip(),
+                "email": email.strip() if email else None,
+                "profile": profile,
+            }
+            if current_user and current_user.get("role") == UserRole.ADMIN.value:
+                updates["role"] = role
+                updates["parent_id"] = selected_parent if role == UserRole.NORMAL.value else None
+
+            if production_mode and current_user.get("role") == UserRole.ADMIN.value:
+                if st.session_state.get(f"reset_pw_check_{edit_user_id}", False):
+                    new_pw = st.session_state.get(f"admin_new_pw_{edit_user_id}", "")
+                    confirm_new_pw = st.session_state.get(f"admin_confirm_pw_{edit_user_id}", "")
+                    if new_pw and new_pw == confirm_new_pw:
+                        user_manager.set_password(edit_user_id, new_pw, current_user["id"])
+                        st.success("✅ Password updated!")
+
+            success = user_manager.update_user(
+                edit_user_id,
+                current_user["id"] if current_user else None,
+                **updates,
+            )
+            if success:
+                st.success("✅ Profile updated successfully!")
+                if current_user and current_user["id"] == edit_user_id:
+                    updated_user = user_manager.get_user(edit_user_id)
+                    if updated_user:
+                        st.session_state.current_user = updated_user
+                        apply_user_preferences(updated_user)
+                log("info", f"User profile updated: {name}")
+            else:
+                st.error("❌ Failed to update user (permission denied)")
+        else:
+            password_to_set = set_password if production_mode and set_password else None
+            user_id, reset_code = user_manager.create_user(
+                name=name.strip(),
+                role=role,
+                email=email.strip() if email else None,
+                parent_id=selected_parent or None,
+                profile=profile,
+                password=password_to_set,
+                requesting_user_id=current_user["id"] if current_user else None,
+            )
+            if production_mode and not password_to_set and reset_code:
+                st.success("✅ User created successfully!")
+                try:
+                    with open(f"reset_code_{name.strip()}.txt", "w") as f:
+                        f.write(reset_code)
+                    st.info(f"🔑 A reset code has been saved to reset_code_{name.strip()}.txt")
+                except Exception as e:
+                    st.error(f"Failed to save reset code: {e}")
+                st.warning("⚠️ This code will expire in 24 hours.")
+            log("info", f"User created: {name} (ID: {user_id})")
+
+        st.session_state.show_user_form = False
+        st.session_state.edit_user_id = None
+        st.rerun()
+    except ValueError as e:
+        st.error(f"❌ Validation error: {str(e)}")
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        log("error", f"User form error: {str(e)}")
+
+
 def render_user_form():
     """Render the user creation/editing form."""
     current_user = st.session_state.get("current_user")
@@ -633,117 +722,18 @@ def render_user_form():
             cancel = st.form_submit_button("❌ Cancel", width="stretch")
 
         if submit:
-            if not name.strip():
-                st.error("Username is required")
-            elif role == UserRole.NORMAL.value and not selected_parent:
-                st.error("Normal users must have a parent!")
-            else:
-                try:
-                    # Build profile
-                    profile = {"language": language}
-
-                    user_manager = get_user_manager()
-
-                    if is_editing:
-                        # Update existing user
-                        updates = {
-                            "name": name.strip(),
-                            "email": email.strip() if email else None,
-                            "profile": profile,
-                        }
-
-                        # Add role if admin editing
-                        if (
-                            current_user
-                            and current_user.get("role") == UserRole.ADMIN.value
-                        ):
-                            updates["role"] = role
-                            if role == UserRole.NORMAL.value:
-                                updates["parent_id"] = selected_parent
-                            else:
-                                updates["parent_id"] = None
-
-                        # Handle password reset by admin
-                        if (
-                            production_mode
-                            and current_user.get("role") == UserRole.ADMIN.value
-                        ):
-                            if st.session_state.get(
-                                f"reset_pw_check_{user['id']}", False
-                            ):
-                                if new_pw and new_pw == confirm_new_pw:
-                                    user_manager.set_password(
-                                        st.session_state.edit_user_id,
-                                        new_pw,
-                                        current_user["id"],
-                                    )
-                                    st.success("✅ Password updated!")
-
-                        success = user_manager.update_user(
-                            st.session_state.edit_user_id,
-                            current_user["id"] if current_user else None,
-                            **updates,
-                        )
-
-                        if success:
-                            st.success("✅ Profile updated successfully!")
-                            # Update current user if editing self
-                            if (
-                                current_user
-                                and current_user["id"] == st.session_state.edit_user_id
-                            ):
-                                updated_user = user_manager.get_user(
-                                    st.session_state.edit_user_id
-                                )
-                                if updated_user:
-                                    st.session_state.current_user = updated_user
-                                    # Apply updated preferences
-                                    apply_user_preferences(updated_user)
-                            log("info", f"User profile updated: {name}")
-                        else:
-                            st.error("❌ Failed to update user (permission denied)")
-                    else:
-                        # Create new user
-                        password_to_set = (
-                            set_password if production_mode and set_password else None
-                        )
-
-                        user_id, reset_code = user_manager.create_user(
-                            name=name.strip(),
-                            role=role,
-                            email=email.strip() if email else None,
-                            parent_id=selected_parent if selected_parent else None,
-                            profile=profile,
-                            password=password_to_set,
-                            requesting_user_id=current_user["id"]
-                            if current_user
-                            else None,
-                        )
-
-                        if production_mode and not password_to_set and reset_code:
-                            st.success(f"✅ User created successfully!")
-                            # Save reset code to file instead of displaying it
-                            try:
-                                with open(f"reset_code_{name.strip()}.txt", "w") as f:
-                                    f.write(reset_code)
-                                st.info(
-                                    f"🔑 A reset code has been saved to reset_code_{name.strip()}.txt"
-                                )
-                            except Exception as e:
-                                st.error(f"Failed to save reset code: {e}")
-                            st.warning("⚠️ This code will expire in 24 hours.")
-
-                        log("info", f"User created: {name} (ID: {user_id})")
-
-                    # Reset form state
-                    st.session_state.show_user_form = False
-                    st.session_state.edit_user_id = None
-                    st.rerun()
-                except ValueError as e:
-                    st.error(f"❌ Validation error: {str(e)}")
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    log("error", f"User form error: {str(e)}")
+            _handle_user_form_submit(
+                name=name,
+                email=email,
+                role=role,
+                selected_parent=selected_parent,
+                language=language,
+                set_password=set_password,
+                is_editing=is_editing,
+                edit_user_id=st.session_state.edit_user_id,
+                current_user=current_user,
+                production_mode=production_mode,
+            )
 
         if cancel:
             st.session_state.show_user_form = False
