@@ -80,93 +80,50 @@ def apply_user_preferences(user):
     return applied
 
 
+def _find_auto_login_target(user_manager, auto_login_user_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    target = user_manager.get_user(auto_login_user_id) if auto_login_user_id else None
+    if target:
+        return target
+    log("warning", f"Auto-login user '{auto_login_user_id}' not found, falling back")
+    all_users = user_manager.get_all_users_dict()
+    if not all_users:
+        log("warning", "No users available for auto-login")
+        return None
+    by_role = {r: [u for u in all_users.values() if u.get("role") == r] for r in [UserRole.ADMIN.value, UserRole.MASTER.value]}
+    target = by_role[UserRole.ADMIN.value][0] if by_role[UserRole.ADMIN.value] else \
+             by_role[UserRole.MASTER.value][0] if by_role[UserRole.MASTER.value] else \
+             list(all_users.values())[0]
+    log("info", f"Falling back to auto-login with user: {target['name']}")
+    return target
+
+
 def auto_login_first_user():
     """Automatically log in the first available user if none is logged in."""
     if st.session_state.user_manually_logged_out:
         log("debug", "Skipping auto-login: user manually logged out")
         return False
-
-    # In production mode, auto-login is disabled
     if is_production_mode():
         log("debug", "Production mode: auto-login disabled")
         return False
-
-    if not st.session_state.current_user:
-        try:
-            # Check if auto-login is enabled in config
-            if not get_config().get("app.auto_login", False):
-                log("debug", "Auto-login disabled in configuration")
-                return False
-
-            # Get the specified auto-login user from config
-            auto_login_user_id = get_config().get("app.auto_login_user")
-
-            if not auto_login_user_id:
-                log("warning", "Auto-login enabled but no user specified in config")
-                return False
-
-            # Get user manager
-            user_manager = get_user_manager()
-
-            # Try to find the specified user
-            target_user = user_manager.get_user(auto_login_user_id)
-
-            if not target_user:
-                log("warning", f"Auto-login user '{auto_login_user_id}' not found")
-
-                # Fallback: try to find any user (original behavior)
-                all_users = user_manager.get_all_users_dict()
-                if all_users:
-                    # Try to find an admin first, then master, then any user
-                    admin_users = [
-                        u
-                        for u in all_users.values()
-                        if u.get("role") == UserRole.ADMIN.value
-                    ]
-                    master_users = [
-                        u
-                        for u in all_users.values()
-                        if u.get("role") == UserRole.MASTER.value
-                    ]
-
-                    if admin_users:
-                        target_user = admin_users[0]
-                    elif master_users:
-                        target_user = master_users[0]
-                    else:
-                        target_user = list(all_users.values())[0]
-
-                    log(
-                        "info",
-                        f"Falling back to auto-login with user: {target_user['name']}",
-                    )
-                else:
-                    log("warning", "No users available for auto-login")
-                    return False
-
-            # Set as current user
-            st.session_state.current_user = target_user
-
-            # Apply user preferences
-            apply_user_preferences(target_user)
-
-            # Update last login
-            user_manager.update_last_login(target_user["id"])
-
-            # Set the flag to show this was an auto-login
-            st.session_state.just_auto_logged_in = True
-
-            log(
-                "info",
-                f"Auto-logged in user: {target_user['name']} ({target_user['role']})",
-            )
-            return True
-
-        except Exception as e:
-            log("error", f"Auto-login failed: {e}")
-            return False
-    else:
+    if st.session_state.current_user:
         log("debug", "User already logged in, skipping auto-login")
+        return False
+    try:
+        if not get_config().get("app.auto_login", False):
+            log("debug", "Auto-login disabled in configuration")
+            return False
+        user_manager = get_user_manager()
+        target_user = _find_auto_login_target(user_manager, get_config().get("app.auto_login_user"))
+        if not target_user:
+            return False
+        st.session_state.current_user = target_user
+        apply_user_preferences(target_user)
+        user_manager.update_last_login(target_user["id"])
+        st.session_state.just_auto_logged_in = True
+        log("info", f"Auto-logged in user: {target_user['name']} ({target_user['role']})")
+        return True
+    except Exception as e:
+        log("error", f"Auto-login failed: {e}")
         return False
 
 
@@ -359,6 +316,32 @@ def render_reset_password_form(form_key="reset_form"):
             st.rerun()
 
 
+def _render_training_switcher(current_user: Dict[str, Any]) -> None:
+    if current_user.get("role") != UserRole.NORMAL.value:
+        return
+    enrollments = get_user_manager().get_user_enrollments(current_user["id"])
+    if len(enrollments) <= 1:
+        return
+    profile = current_user.get("profile") or {}
+    active_master_id = profile.get("active_master_id") or current_user.get("parent_id")
+    master_ids = [e["master_id"] for e in enrollments]
+    master_names = {e["master_id"]: e["master_name"] for e in enrollments}
+    current_idx = master_ids.index(active_master_id) if active_master_id in master_ids else 0
+    selected = st.selectbox(
+        "🎓 Training",
+        options=master_ids,
+        format_func=lambda x: master_names.get(x, x),
+        index=current_idx,
+        key="training_switcher",
+    )
+    if selected != active_master_id:
+        get_user_manager().set_active_master(current_user["id"], selected)
+        updated = get_user_manager().get_user(current_user["id"])
+        if updated:
+            st.session_state.current_user = updated
+        st.rerun()
+
+
 def inject_ui_sidebar():
     """Render user management section in the sidebar."""
     st.title("👤 User Management")
@@ -392,29 +375,7 @@ def inject_ui_sidebar():
         if current_user.get("parent_name"):
             col2.caption(f"Parent: {current_user['parent_name']}")
 
-        # Training switcher — only for normal users enrolled in multiple masters
-        if role == UserRole.NORMAL.value:
-            enrollments = get_user_manager().get_user_enrollments(current_user["id"])
-            if len(enrollments) > 1:
-                profile = current_user.get("profile") or {}
-                active_master_id = profile.get("active_master_id") or current_user.get("parent_id")
-                master_ids = [e["master_id"] for e in enrollments]
-                master_names = {e["master_id"]: e["master_name"] for e in enrollments}
-                current_idx = master_ids.index(active_master_id) if active_master_id in master_ids else 0
-
-                selected = st.selectbox(
-                    "🎓 Training",
-                    options=master_ids,
-                    format_func=lambda x: master_names.get(x, x),
-                    index=current_idx,
-                    key="training_switcher",
-                )
-                if selected != active_master_id:
-                    get_user_manager().set_active_master(current_user["id"], selected)
-                    updated = get_user_manager().get_user(current_user["id"])
-                    if updated:
-                        st.session_state.current_user = updated
-                    st.rerun()
+        _render_training_switcher(current_user)
 
         # Logout button
         if st.button("🚪 Logout", width="stretch"):
@@ -505,6 +466,54 @@ def _handle_user_form_submit(
         log("error", f"User form error: {str(e)}")
 
 
+def _render_role_selector(
+    current_user: Dict[str, Any], is_editing: bool, current_role: str
+) -> str:
+    all_roles = [UserRole.ADMIN.value, UserRole.MASTER.value, UserRole.NORMAL.value]
+    if current_user and current_user.get("role") == UserRole.ADMIN.value:
+        idx = all_roles.index(current_role) if current_role in all_roles else 0
+        return st.selectbox("Role", all_roles, index=idx if is_editing else 0)
+    if current_user and current_user.get("role") == UserRole.MASTER.value:
+        if is_editing and current_role != UserRole.NORMAL.value:
+            st.caption(f"Role: {current_role} (cannot change)")
+        else:
+            st.caption(f"Role: {UserRole.NORMAL.value}")
+        return current_role if is_editing else UserRole.NORMAL.value
+    st.caption(f"Role: {current_role}")
+    return current_role
+
+
+def _render_parent_selector(
+    current_user: Dict[str, Any],
+    role: str,
+    is_editing: bool,
+    user: Optional[Dict[str, Any]],
+    current_role: str,
+) -> Optional[str]:
+    if role != UserRole.NORMAL.value and not (is_editing and current_role == UserRole.NORMAL.value):
+        return None
+    if not current_user:
+        return None
+    if current_user.get("role") == UserRole.ADMIN.value:
+        masters = get_user_manager().get_users_by_role(UserRole.MASTER.value)
+        parent_options = [("", "Select a master...")] + [(m["id"], m["name"]) for m in masters]
+    elif current_user.get("role") == UserRole.MASTER.value:
+        parent_options = [(current_user["id"], current_user["name"])]
+    else:
+        parent_options = []
+    if not parent_options:
+        return None
+    opts = dict(parent_options)
+    default = (user.get("parent_id", "") if user else "") if is_editing else ""
+    return st.selectbox(
+        "Parent (Master) *",
+        options=list(opts.keys()),
+        format_func=lambda x: opts[x],
+        index=list(opts.keys()).index(default) if default in opts else 0,
+        help="Normal users must have a master as parent",
+    )
+
+
 def render_user_form():
     """Render the user creation/editing form."""
     current_user = st.session_state.get("current_user")
@@ -581,75 +590,10 @@ def render_user_form():
                         key=f"admin_confirm_pw_{user['id']}",
                     )
 
-        # Role selection
-        if current_user and current_user.get("role") == UserRole.ADMIN.value:
-            if is_editing:
-                # Can change role for any user except maybe themselves?
-                available_roles = [
-                    UserRole.ADMIN.value,
-                    UserRole.MASTER.value,
-                    UserRole.NORMAL.value,
-                ]
-                role = st.selectbox(
-                    "Role",
-                    available_roles,
-                    index=available_roles.index(current_role)
-                    if current_role in available_roles
-                    else 0,
-                )
-            else:
-                # For new users, admin can choose any role
-                available_roles = [
-                    UserRole.ADMIN.value,
-                    UserRole.MASTER.value,
-                    UserRole.NORMAL.value,
-                ]
-                role = st.selectbox("Role", available_roles)
-        elif current_user and current_user.get("role") == UserRole.MASTER.value:
-            # Master can only create normal users
-            role = UserRole.NORMAL.value
-            if is_editing and current_role != UserRole.NORMAL.value:
-                # Can't edit role of non-normal users
-                st.caption(f"Role: {current_role} (cannot change)")
-            else:
-                st.caption(f"Role: {role}")
-        else:
-            role = current_role
-            st.caption(f"Role: {role}")
-
-        # Parent selection for normal users
-        selected_parent = None
-        if role == UserRole.NORMAL.value or (
-            is_editing and current_role == UserRole.NORMAL.value
-        ):
-            if current_user:
-                if current_user.get("role") == UserRole.ADMIN.value:
-                    masters = get_user_manager().get_users_by_role(
-                        UserRole.MASTER.value
-                    )
-                    parent_options = [("", "Select a master...")] + [
-                        (m["id"], m["name"]) for m in masters
-                    ]
-                elif current_user.get("role") == UserRole.MASTER.value:
-                    parent_options = [(current_user["id"], current_user["name"])]
-                else:
-                    parent_options = []
-
-                if parent_options:
-                    parent_options_dict = dict(parent_options)
-                    default_parent = user.get("parent_id", "") if is_editing else ""
-                    selected_parent = st.selectbox(
-                        "Parent (Master) *",
-                        options=list(parent_options_dict.keys()),
-                        format_func=lambda x: parent_options_dict[x],
-                        index=list(parent_options_dict.keys()).index(default_parent)
-                        if default_parent in parent_options_dict
-                        else 0,
-                        help="Normal users must have a master as parent",
-                    )
-                else:
-                    st.error("No masters available to be parent")
-                    selected_parent = None
+        role = _render_role_selector(current_user, is_editing, current_role)
+        selected_parent = _render_parent_selector(
+            current_user, role, is_editing, user if is_editing else None, current_role
+        )
 
         # Profile preferences
         st.subheader("Profile Preferences")
