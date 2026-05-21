@@ -7,98 +7,78 @@ from shared.common import UserRole
 from st_shared.cached import get_user_manager
 
 
-def _render_waitlist_lists_tab(
-    current_user: Dict[str, Any],
-    user_role: str,
-) -> None:
-    """Render waitlist lists management tab."""
-    st.subheader("📝 Waitlist Lists")
-    _ = user_role
+def _get_masters(user_manager) -> List[Dict[str, Any]]:
+    all_users = user_manager.get_all_users() if hasattr(user_manager, "get_all_users") else []
+    return [u for u in all_users if u.get("role") == "master"]
 
-    user_manager = get_user_manager()
-    lists = user_manager.get_all_waitlist_lists()
 
-    col_create, col_refresh = st.columns([4, 1])
+def _render_create_waitlist_list_form(current_user: Dict[str, Any], user_manager) -> None:
+    masters = _get_masters(user_manager)
+    master_options = [""] + [m["id"] for m in masters]
+    master_names = {m["id"]: m["name"] for m in masters}
+
+    col_create, col_btn = st.columns([4, 1])
     with col_create:
         new_list_name = st.text_input("Create new waitlist list", placeholder="e.g., Spring 2026 Cohort")
-
-        all_users = user_manager.get_all_users() if hasattr(user_manager, "get_all_users") else []
-        masters = [u for u in all_users if u.get("role") == "master"]
-        master_options = [""] + [m["id"] for m in masters]
-        master_names = {m["id"]: m["name"] for m in masters}
         selected_master = st.selectbox(
             "Default master for this list",
             options=master_options,
             format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
             key="new_waitlist_master",
         )
-
         default_dur = st.number_input(
             "Default expiration (days, 0 = unlimited)",
-            min_value=0,
-            value=365,
-            step=30,
-            key="new_waitlist_duration",
+            min_value=0, value=365, step=30, key="new_waitlist_duration",
         )
-
-    with col_refresh:
+    with col_btn:
         st.write("")
         if st.button("➕ Create", key="create_waitlist_list", type="primary"):
-            if new_list_name and new_list_name.strip():
-                master_id = selected_master if selected_master else None
-                dur = default_dur if default_dur > 0 else None
-                list_id = user_manager.create_waitlist_list(
-                    new_list_name.strip(),
-                    current_user["id"],
-                    default_master_id=master_id,
-                    default_duration_days=dur,
-                )
-                if list_id:
-                    st.success(f"✅ Created list: {new_list_name}")
-                    st.rerun()
-                else:
-                    st.error("❌ List already exists or invalid name")
-            else:
+            if not (new_list_name and new_list_name.strip()):
                 st.error("Please enter a list name")
+                return
+            list_id = user_manager.create_waitlist_list(
+                new_list_name.strip(),
+                current_user["id"],
+                default_master_id=selected_master or None,
+                default_duration_days=default_dur if default_dur > 0 else None,
+            )
+            if list_id:
+                st.success(f"✅ Created list: {new_list_name}")
+                st.rerun()
+            else:
+                st.error("❌ List already exists or invalid name")
 
-    st.divider()
 
-    if not lists:
-        st.info("No waitlist lists yet. Create one above.")
-        return
+def _render_waitlist_list_row(wl_list: Dict[str, Any], user_manager) -> None:
+    cols = st.columns([3, 2, 2, 1])
+    with cols[0]:
+        st.write(f"**{wl_list['name']}**")
+        if wl_list.get("created_at"):
+            st.caption(f"Created: {wl_list['created_at'][:10]}")
+    with cols[1]:
+        if wl_list.get("created_by"):
+            creator = user_manager.get_user(wl_list["created_by"])
+            if creator:
+                st.caption(f"By: {creator['name']}")
+    with cols[2]:
+        entry_count = len(user_manager.get_waitlist_entries(list_id=wl_list["id"]))
+        st.caption(f"{entry_count} entries")
+        if wl_list.get("default_duration_days"):
+            st.caption(f"⏱️ {wl_list['default_duration_days']} days")
+        if wl_list.get("default_master_id"):
+            m = user_manager.get_user(wl_list["default_master_id"])
+            if m:
+                st.caption(f"⭐ {m['name']}")
+    with cols[3]:
+        if st.button("🗑️ Delete", key=f"delete_waitlist_list_{wl_list['id']}", width="stretch"):
+            if user_manager.delete_waitlist_list(wl_list["id"]):
+                st.warning(f"⚠️ Deleted list: {wl_list['name']}")
+                st.rerun()
+            else:
+                st.error("❌ Failed to delete list")
 
-    st.write(f"**Existing Lists ({len(lists)}):**")
 
-    for wl_list in lists:
-        cols = st.columns([3, 2, 2, 1])
-        with cols[0]:
-            st.write(f"**{wl_list['name']}**")
-            if wl_list.get("created_at"):
-                st.caption(f"Created: {wl_list['created_at'][:10]}")
-        with cols[1]:
-            if wl_list.get("created_by"):
-                creator = user_manager.get_user(wl_list["created_by"])
-                if creator:
-                    st.caption(f"By: {creator['name']}")
-        with cols[2]:
-            entry_count = len(user_manager.get_waitlist_entries(list_id=wl_list["id"]))
-            st.caption(f"{entry_count} entries")
-            if wl_list.get("default_duration_days"):
-                st.caption(f"⏱️ {wl_list['default_duration_days']} days")
-            if wl_list.get("default_master_id"):
-                m = user_manager.get_user(wl_list["default_master_id"])
-                if m:
-                    st.caption(f"⭐ {m['name']}")
-        with cols[3]:
-            if st.button("🗑️ Delete", key=f"delete_waitlist_list_{wl_list['id']}", width="stretch"):
-                if user_manager.delete_waitlist_list(wl_list["id"]):
-                    st.warning(f"⚠️ Deleted list: {wl_list['name']}")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to delete list")
-
-    st.divider()
-
+def _render_edit_waitlist_list_defaults(lists: List[Dict[str, Any]], user_manager) -> None:
     st.write("**Edit list defaults (master + expiration duration):**")
     edit_ids = [""] + [wl["id"] for wl in lists]
     edit_names = {wl["id"]: wl["name"] for wl in lists}
@@ -108,45 +88,62 @@ def _render_waitlist_lists_tab(
         format_func=lambda x: edit_names.get(x, "Select a list...") if x else "Select a list...",
         key="edit_waitlist_list_select",
     )
+    if not selected_edit:
+        return
 
-    if selected_edit:
-        current_list = next((wl for wl in lists if wl["id"] == selected_edit), None)
-        current_master = current_list.get("default_master_id") if current_list else None
-        current_duration = current_list.get("default_duration_days") or 365
+    current_list = next((wl for wl in lists if wl["id"] == selected_edit), None)
+    current_master = current_list.get("default_master_id") if current_list else None
+    current_duration = (current_list.get("default_duration_days") or 365) if current_list else 365
 
-        all_users = user_manager.get_all_users() if hasattr(user_manager, "get_all_users") else []
-        masters = [u for u in all_users if u.get("role") == "master"]
-        master_options = [""] + [m["id"] for m in masters]
-        master_names = {m["id"]: m["name"] for m in masters}
+    masters = _get_masters(user_manager)
+    master_options = [""] + [m["id"] for m in masters]
+    master_names = {m["id"]: m["name"] for m in masters}
 
-        new_master = st.selectbox(
-            "Default master",
-            options=master_options,
-            index=master_options.index(current_master) if current_master in master_options else 0,
-            format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
-            key="edit_waitlist_master",
-        )
+    new_master = st.selectbox(
+        "Default master",
+        options=master_options,
+        index=master_options.index(current_master) if current_master in master_options else 0,
+        format_func=lambda x: master_names.get(x, "Select master...") if x else "Select master...",
+        key="edit_waitlist_master",
+    )
+    new_duration = st.number_input(
+        "Expiration duration (days, 0 = unlimited)",
+        min_value=0, value=current_duration, step=30, key="edit_waitlist_duration",
+    )
+    if st.button("💾 Save defaults", key="save_waitlist_defaults"):
+        if user_manager.update_waitlist_list_defaults(
+            selected_edit,
+            default_master_id=new_master or None,
+            default_duration_days=new_duration if new_duration > 0 else None,
+        ):
+            st.success("✅ Defaults updated")
+            st.rerun()
+        else:
+            st.error("❌ Failed to update")
 
-        new_duration = st.number_input(
-            "Expiration duration (days, 0 = unlimited)",
-            min_value=0,
-            value=current_duration,
-            step=30,
-            key="edit_waitlist_duration",
-        )
 
-        if st.button("💾 Save defaults", key="save_waitlist_defaults"):
-            master_val = new_master if new_master else None
-            dur_val = new_duration if new_duration > 0 else None
-            if user_manager.update_waitlist_list_defaults(
-                selected_edit,
-                default_master_id=master_val,
-                default_duration_days=dur_val,
-            ):
-                st.success("✅ Defaults updated")
-                st.rerun()
-            else:
-                st.error("❌ Failed to update")
+def _render_waitlist_lists_tab(
+    current_user: Dict[str, Any],
+    user_role: str,
+) -> None:
+    """Render waitlist lists management tab."""
+    st.subheader("📝 Waitlist Lists")
+    _ = user_role
+
+    user_manager = get_user_manager()
+    _render_create_waitlist_list_form(current_user, user_manager)
+    st.divider()
+
+    lists = user_manager.get_all_waitlist_lists()
+    if not lists:
+        st.info("No waitlist lists yet. Create one above.")
+        return
+
+    st.write(f"**Existing Lists ({len(lists)}):**")
+    for wl_list in lists:
+        _render_waitlist_list_row(wl_list, user_manager)
+    st.divider()
+    _render_edit_waitlist_list_defaults(lists, user_manager)
 
 
 def _render_waitlist_entry_row(
