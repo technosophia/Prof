@@ -15,6 +15,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from database import init_db
@@ -25,6 +26,7 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(nam
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+_STATIC_DIR = Path(__file__).parent / "static"
 _SCORING_CONFIG = Path(__file__).parent / "config" / "scoring.json"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -38,6 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Autodiag Souveraineté", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 @app.get("/health")

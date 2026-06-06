@@ -8,12 +8,28 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --green:      #6DC86D;
+      --green-dim:  #4a9b4a;
+      --green-glow: rgba(109, 200, 109, 0.15);
+      --blue:       #7AADD4;
+      --blue-dim:   #5488b0;
+      --blue-glow:  rgba(122, 173, 212, 0.15);
+      --bg:         #0f0f0f;
+      --bg2:        #161616;
+      --bg3:        #1e1e1e;
+      --text:       #f0f0f0;
+      --muted:      #999;
+      --subtle:     #ccc;
+      --line:       #2a2a2a;
+    }
+
     body {
-      background: #0f0f0f;
-      color: #f0f0f0;
+      background: var(--bg);
+      color: var(--text);
       font-family: Georgia, 'Times New Roman', serif;
       min-height: 100vh;
-      padding: 3rem 1.25rem 4rem;
+      padding: 2.5rem 1.25rem 5rem;
     }
 
     .container {
@@ -21,89 +37,242 @@
       margin: 0 auto;
     }
 
-    .label {
-      font-family: sans-serif;
-      font-size: 0.75rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: #c8843a;
-      margin-bottom: 0.75rem;
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--line);
     }
 
+    .logo {
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .header-text {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .brand {
+      font-family: sans-serif;
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .label {
+      font-family: sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, var(--green), var(--blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 600;
+    }
+
+    /* ── Profile title ── */
     h1 {
       font-size: clamp(1.6rem, 5vw, 2.4rem);
       line-height: 1.2;
-      color: #f0f0f0;
-      margin-bottom: 0.6rem;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+
+    .accent-bar {
+      height: 2px;
+      width: 3.5rem;
+      background: linear-gradient(90deg, var(--green), var(--blue));
+      border-radius: 2px;
+      margin-bottom: 1rem;
     }
 
     .tagline {
-      font-size: 1.1rem;
+      font-size: 1.05rem;
       font-style: italic;
-      color: #999;
+      color: var(--muted);
       margin-bottom: 2.5rem;
-      line-height: 1.5;
+      line-height: 1.6;
     }
 
+    /* ── Radar ── */
     .chart-wrapper {
-      max-width: 360px;
+      max-width: 340px;
       margin: 0 auto 2.5rem;
+      padding: 1.25rem;
+      background: var(--bg2);
+      border-radius: 12px;
+      border: 1px solid var(--line);
     }
 
+    /* ── Scores bar ── */
+    .scores-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .score-item {
+      background: var(--bg2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+    }
+
+    .score-item-label {
+      font-family: sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .score-bar-wrap {
+      height: 6px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 0.35rem;
+    }
+
+    .score-bar {
+      height: 100%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, var(--green), var(--blue));
+    }
+
+    .score-val {
+      font-family: sans-serif;
+      font-size: 0.8rem;
+      color: var(--subtle);
+    }
+
+    /* ── Separator ── */
+    hr {
+      border: none;
+      border-top: 1px solid var(--line);
+      margin: 2.5rem 0;
+    }
+
+    /* ── Body text ── */
     .body-text {
       font-size: 1.05rem;
-      line-height: 1.8;
-      color: #ccc;
+      line-height: 1.85;
+      color: var(--subtle);
       margin-bottom: 2rem;
     }
 
+    /* ── Gap block ── */
     .gap-block {
-      background: #161616;
-      border-left: 3px solid #c8843a;
+      background: var(--bg2);
+      border-left: 3px solid var(--blue);
       padding: 1rem 1.25rem;
       margin-bottom: 2rem;
       font-size: 0.95rem;
       color: #bbb;
-      line-height: 1.6;
+      line-height: 1.7;
+      border-radius: 0 6px 6px 0;
     }
 
     .gap-block strong {
-      color: #f0f0f0;
+      color: var(--text);
     }
 
+    /* ── CTA ── */
     .cta-wrapper {
       margin-top: 2.5rem;
     }
 
     .cta-btn {
       display: inline-block;
-      background: #c8843a;
+      background: linear-gradient(135deg, var(--green-dim), var(--blue-dim));
       color: #fff;
-      padding: 0.85rem 2rem;
+      padding: 0.9rem 2rem;
       text-decoration: none;
       font-family: sans-serif;
       font-size: 0.95rem;
-      border-radius: 4px;
-      transition: background 0.15s;
+      border-radius: 6px;
+      transition: opacity 0.15s;
+      letter-spacing: 0.02em;
     }
 
-    .cta-btn:hover { background: #a8692e; }
+    .cta-btn:hover { opacity: 0.85; }
 
-    hr {
-      border: none;
-      border-top: 1px solid #222;
-      margin: 2.5rem 0;
+    /* ── Footer ── */
+    .footer {
+      margin-top: 4rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .footer img {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+      opacity: 0.6;
+    }
+
+    .footer-text {
+      font-family: sans-serif;
+      font-size: 0.72rem;
+      color: #555;
+      letter-spacing: 0.05em;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <p class="label">Diagnostic Souveraineté</p>
+
+    <!-- Header -->
+    <div class="header">
+      <img src="/static/logo.png" alt="Logo" class="logo" />
+      <div class="header-text">
+        <span class="brand">Souveraineté intégrale</span>
+        <span class="label">Diagnostic personnel</span>
+      </div>
+    </div>
+
+    <!-- Profile -->
     <h1>{{ profile.name }}</h1>
+    <div class="accent-bar"></div>
     <p class="tagline">{{ profile.tagline }}</p>
 
+    <!-- Radar -->
     <div class="chart-wrapper">
       <canvas id="radarChart" aria-label="Radar des 4 fronts de souveraineté"></canvas>
+    </div>
+
+    <!-- Score bars -->
+    <div class="scores-grid">
+      {% set fronts = [
+        ('Énergie',   scores.energie),
+        ('Attention', scores.attention),
+        ('Liens',     scores.liens),
+        ('Moyens',    scores.moyens)
+      ] %}
+      {% for label, val in fronts %}
+      <div class="score-item">
+        <div class="score-item-label">{{ label }}</div>
+        <div class="score-bar-wrap">
+          <div class="score-bar" style="width: {{ (val / 12 * 100)|round|int }}%"></div>
+        </div>
+        <div class="score-val">{{ val }} / 12</div>
+      </div>
+      {% endfor %}
     </div>
 
     <hr />
@@ -122,6 +291,13 @@
       <a href="{{ cta_url }}" class="cta-btn">Reçois les 3 premières actions concrètes →</a>
     </div>
     {% endif %}
+
+    <!-- Footer -->
+    <div class="footer">
+      <img src="/static/logo.png" alt="" />
+      <span class="footer-text">souveraineté intégrale · diagnostic personnel</span>
+    </div>
+
   </div>
 
   <script>
@@ -138,12 +314,12 @@
               {{ scores.liens }},
               {{ scores.moyens }}
             ],
-            backgroundColor: 'rgba(200, 132, 58, 0.15)',
-            borderColor: '#c8843a',
+            backgroundColor: 'rgba(109, 200, 109, 0.12)',
+            borderColor: '#6DC86D',
             borderWidth: 2,
-            pointBackgroundColor: '#c8843a',
+            pointBackgroundColor: '#7AADD4',
             pointBorderColor: '#0f0f0f',
-            pointRadius: 4,
+            pointRadius: 5,
           }]
         },
         options: {
@@ -154,14 +330,14 @@
               max: 12,
               ticks: {
                 stepSize: 4,
-                color: '#555',
+                color: '#444',
                 backdropColor: 'transparent',
                 font: { size: 11 }
               },
-              grid: { color: '#2a2a2a' },
-              angleLines: { color: '#2a2a2a' },
+              grid: { color: '#252525' },
+              angleLines: { color: '#252525' },
               pointLabels: {
-                color: '#ccc',
+                color: '#aaa',
                 font: { size: 13, family: 'sans-serif' }
               }
             }
@@ -170,9 +346,7 @@
             legend: { display: false },
             tooltip: {
               callbacks: {
-                label: function(ctx) {
-                  return ' ' + ctx.raw + ' / 12';
-                }
+                label: function(ctx) { return ' ' + ctx.raw + ' / 12'; }
               }
             }
           }

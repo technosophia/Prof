@@ -112,6 +112,7 @@ services:
     volumes:
       - ./autodiag/config:/app/config
       - ./autodiag/data:/app/data
+      - ./autodiag/static:/app/static
     env_file:
       - ./.env
     networks:
