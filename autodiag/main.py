@@ -1,5 +1,7 @@
 """FastAPI entry point for the autodiag micro-service."""
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -10,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -43,12 +45,17 @@ def health():
 
 
 @app.post("/webhook/tally")
-async def tally_webhook(request: Request, secret: str = Query(...)):
-    expected = os.environ.get("WEBHOOK_SECRET", "")
-    if not expected or secret != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
+async def tally_webhook(request: Request, tally_signature: str | None = Header(default=None)):
+    signing_secret = os.environ.get("WEBHOOK_SECRET", "")
+    body = await request.body()
 
-    payload = await request.json()
+    if signing_secret:
+        expected_sig = "sha256=" + hmac.new(signing_secret.encode(), body, hashlib.sha256).hexdigest()
+        if not tally_signature or not hmac.compare_digest(tally_signature, expected_sig):
+            logger.warning("Webhook signature mismatch (got: %s)", tally_signature)
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+    payload = json.loads(body)
 
     if payload.get("eventType") != "FORM_RESPONSE":
         return {"status": "ignored", "eventType": payload.get("eventType")}

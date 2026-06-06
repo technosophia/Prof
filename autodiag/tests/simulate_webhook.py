@@ -2,6 +2,8 @@
 """Send a Tally webhook payload to the local autodiag server for manual testing."""
 
 import argparse
+import hashlib
+import hmac
 import json
 import sys
 import uuid
@@ -11,27 +13,23 @@ import requests
 
 TESTS_DIR = Path(__file__).parent
 DEFAULT_PAYLOAD = TESTS_DIR / "tally-webhook.json"
-
 DEFAULT_URL = "http://localhost:8001/webhook/tally"
 
 
 def main():
     parser = argparse.ArgumentParser(description="Simulate a Tally webhook call")
     parser.add_argument("--url", default=DEFAULT_URL, help=f"Webhook URL (default: {DEFAULT_URL})")
-    parser.add_argument("--secret", required=True, help="WEBHOOK_SECRET value")
+    parser.add_argument("--secret", required=True, help="WEBHOOK_SECRET (signing secret)")
     parser.add_argument(
         "--payload",
         default=str(DEFAULT_PAYLOAD),
         help=f"Path to JSON payload file (default: {DEFAULT_PAYLOAD})",
     )
-    parser.add_argument(
-        "--email",
-        help="Override the respondent email in the payload",
-    )
+    parser.add_argument("--email", help="Override the respondent email in the payload")
     parser.add_argument(
         "--new-id",
         action="store_true",
-        help="Replace responseId/submissionId with a fresh UUID (bypasses duplicate guard)",
+        help="Replace responseId/submissionId with a fresh value (bypasses duplicate guard)",
     )
     args = parser.parse_args()
 
@@ -57,13 +55,23 @@ def main():
                 print(f"  Overriding email: {field['value']} → {args.email}")
                 field["value"] = args.email
 
-    full_url = f"{args.url}?secret={args.secret}"
-    print(f"POST {full_url}")
+    # Serialize to bytes — HMAC is computed on the exact body that will be sent
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+    signature = "sha256=" + hmac.new(args.secret.encode(), body, hashlib.sha256).hexdigest()
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Tally Webhooks",
+        "tally-signature": signature,
+    }
+
+    print(f"POST {args.url}")
     print(f"Payload: {payload_path}")
+    print(f"Signature: {signature[:32]}...")
     print()
 
     try:
-        resp = requests.post(full_url, json=payload, timeout=30)
+        resp = requests.post(args.url, data=body, headers=headers, timeout=30)
     except requests.exceptions.ConnectionError:
         print(f"ERROR: Could not connect to {args.url}", file=sys.stderr)
         print("Is the autodiag server running?", file=sys.stderr)
