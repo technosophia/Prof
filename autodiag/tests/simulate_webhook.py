@@ -4,6 +4,7 @@
 import argparse
 import json
 import sys
+import uuid
 from pathlib import Path
 
 import requests
@@ -27,6 +28,11 @@ def main():
         "--email",
         help="Override the respondent email in the payload",
     )
+    parser.add_argument(
+        "--new-id",
+        action="store_true",
+        help="Replace responseId/submissionId with a fresh UUID (bypasses duplicate guard)",
+    )
     args = parser.parse_args()
 
     payload_path = Path(args.payload)
@@ -36,6 +42,14 @@ def main():
 
     with open(payload_path) as f:
         payload = json.load(f)
+
+    if args.new_id:
+        fresh_id = str(uuid.uuid4())[:7].upper()
+        old_id = payload.get("data", {}).get("responseId", "?")
+        payload["data"]["responseId"] = fresh_id
+        payload["data"]["submissionId"] = fresh_id
+        payload["eventId"] = str(uuid.uuid4())
+        print(f"  New responseId: {old_id} → {fresh_id}")
 
     if args.email:
         for field in payload.get("data", {}).get("fields", []):

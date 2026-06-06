@@ -84,6 +84,7 @@ def handle_tally_webhook(payload: dict) -> dict:
             "profile_key": result.profile_key,
             "is_rationalisateur": result.is_rationalisateur,
             "submitted_at": created_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "result_url": f"{base_url}/r?t={token}",
         }
         try:
             send_email(owner_email, "owner", owner_ctx)

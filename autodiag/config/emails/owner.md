@@ -21,3 +21,5 @@ style: owner
 | **Écart ressenti/réel** | {{ felt_constraint }} → {{ profile.front }} |
 {% endif %}
 | **Soumis le** | {{ submitted_at }} |
+
+[Voir la page de résultat →]({{ result_url }})

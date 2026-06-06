@@ -1,12 +1,12 @@
 {
   "form_id": "ODEX18",
-  "email_question_uuid": "1ba7e313-fe6f-4511-a8f3-17c63241e0aa",
+  "email_question_key": "V82pLg",
   "disqualification_options": [
     "dfbd5545-97cf-4eca-9502-99686118474d"
   ],
   "context_questions": {
     "situation": {
-      "uuid": "69181b28-ef12-4d65-8755-888d0d2c1de3",
+      "key": "g4KbDO",
       "options": {
         "164d016b-435f-48e6-b242-c838bd668a81": "salarie",
         "b58b6142-d238-4f3c-8bb2-b19db4cff92b": "independant",
@@ -16,7 +16,7 @@
       }
     },
     "felt_constraint": {
-      "uuid": "6774d9c0-ffb3-493c-83d8-52d049fbf1da",
+      "key": "yDVXPg",
       "options": {
         "1277f763-85df-4553-846f-e11d1208f197": "energie",
         "de27d52d-25a5-4b12-a261-be4a344216f0": "attention",
@@ -27,7 +27,7 @@
   },
   "scored_questions": [
     {
-      "uuid": "8245e137-d550-4609-afbc-91c988565da4",
+      "key": "XqZ5xg",
       "front": "energie",
       "scores": {
         "b48b430e-eb6c-45a0-a879-705492acece7": 4,
@@ -36,7 +36,7 @@
       }
     },
     {
-      "uuid": "6b4a2647-b295-4608-82cf-c80241d852ef",
+      "key": "8e7N15",
       "front": "energie",
       "scores": {
         "d1b94b58-e31b-4490-bff6-e264fbe69516": 4,
@@ -45,7 +45,7 @@
       }
     },
     {
-      "uuid": "09d63c81-522d-4fe2-bda8-85b421b3e3fe",
+      "key": "0PNVQy",
       "front": "energie",
       "scores": {
         "adabc891-fba2-48ef-817c-64235aec1bbf": 4,
@@ -54,7 +54,7 @@
       }
     },
     {
-      "uuid": "4f71f17c-15bf-4638-906e-2625a03b36f8",
+      "key": "zePExR",
       "front": "attention",
       "scores": {
         "7ba76089-a392-4636-b6a3-bb173d154933": 4,
@@ -63,7 +63,7 @@
       }
     },
     {
-      "uuid": "44e902e9-e797-4587-add8-012fc6e2b472",
+      "key": "52WXBo",
       "front": "attention",
       "scores": {
         "939a387d-4795-4957-b2c5-69de55401c65": 4,
@@ -72,7 +72,7 @@
       }
     },
     {
-      "uuid": "8eeb90c6-1a9c-4403-95a1-b9f6946ca96f",
+      "key": "dPBbWo",
       "front": "attention",
       "scores": {
         "a4172d9d-2278-42aa-bbd4-58c21e100e08": 4,
@@ -81,7 +81,7 @@
       }
     },
     {
-      "uuid": "5fb76b13-c739-45e2-9365-802fe8aa79fb",
+      "key": "YdNj5B",
       "front": "liens",
       "scores": {
         "7cdbd444-f9f9-4785-b954-3355e7d9f215": 4,
@@ -90,7 +90,7 @@
       }
     },
     {
-      "uuid": "82486508-2bc1-4d8e-95d2-4d7dc4edb3a8",
+      "key": "Degq4R",
       "front": "liens",
       "scores": {
         "8de6f371-a700-4e64-91da-31fb72aed533": 4,
@@ -99,7 +99,7 @@
       }
     },
     {
-      "uuid": "a8d189bd-f1e1-4f8c-ba67-f19f3da4d7d6",
+      "key": "lRJabk",
       "front": "liens",
       "scores": {
         "28961fb5-aa81-49bb-9183-54b3bcb0d0bc": 4,
@@ -108,7 +108,7 @@
       }
     },
     {
-      "uuid": "e4462a1c-a8f0-46af-b482-31b0a70c7ed3",
+      "key": "RLEWG9",
       "front": "moyens",
       "scores": {
         "9cc865aa-1b78-4e2e-bf86-03d3bbf8028d": 4,
@@ -117,7 +117,7 @@
       }
     },
     {
-      "uuid": "b487b3aa-6411-483d-b58e-7773cdca253b",
+      "key": "oOX9bP",
       "front": "moyens",
       "scores": {
         "62a87470-bf90-4571-8b67-0f5e3cc4b221": 4,
@@ -126,7 +126,7 @@
       }
     },
     {
-      "uuid": "4bf508e5-8873-465a-a481-73e5c65bb04d",
+      "key": "G08exZ",
       "front": "moyens",
       "scores": {
         "13d861c8-6a5d-463d-9179-f2e90a2ad97d": 4,
@@ -135,7 +135,7 @@
       }
     },
     {
-      "uuid": "ea93dbb3-979f-4173-9175-7234125ac118",
+      "key": "O0OQDR",
       "front": "moyens",
       "scores": {
         "1c8c86f3-7137-428e-b029-4403c22a0e3b": 4,
