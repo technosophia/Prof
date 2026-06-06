@@ -1,0 +1,147 @@
+{
+  "form_id": "ODEX18",
+  "email_question_uuid": "1ba7e313-fe6f-4511-a8f3-17c63241e0aa",
+  "disqualification_options": [
+    "dfbd5545-97cf-4eca-9502-99686118474d"
+  ],
+  "context_questions": {
+    "situation": {
+      "uuid": "69181b28-ef12-4d65-8755-888d0d2c1de3",
+      "options": {
+        "164d016b-435f-48e6-b242-c838bd668a81": "salarie",
+        "b58b6142-d238-4f3c-8bb2-b19db4cff92b": "independant",
+        "9f51573e-9f4a-40c0-9db1-fc33a05bfd8d": "entrepreneur_solo",
+        "3e19c46b-4b02-4ceb-b27b-01e5d619e914": "dirigeant",
+        "a48fe97b-89fe-49ad-b3f8-ed6f002b8d15": "transition"
+      }
+    },
+    "felt_constraint": {
+      "uuid": "6774d9c0-ffb3-493c-83d8-52d049fbf1da",
+      "options": {
+        "1277f763-85df-4553-846f-e11d1208f197": "energie",
+        "de27d52d-25a5-4b12-a261-be4a344216f0": "attention",
+        "19fd7f72-bca3-4654-ae46-39db1945aec0": "liens",
+        "d1ea8696-05ed-4126-bcf3-e166088e5b2d": "moyens"
+      }
+    }
+  },
+  "scored_questions": [
+    {
+      "uuid": "8245e137-d550-4609-afbc-91c988565da4",
+      "front": "energie",
+      "scores": {
+        "b48b430e-eb6c-45a0-a879-705492acece7": 4,
+        "0330cf6a-24c7-4e73-a034-de63178dc8b1": 2,
+        "777b0cb7-6ac5-422b-9b09-ddd77ffc53f0": 0
+      }
+    },
+    {
+      "uuid": "6b4a2647-b295-4608-82cf-c80241d852ef",
+      "front": "energie",
+      "scores": {
+        "d1b94b58-e31b-4490-bff6-e264fbe69516": 4,
+        "f9b3fff0-58d4-4393-b340-f3d495851130": 2,
+        "f8183e20-c21e-4794-ba2d-2e1e3d363617": 0
+      }
+    },
+    {
+      "uuid": "09d63c81-522d-4fe2-bda8-85b421b3e3fe",
+      "front": "energie",
+      "scores": {
+        "adabc891-fba2-48ef-817c-64235aec1bbf": 4,
+        "a724cae8-3df0-4a18-be5b-9c71ecb31eab": 2,
+        "2be3fb87-f326-4ce8-9e94-d129018bd9cd": 0
+      }
+    },
+    {
+      "uuid": "4f71f17c-15bf-4638-906e-2625a03b36f8",
+      "front": "attention",
+      "scores": {
+        "7ba76089-a392-4636-b6a3-bb173d154933": 4,
+        "2c6a9ddd-73b2-4688-b04b-1937a1f8a600": 2,
+        "db104762-2b1d-469b-899a-41553f914104": 0
+      }
+    },
+    {
+      "uuid": "44e902e9-e797-4587-add8-012fc6e2b472",
+      "front": "attention",
+      "scores": {
+        "939a387d-4795-4957-b2c5-69de55401c65": 4,
+        "2d30e845-8282-429e-a7ed-2255410fe762": 2,
+        "f4945630-e1de-4de2-be88-a387a57b20d1": 0
+      }
+    },
+    {
+      "uuid": "8eeb90c6-1a9c-4403-95a1-b9f6946ca96f",
+      "front": "attention",
+      "scores": {
+        "a4172d9d-2278-42aa-bbd4-58c21e100e08": 4,
+        "7f13f3ae-ca8f-46d7-9058-f4d29a3d3def": 2,
+        "5b5b4432-cce4-4898-a49a-107ce2c03b80": 0
+      }
+    },
+    {
+      "uuid": "5fb76b13-c739-45e2-9365-802fe8aa79fb",
+      "front": "liens",
+      "scores": {
+        "7cdbd444-f9f9-4785-b954-3355e7d9f215": 4,
+        "f0d482b0-aacd-4825-9c04-232ce7fb1f07": 2,
+        "c08ff686-a2b5-4c4c-b13e-73b5f1eaac4e": 0
+      }
+    },
+    {
+      "uuid": "82486508-2bc1-4d8e-95d2-4d7dc4edb3a8",
+      "front": "liens",
+      "scores": {
+        "8de6f371-a700-4e64-91da-31fb72aed533": 4,
+        "f0adf32d-a2a4-4bca-b75d-8a9514270e62": 2,
+        "13f73cbb-f95d-44bf-acc0-afba5dd44760": 0
+      }
+    },
+    {
+      "uuid": "a8d189bd-f1e1-4f8c-ba67-f19f3da4d7d6",
+      "front": "liens",
+      "scores": {
+        "28961fb5-aa81-49bb-9183-54b3bcb0d0bc": 4,
+        "c1738444-2025-4e87-bc44-fc1fb2a6094c": 2,
+        "94a82ee9-4656-49e0-8049-93b07c0ff470": 0
+      }
+    },
+    {
+      "uuid": "e4462a1c-a8f0-46af-b482-31b0a70c7ed3",
+      "front": "moyens",
+      "scores": {
+        "9cc865aa-1b78-4e2e-bf86-03d3bbf8028d": 4,
+        "a01073cd-9a2e-44cc-976f-f031e126e05d": 2,
+        "d1ae1f50-fd74-44b2-8d4a-36d0c0504a88": 0
+      }
+    },
+    {
+      "uuid": "b487b3aa-6411-483d-b58e-7773cdca253b",
+      "front": "moyens",
+      "scores": {
+        "62a87470-bf90-4571-8b67-0f5e3cc4b221": 4,
+        "2c4477d2-4d60-4731-aeb3-1520edccad18": 2,
+        "3e4bcc52-ac85-4dc3-9a10-85601bd90304": 0
+      }
+    },
+    {
+      "uuid": "4bf508e5-8873-465a-a481-73e5c65bb04d",
+      "front": "moyens",
+      "scores": {
+        "13d861c8-6a5d-463d-9179-f2e90a2ad97d": 4,
+        "d1b948f9-d6e8-4c84-bb05-0e49b554e9ac": 2,
+        "5cf81a11-8f8a-41d9-b531-2f86f32aa169": 0
+      }
+    },
+    {
+      "uuid": "ea93dbb3-979f-4173-9175-7234125ac118",
+      "front": "moyens",
+      "scores": {
+        "1c8c86f3-7137-428e-b029-4403c22a0e3b": 4,
+        "c60befce-9cda-45b2-846d-355fa027a148": 2,
+        "54bdd95f-e5c1-4f47-8db0-931dd43eff31": 0
+      }
+    }
+  ]
+}

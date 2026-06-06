@@ -102,6 +102,27 @@ services:
       - "traefik.port=8000"
       - "traefik.frontend.entryPoints=https,http"
 
+  autodiag:
+    build:
+      context: ./autodiag
+      dockerfile: Dockerfile
+    image: autodiag:latest
+    container_name: autodiag
+    restart: unless-stopped
+    volumes:
+      - ./autodiag/config:/app/config
+      - ./autodiag/data:/app/data
+    env_file:
+      - ./.env
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.frontend.rule=Host:diag.yoga-pro.xyz"
+      - "traefik.port=8001"
+      - "traefik.frontend.entryPoints=https,http"
+
 networks:
   traefik:
     external:

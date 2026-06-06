@@ -1,0 +1,101 @@
+{
+  "fronts": ["energie", "attention", "liens", "moyens"],
+  "normalization": {
+    "moyens": 0.75
+  },
+  "profile_rules": [
+    {
+      "id": "survival",
+      "priority": 1,
+      "condition": {
+        "type": "min_low_fronts",
+        "low_threshold": 2,
+        "min_count": 2
+      },
+      "profile": "operateur_epuise"
+    },
+    {
+      "id": "advanced",
+      "priority": 2,
+      "condition": {
+        "type": "advanced",
+        "min_total": 36,
+        "min_per_front": 6
+      },
+      "profile": "architecte"
+    },
+    {
+      "id": "weakest_front",
+      "priority": 3,
+      "condition": {
+        "type": "weakest_front",
+        "tiebreak_priority": ["moyens", "energie", "attention", "liens"]
+      },
+      "front_to_profile": {
+        "energie": "operateur_epuise",
+        "attention": "penseur_circuit_ferme",
+        "liens": "autonome_sans_appui",
+        "moyens": "producteur_captif"
+      }
+    }
+  ],
+  "internal_flags": {
+    "rationalisateur": {
+      "description": "High attention score but low execution fronts — funnel exclusion signal",
+      "conditions": {
+        "require": {"attention": {"min": 10}},
+        "any_of": [
+          {"front": "moyens", "max": 4},
+          {"front": "liens", "max": 4}
+        ]
+      }
+    }
+  },
+  "profiles": {
+    "operateur_epuise": {
+      "name": "L'Opérateur épuisé",
+      "tagline": "Tu tiens. Mais tu tiens sur la volonté, pas sur des réserves.",
+      "body": "Le corps est ton infrastructure — et elle est en déficit. Tu prends des décisions avec un carburant au rouge. Ce n'est pas un problème de discipline. Tout le reste — la clarté, les relations, la liberté — se dégrade quand le corps ne suit plus.",
+      "front": "energie",
+      "front_label": "Énergie",
+      "routing_tag": "front-energie",
+      "email_subject": "Ton profil : L'Opérateur épuisé"
+    },
+    "penseur_circuit_ferme": {
+      "name": "Le Penseur en circuit fermé",
+      "tagline": "Tu analyses. Mais quelque chose dans ta tête bloque ce qui doit sortir.",
+      "body": "Tu as des valeurs, mais elles ne gouvernent pas tes décisions sous pression. Tu sais ce que tu penses — sauf quand le groupe pense autrement. L'espace mental que tu n'as pas protégé est occupé par autre chose.",
+      "front": "attention",
+      "front_label": "Attention / Mental",
+      "routing_tag": "front-attention",
+      "email_subject": "Ton profil : Le Penseur en circuit fermé"
+    },
+    "autonome_sans_appui": {
+      "name": "L'Autonome sans appui",
+      "tagline": "Tu fonctionnes seul. Peut-être trop.",
+      "body": "Tu n'as pas besoin des autres pour survivre — c'est un acquis. Mais tu n'as pas non plus les gens qui te diraient franchement que tu te trompes. Ce que tu appelles autonomie est peut-être une dépendance à l'absence de friction.",
+      "front": "liens",
+      "front_label": "Liens / Relations",
+      "routing_tag": "front-liens",
+      "email_subject": "Ton profil : L'Autonome sans appui"
+    },
+    "producteur_captif": {
+      "name": "Le Producteur captif",
+      "tagline": "Tu travailles. Mais tu ne possèdes rien.",
+      "body": "Tout ce que tu produis dépend entièrement de ta présence. Ton temps ne t'appartient pas vraiment. Ton revenu s'arrête si tu t'arrêtes. Tu as construit une cage confortable — et tu commences à sentir les barreaux. C'est le front le plus actionnable et le plus urgent.",
+      "front": "moyens",
+      "front_label": "Moyens / Instruments",
+      "routing_tag": "front-moyens",
+      "email_subject": "Ton profil : Le Producteur captif"
+    },
+    "architecte": {
+      "name": "L'Architecte en devenir",
+      "tagline": "Tu as fait le travail sur la plupart des fronts.",
+      "body": "Ce qui reste, c'est la construction — pas la survie. Tu n'es pas en déficit — tu es en phase de consolidation. Ce que tu cherches n'est probablement pas du contenu de base. C'est un environnement à ton niveau : des pairs, des systèmes plus robustes, un prochain palier.",
+      "front": null,
+      "front_label": null,
+      "routing_tag": "front-avance",
+      "email_subject": "Ton profil : L'Architecte en devenir"
+    }
+  }
+}

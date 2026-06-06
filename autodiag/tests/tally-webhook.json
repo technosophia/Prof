@@ -1,0 +1,409 @@
+{
+  "eventId": "c42d505a-7663-4fd4-810d-95c8c799667f",
+  "eventType": "FORM_RESPONSE",
+  "createdAt": "2026-06-06T00:43:35.187Z",
+  "data": {
+    "responseId": "9N1vVgV",
+    "submissionId": "9N1vVgV",
+    "respondentId": "2EbN9NV",
+    "formId": "ODEX18",
+    "formName": "Autodiagnostic Souveraineté intégrale",
+    "createdAt": "2026-06-06T00:43:35.000Z",
+    "submissionPdfUrl": "https://api.tally.so/forms/ODEX18/submissions/9N1vVgV/pdf?accessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWJtaXNzaW9uSWQiOiI5TjF2VmdWIiwiZm9ybUlkIjoiT0RFWDE4IiwiaWF0IjoxNzgwNzA2NjE1fQ.ANV6-HEdjiCkDyAbyWPg_bTv6-5V_ppomzKf_r9gxPg&signature=2a2e8eda16ec403f43d3f7818d5fd3b7b57d4b62d816983f0ae33e57aa38c075",
+    "submissionPreviewUrl": "https://tally.so/forms/ODEX18/submissions/9N1vVgV/preview?accessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWJtaXNzaW9uSWQiOiI5TjF2VmdWIiwiZm9ybUlkIjoiT0RFWDE4IiwiaWF0IjoxNzgwNzA2NjE1fQ.ANV6-HEdjiCkDyAbyWPg_bTv6-5V_ppomzKf_r9gxPg&signature=2a2e8eda16ec403f43d3f7818d5fd3b7b57d4b62d816983f0ae33e57aa38c075",
+    "fields": [
+      {
+        "key": "question_M5o1eM",
+        "label": "Dans l'ensemble, tu fais confiance aux gens et aux structures qui organisent ta vie — médecin, employeur, banque, État. Ils t'ont bien servi sans que tu aies eu à te battre.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "b370304f-db4d-4028-8478-ff4fad31fedd"
+        ],
+        "options": [
+          {
+            "id": "829478f4-e13c-4859-ae0b-1d15982a3fcb",
+            "text": "Oui, globalement"
+          },
+          {
+            "id": "b370304f-db4d-4028-8478-ff4fad31fedd",
+            "text": "Non, ou rarement"
+          },
+          {
+            "id": "2e69c3a0-3e1d-4b59-ba18-b7b7bfb8a02f",
+            "text": "C'est nuancé selon les domaines"
+          }
+        ]
+      },
+      {
+        "key": "question_J0519o",
+        "label": "Te conformer aux attentes de ton milieu — professionnelles, sociales — te coûte de l'énergie.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "15c2c771-a907-4d9e-a084-3423be3ab2ef"
+        ],
+        "options": [
+          {
+            "id": "15c2c771-a907-4d9e-a084-3423be3ab2ef",
+            "text": "Oui, clairement"
+          },
+          {
+            "id": "dfbd5545-97cf-4eca-9502-99686118474d",
+            "text": "Non, ça ne me coûte pas grand-chose"
+          },
+          {
+            "id": "c0c4528c-9329-4279-b9da-f42a0900b4ac",
+            "text": "C'est variable selon les contextes"
+          }
+        ]
+      },
+      {
+        "key": "question_g4KbDO",
+        "label": "Ta situation principale en ce moment :",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "a48fe97b-89fe-49ad-b3f8-ed6f002b8d15"
+        ],
+        "options": [
+          {
+            "id": "164d016b-435f-48e6-b242-c838bd668a81",
+            "text": "Salarié(e) (CDI, CDD, fonctionnaire)"
+          },
+          {
+            "id": "b58b6142-d238-4f3c-8bb2-b19db4cff92b",
+            "text": "Indépendant(e) / freelance"
+          },
+          {
+            "id": "9f51573e-9f4a-40c0-9db1-fc33a05bfd8d",
+            "text": "Entrepreneur solo / solopreneur"
+          },
+          {
+            "id": "3e19c46b-4b02-4ceb-b27b-01e5d619e914",
+            "text": "Dirigeant(e) avec équipe"
+          },
+          {
+            "id": "a48fe97b-89fe-49ad-b3f8-ed6f002b8d15",
+            "text": "En transition (je quitte un statut pour un autre)"
+          }
+        ]
+      },
+      {
+        "key": "question_yDVXPg",
+        "label": "Si tu devais nommer ta principale contrainte aujourd'hui, ce serait :",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "de27d52d-25a5-4b12-a261-be4a344216f0"
+        ],
+        "options": [
+          {
+            "id": "1277f763-85df-4553-846f-e11d1208f197",
+            "text": "L'énergie — je tiens sur la volonté ; le rythme m'use plus qu'il ne me recharge"
+          },
+          {
+            "id": "de27d52d-25a5-4b12-a261-be4a344216f0",
+            "text": "La clarté mentale — je suis dispersé, je décide mal, je suis submergé"
+          },
+          {
+            "id": "19fd7f72-bca3-4654-ae46-39db1945aec0",
+            "text": "Les relations — je suis seul, mal entouré, ou dépendant de gens qui ne m'aident pas"
+          },
+          {
+            "id": "d1ea8696-05ed-4126-bcf3-e166088e5b2d",
+            "text": "Les moyens — temps, argent, autonomie financière, indépendance concrète"
+          }
+        ]
+      },
+      {
+        "key": "question_XqZ5xg",
+        "label": "Tu te réveilles reposé plus de 4 matins sur 7 — sans alarme agressive, sans sortir du lit en mode survie.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "777b0cb7-6ac5-422b-9b09-ddd77ffc53f0"
+        ],
+        "options": [
+          {
+            "id": "b48b430e-eb6c-45a0-a879-705492acece7",
+            "text": "Oui, la plupart des jours"
+          },
+          {
+            "id": "0330cf6a-24c7-4e73-a034-de63178dc8b1",
+            "text": "Parfois, c'est variable"
+          },
+          {
+            "id": "777b0cb7-6ac5-422b-9b09-ddd77ffc53f0",
+            "text": "Non, je suis fatigué en me levant"
+          }
+        ]
+      },
+      {
+        "key": "question_8e7N15",
+        "label": "Tu as une pratique physique régulière depuis plus de 3 mois — pas une intention, pas \"je devrais\" : quelque chose que tu fais vraiment.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "d1b94b58-e31b-4490-bff6-e264fbe69516"
+        ],
+        "options": [
+          {
+            "id": "d1b94b58-e31b-4490-bff6-e264fbe69516",
+            "text": "Oui, une vraie pratique régulière"
+          },
+          {
+            "id": "f9b3fff0-58d4-4393-b340-f3d495851130",
+            "text": "J'en ai une mais elle est irrégulière"
+          },
+          {
+            "id": "f8183e20-c21e-4794-ba2d-2e1e3d363617",
+            "text": "Non"
+          }
+        ]
+      },
+      {
+        "key": "question_0PNVQy",
+        "label": "En fin de journée (17h-18h), tu es encore capable de prendre une décision difficile — sans reporter, sans déléguer, sans l'aplatir.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "adabc891-fba2-48ef-817c-64235aec1bbf"
+        ],
+        "options": [
+          {
+            "id": "adabc891-fba2-48ef-817c-64235aec1bbf",
+            "text": "Oui, mon énergie tient dans la durée"
+          },
+          {
+            "id": "a724cae8-3df0-4a18-be5b-9c71ecb31eab",
+            "text": "Ça dépend beaucoup des jours"
+          },
+          {
+            "id": "2be3fb87-f326-4ce8-9e94-d129018bd9cd",
+            "text": "Non, mes meilleures décisions, c'est le matin seulement"
+          }
+        ]
+      },
+      {
+        "key": "question_zePExR",
+        "label": "Tu peux rester 2 heures seul, sans téléphone, sans lecture, sans musique. Juste rester.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "7ba76089-a392-4636-b6a3-bb173d154933"
+        ],
+        "options": [
+          {
+            "id": "7ba76089-a392-4636-b6a3-bb173d154933",
+            "text": "Oui, je l'ai fait — ça allait"
+          },
+          {
+            "id": "2c6a9ddd-73b2-4688-b04b-1937a1f8a600",
+            "text": "Je ne l'ai pas fait, mais je pense que oui"
+          },
+          {
+            "id": "db104762-2b1d-469b-899a-41553f914104",
+            "text": "Non, ça me serait difficile"
+          }
+        ]
+      },
+      {
+        "key": "question_52WXBo",
+        "label": "Quand tout le monde dans un groupe est d'accord, tu exprimes ton désaccord si tu en as un.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "939a387d-4795-4957-b2c5-69de55401c65"
+        ],
+        "options": [
+          {
+            "id": "939a387d-4795-4957-b2c5-69de55401c65",
+            "text": "Oui, assez facilement"
+          },
+          {
+            "id": "2d30e845-8282-429e-a7ed-2255410fe762",
+            "text": "Parfois, si l'enjeu est fort"
+          },
+          {
+            "id": "f4945630-e1de-4de2-be88-a387a57b20d1",
+            "text": "Rarement — j'attends ou je me tais"
+          }
+        ]
+      },
+      {
+        "key": "question_dPBbWo",
+        "label": "Tu peux nommer tes 3 valeurs fondamentales — là, maintenant, sans chercher.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "a4172d9d-2278-42aa-bbd4-58c21e100e08"
+        ],
+        "options": [
+          {
+            "id": "a4172d9d-2278-42aa-bbd4-58c21e100e08",
+            "text": "Oui, clairement"
+          },
+          {
+            "id": "7f13f3ae-ca8f-46d7-9058-f4d29a3d3def",
+            "text": "Je pourrais, mais il me faudrait quelques minutes"
+          },
+          {
+            "id": "5b5b4432-cce4-4898-a49a-107ce2c03b80",
+            "text": "Non, pas vraiment"
+          }
+        ]
+      },
+      {
+        "key": "question_YdNj5B",
+        "label": "Tu as dit non à quelqu'un en position d'autorité sur toi — sur quelque chose qui comptait — sans t'excuser ni te justifier.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "c08ff686-a2b5-4c4c-b13e-73b5f1eaac4e"
+        ],
+        "options": [
+          {
+            "id": "7cdbd444-f9f9-4785-b954-3355e7d9f215",
+            "text": "Oui, plusieurs fois"
+          },
+          {
+            "id": "f0d482b0-aacd-4825-9c04-232ce7fb1f07",
+            "text": "Une ou deux fois, difficilement"
+          },
+          {
+            "id": "c08ff686-a2b5-4c4c-b13e-73b5f1eaac4e",
+            "text": "Non, j'évite ce genre de situation"
+          }
+        ]
+      },
+      {
+        "key": "question_Degq4R",
+        "label": "Tu as 1 à 3 personnes dans ta vie qui te diraient franchement que tu te trompes — et tu les écouterais vraiment.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "f0adf32d-a2a4-4bca-b75d-8a9514270e62"
+        ],
+        "options": [
+          {
+            "id": "8de6f371-a700-4e64-91da-31fb72aed533",
+            "text": "Oui, et je sais exactement qui"
+          },
+          {
+            "id": "f0adf32d-a2a4-4bca-b75d-8a9514270e62",
+            "text": "Peut-être, mais je n'en suis pas certain(e)"
+          },
+          {
+            "id": "13f73cbb-f95d-44bf-acc0-afba5dd44760",
+            "text": "Non — soit je n'ai pas ces gens, soit je ne les écouterais pas vraiment"
+          }
+        ]
+      },
+      {
+        "key": "question_lRJabk",
+        "label": "Si tu n'es plus utile ou disponible pour quelqu'un, est-ce que la relation tient quand même ?",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "c1738444-2025-4e87-bc44-fc1fb2a6094c"
+        ],
+        "options": [
+          {
+            "id": "28961fb5-aa81-49bb-9183-54b3bcb0d0bc",
+            "text": "Oui, les liens importants dans ma vie ne dépendent pas de mon utilité"
+          },
+          {
+            "id": "c1738444-2025-4e87-bc44-fc1fb2a6094c",
+            "text": "Pour certains oui, pour d'autres j'en doute"
+          },
+          {
+            "id": "94a82ee9-4656-49e0-8049-93b07c0ff470",
+            "text": "Non — beaucoup de mes relations sont conditionnelles à ce que j'apporte"
+          }
+        ]
+      },
+      {
+        "key": "question_RLEWG9",
+        "label": "Si ton revenu principal disparaissait demain, tu as un plan concret pour rebondir — avec des chiffres, pas juste une idée.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "a01073cd-9a2e-44cc-976f-f031e126e05d"
+        ],
+        "options": [
+          {
+            "id": "9cc865aa-1b78-4e2e-bf86-03d3bbf8028d",
+            "text": "Oui, un vrai plan"
+          },
+          {
+            "id": "a01073cd-9a2e-44cc-976f-f031e126e05d",
+            "text": "Des idées générales"
+          },
+          {
+            "id": "d1ae1f50-fd74-44b2-8d4a-36d0c0504a88",
+            "text": "Pas vraiment"
+          }
+        ]
+      },
+      {
+        "key": "question_oOX9bP",
+        "label": "Cette semaine, tu peux libérer une demi-journée sans en demander la permission à qui que ce soit.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "2c4477d2-4d60-4731-aeb3-1520edccad18"
+        ],
+        "options": [
+          {
+            "id": "62a87470-bf90-4571-8b67-0f5e3cc4b221",
+            "text": "Oui, sans problème"
+          },
+          {
+            "id": "2c4477d2-4d60-4731-aeb3-1520edccad18",
+            "text": "Seulement en négociant avec quelqu'un"
+          },
+          {
+            "id": "3e4bcc52-ac85-4dc3-9a10-85601bd90304",
+            "text": "Non"
+          }
+        ]
+      },
+      {
+        "key": "question_G08exZ",
+        "label": "Tu as une réserve financière pour absorber une dépense imprévue de 1 000 € — sans stress et sans emprunt.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "13d861c8-6a5d-463d-9179-f2e90a2ad97d"
+        ],
+        "options": [
+          {
+            "id": "13d861c8-6a5d-463d-9179-f2e90a2ad97d",
+            "text": "Oui"
+          },
+          {
+            "id": "d1b948f9-d6e8-4c84-bb05-0e49b554e9ac",
+            "text": "À la limite"
+          },
+          {
+            "id": "5cf81a11-8f8a-41d9-b531-2f86f32aa169",
+            "text": "Non"
+          }
+        ]
+      },
+      {
+        "key": "question_O0OQDR",
+        "label": "Tu as une source de revenu — même modeste — qui ne dépend pas entièrement de ta présence ou de ton temps de travail actif.",
+        "type": "MULTIPLE_CHOICE",
+        "value": [
+          "c60befce-9cda-45b2-846d-355fa027a148"
+        ],
+        "options": [
+          {
+            "id": "1c8c86f3-7137-428e-b029-4403c22a0e3b",
+            "text": "Oui, j'ai un actif, une récurrence, quelque chose qui tourne sans moi"
+          },
+          {
+            "id": "c60befce-9cda-45b2-846d-355fa027a148",
+            "text": "Pas encore, mais j'y travaille concrètement"
+          },
+          {
+            "id": "54bdd95f-e5c1-4f47-8db0-931dd43eff31",
+            "text": "Non — si je ne travaille pas, je ne gagne rien"
+          }
+        ]
+      },
+      {
+        "key": "question_V82pLg",
+        "label": "Reçois ton diagnostic complet",
+        "type": "INPUT_EMAIL",
+        "value": "ybabel@free.fr"
+      }
+    ]
+  }
+}

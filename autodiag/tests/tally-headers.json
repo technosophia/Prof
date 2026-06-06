@@ -1,0 +1,20 @@
+{
+  "connection": "upgrade",
+  "host": "hook.eu1.make.com",
+  "x-forwarded-for": "34.96.41.62, 172.68.186.57, hook.eu1.make.com",
+  "x-forwarded-proto": "https",
+  "x-real-ip": "172.68.186.57",
+  "x-request-id": "ad755eeb2621aac70886954aaf30d714",
+  "content-length": "9955",
+  "content-type": "application/json",
+  "user-agent": "Tally Webhooks",
+  "baggage": "sentry-environment=production,sentry-release=b0527dcde91fe6ccc8ee6c90ef5d71afe312672a,sentry-public_key=6af4b6673f1648edaa8fef3f2ca43405,sentry-trace_id=23355dbeb1bdf4242421fb6d6d027bf1,sentry-org_id=407628,sentry-sampled=false,sentry-sample_rand=0.8224379549081897,sentry-sample_rate=0",
+  "sentry-trace": "23355dbeb1bdf4242421fb6d6d027bf1-eed92492e5a64cca-0",
+  "cf-ray": "a07362393c74bebf-LHR",
+  "accept-encoding": "gzip, br",
+  "accept": "application/json, text/plain, */*",
+  "cdn-loop": "cloudflare; loops=1",
+  "cf-connecting-ip": "34.96.41.62",
+  "cf-ipcountry": "BE",
+  "cf-visitor": "{\"scheme\":\"https\"}"
+}
