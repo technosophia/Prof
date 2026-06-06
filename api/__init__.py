@@ -138,7 +138,7 @@ def create_app(services: ServiceLocator | None = None) -> FastAPI:
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
 
-    @app.get("/", include_in_schema=False)
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_index():
         index_file = frontend_dist / "index.html"
         if index_file.exists():
