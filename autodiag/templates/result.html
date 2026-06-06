@@ -117,9 +117,11 @@
     </div>
     {% endif %}
 
+    {% if cta_url and cta_url != '#' %}
     <div class="cta-wrapper">
       <a href="{{ cta_url }}" class="cta-btn">Reçois les 3 premières actions concrètes →</a>
     </div>
+    {% endif %}
   </div>
 
   <script>
