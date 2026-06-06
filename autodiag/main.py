@@ -101,9 +101,9 @@ def result_page(request: Request, t: str = Query(...)):
     felt = data.get("felt", "")
 
     return templates.TemplateResponse(
-        "result.html",
-        {
-            "request": request,
+        request=request,
+        name="result.html",
+        context={
             "profile": profile,
             "scores": scores,
             "felt_constraint": felt,
