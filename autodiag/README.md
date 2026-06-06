@@ -117,9 +117,19 @@ Calling without `--new-id` a second time returns `{"status": "duplicate"}` — u
 3. Set the **Signing secret** to the value of `WEBHOOK_SECRET` in your `.env`.
 4. Select event type **Form response** and save.
 
-Tally computes `HMAC-SHA256(body, signing_secret)` and sends the result in the header `tally-signature: sha256=<hex>`. The server verifies this header on every request. The secret never appears in the URL.
+Tally computes `HMAC-SHA256(body, signing_secret)`, base64-encodes the digest, and sends it in the header `tally-signature: <base64>`. The server verifies this header on every request. The secret never appears in the URL.
 
 Tally sends a test ping on save — it is ignored (only `FORM_RESPONSE` events are processed).
+
+## Pre-fill the email field in the URL
+
+Tally supports pre-filling form fields via query parameters. The email field has the key `V82pLg`, so pass it directly in the URL:
+
+```
+https://tally.so/r/ODEX18?V82pLg=prenom@exemple.com
+```
+
+The email input will be pre-filled when the form opens. Useful when sending the form to people whose email you already have (newsletter, CRM export, etc.).
 
 ## Config files
 

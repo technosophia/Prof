@@ -54,7 +54,7 @@
   "profiles": {
     "operateur_epuise": {
       "name": "L'Opérateur épuisé",
-      "tagline": "Tu tiens. Mais tu tiens sur la volonté, pas sur des réserves.",
+      "tagline": "Tu tiens. Mais tu puises dans des réserves que tu ne renouvelles plus.",
       "body": "Le corps est ton infrastructure — et elle est en déficit. Tu prends des décisions avec un carburant au rouge. Ce n'est pas un problème de discipline. Tout le reste — la clarté, les relations, la liberté — se dégrade quand le corps ne suit plus.",
       "front": "energie",
       "front_label": "Énergie",
