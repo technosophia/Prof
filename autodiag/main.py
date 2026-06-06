@@ -1,5 +1,6 @@
 """FastAPI entry point for the autodiag micro-service."""
 
+import base64
 import hashlib
 import hmac
 import json
@@ -50,9 +51,14 @@ async def tally_webhook(request: Request, tally_signature: str | None = Header(d
     body = await request.body()
 
     if signing_secret:
-        expected_sig = "sha256=" + hmac.new(signing_secret.encode(), body, hashlib.sha256).hexdigest()
+        expected_sig = base64.b64encode(
+            hmac.new(signing_secret.encode(), body, hashlib.sha256).digest()
+        ).decode()
         if not tally_signature or not hmac.compare_digest(tally_signature, expected_sig):
-            logger.warning("Webhook signature mismatch (got: %s)", tally_signature)
+            logger.warning(
+                "Webhook signature mismatch — got: %s | expected: %s | secret_len: %d | body_len: %d",
+                tally_signature, expected_sig, len(signing_secret), len(body),
+            )
             raise HTTPException(status_code=403, detail="Invalid signature")
 
     payload = json.loads(body)

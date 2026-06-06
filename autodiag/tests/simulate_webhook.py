@@ -2,6 +2,7 @@
 """Send a Tally webhook payload to the local autodiag server for manual testing."""
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -57,7 +58,10 @@ def main():
 
     # Serialize to bytes — HMAC is computed on the exact body that will be sent
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-    signature = "sha256=" + hmac.new(args.secret.encode(), body, hashlib.sha256).hexdigest()
+    # Tally sends base64-encoded HMAC-SHA256 (no "sha256=" prefix)
+    signature = base64.b64encode(
+        hmac.new(args.secret.encode(), body, hashlib.sha256).digest()
+    ).decode()
 
     headers = {
         "Content-Type": "application/json",
