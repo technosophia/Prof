@@ -143,10 +143,14 @@ front_discrepancy: {{ front_discrepancy }}</pre>
     const labels = {{ chart_labels | tojson }};
     const values = {{ chart_values | tojson }};
     const stds = {{ chart_stds | tojson }};
+    const mins = {{ chart_mins | tojson }};
+    const maxes = {{ chart_maxes | tojson }};
     const maxValue = {{ chart_max }};
 
     const upperBand = values.map((v, i) => Math.min(maxValue, v + stds[i]));
     const lowerBand = values.map((v, i) => Math.max(0, v - stds[i]));
+    const maxBand   = maxes.map(v => Math.min(maxValue, v));
+    const minBand   = mins.map(v => Math.max(0, v));
 
     new Chart(document.getElementById('radarChart'), {
       type: 'radar',
@@ -154,14 +158,31 @@ front_discrepancy: {{ front_discrepancy }}</pre>
         labels,
         datasets: [
           {
+            label: '',
+            data: maxBand,
+            borderColor: 'transparent',
+            pointRadius: 0,
+            fill: false,
+          },
+          {
+            label: 'Min / Max',
+            data: minBand,
+            backgroundColor: 'rgba(122, 173, 212, 0.13)',
+            borderColor: 'transparent',
+            pointRadius: 0,
+            fill: '-1',
+          },
+          {
+            label: '',
             data: upperBand,
             borderColor: 'transparent',
             pointRadius: 0,
             fill: false,
           },
           {
+            label: 'Écart-type (±σ)',
             data: lowerBand,
-            backgroundColor: 'rgba(109, 200, 109, 0.2)',
+            backgroundColor: 'rgba(109, 200, 109, 0.22)',
             borderColor: 'transparent',
             pointRadius: 0,
             fill: '-1',
@@ -195,7 +216,20 @@ front_discrepancy: {{ front_discrepancy }}</pre>
           legend: {
             labels: {
               color: '#f0f0f0',
-              filter: (item) => item.text !== ''
+              filter: (item) => item.text !== '',
+              generateLabels: (chart) => {
+                const defaults = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                return defaults.map(label => {
+                  if (label.text === 'Écart-type (±σ)') {
+                    label.fillStyle = 'rgba(109, 200, 109, 0.55)';
+                    label.strokeStyle = 'transparent';
+                  } else if (label.text === 'Min / Max') {
+                    label.fillStyle = 'rgba(122, 173, 212, 0.45)';
+                    label.strokeStyle = 'transparent';
+                  }
+                  return label;
+                });
+              }
             }
           },
           tooltip: {

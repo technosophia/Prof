@@ -27,6 +27,8 @@ class RadarAggregate:
     average_scores: dict[str, float]
     max_scores: dict[str, int]
     std_scores: dict[str, float] = field(default_factory=dict)
+    actual_min_scores: dict[str, float] = field(default_factory=dict)
+    actual_max_scores: dict[str, float] = field(default_factory=dict)
     profile_counts: dict[str, int] = field(default_factory=dict)
     calculated_constraint_counts: dict[str, int] = field(default_factory=dict)
     felt_constraint_counts: dict[str, int] = field(default_factory=dict)
@@ -330,6 +332,14 @@ def aggregate_submissions(
         else 0.0
         for front in fronts
     }
+    actual_min_scores = {
+        front: float(min(all_scores[front])) if all_scores[front] else 0.0
+        for front in fronts
+    }
+    actual_max_scores = {
+        front: float(max(all_scores[front])) if all_scores[front] else 0.0
+        for front in fronts
+    }
     return RadarAggregate(
         form_id=form_config["form_id"],
         submission_count=submission_count,
@@ -338,6 +348,8 @@ def aggregate_submissions(
         front_labels=_front_labels(scoring_config),
         average_scores=average_scores,
         std_scores=std_scores,
+        actual_min_scores=actual_min_scores,
+        actual_max_scores=actual_max_scores,
         max_scores=max_scores,
         profile_counts=profile_counts,
         calculated_constraint_counts=calculated_counts,

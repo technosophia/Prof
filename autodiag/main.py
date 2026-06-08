@@ -118,6 +118,8 @@ def radar_page(request: Request):
     chart_labels = [aggregate.front_labels.get(front, front) for front in aggregate.fronts]
     chart_values = [aggregate.average_scores[front] for front in aggregate.fronts]
     chart_stds = [aggregate.std_scores.get(front, 0) for front in aggregate.fronts]
+    chart_mins = [aggregate.actual_min_scores.get(front, 0) for front in aggregate.fronts]
+    chart_maxes = [aggregate.actual_max_scores.get(front, 0) for front in aggregate.fronts]
 
     return templates.TemplateResponse(
         request=request,
@@ -131,6 +133,8 @@ def radar_page(request: Request):
             "chart_labels": chart_labels,
             "chart_values": chart_values,
             "chart_stds": chart_stds,
+            "chart_mins": chart_mins,
+            "chart_maxes": chart_maxes,
             "chart_max": max(aggregate.max_scores.values()) if aggregate.max_scores else 12,
         },
     )
