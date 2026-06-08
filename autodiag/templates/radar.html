@@ -40,7 +40,8 @@
     .bar { display: grid; grid-template-columns: 1fr auto; gap: 0.8rem; align-items: center; }
     .bar span:first-child { overflow-wrap: anywhere; }
     .footer { color: var(--muted); font-family: sans-serif; font-size: 0.85rem; margin-top: 1.5rem; }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .chart-wrap { min-height: 360px; } }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; align-items: start; }
+    @media (max-width: 760px) { .grid, .grid-3 { grid-template-columns: 1fr; } .chart-wrap { min-height: 360px; } }
   </style>
 </head>
 <body>
@@ -55,7 +56,8 @@
 
     <p class="intro">
       Synthèse des réponses complètes récupérées depuis Tally pour le formulaire
-      <strong>{{ aggregate.form_id }}</strong>. Les réponses disqualifiées sont exclues du radar.
+      <a href="https://tally.so/forms/{{ aggregate.form_id }}/edit" target="_blank" rel="noopener" style="color:var(--green);text-decoration:none;font-weight:bold;">{{ aggregate.form_id }}</a>.
+      Les réponses disqualifiées sont exclues du radar.
     </p>
 
     <section class="grid">
@@ -71,7 +73,7 @@
       </aside>
     </section>
 
-    <section class="grid" style="margin-top: 1rem;">
+    <section class="grid-3" style="margin-top: 1rem;">
       <article class="card">
         <h2>Profils calculés</h2>
         <div class="list">
@@ -84,10 +86,40 @@
       </article>
 
       <article class="card">
+        <h2>Contraintes calculées</h2>
+        <div class="list">
+          {% for label, count in calculated_constraint_counts.items() %}
+            {% set disc = front_discrepancy.get(label, 0) %}
+            {% set raw_a = (disc | abs) * 0.9 %}
+            {% set alpha = raw_a if raw_a < 0.45 else 0.45 %}
+            {% if disc > 0 %}
+              <div class="bar disc-row" style="border-left:3px solid rgba(220,80,80,0.85);background:rgba(220,80,80,{{ alpha }});border-radius:6px;padding:2px 6px 2px 9px;"><span>{{ label }}</span><strong>{{ count }}</strong></div>
+            {% elif disc < 0 %}
+              <div class="bar disc-row" style="border-left:3px solid rgba(80,200,120,0.85);background:rgba(80,200,120,{{ alpha }});border-radius:6px;padding:2px 6px 2px 9px;"><span>{{ label }}</span><strong>{{ count }}</strong></div>
+            {% else %}
+              <div class="bar"><span>{{ label }}</span><strong>{{ count }}</strong></div>
+            {% endif %}
+          {% else %}
+            <div>Aucune réponse incluse.</div>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="card">
         <h2>Contraintes ressenties</h2>
         <div class="list">
           {% for key, count in aggregate.felt_constraint_counts.items() %}
-            <div class="bar"><span>{{ front_labels.get(key, key) }}</span><strong>{{ count }}</strong></div>
+            {% set label = front_labels.get(key, key) %}
+            {% set disc = front_discrepancy.get(label, 0) %}
+            {% set raw_a = (disc | abs) * 0.9 %}
+            {% set alpha = raw_a if raw_a < 0.45 else 0.45 %}
+            {% if disc > 0 %}
+              <div class="bar disc-row" style="border-left:3px solid rgba(220,80,80,0.85);background:rgba(220,80,80,{{ alpha }});border-radius:6px;padding:2px 6px 2px 9px;"><span>{{ label }}</span><strong>{{ count }}</strong></div>
+            {% elif disc < 0 %}
+              <div class="bar disc-row" style="border-left:3px solid rgba(80,200,120,0.85);background:rgba(80,200,120,{{ alpha }});border-radius:6px;padding:2px 6px 2px 9px;"><span>{{ label }}</span><strong>{{ count }}</strong></div>
+            {% else %}
+              <div class="bar"><span>{{ label }}</span><strong>{{ count }}</strong></div>
+            {% endif %}
           {% else %}
             <div>Aucune contrainte reconnue.</div>
           {% endfor %}
@@ -96,6 +128,15 @@
     </section>
 
     <p class="footer">Données rafraîchies à chaque chargement de la page. Variable requise : TALLY_API_KEY.</p>
+
+    <details style="margin-top:1rem;color:var(--muted);font-family:sans-serif;font-size:0.8rem;">
+      <summary>Debug</summary>
+      <pre>profile_counts: {{ aggregate.profile_counts }}
+fronts: {{ aggregate.fronts }}
+front_labels: {{ aggregate.front_labels }}
+calculated_constraint_counts: {{ calculated_constraint_counts }}
+front_discrepancy: {{ front_discrepancy }}</pre>
+    </details>
   </main>
 
   <script>

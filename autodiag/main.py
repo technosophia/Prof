@@ -100,6 +100,21 @@ def radar_page(request: Request):
         key: profile.get("name", key)
         for key, profile in scoring_config["profiles"].items()
     }
+    calculated_constraint_counts = {
+        aggregate.front_labels.get(front, front): count
+        for front, count in aggregate.calculated_constraint_counts.items()
+        if count
+    }
+    total = aggregate.submission_count or 1
+    front_discrepancy = {
+        aggregate.front_labels.get(front, front): round(
+            aggregate.calculated_constraint_counts.get(front, 0) / total
+            - aggregate.felt_constraint_counts.get(front, 0) / total,
+            3,
+        )
+        for front in aggregate.fronts
+    }
+
     chart_labels = [aggregate.front_labels.get(front, front) for front in aggregate.fronts]
     chart_values = [aggregate.average_scores[front] for front in aggregate.fronts]
     chart_stds = [aggregate.std_scores.get(front, 0) for front in aggregate.fronts]
@@ -111,6 +126,8 @@ def radar_page(request: Request):
             "aggregate": aggregate,
             "profile_names": profile_names,
             "front_labels": aggregate.front_labels,
+            "calculated_constraint_counts": calculated_constraint_counts,
+            "front_discrepancy": front_discrepancy,
             "chart_labels": chart_labels,
             "chart_values": chart_values,
             "chart_stds": chart_stds,

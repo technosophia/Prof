@@ -28,6 +28,7 @@ class RadarAggregate:
     max_scores: dict[str, int]
     std_scores: dict[str, float] = field(default_factory=dict)
     profile_counts: dict[str, int] = field(default_factory=dict)
+    calculated_constraint_counts: dict[str, int] = field(default_factory=dict)
     felt_constraint_counts: dict[str, int] = field(default_factory=dict)
     situation_counts: dict[str, int] = field(default_factory=dict)
 
@@ -277,11 +278,20 @@ def aggregate_submissions(
         for front in fronts
     }
     profile_counts: dict[str, int] = {}
+    calculated_counts: dict[str, int] = {}
     felt_counts: dict[str, int] = {}
     situation_counts: dict[str, int] = {}
     submission_count = 0
     skipped_count = 0
     disqualification_options = set(form_config.get("disqualification_options", []))
+    _tiebreak_priority = next(
+        (
+            r["condition"]["tiebreak_priority"]
+            for r in scoring_config.get("profile_rules", [])
+            if r["condition"]["type"] == "weakest_front"
+        ),
+        fronts,
+    )
 
     for submission in submissions:
         answers = _build_answer_map(submission, questions, form_config)
@@ -297,6 +307,11 @@ def aggregate_submissions(
             totals[front] += score
             all_scores[front].append(score)
         profile_counts[result.profile_key] = profile_counts.get(result.profile_key, 0) + 1
+
+        min_score = min(result.scores.get(f, 0) for f in fronts)
+        weakest_fronts = [f for f in fronts if result.scores.get(f, 0) == min_score]
+        weakest = next((f for f in _tiebreak_priority if f in weakest_fronts), weakest_fronts[0])
+        calculated_counts[weakest] = calculated_counts.get(weakest, 0) + 1
 
         felt = _context_value(answers, form_config, "felt_constraint")
         if felt:
@@ -325,6 +340,7 @@ def aggregate_submissions(
         std_scores=std_scores,
         max_scores=max_scores,
         profile_counts=profile_counts,
+        calculated_constraint_counts=calculated_counts,
         felt_constraint_counts=felt_counts,
         situation_counts=situation_counts,
     )
