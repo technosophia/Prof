@@ -124,3 +124,108 @@ def test_aggregate_submissions_supports_question_aliases_from_metadata():
     )
 
     assert aggregate.average_scores["energie"] == 4.0
+
+
+def test_aggregate_submissions_maps_api_question_uuid_by_config_label_and_answer_alias():
+    form_config = {
+        "form_id": "FORM1",
+        "context_questions": {
+            "situation": {
+                "key": "sit",
+                "label": "Situation",
+                "options": {"employee-id": "salarie"},
+                "answer_aliases": {"Employee": "employee-id"},
+            },
+            "felt_constraint": {
+                "key": "felt",
+                "label": "Constraint",
+                "options": {"energy-id": "energie"},
+                "answer_aliases": {"Energy": "energy-id"},
+            },
+        },
+        "scored_questions": [
+            {
+                "key": "q1",
+                "front": "energie",
+                "label": "Energy question",
+                "scores": {"yes-id": 4},
+                "answer_aliases": {"Yes": "yes-id"},
+            },
+            {"key": "q2", "front": "attention", "scores": {}},
+            {"key": "q3", "front": "liens", "scores": {}},
+            {"key": "q4", "front": "moyens", "scores": {}},
+        ],
+    }
+    scoring_config = {
+        "fronts": ["energie", "attention", "liens", "moyens"],
+        "normalization": {},
+        "internal_flags": {"rationalisateur": {"conditions": {"require": {}, "any_of": []}}},
+        "profile_rules": [
+            {
+                "priority": 1,
+                "condition": {"type": "weakest_front", "tiebreak_priority": ["moyens"]},
+                "front_to_profile": {"moyens": "means_profile"},
+            }
+        ],
+        "profiles": {"means_profile": {"front": "moyens", "front_label": "Moyens"}},
+    }
+
+    aggregate = aggregate_submissions(
+        [
+            {
+                "responses": [
+                    {"questionId": "api-q1", "answer": "opaque-api-value", "formattedAnswer": "Yes"},
+                    {"questionId": "api-situation", "answer": "Employee"},
+                    {"questionId": "api-felt", "answer": "Energy"},
+                ]
+            }
+        ],
+        questions=[
+            {"id": "api-q1", "title": "Energy question", "fields": []},
+            {"id": "api-situation", "title": "Situation", "fields": []},
+            {"id": "api-felt", "title": "Constraint", "fields": []},
+        ],
+        form_config=form_config,
+        scoring_config=scoring_config,
+    )
+
+    assert aggregate.average_scores["energie"] == 4.0
+    assert aggregate.situation_counts == {"salarie": 1}
+    assert aggregate.felt_constraint_counts == {"energie": 1}
+
+
+def test_aggregate_submissions_extracts_json_encoded_answer_lists():
+    form_config = {
+        "form_id": "FORM1",
+        "context_questions": {
+            "situation": {"key": "sit", "options": {}},
+            "felt_constraint": {"key": "felt", "options": {}},
+        },
+        "scored_questions": [
+            {"key": "q1", "front": "energie", "scores": {"yes-id": 4}},
+            {"key": "q2", "front": "attention", "scores": {}},
+            {"key": "q3", "front": "liens", "scores": {}},
+            {"key": "q4", "front": "moyens", "scores": {}},
+        ],
+    }
+    scoring_config = {
+        "fronts": ["energie", "attention", "liens", "moyens"],
+        "normalization": {},
+        "internal_flags": {"rationalisateur": {"conditions": {"require": {}, "any_of": []}}},
+        "profile_rules": [
+            {
+                "priority": 1,
+                "condition": {"type": "weakest_front", "tiebreak_priority": ["moyens"]},
+                "front_to_profile": {"moyens": "means_profile"},
+            }
+        ],
+        "profiles": {"means_profile": {"front": "moyens", "front_label": "Moyens"}},
+    }
+
+    aggregate = aggregate_submissions(
+        [{"responses": [{"questionId": "question_q1", "answer": '["yes-id"]'}]}],
+        form_config=form_config,
+        scoring_config=scoring_config,
+    )
+
+    assert aggregate.average_scores["energie"] == 4.0

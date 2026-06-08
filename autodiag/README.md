@@ -154,6 +154,7 @@ Maps Tally question keys to scoring weights. The question keys are the short alp
 - `email_question_key` — key suffix of the email input field
 - `context_questions` — key suffixes and option UUIDs for the situation and felt-constraint questions
 - `scored_questions` — list of `{key, front, scores: {option_uuid: int}}`
+- `label` / `answer_aliases` — optional Tally API fallback aliases used by `/radar` when the submissions API returns question UUIDs or answer text instead of webhook-style question keys and option UUIDs
 - `disqualification_options` — option UUIDs that short-circuit scoring (no score, no email sent)
 
 ### `config/scoring.json`

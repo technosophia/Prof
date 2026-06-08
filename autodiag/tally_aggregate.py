@@ -41,9 +41,25 @@ def load_scoring_config() -> dict[str, Any]:
 
 
 def _extract_answer(value: Any) -> str:
+    """Return the option ID/value from Tally answers across webhook and API shapes."""
+    if value is None:
+        return ""
     if isinstance(value, list):
-        return str(value[0]) if value else ""
-    return str(value) if value is not None else ""
+        return _extract_answer(value[0]) if value else ""
+    if isinstance(value, dict):
+        for key in ("id", "uuid", "value", "answer"):
+            if key in value:
+                return _extract_answer(value[key])
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("[") or text.startswith("{"):
+            try:
+                return _extract_answer(json.loads(text))
+            except json.JSONDecodeError:
+                pass
+        return text
+    return str(value)
 
 
 def _normalize_question_id(question_id: Any) -> str:
@@ -51,45 +67,163 @@ def _normalize_question_id(question_id: Any) -> str:
     return question_id.removeprefix("question_")
 
 
-def _build_answer_map(submission: dict[str, Any], questions: list[dict[str, Any]] | None = None) -> dict[str, str]:
+def _configured_question_keys(form_config: dict[str, Any]) -> set[str]:
+    keys = {form_config["email_question_key"]} if form_config.get("email_question_key") else set()
+    keys.update(question["key"] for question in form_config["context_questions"].values())
+    keys.update(question["key"] for question in form_config["scored_questions"])
+    return keys
+
+
+def _normalize_label(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def _question_label_aliases(form_config: dict[str, Any]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for question in form_config["context_questions"].values():
+        if question.get("label"):
+            aliases[_normalize_label(question["label"])] = question["key"]
+    for question in form_config["scored_questions"]:
+        if question.get("label"):
+            aliases[_normalize_label(question["label"])] = question["key"]
+    return aliases
+
+
+def _answer_aliases_by_question(form_config: dict[str, Any]) -> dict[str, dict[str, str]]:
+    aliases: dict[str, dict[str, str]] = {}
+    for question in form_config["context_questions"].values():
+        aliases[question["key"]] = {
+            _normalize_label(alias): option_id
+            for alias, option_id in question.get("answer_aliases", {}).items()
+        }
+    for question in form_config["scored_questions"]:
+        aliases[question["key"]] = {
+            _normalize_label(alias): option_id
+            for alias, option_id in question.get("answer_aliases", {}).items()
+        }
+    return aliases
+
+
+def _resolve_answer(
+    question_key: str,
+    candidates: list[str],
+    answer_aliases: dict[str, dict[str, str]],
+) -> str:
+    aliases = answer_aliases.get(question_key, {})
+    for candidate in candidates:
+        if _normalize_label(candidate) in aliases:
+            return aliases[_normalize_label(candidate)]
+    return next((candidate for candidate in candidates if candidate), "")
+
+
+def _matches_config_key(value: Any, configured_keys: set[str]) -> str:
+    normalized = _normalize_question_id(value)
+    if normalized in configured_keys:
+        return normalized
+    return ""
+
+
+def _question_config_key(
+    question: dict[str, Any],
+    configured_keys: set[str],
+    label_aliases: dict[str, str],
+) -> str:
+    for value in (question.get("id"), question.get("key"), question.get("questionKey")):
+        key = _matches_config_key(value, configured_keys)
+        if key:
+            return key
+
+    title_key = label_aliases.get(_normalize_label(question.get("title")))
+    if title_key:
+        return title_key
+
+    for field_data in question.get("fields", []) or []:
+        if not isinstance(field_data, dict):
+            continue
+        for alias_name in ("key", "questionKey", "uuid", "blockGroupUuid", "id"):
+            key = _matches_config_key(field_data.get(alias_name), configured_keys)
+            if key:
+                return key
+        title_key = label_aliases.get(_normalize_label(field_data.get("title")))
+        if title_key:
+            return title_key
+    return ""
+
+
+def _build_answer_map(
+    submission: dict[str, Any],
+    questions: list[dict[str, Any]] | None = None,
+    form_config: dict[str, Any] | None = None,
+) -> dict[str, str]:
     """Return answers keyed by config question key suffix.
 
     Tally webhooks use ``fields[].key = question_<key>``. The submissions API returns
-    ``responses[]``; depending on the field type, ``questionId`` may already be the
-    same key or may reference a question/field UUID. This mapper accepts both shapes.
+    ``responses[]`` with ``questionId`` values that can be UUIDs, while the
+    corresponding ``questions[].fields[]`` metadata can carry the configured Tally
+    field key. We first detect the configured key anywhere in a question/field and
+    then alias every ID from that question back to the configured key.
     """
+    configured_keys = _configured_question_keys(form_config) if form_config else set()
+    label_aliases = _question_label_aliases(form_config) if form_config else {}
+    answer_aliases = _answer_aliases_by_question(form_config) if form_config else {}
     answers: dict[str, str] = {}
 
     for field_data in submission.get("fields", []):
         if isinstance(field_data, dict):
             key = _normalize_question_id(field_data.get("key"))
             if key:
-                answers[key] = _extract_answer(field_data.get("value"))
+                answer = _extract_answer(field_data.get("value"))
+                answers[key] = _resolve_answer(key, [answer], answer_aliases)
 
     aliases: dict[str, str] = {}
     for question in questions or []:
         if not isinstance(question, dict):
             continue
-        question_key = _normalize_question_id(question.get("id"))
-        if question_key:
-            aliases[str(question.get("id"))] = question_key
-            aliases[question_key] = question_key
+        question_key = (
+            _question_config_key(question, configured_keys, label_aliases)
+            if configured_keys
+            else _normalize_question_id(question.get("id"))
+        )
+        if not question_key:
+            continue
+        for alias_value in (
+            question.get("id"),
+            question.get("key"),
+            question.get("questionKey"),
+            question_key,
+            f"question_{question_key}",
+        ):
+            if alias_value:
+                aliases[str(alias_value)] = question_key
+                aliases[_normalize_question_id(alias_value)] = question_key
         for field_data in question.get("fields", []) or []:
             if not isinstance(field_data, dict):
                 continue
-            for alias_name in ("uuid", "blockGroupUuid", "id"):
+            for alias_name in ("key", "questionKey", "uuid", "blockGroupUuid", "id"):
                 alias_value = field_data.get(alias_name)
-                if alias_value and question_key:
+                if alias_value:
                     aliases[str(alias_value)] = question_key
+                    aliases[_normalize_question_id(alias_value)] = question_key
 
     for response in submission.get("responses", []):
         if not isinstance(response, dict):
             continue
         question_id = response.get("questionId") or response.get("questionKey") or response.get("id")
-        key = aliases.get(str(question_id), _normalize_question_id(question_id))
+        fallback_key = _normalize_question_id(question_id)
+        key = aliases.get(str(question_id), aliases.get(fallback_key, fallback_key))
+        if configured_keys and key not in configured_keys:
+            logger.debug("Skipping Tally response with unmapped questionId=%s", question_id)
+            continue
         if not key:
             continue
-        answers[key] = _extract_answer(response.get("answer"))
+        answers[key] = _resolve_answer(
+            key,
+            [
+                _extract_answer(response.get("answer")),
+                _extract_answer(response.get("formattedAnswer")),
+            ],
+            answer_aliases,
+        )
 
     return answers
 
@@ -147,7 +281,7 @@ def aggregate_submissions(
     disqualification_options = set(form_config.get("disqualification_options", []))
 
     for submission in submissions:
-        answers = _build_answer_map(submission, questions)
+        answers = _build_answer_map(submission, questions, form_config)
         if disqualification_options & set(answers.values()):
             skipped_count += 1
             continue
