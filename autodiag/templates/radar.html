@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Radar global — Diagnostic Souveraineté</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #6DC86D;
+      --blue: #7AADD4;
+      --bg: #0f0f0f;
+      --bg2: #161616;
+      --text: #f0f0f0;
+      --muted: #999;
+      --line: #2a2a2a;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Georgia, 'Times New Roman', serif;
+      min-height: 100vh;
+      padding: 2.5rem 1.25rem 5rem;
+    }
+    .container { max-width: 920px; margin: 0 auto; }
+    .header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
+    .logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+    .brand { font-family: sans-serif; font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.05; margin-top: 0.3rem; }
+    .intro { color: #cfcfcf; line-height: 1.7; margin-bottom: 1.5rem; max-width: 720px; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr); gap: 1rem; align-items: start; }
+    .card { background: var(--bg2); border: 1px solid var(--line); border-radius: 18px; padding: 1.25rem; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25); }
+    .chart-wrap { min-height: 480px; }
+    .stat { display: flex; justify-content: space-between; gap: 1rem; padding: 0.8rem 0; border-bottom: 1px solid var(--line); font-family: sans-serif; }
+    .stat:last-child { border-bottom: 0; }
+    .stat strong { color: var(--green); }
+    h2 { font-family: sans-serif; font-size: 0.86rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); margin-bottom: 0.9rem; }
+    .list { display: grid; gap: 0.55rem; font-family: sans-serif; color: #ddd; }
+    .bar { display: grid; grid-template-columns: 1fr auto; gap: 0.8rem; align-items: center; }
+    .bar span:first-child { overflow-wrap: anywhere; }
+    .footer { color: var(--muted); font-family: sans-serif; font-size: 0.85rem; margin-top: 1.5rem; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .chart-wrap { min-height: 360px; } }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <img class="logo" src="/static/logo.png" alt="Yoga Pro" />
+      <div>
+        <div class="brand">Diagnostic Souveraineté</div>
+        <h1>Radar global des réponses</h1>
+      </div>
+    </header>
+
+    <p class="intro">
+      Synthèse des réponses complètes récupérées depuis Tally pour le formulaire
+      <strong>{{ aggregate.form_id }}</strong>. Les réponses disqualifiées sont exclues du radar.
+    </p>
+
+    <section class="grid">
+      <article class="card chart-wrap">
+        <canvas id="radarChart" aria-label="Radar moyen des scores" role="img"></canvas>
+      </article>
+
+      <aside class="card">
+        <h2>Volume</h2>
+        <div class="stat"><span>Réponses incluses</span><strong>{{ aggregate.submission_count }}</strong></div>
+        <div class="stat"><span>Réponses exclues</span><strong>{{ aggregate.skipped_count }}</strong></div>
+        <div class="stat"><span>Source</span><strong>Tally API</strong></div>
+      </aside>
+    </section>
+
+    <section class="grid" style="margin-top: 1rem;">
+      <article class="card">
+        <h2>Profils calculés</h2>
+        <div class="list">
+          {% for key, count in aggregate.profile_counts.items() %}
+            <div class="bar"><span>{{ profile_names.get(key, key) }}</span><strong>{{ count }}</strong></div>
+          {% else %}
+            <div>Aucune réponse incluse.</div>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Contraintes ressenties</h2>
+        <div class="list">
+          {% for key, count in aggregate.felt_constraint_counts.items() %}
+            <div class="bar"><span>{{ front_labels.get(key, key) }}</span><strong>{{ count }}</strong></div>
+          {% else %}
+            <div>Aucune contrainte reconnue.</div>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+
+    <p class="footer">Données rafraîchies à chaque chargement de la page. Variable requise : TALLY_API_KEY.</p>
+  </main>
+
+  <script>
+    const labels = {{ chart_labels | tojson }};
+    const values = {{ chart_values | tojson }};
+    const maxValue = {{ chart_max }};
+
+    new Chart(document.getElementById('radarChart'), {
+      type: 'radar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Score moyen',
+          data: values,
+          fill: true,
+          backgroundColor: 'rgba(109, 200, 109, 0.18)',
+          borderColor: '#6DC86D',
+          pointBackgroundColor: '#7AADD4',
+          pointBorderColor: '#f0f0f0',
+          pointHoverBackgroundColor: '#f0f0f0',
+          pointHoverBorderColor: '#7AADD4'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          r: {
+            min: 0,
+            max: maxValue,
+            ticks: { stepSize: 2, color: '#999', backdropColor: 'transparent' },
+            grid: { color: '#2a2a2a' },
+            angleLines: { color: '#2a2a2a' },
+            pointLabels: { color: '#f0f0f0', font: { size: 14 } }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: '#f0f0f0' } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw} / ${maxValue}` } }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

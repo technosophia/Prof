@@ -49,6 +49,7 @@ OWNER_EMAIL=you@yourdomain.com         # receives a notification on every submis
 DIAG_BASE_URL=https://diag.yoga-pro.xyz    # base URL for result page links sent in emails
 DIAG_SHARE_URL=https://tally.so/r/ODEX18  # Tally form URL — put in user email "share with a friend" link
 CTA_URL=https://yourdomain.com             # call-to-action button on the result page (omit to hide the button)
+TALLY_API_KEY=tlly_xxx                  # Tally REST API key used by /radar
 
 # Optional — default shown
 DATABASE_PATH=./data/autodiag.db
@@ -106,6 +107,19 @@ HTTP 200
 ```
 
 Calling without `--new-id` a second time returns `{"status": "duplicate"}` — useful to verify the deduplication guard works.
+
+
+## Aggregate radar page
+
+The special page `GET /radar` fetches every completed submission from the Tally REST API for the form configured in `config/form.json` (`form_id`, currently `ODEX18`) and renders a radar chart with the average normalized scores for the four fronts.
+
+Required environment variable:
+
+```bash
+TALLY_API_KEY=tlly_xxx
+```
+
+The page fails loudly with HTTP 500 when `TALLY_API_KEY` is missing and HTTP 502 when Tally rejects the API call. Disqualified answers are excluded from the radar and counted separately.
 
 ## Configure the Tally webhook
 
