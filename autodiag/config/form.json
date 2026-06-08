@@ -13,6 +13,14 @@
         "9f51573e-9f4a-40c0-9db1-fc33a05bfd8d": "entrepreneur_solo",
         "3e19c46b-4b02-4ceb-b27b-01e5d619e914": "dirigeant",
         "a48fe97b-89fe-49ad-b3f8-ed6f002b8d15": "transition"
+      },
+      "label": "Ta situation principale en ce moment :",
+      "answer_aliases": {
+        "Salarié(e) (CDI, CDD, fonctionnaire)": "164d016b-435f-48e6-b242-c838bd668a81",
+        "Indépendant(e) / freelance": "b58b6142-d238-4f3c-8bb2-b19db4cff92b",
+        "Entrepreneur solo / solopreneur": "9f51573e-9f4a-40c0-9db1-fc33a05bfd8d",
+        "Dirigeant(e) avec équipe": "3e19c46b-4b02-4ceb-b27b-01e5d619e914",
+        "En transition (je quitte un statut pour un autre)": "a48fe97b-89fe-49ad-b3f8-ed6f002b8d15"
       }
     },
     "felt_constraint": {
@@ -22,6 +30,13 @@
         "de27d52d-25a5-4b12-a261-be4a344216f0": "attention",
         "19fd7f72-bca3-4654-ae46-39db1945aec0": "liens",
         "d1ea8696-05ed-4126-bcf3-e166088e5b2d": "moyens"
+      },
+      "label": "Si tu devais nommer ta principale contrainte aujourd'hui, ce serait :",
+      "answer_aliases": {
+        "L'énergie — je tiens sur la volonté ; le rythme m'use plus qu'il ne me recharge": "1277f763-85df-4553-846f-e11d1208f197",
+        "La clarté mentale — je suis dispersé, je décide mal, je suis submergé": "de27d52d-25a5-4b12-a261-be4a344216f0",
+        "Les relations — je suis seul, mal entouré, ou dépendant de gens qui ne m'aident pas": "19fd7f72-bca3-4654-ae46-39db1945aec0",
+        "Les moyens — temps, argent, autonomie financière, indépendance concrète": "d1ea8696-05ed-4126-bcf3-e166088e5b2d"
       }
     }
   },
@@ -33,6 +48,12 @@
         "b48b430e-eb6c-45a0-a879-705492acece7": 4,
         "0330cf6a-24c7-4e73-a034-de63178dc8b1": 2,
         "777b0cb7-6ac5-422b-9b09-ddd77ffc53f0": 0
+      },
+      "label": "Tu te réveilles reposé plus de 4 matins sur 7 — sans alarme agressive, sans sortir du lit en mode survie.",
+      "answer_aliases": {
+        "Oui, la plupart des jours": "b48b430e-eb6c-45a0-a879-705492acece7",
+        "Parfois, c'est variable": "0330cf6a-24c7-4e73-a034-de63178dc8b1",
+        "Non, je suis fatigué en me levant": "777b0cb7-6ac5-422b-9b09-ddd77ffc53f0"
       }
     },
     {
@@ -42,6 +63,12 @@
         "d1b94b58-e31b-4490-bff6-e264fbe69516": 4,
         "f9b3fff0-58d4-4393-b340-f3d495851130": 2,
         "f8183e20-c21e-4794-ba2d-2e1e3d363617": 0
+      },
+      "label": "Tu as une pratique physique régulière depuis plus de 3 mois — pas une intention, pas \"je devrais\" : quelque chose que tu fais vraiment.",
+      "answer_aliases": {
+        "Oui, une vraie pratique régulière": "d1b94b58-e31b-4490-bff6-e264fbe69516",
+        "J'en ai une mais elle est irrégulière": "f9b3fff0-58d4-4393-b340-f3d495851130",
+        "Non": "f8183e20-c21e-4794-ba2d-2e1e3d363617"
       }
     },
     {
@@ -51,6 +78,12 @@
         "adabc891-fba2-48ef-817c-64235aec1bbf": 4,
         "a724cae8-3df0-4a18-be5b-9c71ecb31eab": 2,
         "2be3fb87-f326-4ce8-9e94-d129018bd9cd": 0
+      },
+      "label": "En fin de journée (17h-18h), tu es encore capable de prendre une décision difficile — sans reporter, sans déléguer, sans l'aplatir.",
+      "answer_aliases": {
+        "Oui, mon énergie tient dans la durée": "adabc891-fba2-48ef-817c-64235aec1bbf",
+        "Ça dépend beaucoup des jours": "a724cae8-3df0-4a18-be5b-9c71ecb31eab",
+        "Non, mes meilleures décisions, c'est le matin seulement": "2be3fb87-f326-4ce8-9e94-d129018bd9cd"
       }
     },
     {
@@ -60,6 +93,12 @@
         "7ba76089-a392-4636-b6a3-bb173d154933": 4,
         "2c6a9ddd-73b2-4688-b04b-1937a1f8a600": 2,
         "db104762-2b1d-469b-899a-41553f914104": 0
+      },
+      "label": "Tu peux rester 2 heures seul, sans téléphone, sans lecture, sans musique. Juste rester.",
+      "answer_aliases": {
+        "Oui, je l'ai fait — ça allait": "7ba76089-a392-4636-b6a3-bb173d154933",
+        "Je ne l'ai pas fait, mais je pense que oui": "2c6a9ddd-73b2-4688-b04b-1937a1f8a600",
+        "Non, ça me serait difficile": "db104762-2b1d-469b-899a-41553f914104"
       }
     },
     {
@@ -69,6 +108,12 @@
         "939a387d-4795-4957-b2c5-69de55401c65": 4,
         "2d30e845-8282-429e-a7ed-2255410fe762": 2,
         "f4945630-e1de-4de2-be88-a387a57b20d1": 0
+      },
+      "label": "Quand tout le monde dans un groupe est d'accord, tu exprimes ton désaccord si tu en as un.",
+      "answer_aliases": {
+        "Oui, assez facilement": "939a387d-4795-4957-b2c5-69de55401c65",
+        "Parfois, si l'enjeu est fort": "2d30e845-8282-429e-a7ed-2255410fe762",
+        "Rarement — j'attends ou je me tais": "f4945630-e1de-4de2-be88-a387a57b20d1"
       }
     },
     {
@@ -78,6 +123,12 @@
         "a4172d9d-2278-42aa-bbd4-58c21e100e08": 4,
         "7f13f3ae-ca8f-46d7-9058-f4d29a3d3def": 2,
         "5b5b4432-cce4-4898-a49a-107ce2c03b80": 0
+      },
+      "label": "Tu peux nommer tes 3 valeurs fondamentales — là, maintenant, sans chercher.",
+      "answer_aliases": {
+        "Oui, clairement": "a4172d9d-2278-42aa-bbd4-58c21e100e08",
+        "Je pourrais, mais il me faudrait quelques minutes": "7f13f3ae-ca8f-46d7-9058-f4d29a3d3def",
+        "Non, pas vraiment": "5b5b4432-cce4-4898-a49a-107ce2c03b80"
       }
     },
     {
@@ -87,6 +138,12 @@
         "7cdbd444-f9f9-4785-b954-3355e7d9f215": 4,
         "f0d482b0-aacd-4825-9c04-232ce7fb1f07": 2,
         "c08ff686-a2b5-4c4c-b13e-73b5f1eaac4e": 0
+      },
+      "label": "Tu as dit non à quelqu'un en position d'autorité sur toi — sur quelque chose qui comptait — sans t'excuser ni te justifier.",
+      "answer_aliases": {
+        "Oui, plusieurs fois": "7cdbd444-f9f9-4785-b954-3355e7d9f215",
+        "Une ou deux fois, difficilement": "f0d482b0-aacd-4825-9c04-232ce7fb1f07",
+        "Non, j'évite ce genre de situation": "c08ff686-a2b5-4c4c-b13e-73b5f1eaac4e"
       }
     },
     {
@@ -96,6 +153,12 @@
         "8de6f371-a700-4e64-91da-31fb72aed533": 4,
         "f0adf32d-a2a4-4bca-b75d-8a9514270e62": 2,
         "13f73cbb-f95d-44bf-acc0-afba5dd44760": 0
+      },
+      "label": "Tu as 1 à 3 personnes dans ta vie qui te diraient franchement que tu te trompes — et tu les écouterais vraiment.",
+      "answer_aliases": {
+        "Oui, et je sais exactement qui": "8de6f371-a700-4e64-91da-31fb72aed533",
+        "Peut-être, mais je n'en suis pas certain(e)": "f0adf32d-a2a4-4bca-b75d-8a9514270e62",
+        "Non — soit je n'ai pas ces gens, soit je ne les écouterais pas vraiment": "13f73cbb-f95d-44bf-acc0-afba5dd44760"
       }
     },
     {
@@ -105,6 +168,12 @@
         "28961fb5-aa81-49bb-9183-54b3bcb0d0bc": 4,
         "c1738444-2025-4e87-bc44-fc1fb2a6094c": 2,
         "94a82ee9-4656-49e0-8049-93b07c0ff470": 0
+      },
+      "label": "Si tu n'es plus utile ou disponible pour quelqu'un, est-ce que la relation tient quand même ?",
+      "answer_aliases": {
+        "Oui, les liens importants dans ma vie ne dépendent pas de mon utilité": "28961fb5-aa81-49bb-9183-54b3bcb0d0bc",
+        "Pour certains oui, pour d'autres j'en doute": "c1738444-2025-4e87-bc44-fc1fb2a6094c",
+        "Non — beaucoup de mes relations sont conditionnelles à ce que j'apporte": "94a82ee9-4656-49e0-8049-93b07c0ff470"
       }
     },
     {
@@ -114,6 +183,12 @@
         "9cc865aa-1b78-4e2e-bf86-03d3bbf8028d": 4,
         "a01073cd-9a2e-44cc-976f-f031e126e05d": 2,
         "d1ae1f50-fd74-44b2-8d4a-36d0c0504a88": 0
+      },
+      "label": "Si ton revenu principal disparaissait demain, tu as un plan concret pour rebondir — avec des chiffres, pas juste une idée.",
+      "answer_aliases": {
+        "Oui, un vrai plan": "9cc865aa-1b78-4e2e-bf86-03d3bbf8028d",
+        "Des idées générales": "a01073cd-9a2e-44cc-976f-f031e126e05d",
+        "Pas vraiment": "d1ae1f50-fd74-44b2-8d4a-36d0c0504a88"
       }
     },
     {
@@ -123,6 +198,12 @@
         "62a87470-bf90-4571-8b67-0f5e3cc4b221": 4,
         "2c4477d2-4d60-4731-aeb3-1520edccad18": 2,
         "3e4bcc52-ac85-4dc3-9a10-85601bd90304": 0
+      },
+      "label": "Cette semaine, tu peux libérer une demi-journée sans en demander la permission à qui que ce soit.",
+      "answer_aliases": {
+        "Oui, sans problème": "62a87470-bf90-4571-8b67-0f5e3cc4b221",
+        "Seulement en négociant avec quelqu'un": "2c4477d2-4d60-4731-aeb3-1520edccad18",
+        "Non": "3e4bcc52-ac85-4dc3-9a10-85601bd90304"
       }
     },
     {
@@ -132,6 +213,12 @@
         "13d861c8-6a5d-463d-9179-f2e90a2ad97d": 4,
         "d1b948f9-d6e8-4c84-bb05-0e49b554e9ac": 2,
         "5cf81a11-8f8a-41d9-b531-2f86f32aa169": 0
+      },
+      "label": "Tu as une réserve financière pour absorber une dépense imprévue de 1 000 € — sans stress et sans emprunt.",
+      "answer_aliases": {
+        "Oui": "13d861c8-6a5d-463d-9179-f2e90a2ad97d",
+        "À la limite": "d1b948f9-d6e8-4c84-bb05-0e49b554e9ac",
+        "Non": "5cf81a11-8f8a-41d9-b531-2f86f32aa169"
       }
     },
     {
@@ -141,6 +228,12 @@
         "1c8c86f3-7137-428e-b029-4403c22a0e3b": 4,
         "c60befce-9cda-45b2-846d-355fa027a148": 2,
         "54bdd95f-e5c1-4f47-8db0-931dd43eff31": 0
+      },
+      "label": "Tu as une source de revenu — même modeste — qui ne dépend pas entièrement de ta présence ou de ton temps de travail actif.",
+      "answer_aliases": {
+        "Oui, j'ai un actif, une récurrence, quelque chose qui tourne sans moi": "1c8c86f3-7137-428e-b029-4403c22a0e3b",
+        "Pas encore, mais j'y travaille concrètement": "c60befce-9cda-45b2-846d-355fa027a148",
+        "Non — si je ne travaille pas, je ne gagne rien": "54bdd95f-e5c1-4f47-8db0-931dd43eff31"
       }
     }
   ]

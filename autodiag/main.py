@@ -21,6 +21,8 @@ from fastapi.templating import Jinja2Templates
 from database import init_db
 from token_utils import decode_result_token
 from webhook_handler import handle_tally_webhook
+from tally_aggregate import aggregate_submissions, load_form_config, load_scoring_config
+from tally_api import TallyApiError, fetch_all_submissions_with_questions
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -70,6 +72,72 @@ async def tally_webhook(request: Request, tally_signature: str | None = Header(d
         return {"status": "ignored", "eventType": payload.get("eventType")}
 
     return handle_tally_webhook(payload)
+
+
+@app.get("/radar", response_class=HTMLResponse)
+def radar_page(request: Request):
+    api_key = os.environ.get("TALLY_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="TALLY_API_KEY is not configured")
+
+    form_config = load_form_config()
+    scoring_config = load_scoring_config()
+    form_id = form_config["form_id"]
+
+    try:
+        submissions, questions = fetch_all_submissions_with_questions(api_key=api_key, form_id=form_id)
+    except TallyApiError as exc:
+        logger.exception("Unable to fetch Tally submissions for form %s", form_id)
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    aggregate = aggregate_submissions(
+        submissions,
+        questions=questions,
+        form_config=form_config,
+        scoring_config=scoring_config,
+    )
+    profile_names = {
+        key: profile.get("name", key)
+        for key, profile in scoring_config["profiles"].items()
+    }
+    calculated_constraint_counts = {
+        aggregate.front_labels.get(front, front): count
+        for front, count in aggregate.calculated_constraint_counts.items()
+        if count
+    }
+    total = aggregate.submission_count or 1
+    front_discrepancy = {
+        aggregate.front_labels.get(front, front): round(
+            aggregate.calculated_constraint_counts.get(front, 0) / total
+            - aggregate.felt_constraint_counts.get(front, 0) / total,
+            3,
+        )
+        for front in aggregate.fronts
+    }
+
+    chart_labels = [aggregate.front_labels.get(front, front) for front in aggregate.fronts]
+    chart_values = [aggregate.average_scores[front] for front in aggregate.fronts]
+    chart_stds = [aggregate.std_scores.get(front, 0) for front in aggregate.fronts]
+    chart_mins = [aggregate.actual_min_scores.get(front, 0) for front in aggregate.fronts]
+    chart_maxes = [aggregate.actual_max_scores.get(front, 0) for front in aggregate.fronts]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="radar.html",
+        context={
+            "aggregate": aggregate,
+            "profile_names": profile_names,
+            "front_labels": aggregate.front_labels,
+            "calculated_constraint_counts": calculated_constraint_counts,
+            "front_discrepancy": front_discrepancy,
+            "chart_labels": chart_labels,
+            "chart_values": chart_values,
+            "chart_stds": chart_stds,
+            "chart_mins": chart_mins,
+            "chart_maxes": chart_maxes,
+            "chart_max": max(aggregate.max_scores.values()) if aggregate.max_scores else 12,
+        },
+    )
 
 
 @app.get("/r", response_class=HTMLResponse)

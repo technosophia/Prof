@@ -65,8 +65,8 @@ def _apply_rules(scores: dict, total: int, config: dict) -> str:
     return list(config["profiles"].keys())[0]
 
 
-def score_response(raw_scores: dict) -> ScoringResult:
-    config = _load_config()
+def score_response(raw_scores: dict, config: dict | None = None) -> ScoringResult:
+    config = config or _load_config()
     scores, total = _normalize(raw_scores, config)
     is_rationalisateur = _check_rationalisateur(scores, config)
     profile_key = _apply_rules(scores, total, config)

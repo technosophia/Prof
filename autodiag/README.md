@@ -49,6 +49,7 @@ OWNER_EMAIL=you@yourdomain.com         # receives a notification on every submis
 DIAG_BASE_URL=https://diag.yoga-pro.xyz    # base URL for result page links sent in emails
 DIAG_SHARE_URL=https://tally.so/r/ODEX18  # Tally form URL — put in user email "share with a friend" link
 CTA_URL=https://yourdomain.com             # call-to-action button on the result page (omit to hide the button)
+TALLY_API_KEY=tlly_xxx                  # Tally REST API key used by /radar
 
 # Optional — default shown
 DATABASE_PATH=./data/autodiag.db
@@ -107,6 +108,19 @@ HTTP 200
 
 Calling without `--new-id` a second time returns `{"status": "duplicate"}` — useful to verify the deduplication guard works.
 
+
+## Aggregate radar page
+
+The special page `GET /radar` fetches every completed submission from the Tally REST API for the form configured in `config/form.json` (`form_id`, currently `ODEX18`) and renders a radar chart with the average normalized scores for the four fronts.
+
+Required environment variable:
+
+```bash
+TALLY_API_KEY=tlly_xxx
+```
+
+The page fails loudly with HTTP 500 when `TALLY_API_KEY` is missing and HTTP 502 when Tally rejects the API call. Disqualified answers are excluded from the radar and counted separately.
+
 ## Configure the Tally webhook
 
 1. In your Tally form settings, go to **Integrations → Webhooks**.
@@ -140,6 +154,7 @@ Maps Tally question keys to scoring weights. The question keys are the short alp
 - `email_question_key` — key suffix of the email input field
 - `context_questions` — key suffixes and option UUIDs for the situation and felt-constraint questions
 - `scored_questions` — list of `{key, front, scores: {option_uuid: int}}`
+- `label` / `answer_aliases` — optional Tally API fallback aliases used by `/radar` when the submissions API returns question UUIDs or answer text instead of webhook-style question keys and option UUIDs
 - `disqualification_options` — option UUIDs that short-circuit scoring (no score, no email sent)
 
 ### `config/scoring.json`
