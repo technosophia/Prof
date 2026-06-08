@@ -101,23 +101,41 @@
   <script>
     const labels = {{ chart_labels | tojson }};
     const values = {{ chart_values | tojson }};
+    const stds = {{ chart_stds | tojson }};
     const maxValue = {{ chart_max }};
+
+    const upperBand = values.map((v, i) => Math.min(maxValue, v + stds[i]));
+    const lowerBand = values.map((v, i) => Math.max(0, v - stds[i]));
 
     new Chart(document.getElementById('radarChart'), {
       type: 'radar',
       data: {
         labels,
-        datasets: [{
-          label: 'Score moyen',
-          data: values,
-          fill: true,
-          backgroundColor: 'rgba(109, 200, 109, 0.18)',
-          borderColor: '#6DC86D',
-          pointBackgroundColor: '#7AADD4',
-          pointBorderColor: '#f0f0f0',
-          pointHoverBackgroundColor: '#f0f0f0',
-          pointHoverBorderColor: '#7AADD4'
-        }]
+        datasets: [
+          {
+            data: upperBand,
+            borderColor: 'transparent',
+            pointRadius: 0,
+            fill: false,
+          },
+          {
+            data: lowerBand,
+            backgroundColor: 'rgba(109, 200, 109, 0.2)',
+            borderColor: 'transparent',
+            pointRadius: 0,
+            fill: '-1',
+          },
+          {
+            label: 'Score moyen',
+            data: values,
+            fill: false,
+            borderColor: '#6DC86D',
+            pointBackgroundColor: '#7AADD4',
+            pointBorderColor: '#f0f0f0',
+            pointHoverBackgroundColor: '#f0f0f0',
+            pointHoverBorderColor: '#7AADD4'
+          }
+        ]
       },
       options: {
         responsive: true,
@@ -133,8 +151,17 @@
           }
         },
         plugins: {
-          legend: { labels: { color: '#f0f0f0' } },
-          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw} / ${maxValue}` } }
+          legend: {
+            labels: {
+              color: '#f0f0f0',
+              filter: (item) => item.text !== ''
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ctx.dataset.label ? `${ctx.dataset.label}: ${ctx.raw} / ${maxValue}` : ''
+            }
+          }
         }
       }
     });

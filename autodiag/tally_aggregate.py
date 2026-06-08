@@ -2,6 +2,7 @@
 
 import json
 import logging
+import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ class RadarAggregate:
     front_labels: dict[str, str]
     average_scores: dict[str, float]
     max_scores: dict[str, int]
+    std_scores: dict[str, float] = field(default_factory=dict)
     profile_counts: dict[str, int] = field(default_factory=dict)
     felt_constraint_counts: dict[str, int] = field(default_factory=dict)
     situation_counts: dict[str, int] = field(default_factory=dict)
@@ -262,6 +264,7 @@ def aggregate_submissions(
     scoring_config = scoring_config or load_scoring_config()
     fronts = list(scoring_config["fronts"])
     totals = {front: 0.0 for front in fronts}
+    all_scores: dict[str, list[float]] = {front: [] for front in fronts}
     max_scores = {
         front: round(
             sum(
@@ -290,7 +293,9 @@ def aggregate_submissions(
         result = score_response(raw_scores, scoring_config)
         submission_count += 1
         for front in fronts:
-            totals[front] += result.scores.get(front, 0)
+            score = result.scores.get(front, 0)
+            totals[front] += score
+            all_scores[front].append(score)
         profile_counts[result.profile_key] = profile_counts.get(result.profile_key, 0) + 1
 
         felt = _context_value(answers, form_config, "felt_constraint")
@@ -304,6 +309,12 @@ def aggregate_submissions(
         front: round(totals[front] / submission_count, 2) if submission_count else 0.0
         for front in fronts
     }
+    std_scores = {
+        front: round(statistics.stdev(all_scores[front]), 2)
+        if len(all_scores[front]) >= 2
+        else 0.0
+        for front in fronts
+    }
     return RadarAggregate(
         form_id=form_config["form_id"],
         submission_count=submission_count,
@@ -311,6 +322,7 @@ def aggregate_submissions(
         fronts=fronts,
         front_labels=_front_labels(scoring_config),
         average_scores=average_scores,
+        std_scores=std_scores,
         max_scores=max_scores,
         profile_counts=profile_counts,
         felt_constraint_counts=felt_counts,
