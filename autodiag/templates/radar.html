@@ -88,7 +88,11 @@
       <article class="card">
         <h2>Contraintes calculées</h2>
         <div class="list">
-          {% for label, count in calculated_constraint_counts.items() %}
+          {% if calculated_constraint_counts %}
+          {% for front in aggregate.fronts %}
+            {% set label = front_labels.get(front, front) %}
+            {% set count = calculated_constraint_counts.get(label, 0) %}
+            {% if count %}
             {% set disc = front_discrepancy.get(label, 0) %}
             {% set raw_a = (disc | abs) * 0.9 %}
             {% set alpha = raw_a if raw_a < 0.45 else 0.45 %}
@@ -99,17 +103,22 @@
             {% else %}
               <div class="bar"><span>{{ label }}</span><strong>{{ count }}</strong></div>
             {% endif %}
+            {% endif %}
+          {% endfor %}
           {% else %}
             <div>Aucune réponse incluse.</div>
-          {% endfor %}
+          {% endif %}
         </div>
       </article>
 
       <article class="card">
         <h2>Contraintes ressenties</h2>
         <div class="list">
-          {% for key, count in aggregate.felt_constraint_counts.items() %}
-            {% set label = front_labels.get(key, key) %}
+          {% if aggregate.felt_constraint_counts %}
+          {% for front in aggregate.fronts %}
+            {% set label = front_labels.get(front, front) %}
+            {% set count = aggregate.felt_constraint_counts.get(front, 0) %}
+            {% if count %}
             {% set disc = front_discrepancy.get(label, 0) %}
             {% set raw_a = (disc | abs) * 0.9 %}
             {% set alpha = raw_a if raw_a < 0.45 else 0.45 %}
@@ -120,9 +129,11 @@
             {% else %}
               <div class="bar"><span>{{ label }}</span><strong>{{ count }}</strong></div>
             {% endif %}
+            {% endif %}
+          {% endfor %}
           {% else %}
             <div>Aucune contrainte reconnue.</div>
-          {% endfor %}
+          {% endif %}
         </div>
       </article>
     </section>
