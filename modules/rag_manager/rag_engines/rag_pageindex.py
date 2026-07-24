@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from core.thread import run_async_safely
+
 from modules.rag_manager.rag_engine import RAGEngine
 from core.logging import log
 
@@ -38,8 +40,10 @@ class PageIndexRAGEngine(RAGEngine):
         )
         self.index_path = Path(cfg.get("index_path", "data/pageindex_indexes/default"))
         self.pageindex_root = Path(cfg.get("pageindex_root", "vendor/PageIndex"))
-        self.model = cfg.get("model", "gpt-4o-2024-11-20")
-        self.retrieve_model = cfg.get("retrieve_model", self.model)
+        self.llm_id = cfg.get("llm_id")
+        self.agent_max_steps = int(cfg.get("agent_max_steps", 5))
+        self.agent_response_format = cfg.get("agent_response_format", "json")
+        self.fallback_search_mode = cfg.get("fallback_search_mode", "structure_keyword")
         self.max_results = int(cfg.get("max_results", 5))
         self.content_preview_chars = int(cfg.get("content_preview_chars", 1800))
         self.include_structure_on_empty_query = bool(cfg.get("include_structure_on_empty_query", True))
@@ -65,8 +69,10 @@ class PageIndexRAGEngine(RAGEngine):
         return {
             "index_path": str(self.index_path),
             "pageindex_root": str(self.pageindex_root),
-            "model": self.model,
-            "retrieve_model": self.retrieve_model,
+            "llm_id": self.llm_id,
+            "agent_max_steps": self.agent_max_steps,
+            "agent_response_format": self.agent_response_format,
+            "fallback_search_mode": self.fallback_search_mode,
             "max_results": self.max_results,
             "content_preview_chars": self.content_preview_chars,
             "toc_check_pages": self.toc_check_pages,
@@ -80,8 +86,10 @@ class PageIndexRAGEngine(RAGEngine):
 
     def update_config(self, overrides: Dict[str, Any]) -> None:
         mutable = {
-            "model": str,
-            "retrieve_model": str,
+            "llm_id": str,
+            "agent_max_steps": int,
+            "agent_response_format": str,
+            "fallback_search_mode": str,
             "max_results": int,
             "content_preview_chars": int,
             "toc_check_pages": int,
@@ -159,9 +167,9 @@ class PageIndexRAGEngine(RAGEngine):
     def _client_for_workspace(self, workspace: Path):
         PageIndexClient = self._load_pageindex_client_class(raise_on_error=True)
         try:
-            return PageIndexClient(workspace=workspace, retrieve_model=self.retrieve_model)
-        except TypeError:
             return PageIndexClient(workspace=workspace)
+        except TypeError:
+            return PageIndexClient(str(workspace))
 
     # ------------------------------------------------------------------
     # RAGEngine operations
@@ -192,7 +200,7 @@ class PageIndexRAGEngine(RAGEngine):
 
         try:
             client = self._client_for_workspace(workspace)
-            doc_id = client.index(index_input)
+            doc_id = self._index_with_pageindex(client, index_input)
             metadata = {
                 "filename": filename,
                 "doc_id": str(doc_id),
@@ -201,7 +209,7 @@ class PageIndexRAGEngine(RAGEngine):
                 "indexed_path": str(index_input),
                 "indexed_at": datetime.now().isoformat(),
                 "file_size": source_path.stat().st_size,
-                "model": self.model,
+                "llm_id": self.llm_id,
             }
             self._registry.setdefault(user_id, {})[filename] = metadata
             self._save_registry()
@@ -210,6 +218,127 @@ class PageIndexRAGEngine(RAGEngine):
         except Exception as exc:
             log("error", f"PageIndex: failed to index {filename}: {exc}", stacktrace=True)
             return False
+
+
+    def _index_with_pageindex(self, client: Any, index_input: Path) -> Any:
+        """Build the PageIndex tree while disabling PageIndex LLM enrichment when supported."""
+        kwargs = {
+            "toc_check_pages": self.toc_check_pages,
+            "max_pages_per_node": self.max_pages_per_node,
+            "max_tokens_per_node": self.max_tokens_per_node,
+            "if_add_node_id": self.if_add_node_id,
+            "if_add_node_summary": self.if_add_node_summary,
+            "if_add_doc_description": self.if_add_doc_description,
+            "if_add_node_text": self.if_add_node_text,
+        }
+        try:
+            return client.index(index_input, **kwargs)
+        except TypeError:
+            return client.index(index_input)
+
+    def _get_llm_manager(self) -> Any:
+        from shared.common import get_llm_manager
+
+        manager = get_llm_manager()
+        if manager is None:
+            raise RuntimeError("PageIndex: Prof LLM manager is not available")
+        return manager
+
+    def _resolve_llm_id(self, manager: Any) -> str:
+        llm_id = self.llm_id or getattr(manager, "current_llm", None)
+        if not llm_id:
+            raise RuntimeError("PageIndex: no Prof LLM is currently configured")
+        return str(llm_id)
+
+    def _select_nodes_with_prof_llm(
+        self,
+        filename: str,
+        doc_id: str,
+        structure: Any,
+        query: str,
+    ) -> List[Dict[str, Any]]:
+        try:
+            manager = self._get_llm_manager()
+            llm_id = self._resolve_llm_id(manager)
+            prompt = self._selection_prompt(filename, doc_id, structure, query)
+            messages = [{"role": "user", "content": prompt}]
+            raw = run_async_safely(
+                manager.internal_response(
+                    llm_id,
+                    messages,
+                    response_format=self.agent_response_format,
+                )
+            )
+            parsed = self._parse_llm_json(raw)
+            results = parsed.get("results", [])
+            if not isinstance(results, list):
+                return []
+            normalized = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                item["source"] = "prof_llm"
+                item["llm_id"] = llm_id
+                item.setdefault("score", 0.5)
+                normalized.append(item)
+            return normalized
+        except Exception as exc:
+            log("warning", f"PageIndex: Prof LLM selection failed for {filename}: {exc}")
+            return []
+
+    def _selection_prompt(self, filename: str, doc_id: str, structure: Any, query: str) -> str:
+        structure_json = json.dumps(structure, ensure_ascii=False)[:12000]
+        return (
+            "You are selecting PageIndex document nodes for a RAG retriever.\n"
+            "Use only the provided document structure. Do not answer the user.\n"
+            "Return strict JSON with this shape: "
+            "{\"results\":[{\"node_id\":\"...\",\"title\":\"...\","
+            "\"page_range\":\"...\",\"reason\":\"...\",\"score\":0.0}]}.\n"
+            f"Document filename: {filename}\n"
+            f"Document id: {doc_id}\n"
+            f"User query: {query}\n"
+            f"Max results: {self.max_results}\n"
+            f"Document structure JSON:\n{structure_json}"
+        )
+
+    def _parse_llm_json(self, raw: str) -> Dict[str, Any]:
+        try:
+            return json.loads(raw)
+        except Exception:
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start >= 0 and end > start:
+                return json.loads(raw[start:end + 1])
+            raise
+
+    def _node_lookup(self, nodes: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        lookup = {}
+        for node in nodes:
+            node_id = node.get("node_id") or node.get("id")
+            if node_id is not None:
+                lookup[str(node_id)] = node
+        return lookup
+
+    def _keyword_select_nodes(self, nodes: List[Dict[str, Any]], query_terms: List[str]) -> List[Dict[str, Any]]:
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        for node in nodes:
+            node_text = " ".join(str(node.get(key, "")) for key in ("title", "summary", "text", "description"))
+            score = self._keyword_score(node_text, query_terms)
+            if score > 0 or (not query_terms and self.include_structure_on_empty_query):
+                scored.append((score, node))
+        if not scored and nodes:
+            scored = [(0.1, node) for node in nodes[: self.max_results]]
+        selections = []
+        for score, node in sorted(scored, key=lambda pair: pair[0], reverse=True):
+            selections.append({
+                "node_id": node.get("node_id") or node.get("id"),
+                "title": node.get("title"),
+                "page_range": self._node_pages(node),
+                "reason": "keyword fallback",
+                "score": score,
+                "source": "fallback",
+            })
+        return selections
 
     def delete_document(self, user_id: str, filename: str) -> bool:
         try:
@@ -259,32 +388,31 @@ class PageIndexRAGEngine(RAGEngine):
         nodes = list(self._flatten_nodes(structure))
         query_terms = [term for term in re.findall(r"\w+", query.lower()) if len(term) > 2]
 
-        scored: List[Tuple[float, Dict[str, Any]]] = []
-        for node in nodes:
-            node_text = " ".join(str(node.get(key, "")) for key in ("title", "summary", "text", "description"))
-            score = self._keyword_score(node_text, query_terms)
-            if score > 0 or (not query_terms and self.include_structure_on_empty_query):
-                scored.append((score, node))
-
-        if not scored and nodes:
-            scored = [(0.1, node) for node in nodes[: self.max_results]]
+        selections = self._select_nodes_with_prof_llm(filename, doc_id, structure, query)
+        if not selections and self.fallback_search_mode == "structure_keyword":
+            selections = self._keyword_select_nodes(nodes, query_terms)
 
         results = []
-        for score, node in sorted(scored, key=lambda pair: pair[0], reverse=True)[: self.max_results]:
-            pages = self._node_pages(node)
+        node_lookup = self._node_lookup(nodes)
+        for selection in selections[: self.max_results]:
+            node = node_lookup.get(str(selection.get("node_id", "")), {})
+            pages = str(selection.get("page_range") or selection.get("pages") or self._node_pages(node))
             page_content = self._get_page_content(client, doc_id, pages)
-            content = self._compose_content(node, page_content)
+            content = self._compose_content(node or selection, page_content)
             results.append(
                 {
                     "filename": filename,
-                    "score": float(score),
+                    "score": float(selection.get("score", 0.0)),
                     "content": content[: self.content_preview_chars],
                     "metadata": {
                         **doc,
-                        "node_id": node.get("node_id") or node.get("id"),
-                        "title": node.get("title"),
+                        "node_id": selection.get("node_id") or node.get("node_id") or node.get("id"),
+                        "title": selection.get("title") or node.get("title"),
                         "pages": pages,
+                        "reason": selection.get("reason", ""),
                         "engine": self.engine_id,
+                        "llm_id": selection.get("llm_id") or self.llm_id,
+                        "agent_steps": 1 if selection.get("source") == "prof_llm" else 0,
                     },
                     "threshold_used": 0.0,
                 }
@@ -321,8 +449,10 @@ class PageIndexRAGEngine(RAGEngine):
             "indexed_documents": len(docs),
             "index_path": str(self.index_path),
             "pageindex_root": str(self.pageindex_root),
-            "model": self.model,
-            "retrieve_model": self.retrieve_model,
+            "llm_id": self.llm_id,
+            "agent_max_steps": self.agent_max_steps,
+            "agent_response_format": self.agent_response_format,
+            "fallback_search_mode": self.fallback_search_mode,
         }
 
     # ------------------------------------------------------------------
