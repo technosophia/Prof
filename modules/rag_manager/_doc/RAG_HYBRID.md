@@ -512,3 +512,19 @@ After the last chapter, add a section:
 
 **Context length:** Process the document chapter by chapter if it exceeds ~6,000 tokens,
 passing the `>[!Résumé]` block of the previous chapter as transition context.
+
+## PageIndex optional engine
+
+`rag_pageindex.py` integrates VectifyAI PageIndex as an optional engine type named
+`pageindex`. PageIndex is expected under `vendor/PageIndex` as a git submodule and
+must be installed separately because it is an optional, self-hosted backend:
+
+```bash
+git submodule update --init --recursive
+python -m pip install -r vendor/PageIndex/requirements.txt
+```
+
+Enable it by setting the `pageindex` entry in `modules/rag_manager/config.json` to
+`"enabled": true`. The engine keeps its indexes under `data/pageindex_indexes` and
+is discovered through the normal RAG manager engine registry, so `rag_bench` can
+benchmark it without importing the engine directly.

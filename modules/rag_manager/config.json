@@ -394,6 +394,25 @@
         "contextual_model": null
       },
 
+      "pageindex": {
+        "type": "pageindex",
+        "enabled": false,
+        "description": "PageIndex vectorless reasoning-based RAG",
+        "index_path": "data/pageindex_indexes/default",
+        "pageindex_root": "vendor/PageIndex",
+        "model": "gpt-4o-2024-11-20",
+        "retrieve_model": "gpt-4o-2024-11-20",
+        "toc_check_pages": 20,
+        "max_pages_per_node": 10,
+        "max_tokens_per_node": 20000,
+        "if_add_node_id": true,
+        "if_add_node_summary": true,
+        "if_add_doc_description": true,
+        "if_add_node_text": false,
+        "max_results": 5,
+        "content_preview_chars": 1800
+      },
+
       "rrf_blend_sheet": {
         "_comment": "RRF fusion of hybrid_bm25_blend (strong on precise/factual queries L2-L4/L7) and structured_sheet (strong on semantic/paraphrase queries L5/L6/L9). Complementary strengths validated by benchmark.",
         "type": "rrf",
