@@ -1,47 +1,7 @@
 import json
-import sys
-import types
 from pathlib import Path
 
 from modules.rag_manager.rag_engines.rag_pageindex import PageIndexRAGEngine
-
-
-class FakePageIndexClient:
-    init_kwargs = []
-    index_kwargs = []
-
-    def __init__(self, workspace):
-        FakePageIndexClient.init_kwargs.append({"workspace": workspace})
-        self.workspace = Path(workspace)
-        self.workspace.mkdir(parents=True, exist_ok=True)
-
-    def index(self, path, **kwargs):
-        self.indexed_path = Path(path)
-        FakePageIndexClient.index_kwargs.append(kwargs)
-        return "doc-1"
-
-    def get_document_structure(self, doc_id):
-        return [
-            {
-                "title": "Root",
-                "summary": "General training content",
-                "node_id": "0001",
-                "start_index": 1,
-                "end_index": 2,
-                "nodes": [
-                    {
-                        "title": "Breathing practice",
-                        "summary": "Slow breathing calms the nervous system",
-                        "node_id": "0002",
-                        "start_index": 2,
-                        "end_index": 3,
-                    }
-                ],
-            }
-        ]
-
-    def get_page_content(self, doc_id, pages):
-        return f"Page content for {pages}: slow breathing details"
 
 
 class FakeLLMManager:
@@ -53,9 +13,9 @@ class FakeLLMManager:
             {
                 "results": [
                     {
-                        "node_id": "0002",
+                        "node_id": "0001",
                         "title": "Breathing practice",
-                        "page_range": "2-3",
+                        "page_range": "1",
                         "reason": "The node is about calming breathwork.",
                         "score": 0.91,
                     }
@@ -72,14 +32,6 @@ class FakeLLMManager:
             }
         )
         return self.response
-
-
-def install_fake_pageindex(monkeypatch):
-    FakePageIndexClient.init_kwargs.clear()
-    FakePageIndexClient.index_kwargs.clear()
-    fake = types.ModuleType("pageindex")
-    fake.PageIndexClient = FakePageIndexClient
-    monkeypatch.setitem(sys.modules, "pageindex", fake)
 
 
 def make_engine(tmp_path, **overrides):
@@ -114,36 +66,40 @@ def test_pageindex_engine_contract(tmp_path):
     assert engine.get_config()["llm_id"] == "configured-prof-llm"
 
 
-def test_pageindex_engine_unavailable_without_dependency(tmp_path, monkeypatch):
-    monkeypatch.delitem(sys.modules, "pageindex", raising=False)
+def test_pageindex_engine_available_without_litellm_or_pageindex_dependency(tmp_path, monkeypatch):
+    def fail_import(name, *args, **kwargs):
+        if name in {"litellm", "pageindex"}:
+            raise AssertionError(f"Unexpected import: {name}")
+        return original_import(name, *args, **kwargs)
+
+    original_import = __import__
+    monkeypatch.setattr("builtins.__import__", fail_import)
     engine = make_engine(tmp_path)
-    assert engine.is_available() is False
+    assert engine.is_available() is True
 
 
-def test_pageindex_index_search_and_delete_uses_prof_llm(tmp_path, monkeypatch):
-    install_fake_pageindex(monkeypatch)
+def test_pageindex_index_search_and_delete_uses_prof_llm_only(tmp_path, monkeypatch):
     source = tmp_path / "lesson.md"
-    source.write_text("# Breathing\nSlow breathing calms students.", encoding="utf-8")
+    source.write_text("# Breathing practice\nSlow breathing calms students.", encoding="utf-8")
     engine = make_engine(tmp_path)
     fake_llm = FakeLLMManager()
     monkeypatch.setattr(engine, "_get_llm_manager", lambda: fake_llm)
 
-    assert engine.is_available() is True
     assert engine.index_document("user-1", "lesson.md", str(source)) is True
-    assert FakePageIndexClient.init_kwargs == [{"workspace": engine._document_workspace("user-1", "lesson.md")}]
-    assert FakePageIndexClient.index_kwargs[0]["if_add_node_summary"] is False
-    assert FakePageIndexClient.index_kwargs[0]["if_add_doc_description"] is False
+    workspace = engine._document_workspace("user-1", "lesson.md")
+    assert (workspace / "structure.json").exists()
+    assert (workspace / "pages.json").exists()
 
     indexed = engine.get_indexed_documents("user-1")
     assert len(indexed) == 1
-    assert indexed[0]["doc_id"] == "doc-1"
+    assert indexed[0]["doc_id"] == "lesson.md"
 
     results = engine.search("user-1", "How does breathing calm students?", limit=2)
     assert len(results) == 1
     assert results[0]["filename"] == "lesson.md"
     assert results[0]["score"] == 0.91
     assert "breathing" in results[0]["content"].lower()
-    assert results[0]["metadata"]["node_id"] == "0002"
+    assert results[0]["metadata"]["node_id"] == "0001"
     assert results[0]["metadata"]["llm_id"] == "configured-prof-llm"
     assert fake_llm.calls[0]["llm_id"] == "configured-prof-llm"
     assert fake_llm.calls[0]["response_format"] == "json"
@@ -152,20 +108,38 @@ def test_pageindex_index_search_and_delete_uses_prof_llm(tmp_path, monkeypatch):
     assert engine.get_indexed_documents("user-1") == []
 
 
-def test_pageindex_txt_content_is_converted_to_markdown(tmp_path, monkeypatch):
-    install_fake_pageindex(monkeypatch)
+def test_pageindex_never_imports_litellm_during_index_or_search(tmp_path, monkeypatch):
+    source = tmp_path / "lesson.md"
+    source.write_text("# Breathing practice\nSlow breathing calms students.", encoding="utf-8")
+    engine = make_engine(tmp_path)
+    fake_llm = FakeLLMManager()
+    monkeypatch.setattr(engine, "_get_llm_manager", lambda: fake_llm)
+
+    original_import = __import__
+
+    def fail_litellm_import(name, *args, **kwargs):
+        if name == "litellm" or name.startswith("litellm."):
+            raise AssertionError("LiteLLM must not be imported by PageIndexRAGEngine")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", fail_litellm_import)
+    assert engine.index_document("user-1", "lesson.md", str(source)) is True
+    results = engine.search("user-1", "breathing", limit=1)
+    assert results[0]["metadata"]["llm_id"] == "configured-prof-llm"
+
+
+def test_pageindex_txt_content_is_indexed_locally(tmp_path):
     source = tmp_path / "notes.txt"
     source.write_text("plain notes", encoding="utf-8")
     engine = make_engine(tmp_path)
 
     assert engine.index_document("user-1", "notes.txt", str(source), content="plain notes") is True
-    indexed_path = Path(engine.get_indexed_documents("user-1")[0]["indexed_path"])
-    assert indexed_path.suffix == ".md"
-    assert indexed_path.read_text(encoding="utf-8") == "plain notes"
+    workspace = engine._document_workspace("user-1", "notes.txt")
+    pages = json.loads((workspace / "pages.json").read_text(encoding="utf-8"))
+    assert pages["1"] == "plain notes"
 
 
 def test_pageindex_search_falls_back_when_prof_llm_json_is_invalid(tmp_path, monkeypatch):
-    install_fake_pageindex(monkeypatch)
     source = tmp_path / "lesson.md"
     source.write_text("# Breathing\nSlow breathing calms students.", encoding="utf-8")
     engine = make_engine(tmp_path, fallback_search_mode="structure_keyword")
@@ -180,8 +154,7 @@ def test_pageindex_search_falls_back_when_prof_llm_json_is_invalid(tmp_path, mon
     assert fake_llm.calls
 
 
-def test_pageindex_clear_user_index(tmp_path, monkeypatch):
-    install_fake_pageindex(monkeypatch)
+def test_pageindex_clear_user_index(tmp_path):
     source = tmp_path / "lesson.md"
     source.write_text("# Lesson", encoding="utf-8")
     engine = make_engine(tmp_path)

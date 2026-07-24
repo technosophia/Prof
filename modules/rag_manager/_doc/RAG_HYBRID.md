@@ -515,17 +515,17 @@ passing the `>[!Résumé]` block of the previous chapter as transition context.
 
 ## PageIndex optional engine
 
-`rag_pageindex.py` integrates VectifyAI PageIndex as an enabled engine type named
-`pageindex`. It uses PageIndex for document structure/page access, but retrieval
-decisions are made with Prof's configured LLM through `LLMManager.internal_response`,
-not PageIndex's own LLM stack. PageIndex is expected under `vendor/PageIndex` as a
-git submodule and must be installed separately because it is an optional,
-self-hosted backend:
+`rag_pageindex.py` provides an enabled engine type named `pageindex`. It keeps
+the PageIndex retrieval idea — a document structure plus page/content access —
+but intentionally indexes documents locally in Prof instead of calling
+PageIndex's LiteLLM-backed indexing code. Retrieval decisions are made with
+Prof's configured LLM through `LLMManager.internal_response`, not PageIndex's
+own LLM stack, and the engine must never import or call `litellm`.
 
-```bash
-git submodule update --init --recursive
-python -m pip install -r vendor/PageIndex/requirements.txt
-```
+The `vendor/PageIndex` submodule can still be kept for reference/comparison with
+the upstream project, but this engine does not require it at runtime for Markdown
+or text files. PDF indexing requires a local PDF text extraction library such as
+`pypdf` or `PyPDF2` because no external LLM service is used during indexing.
 
 The `pageindex` entry in `modules/rag_manager/config.json` is enabled by default,
 but it does not replace `default_engine`. The engine keeps its indexes under
